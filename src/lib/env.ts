@@ -1,4 +1,5 @@
 const envAliases: Record<string, string[]> = {
+  CRON_SECRET: ["CRON_SECRET"],
   META_APP_SECRET: ["Meta_app_secret", "META_APP_SECRET"],
   META_GRAPH_API_VERSION: ["Meta_graph_api_version", "META_GRAPH_API_VERSION"],
   META_WEBHOOK_VERIFY_TOKEN: ["META_WEBHOOK_VERIFY_TOKEN", "Meta_webhook_verify_token"],
