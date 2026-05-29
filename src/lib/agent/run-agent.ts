@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { executeTool, toolDefinitions } from "@/lib/agent/tools";
 import { optionalEnv, requireEnv } from "@/lib/env";
 import type { AppUser } from "@/lib/permissions";
+import { retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
 
 let openai: OpenAI | null = null;
 
@@ -50,8 +51,19 @@ export async function runAgent(input: AgentInput) {
   const client = getOpenAIClient();
   const model = optionalEnv("OPENAI_MODEL") || "gpt-4.1-mini";
 
+  // Retrieve relevant site context for the user's query
+  let systemContent = SYSTEM_PROMPT;
+  try {
+    const siteContext = await retrieveSiteContext(input.message);
+    if (siteContext) {
+      systemContent = `${SYSTEM_PROMPT}\n\n## Current Site Information\nThe following is retrieved from the official Chicago Relay Center site (scraped daily):\n\n${siteContext}`;
+    }
+  } catch (err) {
+    console.error("Failed to retrieve site context, continuing without it:", err);
+  }
+
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: systemContent },
     {
       role: "user",
       content: `Sender phone: ${input.phoneE164}
