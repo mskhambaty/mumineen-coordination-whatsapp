@@ -1,0 +1,73 @@
+import { NextRequest, NextResponse } from "next/server";
+
+import { requireAdminKey } from "@/lib/api/auth";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  if (!requireAdminKey(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+  const supabase = getSupabaseAdmin();
+
+  const { data, error } = await supabase
+    .from("department_members")
+    .select("id, department_id, dept_role, is_active, departments(name)")
+    .eq("user_id", id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  const memberships = (data ?? []).map((m) => ({
+    id: m.id,
+    department_id: m.department_id,
+    dept_role: m.dept_role,
+    is_active: m.is_active,
+    department_name: (m.departments as unknown as { name: string } | null)?.name ?? "",
+  }));
+
+  return NextResponse.json(memberships);
+}
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  if (!requireAdminKey(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+  const body = await req.json();
+  const { department_id, dept_role } = body;
+
+  if (!department_id || !dept_role) {
+    return NextResponse.json({ error: "department_id and dept_role are required" }, { status: 400 });
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("department_members")
+    .insert({
+      user_id: id,
+      department_id,
+      dept_role,
+      is_active: true,
+    })
+    .select("id, department_id, dept_role, is_active")
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      return NextResponse.json({ error: "User already in this department" }, { status: 409 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json(data, { status: 201 });
+}
