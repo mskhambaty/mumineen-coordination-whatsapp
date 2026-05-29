@@ -1,24 +1,40 @@
 import OpenAI from "openai";
 
 import { executeTool, toolDefinitions } from "@/lib/agent/tools";
+import { resolveCallerFromPhone, type CallerContext } from "@/lib/api/auth";
 import { optionalEnv, requireEnv } from "@/lib/env";
 import type { AppUser } from "@/lib/permissions";
 import { retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
 
 let openai: OpenAI | null = null;
 
-export const SYSTEM_PROMPT = `You are the official WhatsApp assistant for Anjuman e Saifee Chicago during Ashara Mubarak 1447H.
+export const SYSTEM_PROMPT = `You are the official WhatsApp assistant for Anjuman e Saifee Chicago during Ashara Mubarak 1448H.
 
 Your job is to help mumineen, guests, volunteers, and committee members with event-related questions. Help with schedules, parking, directions, registration guidance, facilities, lost and found, volunteer coordination, and general event logistics.
+
+You also help committee members manage project tasks across departments.
 
 Use a respectful, concise, and helpful tone.
 
 Do not make up operational details. If exact information is unavailable, say that the information is not available yet and offer to connect the user to the appropriate committee contact or suggest checking official announcements.
 
-User roles:
+## User Roles
+
+### WhatsApp Tool Layer (existing):
 - visitor: can access public information only.
 - committee: can access committee tools if the backend permits it.
 - admin: can access administrative tools if the backend permits it.
+
+### Task Management Layer (global_role):
+- member: can view their department tasks and get summaries.
+- pm (Project Manager): can create and update tasks in their departments.
+- hod (Head of Department): same as pm — can create and update tasks in their departments.
+- leadership_admin: full access to all departments, all tasks, all summaries. Leadership and Admin are the SAME role — both have full read/write access.
+
+## Task Management Guidelines:
+- When a user refers to a task by description rather than ID, use get_my_tasks first to find the task, then use update_task_status with the correct task_id.
+- Always confirm task updates with the user by showing the updated task details.
+- For creating tasks, always require at least a title and department name.
 
 Never reveal private committee information unless a backend tool result provides it and the user is authorized.
 
@@ -31,6 +47,7 @@ type AgentInput = {
   user: AppUser;
   phoneE164: string;
   message: string;
+  callerContext?: CallerContext;
 };
 
 export function getOpenAIClient() {
@@ -48,6 +65,17 @@ export async function runAgent(input: AgentInput) {
     return "I received your message, but I cannot read that message type yet. Please send a text message and I will help.";
   }
 
+  // Resolve caller context if not already provided
+  let callerContext = input.callerContext;
+  if (!callerContext) {
+    try {
+      callerContext = await resolveCallerFromPhone(input.phoneE164);
+    } catch {
+      // If permissions can't be resolved, continue with basic access
+      callerContext = undefined;
+    }
+  }
+
   const client = getOpenAIClient();
   const model = optionalEnv("OPENAI_MODEL") || "gpt-4.1-mini";
 
@@ -62,12 +90,19 @@ export async function runAgent(input: AgentInput) {
     console.error("Failed to retrieve site context, continuing without it:", err);
   }
 
+  // Add caller context to the system prompt
+  if (callerContext) {
+    const deptNames = callerContext.departments.map((d) => `${d.department_name} (${d.dept_role})`).join(", ");
+    systemContent += `\n\n## Caller Context\nGlobal role: ${callerContext.global_role}\nDepartments: ${deptNames || "none"}\nCan read all: ${callerContext.can_read_all}\nCan write all: ${callerContext.can_write_all}`;
+  }
+
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemContent },
     {
       role: "user",
       content: `Sender phone: ${input.phoneE164}
 Backend role: ${input.user.role}
+Global role: ${callerContext?.global_role ?? "unknown"}
 Message: ${input.message}`,
     },
   ];
@@ -96,6 +131,7 @@ Message: ${input.message}`,
     const toolResult = await executeTool(toolCall.function.name, args, {
       user: input.user,
       phoneE164: input.phoneE164,
+      callerContext,
     });
 
     messages.push({
