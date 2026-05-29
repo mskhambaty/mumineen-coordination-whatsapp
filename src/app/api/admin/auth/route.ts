@@ -1,0 +1,55 @@
+import { NextRequest, NextResponse } from "next/server";
+
+import { getSupabaseAdmin } from "@/lib/supabase/server";
+
+export async function POST(req: NextRequest) {
+  try {
+    const { email, password } = await req.json();
+
+    if (!email || !password) {
+      return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
+    }
+
+    // Simple password check - in production this would use proper hashing
+    const validPassword = "786110";
+    if (password !== validPassword) {
+      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    }
+
+    const supabase = getSupabaseAdmin();
+
+    // Check if user exists and has admin/leadership_admin role
+    const { data: user, error } = await supabase
+      .from("whatsapp_users")
+      .select("id, display_name, email, global_role, role")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (error) {
+      return NextResponse.json({ error: "Database error" }, { status: 500 });
+    }
+
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 401 });
+    }
+
+    if (user.role !== "admin" && user.global_role !== "leadership_admin") {
+      return NextResponse.json({ error: "Access denied. Admin role required." }, { status: 403 });
+    }
+
+    // Return a simple session token (user ID based for simplicity)
+    const token = Buffer.from(`${user.id}:${user.email}:${Date.now()}`).toString("base64");
+
+    return NextResponse.json({
+      token,
+      user: {
+        id: user.id,
+        display_name: user.display_name,
+        email: user.email,
+        global_role: user.global_role,
+      },
+    });
+  } catch {
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
+}

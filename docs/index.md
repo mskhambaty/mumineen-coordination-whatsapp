@@ -20,6 +20,9 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 | [site-scraper.md](./site-scraper.md) | Daily site scrape, embedding pipeline, RAG retrieval |
 | [environment.md](./environment.md) | All environment variables, aliases, Vercel setup |
 | [contributing.md](./contributing.md) | Rules for adding features, updating docs, new files |
+| [task-management.md](./task-management.md) | Task management system: roles, API routes, agent tools |
+| [transcript-parser.md](./transcript-parser.md) | AI-powered WhatsApp transcript parsing service |
+| [admin-dashboard.md](./admin-dashboard.md) | Admin web dashboard: pages, auth, features |
 
 ## Key File Locations
 
