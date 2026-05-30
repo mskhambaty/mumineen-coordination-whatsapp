@@ -62,3 +62,66 @@ export async function PUT(
 
   return NextResponse.json(data);
 }
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  if (!requireAdminKey(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+  const supabase = getSupabaseAdmin();
+
+  const { data: target, error: lookupError } = await supabase
+    .from("whatsapp_users")
+    .select("id, role, global_role")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (lookupError) {
+    return NextResponse.json({ error: lookupError.message }, { status: 500 });
+  }
+
+  if (!target) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  }
+
+  const isPortalAdmin = target.role === "admin" || target.global_role === "leadership_admin";
+  if (isPortalAdmin) {
+    const { count, error: countError } = await supabase
+      .from("whatsapp_users")
+      .select("id", { count: "exact", head: true })
+      .neq("id", id)
+      .or("role.eq.admin,global_role.eq.leadership_admin");
+
+    if (countError) {
+      return NextResponse.json({ error: countError.message }, { status: 500 });
+    }
+
+    if ((count ?? 0) === 0) {
+      return NextResponse.json(
+        { error: "Cannot delete the last admin or leadership user" },
+        { status: 400 },
+      );
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("whatsapp_users")
+    .delete()
+    .eq("id", id)
+    .select("id, display_name, phone_e164, email")
+    .maybeSingle();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (!data) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ deleted: true, user: data });
+}

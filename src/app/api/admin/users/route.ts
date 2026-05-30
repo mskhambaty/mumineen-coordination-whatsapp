@@ -9,10 +9,36 @@ export async function GET(req: NextRequest) {
   }
 
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
+  const departmentId = req.nextUrl.searchParams.get("department_id");
+
+  let userIds: string[] | null = null;
+  if (departmentId && departmentId !== "all") {
+    const { data: memberships, error: membershipError } = await supabase
+      .from("department_members")
+      .select("user_id")
+      .eq("department_id", departmentId)
+      .eq("is_active", true);
+
+    if (membershipError) {
+      return NextResponse.json({ error: membershipError.message }, { status: 500 });
+    }
+
+    userIds = (memberships ?? []).map((membership) => membership.user_id as string);
+    if (userIds.length === 0) {
+      return NextResponse.json([]);
+    }
+  }
+
+  let query = supabase
     .from("whatsapp_users")
     .select("id, display_name, phone_e164, email, role, global_role, status")
     .order("display_name");
+
+  if (userIds) {
+    query = query.in("id", userIds);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
