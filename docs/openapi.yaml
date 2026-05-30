@@ -1,0 +1,814 @@
+openapi: 3.1.0
+info:
+  title: Anjuman e Saifee Coordination API
+  version: 1.0.0
+  description: API-first contract for the WhatsApp coordination portal, agent tools, admin dashboard, transcript parser, and task workflows.
+servers:
+  - url: /api
+security:
+  - whatsappPhone: []
+  - adminKey: []
+tags:
+  - name: auth
+  - name: conversations
+  - name: departments
+  - name: tasks
+  - name: transcripts
+  - name: users
+  - name: cron
+  - name: email
+paths:
+  /admin/auth:
+    post:
+      tags: [auth]
+      summary: Log in to the admin portal.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200": { description: Login token and user profile. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /auth/forgot-password:
+    post:
+      tags: [auth, email]
+      summary: Request a password reset email.
+      description: Always returns a generic 200 response so user existence is not leaked.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "200":
+          description: Generic reset response.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: { type: boolean }
+  /admin/users:
+    get:
+      tags: [users]
+      summary: List portal users.
+      security: [{ adminKey: [] }]
+      responses:
+        "200":
+          description: Users.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [users]
+      summary: Create a portal user.
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateUserRequest" }
+      responses:
+        "201": { description: Created user. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/users/{id}:
+    get:
+      tags: [users]
+      summary: Get one user.
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { description: User detail. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    put:
+      tags: [users]
+      summary: Update one user.
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateUserRequest" }
+      responses:
+        "200": { description: Updated user. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/users/{id}/departments:
+    get:
+      tags: [users, departments]
+      summary: List a user's department memberships.
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { description: Department memberships. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [users, departments]
+      summary: Add a department membership.
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DepartmentMembershipRequest" }
+      responses:
+        "201": { description: Created membership. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/users/{id}/departments/{membershipId}:
+    put:
+      tags: [users, departments]
+      summary: Update or deactivate a department membership.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - name: membershipId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Updated membership. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /users/me:
+    get:
+      tags: [users]
+      summary: Resolve the current WhatsApp caller context.
+      security: [{ whatsappPhone: [] }]
+      responses:
+        "200":
+          description: Caller context.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CallerContext" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /users/resolve:
+    get:
+      tags: [users]
+      summary: Resolve a transcript alias to a user.
+      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      parameters:
+        - name: alias
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Matching user, if any. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /users/bulk-create:
+    post:
+      tags: [users, departments]
+      summary: Bulk-create users detected from a transcript.
+      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BulkCreateUsersRequest" }
+      responses:
+        "201": { description: Created or updated users and memberships. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /departments:
+    get:
+      tags: [departments]
+      summary: List departments visible to the caller.
+      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      responses:
+        "200":
+          description: Departments.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Department" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /departments/{id}/tasks:
+    get:
+      tags: [departments, tasks]
+      summary: List tasks in one department.
+      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { $ref: "#/components/parameters/StatusFilter" }
+        - { $ref: "#/components/parameters/PriorityFilter" }
+      responses:
+        "200": { description: Tasks. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /departments/{id}/summary:
+    get:
+      tags: [departments, tasks]
+      summary: Get task counts for one department.
+      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { description: Department summary. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /departments/{id}/prompt-config:
+    get:
+      tags: [departments, transcripts]
+      summary: Get transcript parser prompt configuration for a department.
+      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          description: Prompt configuration.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DepartmentPromptConfig" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    put:
+      tags: [departments, transcripts]
+      summary: Save transcript parser prompt configuration for a department.
+      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [flexible_prompt]
+              properties:
+                flexible_prompt: { type: string, maxLength: 4000 }
+      responses:
+        "200": { description: Saved prompt configuration. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /departments/summary/all:
+    get:
+      tags: [departments, tasks]
+      summary: Get all department summaries and top blockers.
+      security: [{ adminKey: [] }, { whatsappPhone: [] }]
+      parameters:
+        - name: filter
+          in: query
+          schema: { type: string, enum: [all, blocked, overdue, on_track], default: all }
+      responses:
+        "200":
+          description: Department summaries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DepartmentSummary" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /tasks:
+    get:
+      tags: [tasks]
+      summary: List tasks scoped to the caller.
+      description: Members see assigned tasks only. PM/HOD users see tasks in their active departments. Leadership/admin sees all tasks.
+      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/StatusFilter" }
+        - { $ref: "#/components/parameters/PriorityFilter" }
+        - name: department_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: assignee_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: include_archived
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Tasks.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Task" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [tasks]
+      summary: Create a task.
+      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTaskRequest" }
+      responses:
+        "201": { description: Created task. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /tasks/kanban:
+    get:
+      tags: [tasks]
+      summary: List tasks grouped for the kanban board.
+      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/PriorityFilter" }
+        - name: department_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: assignee_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: include_complete
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Board grouped by status.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KanbanBoard" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /tasks/{id}:
+    get:
+      tags: [tasks]
+      summary: Get one task.
+      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { description: Task detail. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [tasks]
+      summary: Update one task.
+      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateTaskRequest" }
+      responses:
+        "200": { description: Updated task. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /transcripts/upload:
+    post:
+      tags: [transcripts]
+      summary: Upload and parse a WhatsApp transcript.
+      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, department_id]
+              properties:
+                file: { type: string, format: binary }
+                department_id: { type: string, format: uuid }
+      responses:
+        "201": { description: Parsed transcript upload. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /transcripts/{id}/events:
+    get:
+      tags: [transcripts]
+      summary: List parsed events for an upload.
+      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { description: Conversation events. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /transcripts/{id}/apply:
+    post:
+      tags: [transcripts, tasks]
+      summary: Apply selected parsed events as tasks.
+      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event_ids:
+                  type: array
+                  items: { type: string, format: uuid }
+                selected_events:
+                  type: array
+                  items: { $ref: "#/components/schemas/ApplyTranscriptEvent" }
+      responses:
+        "200": { description: Apply results. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /cron/scrape:
+    get:
+      tags: [cron]
+      summary: Run site scrape cron.
+      security: [{ cronSecret: [] }]
+      responses:
+        "200": { description: Scrape result. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [cron]
+      summary: Run site scrape cron.
+      security: [{ cronSecret: [] }]
+      responses:
+        "200": { description: Scrape result. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /cron/daily-digest:
+    get:
+      tags: [cron, email, tasks]
+      summary: Send daily prioritized task digest emails.
+      description: Sends scoped open task summaries to users with active email digest preferences.
+      security: [{ cronSecret: [] }]
+      responses:
+        "200":
+          description: Digest result.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DailyDigestResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [cron, email, tasks]
+      summary: Send daily prioritized task digest emails.
+      security: [{ cronSecret: [] }]
+      responses:
+        "200":
+          description: Digest result.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DailyDigestResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /whatsapp/webhook:
+    get:
+      tags: [conversations]
+      summary: Verify Meta WhatsApp webhook subscription.
+      security: []
+      responses:
+        "200": { description: Challenge response. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [conversations]
+      summary: Receive inbound WhatsApp webhook messages.
+      security: []
+      responses:
+        "200": { description: Webhook processed. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+components:
+  securitySchemes:
+    whatsappPhone:
+      type: apiKey
+      in: header
+      name: x-whatsapp-from
+      description: E.164 phone number used by the WhatsApp agent and scoped user APIs.
+    adminKey:
+      type: apiKey
+      in: header
+      name: x-admin-key
+      description: Admin dashboard API key.
+    cronSecret:
+      type: http
+      scheme: bearer
+      description: Cron bearer token derived from CRON_SECRET.
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    StatusFilter:
+      name: status
+      in: query
+      schema: { type: string, enum: [open, in_progress, blocked, complete, all], default: all }
+    PriorityFilter:
+      name: priority
+      in: query
+      schema: { type: string, enum: [low, medium, high, all], default: all }
+  responses:
+    BadRequest:
+      description: Invalid request.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing or invalid authentication.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Caller lacks permission.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ServerError:
+      description: Server error.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+    TaskStatus:
+      type: string
+      enum: [open, in_progress, blocked, complete]
+    TaskPriority:
+      type: string
+      enum: [low, medium, high]
+    Department:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        created_at: { type: string, format: date-time }
+    User:
+      type: object
+      required: [id, phone_e164, role, global_role, status]
+      properties:
+        id: { type: string, format: uuid }
+        display_name: { type: [string, "null"] }
+        phone_e164: { type: string }
+        email: { type: [string, "null"], format: email }
+        role: { type: string, enum: [visitor, committee, admin] }
+        global_role: { type: string, enum: [member, pm, hod, leadership_admin] }
+        status: { type: string }
+        transcript_aliases:
+          type: array
+          items: { type: string }
+        email_digest: { type: boolean }
+    CallerContext:
+      type: object
+      required: [user_id, global_role, can_read_all, can_write_all, departments]
+      properties:
+        user_id: { type: string }
+        display_name: { type: [string, "null"] }
+        global_role: { type: string, enum: [member, pm, hod, leadership_admin] }
+        can_read_all: { type: boolean }
+        can_write_all: { type: boolean }
+        departments:
+          type: array
+          items:
+            type: object
+            required: [department_id, department_name, dept_role]
+            properties:
+              department_id: { type: string, format: uuid }
+              department_name: { type: string }
+              dept_role: { type: string, enum: [hod, pm, member] }
+    Task:
+      type: object
+      required: [id, department_id, title, status, priority, source, archived, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        department_id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: [string, "null"] }
+        status: { $ref: "#/components/schemas/TaskStatus" }
+        priority: { $ref: "#/components/schemas/TaskPriority" }
+        archived: { type: boolean }
+        assigned_to: { type: [string, "null"], format: uuid }
+        created_by: { type: [string, "null"], format: uuid }
+        source: { type: string, enum: [transcript, whatsapp_agent, manual] }
+        due_date: { type: [string, "null"], format: date }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    CreateTaskRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        department_id: { type: string, format: uuid }
+        department_name: { type: string }
+        description: { type: [string, "null"] }
+        assigned_to: { type: [string, "null"], format: uuid }
+        assigned_to_alias: { type: string }
+        due_date: { type: [string, "null"], format: date }
+        priority: { $ref: "#/components/schemas/TaskPriority" }
+        source: { type: string, enum: [transcript, whatsapp_agent, manual] }
+    UpdateTaskRequest:
+      type: object
+      properties:
+        title: { type: string }
+        description: { type: [string, "null"] }
+        status: { $ref: "#/components/schemas/TaskStatus" }
+        priority: { $ref: "#/components/schemas/TaskPriority" }
+        assigned_to: { type: [string, "null"], format: uuid }
+        assigned_to_alias: { type: string }
+        due_date: { type: [string, "null"], format: date }
+        archived: { type: boolean }
+    KanbanBoard:
+      type: object
+      required: [open, in_progress, blocked, complete]
+      properties:
+        open:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+        in_progress:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+        blocked:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+        complete:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+    DepartmentSummary:
+      type: object
+      required: [department_name, department_id, open, in_progress, blocked, complete, total, overdue, top_blockers]
+      properties:
+        department_name: { type: string }
+        department_id: { type: string, format: uuid }
+        open: { type: integer }
+        in_progress: { type: integer }
+        blocked: { type: integer }
+        complete: { type: integer }
+        total: { type: integer }
+        overdue: { type: integer }
+        top_blockers:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+    ConversationUpload:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        department_id: { type: string, format: uuid }
+        filename: { type: [string, "null"] }
+        group_name: { type: [string, "null"] }
+        parsed_at: { type: [string, "null"], format: date-time }
+        last_message_at: { type: [string, "null"], format: date-time }
+        parsed_new_members:
+          type: array
+          items: { $ref: "#/components/schemas/ParsedNewMember" }
+    ConversationEvent:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        upload_id: { type: string, format: uuid }
+        department_id: { type: string, format: uuid }
+        event_type: { type: string, enum: [task_created, task_updated, task_completed, decision, info] }
+        sender_alias: { type: [string, "null"] }
+        message_text: { type: [string, "null"] }
+        message_timestamp: { type: [string, "null"], format: date-time }
+        ai_summary: { type: [string, "null"] }
+        task_title: { type: [string, "null"] }
+        assigned_to_alias: { type: [string, "null"] }
+        priority: { $ref: "#/components/schemas/TaskPriority" }
+        confidence: { type: [number, "null"] }
+        applied: { type: boolean }
+    ParsedTranscript:
+      type: object
+      required: [events]
+      properties:
+        group_name: { type: [string, "null"] }
+        last_message_at: { type: [string, "null"], format: date-time }
+        events:
+          type: array
+          items: { $ref: "#/components/schemas/ConversationEvent" }
+        new_members:
+          type: array
+          items: { $ref: "#/components/schemas/ParsedNewMember" }
+    ParsedNewMember:
+      type: object
+      required: [alias, context]
+      properties:
+        alias: { type: string }
+        context: { type: string }
+    DepartmentPromptConfig:
+      type: object
+      required: [fixed_prompt_locked, flexible_prompt]
+      properties:
+        fixed_prompt_locked: { type: boolean }
+        flexible_prompt: { type: string }
+        updated_at: { type: [string, "null"], format: date-time }
+    ApplyTranscriptEvent:
+      type: object
+      required: [event_id]
+      properties:
+        event_id: { type: string, format: uuid }
+        priority: { $ref: "#/components/schemas/TaskPriority" }
+        assigned_to_alias: { type: string }
+    CreateUserRequest:
+      type: object
+      required: [display_name, phone_e164]
+      properties:
+        display_name: { type: string }
+        phone_e164: { type: string }
+        email: { type: [string, "null"], format: email }
+        global_role: { type: string, enum: [member, pm, hod, leadership_admin] }
+    UpdateUserRequest:
+      type: object
+      properties:
+        display_name: { type: string }
+        email: { type: [string, "null"], format: email }
+        global_role: { type: string, enum: [member, pm, hod, leadership_admin] }
+        status: { type: string }
+    DepartmentMembershipRequest:
+      type: object
+      required: [department_id, dept_role]
+      properties:
+        department_id: { type: string, format: uuid }
+        dept_role: { type: string, enum: [hod, pm, member] }
+        is_active: { type: boolean }
+    BulkCreateUsersRequest:
+      type: object
+      required: [members]
+      properties:
+        members:
+          type: array
+          items:
+            type: object
+            required: [display_name, phone_e164, department_id, dept_role]
+            properties:
+              display_name: { type: string }
+              phone_e164: { type: string }
+              email: { type: [string, "null"], format: email }
+              department_id: { type: string, format: uuid }
+              dept_role: { type: string, enum: [hod, pm, member] }
+              transcript_aliases:
+                type: array
+                items: { type: string }
+    DailyDigestResult:
+      type: object
+      required: [ok, sent, skipped, errors]
+      properties:
+        ok: { type: boolean }
+        sent: { type: integer }
+        skipped: { type: integer }
+        errors:
+          type: array
+          items:
+            type: object
+            required: [user_id, message]
+            properties:
+              user_id: { type: string, format: uuid }
+              message: { type: string }

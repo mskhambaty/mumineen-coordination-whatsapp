@@ -23,7 +23,7 @@ POST /api/whatsapp/webhook          (src/app/api/whatsapp/webhook/route.ts)
     ├─ touchConversationSession()    (src/lib/supabase/server.ts)
     ├─ runAgent()                    (src/lib/agent/run-agent.ts)
     │       ├─ retrieveSiteContext() (src/lib/scraper/retrieve-site-context.ts) — RAG lookup
-    │       ├─ OpenAI Chat (gpt-4.1-mini, tools enabled)
+    │       ├─ OpenAI Chat (via src/lib/ai/model.ts, tools enabled)
     │       └─ executeTool()         (src/lib/agent/tools.ts) — if tool called
     │               └─ canUseTool()  (src/lib/permissions.ts) — role check
     ├─ sendWhatsAppText()            (src/lib/meta/whatsapp.ts) — reply via Meta Graph API
@@ -40,7 +40,7 @@ Vercel Cron (vercel.json)
 scrapeSite()                        (src/lib/scraper/scrape-site.ts)
     ├─ fetch pages from chicagorelaycenter.com
     ├─ parse with cheerio → content chunks
-    ├─ embed with text-embedding-3-small
+    ├─ embed with AI_EMBEDDING_MODEL from src/lib/ai/model.ts
     └─ upsert to site_content table  (Supabase)
 ```
 
@@ -59,7 +59,9 @@ scrapeSite()                        (src/lib/scraper/scrape-site.ts)
 | Layer | Path | Responsibility |
 |-------|------|---------------|
 | API Routes | `src/app/api/` | HTTP entry points only — parse, validate, delegate |
+| API Contract | `docs/openapi.yaml` | Public contract for route parameters, bodies, auth, and schemas |
 | Agent | `src/lib/agent/` | OpenAI loop, tool dispatch |
+| AI Config | `src/lib/ai/model.ts` | Central OpenAI client, model names, temperatures, token limits |
 | Permissions | `src/lib/permissions.ts` | Role and tool access rules |
 | Supabase | `src/lib/supabase/` | All database reads and writes |
 | Meta | `src/lib/meta/` | Meta Graph API calls, signature verification |

@@ -29,6 +29,8 @@ Stores every person who has ever messaged the bot.
 | `display_name` | text | WhatsApp profile name (nullable) |
 | `role` | text | `visitor` \| `committee` \| `admin` (default: `visitor`) |
 | `status` | text | `active` \| `inactive` (default: `active`) |
+| `email` | text | Portal email address (nullable) |
+| `email_digest` | boolean | Daily task digest preference, default `true` |
 | `jamaat` | text | Jamaat affiliation (nullable) |
 | `city` | text | City (nullable) |
 | `notes` | text | Free-form admin notes (nullable) |
@@ -95,6 +97,104 @@ Immutable log of every tool call.
 | `created_at` | timestamptz | Auto |
 
 Index: `(user_id, created_at desc)`
+
+### `departments`
+
+Coordination departments and committees.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `name` | text | Unique department name |
+| `created_at` | timestamptz | Auto |
+
+### `department_members`
+
+Many-to-many membership table for users across departments.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `department_id` | uuid | FK → `departments.id` |
+| `user_id` | uuid | FK → `whatsapp_users.id` |
+| `dept_role` | text | `hod` \| `pm` \| `member` |
+| `is_active` | boolean | Membership visibility flag |
+| `created_at` | timestamptz | Auto |
+
+Unique constraint: `(department_id, user_id)`
+
+### `tasks`
+
+Project-management tickets used by the WhatsApp agent and admin portal.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `department_id` | uuid | FK → `departments.id` |
+| `title` | text | Required |
+| `description` | text | Nullable |
+| `status` | text | `open` \| `in_progress` \| `blocked` \| `complete` |
+| `priority` | text | `low` \| `medium` \| `high`, default `medium` |
+| `archived` | boolean | Soft-delete flag, default `false` |
+| `assigned_to` | uuid | FK → `whatsapp_users.id` |
+| `created_by` | uuid | FK → `whatsapp_users.id` |
+| `source` | text | `transcript` \| `whatsapp_agent` \| `manual` |
+| `due_date` | date | Nullable |
+| `created_at` | timestamptz | Auto |
+| `updated_at` | timestamptz | Auto-updated by trigger |
+
+Indexes: `department_id`, `status`, `assigned_to`, `priority`, `archived`, and `(department_id, status, priority desc)`.
+
+### `department_prompt_config`
+
+Department-specific transcript parser rules.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `department_id` | uuid | Unique FK → `departments.id` |
+| `flexible_prompt` | text | Editable department rules |
+| `updated_by` | uuid | FK → `whatsapp_users.id` |
+| `updated_at` | timestamptz | Auto-updated by trigger |
+
+### `conversation_uploads`
+
+Raw uploaded WhatsApp exports and parser metadata.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `department_id` | uuid | FK → `departments.id` |
+| `uploaded_by` | uuid | FK → `whatsapp_users.id` |
+| `filename` | text | Original filename |
+| `group_name` | text | Parsed group name |
+| `raw_content` | text | Uploaded transcript content |
+| `parsed_at` | timestamptz | Parser run timestamp |
+| `last_message_at` | timestamptz | Parsed latest message timestamp |
+| `parsed_new_members` | jsonb | New member aliases detected by the parser |
+| `created_at` | timestamptz | Auto |
+
+### `conversation_events`
+
+Parsed actionable transcript events that can be reviewed and applied as tasks.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `upload_id` | uuid | FK → `conversation_uploads.id` |
+| `department_id` | uuid | FK → `departments.id` |
+| `event_type` | text | `task_created` \| `task_updated` \| `task_completed` \| `decision` \| `info` |
+| `task_id` | uuid | FK → `tasks.id` after applying |
+| `sender_alias` | text | Transcript sender |
+| `message_text` | text | Original message text |
+| `message_timestamp` | timestamptz | Parsed message timestamp |
+| `ai_summary` | text | Parser summary |
+| `task_title` | text | Parser task title |
+| `assigned_to_alias` | text | Parser assignee alias |
+| `priority` | text | `low` \| `medium` \| `high` |
+| `confidence` | float | Parser confidence |
+| `applied` | boolean | Whether event has been applied |
+| `created_at` | timestamptz | Auto |
 
 ### `site_content`
 

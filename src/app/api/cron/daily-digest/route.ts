@@ -1,0 +1,168 @@
+import { NextResponse } from "next/server";
+
+import { requireEnv } from "@/lib/env";
+import { sendTaskNotificationEmail, type TaskNotificationEmailTask } from "@/lib/email/postmark";
+import { getSupabaseAdmin, recordToolAudit } from "@/lib/supabase/server";
+import { priorityWeight } from "@/lib/tasks/types";
+
+type DigestUser = {
+  id: string;
+  phone_e164: string;
+  display_name: string | null;
+  email: string;
+  global_role: "member" | "pm" | "hod" | "leadership_admin";
+  email_digest: boolean;
+};
+
+type MembershipRow = {
+  department_id: string;
+};
+
+type DigestTaskRow = {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  due_date: string | null;
+  department_id: string;
+  updated_at: string;
+  departments?: { name?: string | null } | null;
+};
+
+type DigestResult = {
+  sent: number;
+  skipped: number;
+  errors: { user_id: string; message: string }[];
+};
+
+export async function GET(req: Request) {
+  return runDailyDigest(req);
+}
+
+export async function POST(req: Request) {
+  return runDailyDigest(req);
+}
+
+async function runDailyDigest(req: Request) {
+  const authHeader = req.headers.get("authorization");
+  const expected = "Bearer " + requireEnv("CRON_SECRET");
+  if (authHeader !== expected) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const supabase = getSupabaseAdmin();
+  const result: DigestResult = { sent: 0, skipped: 0, errors: [] };
+
+  try {
+    const { data: users, error } = await supabase
+      .from("whatsapp_users")
+      .select("id, phone_e164, display_name, email, global_role, email_digest")
+      .eq("status", "active")
+      .eq("email_digest", true)
+      .not("email", "is", null);
+
+    if (error) {
+      throw error;
+    }
+
+    for (const user of (users ?? []) as DigestUser[]) {
+      const tasks = await getDigestTasksForUser(user);
+
+      if (tasks.length === 0) {
+        result.skipped++;
+        continue;
+      }
+
+      try {
+        await sendTaskNotificationEmail(
+          user.email,
+          user.display_name ?? "there",
+          tasks.map(toEmailTask),
+          `${requireEnv("NEXT_PUBLIC_APP_URL")}/admin/kanban`,
+        );
+        result.sent++;
+      } catch (err) {
+        result.errors.push({
+          user_id: user.id,
+          message: err instanceof Error ? err.message : "Unknown email error",
+        });
+      }
+    }
+
+    await recordToolAudit({
+      phoneE164: "cron",
+      toolName: "daily_digest",
+      arguments: { users_considered: users?.length ?? 0 },
+      allowed: true,
+      resultSummary: JSON.stringify(result),
+    });
+
+    return NextResponse.json({ ok: true, ...result });
+  } catch (err) {
+    await recordToolAudit({
+      phoneE164: "cron",
+      toolName: "daily_digest",
+      arguments: {},
+      allowed: false,
+      resultSummary: err instanceof Error ? err.message : "Unknown daily digest error",
+    });
+
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Daily digest failed" },
+      { status: 500 },
+    );
+  }
+}
+
+async function getDigestTasksForUser(user: DigestUser): Promise<DigestTaskRow[]> {
+  const supabase = getSupabaseAdmin();
+
+  let query = supabase
+    .from("tasks")
+    .select("id, title, status, priority, due_date, department_id, updated_at, departments(name)")
+    .eq("archived", false)
+    .neq("status", "complete");
+
+  if (user.global_role === "pm" || user.global_role === "hod") {
+    const { data: memberships, error } = await supabase
+      .from("department_members")
+      .select("department_id")
+      .eq("user_id", user.id)
+      .eq("is_active", true);
+
+    if (error) {
+      throw error;
+    }
+
+    const departmentIds = Array.from(new Set(((memberships ?? []) as MembershipRow[]).map((row) => row.department_id)));
+    if (departmentIds.length === 0) {
+      return [];
+    }
+    query = query.in("department_id", departmentIds);
+  } else {
+    query = query.eq("assigned_to", user.id);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    throw error;
+  }
+
+  return ((data ?? []) as DigestTaskRow[])
+    .sort((a, b) => {
+      const priorityDiff = priorityWeight(b.priority) - priorityWeight(a.priority);
+      if (priorityDiff !== 0) return priorityDiff;
+      return new Date(b.updated_at ?? 0).getTime() - new Date(a.updated_at ?? 0).getTime();
+    })
+    .slice(0, 50);
+}
+
+function toEmailTask(task: DigestTaskRow): TaskNotificationEmailTask {
+  return {
+    title: task.title,
+    status: task.status,
+    priority: task.priority,
+    department: task.departments?.name ?? "Unknown",
+    due_date: task.due_date ?? undefined,
+  };
+}

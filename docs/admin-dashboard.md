@@ -8,6 +8,7 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 
 ### Login (`/admin/login`)
 - Email and password authentication
+- Forgot password link that calls `POST /api/auth/forgot-password`
 - Default password: `786110`
 - Only users with `role = 'admin'` or `global_role = 'leadership_admin'` can log in
 - Primary admin: mskhambaty@gmail.com (Mufaddal Khambaty)
@@ -17,6 +18,14 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - Table of all departments with task status columns
 - Each department links to its detail page
 
+### Kanban Board (`/admin/kanban`)
+- Columns: To Do, In Progress, Blocked, Done
+- Filter by department, priority, assignee, and open-only/complete visibility
+- Cards show title, priority badge, assignee, due date, department, and source
+- Status changes use `PUT /api/tasks/[id]`
+- New/edit task modal uses `POST /api/tasks` and `PUT /api/tasks/[id]`
+- Archive action marks a task complete and sets `archived = true`
+
 ### Department Detail (`/admin/departments/[id]`)
 - Department name and task count
 - Tasks table with: Title, Status, Assigned To, Due Date, Source, Updated
@@ -24,12 +33,14 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - "New Task" button with modal form
 
 ### Upload Transcript (`/admin/upload`)
-- Department selector
-- File upload (.txt only)
+- Department selector and file upload (`.txt` only)
+- Locked fixed prompt preview plus editable department-specific prompt rules
 - "Parse with AI" button
 - Review table showing parsed events with confidence scores
+- Editable priority and assignee alias before applying selected events
 - Checkbox selection (high confidence pre-checked)
-- "Apply Selected" button to create tasks from events
+- New members detected from the transcript can be reviewed and added immediately
+- "Apply Selected" button creates tasks from selected events
 
 ### Users (`/admin/users`)
 - Table of all users with inline editing for global_role and status

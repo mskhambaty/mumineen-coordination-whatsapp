@@ -120,6 +120,7 @@ export default function DepartmentDetailPage() {
           <div className="flex justify-between h-16 items-center">
             <div className="flex items-center space-x-4">
               <Link href="/admin" className="text-blue-600 hover:underline">← Dashboard</Link>
+              <Link href="/admin/kanban" className="text-gray-600 hover:text-blue-600">Kanban</Link>
               <h1 className="text-xl font-bold text-gray-900">{deptName}</h1>
             </div>
             <button

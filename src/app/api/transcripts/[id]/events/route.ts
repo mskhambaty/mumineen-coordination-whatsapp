@@ -14,7 +14,7 @@ export async function GET(
 
     const { data, error } = await supabase
       .from("conversation_events")
-      .select("id, event_type, sender_alias, message_text, message_timestamp, ai_summary, confidence, applied, task_id")
+      .select("id, event_type, sender_alias, message_text, message_timestamp, ai_summary, task_title, assigned_to_alias, priority, confidence, applied, task_id")
       .eq("upload_id", id)
       .order("message_timestamp", { ascending: true });
 

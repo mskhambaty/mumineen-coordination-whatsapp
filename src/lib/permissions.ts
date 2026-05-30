@@ -37,6 +37,7 @@ export const taskWriteTools = new Set([
   "update_task_status",
   "create_task",
   "assign_task",
+  "get_top_blockers",
 ]);
 
 /** Task tools requiring leadership_admin only */

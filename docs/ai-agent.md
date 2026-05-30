@@ -38,10 +38,14 @@ When site content is available from the RAG scraper, it is appended to the syste
 
 ## Model
 
-Default model: `gpt-4.1-mini`  
-Override via `OPENAI_MODEL` environment variable.
+All OpenAI model and client configuration lives in `src/lib/ai/model.ts`.
 
-The OpenAI client is a singleton initialized on first use (`getOpenAIClient()`).
+- Chat model: `AI_MODEL` (`OPENAI_MODEL` override, default `gpt-4o-mini`)
+- Agent temperature: `AGENT_TEMPERATURE`
+- Token cap: `MAX_AGENT_TOKENS`
+- OpenAI client: `getAIClient()`
+
+No agent file should instantiate `OpenAI` or hardcode model names directly.
 
 ## Tools
 
@@ -65,6 +69,20 @@ All tools are defined in `src/lib/agent/tools.ts`.
 | `lookup_committee_contact` | Internal committee directory |
 | `update_volunteer_status` | Update volunteer status |
 | `create_internal_note` | Create internal note |
+
+### Task Tools
+
+| Tool | Description |
+|------|-------------|
+| `get_my_tasks` | Lists scoped tasks, with optional status/priority filters and kanban view |
+| `get_task_detail` | Gets a task by ID or keyword |
+| `get_department_summary` | Gets task counts for one department |
+| `update_task_status` | Updates status and/or priority |
+| `create_task` | Creates a task with optional priority |
+| `assign_task` | Assigns a task to another user |
+| `get_top_blockers` | Returns highest priority blocked or overdue tasks |
+| `get_all_departments_summary` | Leadership/admin cross-department summary |
+| `get_department_tasks` | Leadership/admin department task list |
 
 ### Current Status
 

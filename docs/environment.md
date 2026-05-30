@@ -15,6 +15,11 @@ All env var lookups go through `src/lib/env.ts`, which supports mixed-case alias
 | `SUPABASE_SERVICE_ROLE_KEY` | `Supabase_service_role_key` | Supabase project → Settings → API (keep secret) |
 | `OPENAI_API_KEY` | `OpenAI_key`, `OPENAI_key` | platform.openai.com |
 | `CRON_SECRET` | — | Generate a strong random string; use in `Authorization: ****** |
+| `NEXT_PUBLIC_APP_URL` | `App_url`, `APP_URL` | Public app base URL, e.g. Vercel production URL |
+| `POSTMARK_API_TOKEN` | `Postmark_api_token` | Postmark server API token; rotate if exposed |
+| `POSTMARK_FROM_EMAIL` | `Postmark_from_email` | Verified Postmark sender address |
+| `POSTMARK_PASSWORD_RESET_TEMPLATE` | `Postmark_password_reset_template` | Postmark template alias for password reset |
+| `POSTMARK_TASK_NOTIFICATION_TEMPLATE` | `Postmark_task_notification_template` | Postmark template alias for task digest |
 
 ## Optional Variables
 
@@ -22,7 +27,7 @@ All env var lookups go through `src/lib/env.ts`, which supports mixed-case alias
 |------|-----------------|---------|-------|
 | `META_APP_SECRET` | `Meta_app_secret` | (unset) | If set, validates `X-Hub-Signature-256` on webhook POSTs. Strongly recommended in production. |
 | `META_GRAPH_API_VERSION` | `Meta_graph_api_version` | `v23.0` | Meta Graph API version used for sending messages. |
-| `OPENAI_MODEL` | `OpenAI_model` | `gpt-4.1-mini` | Override the chat completion model. |
+| `OPENAI_MODEL` | `OpenAI_model` | `gpt-4o-mini` | Override the centralized chat completion model in `src/lib/ai/model.ts`. |
 
 ## Local Development
 

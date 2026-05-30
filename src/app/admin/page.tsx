@@ -66,6 +66,7 @@ export default function AdminDashboard() {
             <h1 className="text-xl font-bold text-gray-900">Ashara 1448H Dashboard</h1>
             <div className="flex space-x-4">
               <Link href="/admin" className="text-blue-600 font-medium">Home</Link>
+              <Link href="/admin/kanban" className="text-gray-600 hover:text-blue-600">Kanban</Link>
               <Link href="/admin/upload" className="text-gray-600 hover:text-blue-600">Upload</Link>
               <Link href="/admin/users" className="text-gray-600 hover:text-blue-600">Users</Link>
               <button

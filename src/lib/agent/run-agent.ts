@@ -1,12 +1,10 @@
 import OpenAI from "openai";
 
 import { executeTool, toolDefinitions } from "@/lib/agent/tools";
+import { AGENT_TEMPERATURE, AI_MODEL, getAIClient, MAX_AGENT_TOKENS } from "@/lib/ai/model";
 import { resolveCallerFromPhone, type CallerContext } from "@/lib/api/auth";
-import { optionalEnv, requireEnv } from "@/lib/env";
 import type { AppUser } from "@/lib/permissions";
 import { retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
-
-let openai: OpenAI | null = null;
 
 export const SYSTEM_PROMPT = `You are the official WhatsApp assistant for Anjuman e Saifee Chicago during Ashara Mubarak 1448H.
 
@@ -50,16 +48,6 @@ type AgentInput = {
   callerContext?: CallerContext;
 };
 
-export function getOpenAIClient() {
-  if (!openai) {
-    openai = new OpenAI({
-      apiKey: requireEnv("OPENAI_API_KEY"),
-    });
-  }
-
-  return openai;
-}
-
 export async function runAgent(input: AgentInput) {
   if (!input.message.trim()) {
     return "I received your message, but I cannot read that message type yet. Please send a text message and I will help.";
@@ -76,8 +64,7 @@ export async function runAgent(input: AgentInput) {
     }
   }
 
-  const client = getOpenAIClient();
-  const model = optionalEnv("OPENAI_MODEL") || "gpt-4.1-mini";
+  const client = getAIClient();
 
   // Retrieve relevant site context for the user's query
   let systemContent = SYSTEM_PROMPT;
@@ -108,10 +95,12 @@ Message: ${input.message}`,
   ];
 
   const firstResponse = await client.chat.completions.create({
-    model,
+    model: AI_MODEL,
     messages,
     tools: toolDefinitions,
     tool_choice: "auto",
+    temperature: AGENT_TEMPERATURE,
+    max_tokens: MAX_AGENT_TOKENS,
   });
 
   const firstMessage = firstResponse.choices[0]?.message;
@@ -142,8 +131,10 @@ Message: ${input.message}`,
   }
 
   const finalResponse = await client.chat.completions.create({
-    model,
+    model: AI_MODEL,
     messages,
+    temperature: AGENT_TEMPERATURE,
+    max_tokens: MAX_AGENT_TOKENS,
   });
 
   return finalResponse.choices[0]?.message?.content?.trim() || fallbackReply();

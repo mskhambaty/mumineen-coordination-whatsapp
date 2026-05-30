@@ -10,7 +10,7 @@ The task management system adds project coordination capabilities to the WhatsAp
 
 - **departments** — Fixed list of organizational departments (e.g., Accommodation, AVR, Transport)
 - **department_members** — Links users to departments with a role (hod, pm, member)
-- **tasks** — Individual work items with status tracking, department assignment, and optional assignee
+- **tasks** — Individual work items with status, priority, archive flag, department assignment, and optional assignee
 - **conversation_uploads** — Raw WhatsApp transcript files uploaded for AI parsing
 - **conversation_events** — Parsed actionable items extracted from transcripts
 
@@ -36,9 +36,19 @@ Both columns coexist on `whatsapp_users` for backward compatibility.
 
 ### Task Routes
 - `GET /api/tasks` — List tasks (scoped by caller's departments)
+- `GET /api/tasks/kanban` — List tasks grouped by status for the kanban board
 - `GET /api/tasks/[id]` — Get single task detail
 - `POST /api/tasks` — Create a new task
 - `PUT /api/tasks/[id]` — Update a task
+
+Task list routes accept `priority=low|medium|high|all`. By default archived tasks are excluded.
+
+### Daily Digest
+
+- `GET/POST /api/cron/daily-digest` sends prioritized task summaries through Postmark.
+- Users receive only tasks scoped to their role.
+- `whatsapp_users.email_digest` defaults to `true` and controls whether a user receives the daily digest.
+- Emails link back to `/admin/kanban`.
 
 ### Department Routes
 - `GET /api/departments` — List departments
@@ -49,11 +59,13 @@ Both columns coexist on `whatsapp_users` for backward compatibility.
 ### User Routes
 - `GET /api/users/me` — Current user's profile and permissions
 - `GET /api/users/resolve?alias=` — Resolve a name to a user
+- `POST /api/users/bulk-create` — Create users and memberships from transcript-detected member aliases
 
 ### Transcript Routes
 - `POST /api/transcripts/upload` — Upload and parse a transcript
 - `GET /api/transcripts/[id]/events` — Get parsed events
 - `POST /api/transcripts/[id]/apply` — Apply selected events as tasks
+- `GET/PUT /api/departments/[id]/prompt-config` — Read and update department transcript parser rules
 
 ### Admin Routes
 - `POST /api/admin/auth` — Admin login
@@ -81,8 +93,9 @@ New task management tools added to the agent:
 
 ### Write Tools (pm, hod, leadership_admin)
 - `update_task_status` — Change task status
-- `create_task` — Create a new task
+- `create_task` — Create a new task with optional priority
 - `assign_task` — Assign a task to someone
+- `get_top_blockers` — Highest priority blocked or overdue tasks
 
 ### Leadership Tools (leadership_admin only)
 - `get_all_departments_summary` — Cross-department overview
@@ -103,6 +116,7 @@ Available at `/admin`:
 - **Login** (`/admin/login`) — Email + password authentication
 - **Dashboard** (`/admin`) — Department overview with task counts
 - **Department Detail** (`/admin/departments/[id]`) — Tasks table with inline status updates
+- **Kanban Board** (`/admin/kanban`) — Status-column task board with priority, assignee, department, due-date, filters, create/edit modal, and archive action
 - **Upload** (`/admin/upload`) — Transcript parsing and event review
 - **Users** (`/admin/users`) — User management with permission matrix
 - **User Departments** (`/admin/users/[id]/departments`) — Department membership management

@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
 
-import { getOpenAIClient } from "@/lib/agent/run-agent";
+import { AI_EMBEDDING_MODEL, getAIClient } from "@/lib/ai/model";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 const SITE_ROOT = "https://www.chicagorelaycenter.com";
@@ -24,7 +24,7 @@ type ContentChunk = {
 
 export async function scrapeSite() {
   const supabase = getSupabaseAdmin();
-  const openai = getOpenAIClient();
+  const openai = getAIClient();
 
   const chunks: ContentChunk[] = [];
 
@@ -69,7 +69,7 @@ export async function scrapeSite() {
   for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
     const batch = chunks.slice(i, i + BATCH_SIZE);
     const embeddingRes = await openai.embeddings.create({
-      model: "text-embedding-3-small",
+      model: AI_EMBEDDING_MODEL,
       input: batch.map((c) => c.content),
     });
     for (const item of embeddingRes.data) {

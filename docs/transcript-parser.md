@@ -18,9 +18,10 @@ const result = await parseTranscript(rawTextContent);
 ## How It Works
 
 1. **Chunking**: If the transcript exceeds 24,000 characters, it's split on date boundaries to stay within token limits
-2. **AI Extraction**: Each chunk is sent to OpenAI with a structured extraction prompt
-3. **Filtering**: Only events with confidence >= 0.5 are returned
-4. **Response Format**: Uses `response_format: { type: "json_object" }` for reliable JSON output
+2. **Prompt Configuration**: The fixed parser prompt is combined with department-specific flexible rules from `department_prompt_config`
+3. **AI Extraction**: Each chunk is sent to OpenAI with a structured extraction prompt
+4. **Filtering**: Only events with confidence >= 0.5 are returned
+5. **Response Format**: Uses `response_format: { type: "json_object" }` for reliable JSON output
 
 ## Event Types
 
@@ -43,23 +44,30 @@ type ParsedEvent = {
   ai_summary: string | null;
   task_title: string | null;
   assigned_to_alias: string | null;
+  priority: "low" | "medium" | "high";
   confidence: number; // 0.0 to 1.0
 };
 ```
+
+The parser also returns `new_members: { alias: string; context: string }[]`, which powers the review table for adding users detected in a transcript.
 
 ## Workflow
 
 1. User uploads a `.txt` file via `/admin/upload` or `POST /api/transcripts/upload`
 2. Parser extracts events and stores them in `conversation_events`
 3. User reviews events in the dashboard (high confidence pre-selected)
-4. User selects events to apply → `POST /api/transcripts/[id]/apply`
-5. Applied events create or update tasks in the `tasks` table
+4. User can edit priority and assignee alias before applying
+5. User can approve detected new members via `POST /api/users/bulk-create`
+6. User selects events to apply → `POST /api/transcripts/[id]/apply`
+7. Applied events create or update tasks in the `tasks` table
 
 ## Configuration
 
-- **Model**: Uses the configured `OPENAI_MODEL` env var (defaults to gpt-4.1-mini)
+- **Model**: Uses `AI_MODEL` from `src/lib/ai/model.ts` (`OPENAI_MODEL` env override, default `gpt-4o-mini`)
+- **Temperature/token cap**: Uses `PARSE_TEMPERATURE` and `MAX_PARSE_TOKENS` from `src/lib/ai/model.ts`
 - **Chunk size**: 24,000 characters maximum per API call
 - **Confidence threshold**: 0.5 minimum for inclusion in results
+- **Prompt rules**: Fixed prompt is in `src/lib/transcripts/prompts.ts`; department flexible prompts are saved via `GET/PUT /api/departments/[id]/prompt-config`
 
 ## Testing
 

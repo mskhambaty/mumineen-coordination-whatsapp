@@ -149,7 +149,7 @@ export const toolDefinitions: ToolDefinition[] = [
     type: "function",
     function: {
       name: "get_my_tasks",
-      description: "Get tasks assigned to the caller or in their departments.",
+      description: "Get tasks assigned to the caller or in their departments. Use view=kanban when the user asks for their board.",
       parameters: {
         type: "object",
         properties: {
@@ -157,6 +157,16 @@ export const toolDefinitions: ToolDefinition[] = [
             type: "string",
             enum: ["open", "in_progress", "blocked", "complete", "all"],
             description: "Filter by status. Defaults to all.",
+          },
+          priority: {
+            type: "string",
+            enum: ["low", "medium", "high", "all"],
+            description: "Filter by priority. Defaults to all.",
+          },
+          view: {
+            type: "string",
+            enum: ["list", "kanban"],
+            description: "Return a list or kanban-style board summary.",
           },
         },
         additionalProperties: false,
@@ -208,8 +218,13 @@ export const toolDefinitions: ToolDefinition[] = [
             description: "New status.",
           },
           note: { type: "string", description: "Optional note about the update." },
+          priority: {
+            type: "string",
+            enum: ["low", "medium", "high"],
+            description: "Optional priority update.",
+          },
         },
-        required: ["task_id", "status"],
+        required: ["task_id"],
         additionalProperties: false,
       },
     },
@@ -227,6 +242,11 @@ export const toolDefinitions: ToolDefinition[] = [
           description: { type: "string", description: "Task description." },
           assigned_to_alias: { type: "string", description: "Name of person to assign." },
           due_date: { type: "string", description: "Due date in YYYY-MM-DD format." },
+          priority: {
+            type: "string",
+            enum: ["low", "medium", "high"],
+            description: "Task priority. Defaults to medium.",
+          },
         },
         required: ["title", "department_name"],
         additionalProperties: false,
@@ -245,6 +265,21 @@ export const toolDefinitions: ToolDefinition[] = [
           assign_to_alias: { type: "string", description: "Name of person to assign." },
         },
         required: ["task_id", "assign_to_alias"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_top_blockers",
+      description: "Get the highest priority blocked or overdue tasks. Requires PM, HOD, or Leadership/Admin role.",
+      parameters: {
+        type: "object",
+        properties: {
+          department_name: { type: "string", description: "Optional department name." },
+          limit: { type: "number", description: "Maximum number of blockers to return. Defaults to 5." },
+        },
         additionalProperties: false,
       },
     },
@@ -346,7 +381,7 @@ export async function executeTool(name: string, args: ToolInput, context: ToolCo
 function isTaskTool(name: string): boolean {
   return [
     "get_my_tasks", "get_task_detail", "get_department_summary",
-    "update_task_status", "create_task", "assign_task",
+    "update_task_status", "create_task", "assign_task", "get_top_blockers",
     "get_all_departments_summary", "get_department_tasks",
   ].includes(name);
 }
@@ -355,13 +390,16 @@ function getRequiredRole(name: string): string {
   if (["get_all_departments_summary", "get_department_tasks"].includes(name)) {
     return "leadership_admin";
   }
-  if (["update_task_status", "create_task", "assign_task"].includes(name)) {
+  if (["update_task_status", "create_task", "assign_task", "get_top_blockers"].includes(name)) {
     return "pm, hod, or leadership_admin";
   }
   return "any authenticated user";
 }
 
 function getBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    return process.env.NEXT_PUBLIC_APP_URL;
+  }
   if (process.env.VERCEL_URL) {
     return `https://${process.env.VERCEL_URL}`;
   }
@@ -451,8 +489,18 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
     // --- Task Management Tools ---
     case "get_my_tasks": {
       const status = (args.status as string) ?? "all";
+      const priority = (args.priority as string) ?? "all";
+      const view = (args.view as string) ?? "list";
       const params = new URLSearchParams();
       if (status !== "all") params.set("status", status);
+      if (priority !== "all") params.set("priority", priority);
+      if (view === "kanban") {
+        const board = await callInternalApi(`/api/tasks/kanban?${params.toString()}`, { phone: context.phoneE164 });
+        return {
+          board,
+          board_url: `${getBaseUrl()}/admin/kanban`,
+        };
+      }
       return callInternalApi(`/api/tasks?${params.toString()}`, { phone: context.phoneE164 });
     }
     case "get_task_detail": {
@@ -487,7 +535,7 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       return callInternalApi(`/api/tasks/${args.task_id}`, {
         method: "PUT",
         phone: context.phoneE164,
-        body: { status: args.status, note: args.note },
+        body: { status: args.status, priority: args.priority, note: args.note },
       });
     }
     case "create_task": {
@@ -500,6 +548,7 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
           description: args.description,
           assigned_to_alias: args.assigned_to_alias,
           due_date: args.due_date,
+          priority: args.priority,
           source: "whatsapp_agent",
         },
       });
@@ -510,6 +559,37 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
         phone: context.phoneE164,
         body: { assigned_to_alias: args.assign_to_alias },
       });
+    }
+    case "get_top_blockers": {
+      const params = new URLSearchParams();
+      const deptName = typeof args.department_name === "string" ? args.department_name : undefined;
+      if (deptName) {
+        const depts = await callInternalApi("/api/departments", { phone: context.phoneE164 }) as Array<{ id: string; name: string }>;
+        if (!Array.isArray(depts)) return { error: "Could not fetch departments" };
+        const dept = depts.find((d) => d.name.toLowerCase() === deptName.toLowerCase());
+        if (!dept) return { error: `Department not found: ${deptName}` };
+        params.set("department_id", dept.id);
+      }
+      const tasks = await callInternalApi(`/api/tasks?${params.toString()}`, { phone: context.phoneE164 }) as Array<{
+        id: string;
+        title: string;
+        status: string;
+        priority?: string | null;
+        due_date?: string | null;
+        updated_at?: string | null;
+      }>;
+      if (!Array.isArray(tasks)) return tasks;
+      const today = new Date().toISOString().split("T")[0];
+      const limit = typeof args.limit === "number" && args.limit > 0 ? Math.min(args.limit, 20) : 5;
+      const weight = (priority: string | null | undefined) => priority === "high" ? 3 : priority === "medium" ? 2 : priority === "low" ? 1 : 0;
+      return tasks
+        .filter((task) => task.status === "blocked" || (Boolean(task.due_date) && task.due_date! < today && task.status !== "complete"))
+        .sort((a, b) => {
+          const priorityDiff = weight(b.priority) - weight(a.priority);
+          if (priorityDiff !== 0) return priorityDiff;
+          return new Date(b.updated_at ?? 0).getTime() - new Date(a.updated_at ?? 0).getTime();
+        })
+        .slice(0, limit);
     }
     case "get_all_departments_summary": {
       const filter = (args.filter as string) ?? "all";

@@ -1,12 +1,12 @@
-import { getOpenAIClient } from "@/lib/agent/run-agent";
+import { AI_EMBEDDING_MODEL, getAIClient } from "@/lib/ai/model";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export async function retrieveSiteContext(query: string, topK = 3): Promise<string> {
-  const openai = getOpenAIClient();
+  const openai = getAIClient();
   const supabase = getSupabaseAdmin();
 
   const embeddingRes = await openai.embeddings.create({
-    model: "text-embedding-3-small",
+    model: AI_EMBEDDING_MODEL,
     input: query,
   });
   const queryEmbedding = embeddingRes.data[0].embedding;
