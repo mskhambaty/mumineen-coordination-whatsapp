@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
 
   let sessionsQuery = supabase
     .from("conversation_sessions")
-    .select("id, phone_e164, user_id, current_intent, state, last_message_at, created_at, handling_mode, handling_mode_at, user:whatsapp_users(id, display_name, phone_e164, email, role, global_role)")
+    .select("id, phone_e164, user_id, current_intent, state, last_message_at, created_at, handling_mode, handling_mode_at, user:whatsapp_users!conversation_sessions_user_id_fkey(id, display_name, phone_e164, email, role, global_role)")
     .order("last_message_at", { ascending: false })
     .limit(limit);
 
