@@ -11,7 +11,7 @@ type DropdownGroup = {
 
 const dropdownGroups: DropdownGroup[] = [
   {
-    label: "WhatsApp",
+    label: "Management",
     links: [
       { href: "/admin/conversations", label: "Inbox" },
       { href: "/admin/prompt", label: "Prompt" },
@@ -22,13 +22,16 @@ const dropdownGroups: DropdownGroup[] = [
     links: [
       { href: "/admin/milestones", label: "Milestones" },
       { href: "/admin/tasks", label: "Task Management" },
+      { href: "/admin/upload", label: "Upload Transcripts" },
     ],
   },
 ];
 
 const standaloneLinks = [
   { href: "/admin", label: "Home", exact: true },
-  { href: "/admin/upload", label: "Upload" },
+];
+
+const trailingLinks = [
   { href: "/admin/users", label: "Users" },
 ];
 
@@ -135,6 +138,20 @@ export default function AdminNav() {
                   </div>
                 )}
               </div>
+            ))}
+
+            {trailingLinks.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={
+                  isActive(link.href)
+                    ? "text-blue-600 font-medium dark:text-blue-400"
+                    : "text-gray-600 hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400"
+                }
+              >
+                {link.label}
+              </Link>
             ))}
 
             <button
