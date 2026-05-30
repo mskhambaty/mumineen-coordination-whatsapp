@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import { isAdminOrLeadership } from "@/lib/admin/access";
+
 type Department = { id: string; name: string };
 
 type AnalyticsData = {
@@ -81,6 +83,14 @@ export default function AnalyticsPage() {
       router.push("/admin/login");
       return;
     }
+
+    const userRaw = localStorage.getItem("admin_user");
+    const user = userRaw ? JSON.parse(userRaw) as { role?: string; global_role?: string } : null;
+    if (!isAdminOrLeadership(user)) {
+      router.push("/admin/kanban");
+      return;
+    }
+
     void Promise.resolve().then(loadAnalytics);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, departmentId]);

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import { isAdminOrLeadership } from "@/lib/admin/access";
+
 type HandlingMode = "ai" | "manual";
 
 type Message = {
@@ -65,6 +67,14 @@ export default function ConversationsPage() {
       router.push("/admin/login");
       return;
     }
+
+    const userRaw = localStorage.getItem("admin_user");
+    const user = userRaw ? JSON.parse(userRaw) as { role?: string; global_role?: string } : null;
+    if (!isAdminOrLeadership(user)) {
+      router.push("/admin/kanban");
+      return;
+    }
+
     void loadConversations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
