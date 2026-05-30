@@ -26,6 +26,20 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - New/edit task modal uses `POST /api/tasks` and `PUT /api/tasks/[id]`
 - Archive action marks a task complete and sets `archived = true`
 
+### Lead Inbox (`/admin/conversations`)
+- Three-pane WhatsApp inbox: conversation list, message thread, and agent tool-call log
+- Conversation list shows display name, last message, unread inbound count, and an AI/MANUAL badge
+- **Agent ↔ Manual toggle** per conversation switches `handling_mode` via `PUT /api/admin/conversations/[phoneE164]/mode`. `manual` pauses the AI agent so an admin handles the thread by hand
+- Manual reply box (enabled only in Manual mode) sends a WhatsApp message via `POST /api/admin/conversations/[phoneE164]/messages`
+- Tool Calls pane lists agent actions for the thread with allowed/blocked status and arguments
+- **Dark mode** toggle (🌙/☀️) in the nav; preference persists in `localStorage("admin_theme")` and falls back to the OS preference on first load
+- Restricted to `role = 'admin'` or `global_role = 'leadership_admin'`
+
+### Analytics (`/admin/analytics`)
+- Leadership/admin-only KPIs over a rolling 30-day window, served by `GET /api/admin/analytics`
+- Task metrics: totals by status/priority, overdue list, and per-department breakdown (optional `department_id` filter)
+- Conversation metrics: active/manual/AI conversation counts, inbound vs outbound message volume, messages-by-day series, and top agent tools
+
 ### Department Detail (`/admin/departments/[id]`)
 - Department name and task count
 - Tasks table with: Title, Status, Assigned To, Due Date, Source, Updated

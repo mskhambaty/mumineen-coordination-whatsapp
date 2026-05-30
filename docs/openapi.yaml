@@ -162,6 +162,90 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /admin/conversations:
+    get:
+      tags: [conversations]
+      summary: List Lead Inbox conversations with messages and tool calls.
+      security: [{ adminKey: [] }]
+      parameters:
+        - name: phone
+          in: query
+          schema: { type: string }
+          description: Restrict to a single conversation by E.164 phone.
+        - name: limit
+          in: query
+          schema: { type: integer, default: 75, maximum: 200 }
+      responses:
+        "200": { description: Conversations with handling mode, messages, and tool calls. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/conversations/{phoneE164}/mode:
+    put:
+      tags: [conversations]
+      summary: Switch a conversation between AI and manual handling.
+      security: [{ adminKey: [] }]
+      parameters:
+        - name: phoneE164
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode]
+              properties:
+                mode: { type: string, enum: [ai, manual] }
+                user_id: { type: string, format: uuid, description: Admin making the change. }
+      responses:
+        "200": { description: Updated handling mode. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/conversations/{phoneE164}/messages:
+    post:
+      tags: [conversations]
+      summary: Send a manual WhatsApp reply for a conversation.
+      description: Requires the conversation to be in manual handling mode.
+      security: [{ adminKey: [] }]
+      parameters:
+        - name: phoneE164
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string, maxLength: 4096 }
+      responses:
+        "200": { description: Reply sent; returns the WhatsApp message id. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/analytics:
+    get:
+      tags: [conversations, tasks]
+      summary: Leadership task and conversation analytics (rolling 30-day window).
+      security: [{ adminKey: [] }]
+      parameters:
+        - name: department_id
+          in: query
+          schema: { type: string }
+          description: Filter task metrics to one department, or `all`.
+      responses:
+        "200": { description: Task and conversation analytics. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /users/me:
     get:
       tags: [users]

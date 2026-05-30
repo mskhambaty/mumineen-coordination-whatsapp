@@ -52,7 +52,7 @@ Every inbound and outbound message.
 | `raw_payload` | jsonb | Full Meta payload |
 | `created_at` | timestamptz | Auto |
 
-Index: `(phone_e164, created_at desc)`
+Indexes: `(phone_e164, created_at desc)`, `(direction, created_at desc)`
 
 ### `conversation_sessions`
 
@@ -65,8 +65,13 @@ One row per phone number; upserted on every message.
 | `user_id` | uuid | FK → `whatsapp_users.id` (nullable) |
 | `current_intent` | text | Last detected intent (nullable, not yet used) |
 | `state` | jsonb | Arbitrary session state (default: `{}`) |
+| `handling_mode` | text | `ai` \| `manual` (default: `ai`). `manual` pauses the agent so admins reply by hand from the Lead Inbox |
+| `handling_mode_at` | timestamptz | When the handling mode last changed (nullable) |
+| `handling_mode_by` | uuid | FK → `whatsapp_users.id` (nullable on delete) — admin who changed the mode |
 | `last_message_at` | timestamptz | Updated each exchange |
 | `created_at` | timestamptz | Auto |
+
+Indexes: `(handling_mode)`, `(last_message_at desc)`.
 
 ### `committee_permissions`
 
