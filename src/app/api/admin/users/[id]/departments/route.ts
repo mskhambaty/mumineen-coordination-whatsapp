@@ -51,6 +51,32 @@ export async function POST(
   }
 
   const supabase = getSupabaseAdmin();
+  const { data: existing, error: existingError } = await supabase
+    .from("department_members")
+    .select("id")
+    .eq("user_id", id)
+    .eq("department_id", department_id)
+    .maybeSingle();
+
+  if (existingError) {
+    return NextResponse.json({ error: existingError.message }, { status: 500 });
+  }
+
+  if (existing) {
+    const { data, error } = await supabase
+      .from("department_members")
+      .update({ dept_role, is_active: true })
+      .eq("id", existing.id)
+      .select("id, department_id, dept_role, is_active")
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json(data);
+  }
+
   const { data, error } = await supabase
     .from("department_members")
     .insert({

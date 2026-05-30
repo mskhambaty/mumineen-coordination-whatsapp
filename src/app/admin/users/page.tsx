@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -22,13 +22,19 @@ type Department = {
 export default function UsersPage() {
   const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddUser, setShowAddUser] = useState(false);
   const [newUser, setNewUser] = useState({ display_name: "", phone_e164: "", email: "", global_role: "member" });
+  const [newUserDeptRole, setNewUserDeptRole] = useState("member");
+  const [existingUserId, setExistingUserId] = useState("");
+  const [existingUserDeptRole, setExistingUserDeptRole] = useState("member");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [addingExisting, setAddingExisting] = useState(false);
   const [currentUserId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const userRaw = window.localStorage.getItem("admin_user");
@@ -41,6 +47,24 @@ export default function UsersPage() {
     }
   });
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
+  const selectedDepartment = departments.find((department) => department.id === selectedDepartmentId) ?? null;
+  const usersInSelectedDepartment = new Set(users.map((user) => user.id));
+  const addableUsers = allUsers.filter((user) => !usersInSelectedDepartment.has(user.id));
+  const filteredUsers = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return users;
+
+    return users.filter((user) =>
+      [
+        user.display_name,
+        user.phone_e164,
+        user.email,
+        user.role,
+        user.global_role,
+        user.status,
+      ].some((value) => value?.toLowerCase().includes(query)),
+    );
+  }, [searchQuery, users]);
 
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
@@ -56,20 +80,32 @@ export default function UsersPage() {
         const params = new URLSearchParams();
         if (selectedDepartmentId !== "all") params.set("department_id", selectedDepartmentId);
 
-        const [usersRes, departmentsRes] = await Promise.all([
+        const [usersRes, departmentsRes, allUsersRes] = await Promise.all([
           fetch(`/api/admin/users?${params.toString()}`, {
             headers: { "x-admin-key": adminKey },
           }),
           fetch("/api/departments", {
             headers: { "x-admin-key": adminKey },
           }),
+          selectedDepartmentId === "all"
+            ? Promise.resolve(null)
+            : fetch("/api/admin/users", {
+                headers: { "x-admin-key": adminKey },
+              }),
         ]);
 
         if (!usersRes.ok) {
           const data = await usersRes.json().catch(() => ({})) as { error?: string };
           throw new Error(data.error ?? "Failed to fetch users");
         }
-        setUsers(await usersRes.json() as User[]);
+        const fetchedUsers = await usersRes.json() as User[];
+        setUsers(fetchedUsers);
+
+        if (selectedDepartmentId === "all") {
+          setAllUsers(fetchedUsers);
+        } else if (allUsersRes?.ok) {
+          setAllUsers(await allUsersRes.json() as User[]);
+        }
 
         if (departmentsRes.ok) {
           setDepartments(await departmentsRes.json() as Department[]);
@@ -101,6 +137,7 @@ export default function UsersPage() {
       }
       const updated = await res.json() as User;
       setUsers((items) => items.map((user) => user.id === id ? updated : user));
+      setAllUsers((items) => items.map((user) => user.id === id ? updated : user));
     } catch (err) {
       console.error("Failed to update user:", err);
       setError(err instanceof Error ? err.message : "Failed to update user");
@@ -123,14 +160,57 @@ export default function UsersPage() {
         throw new Error(data.error ?? "Failed to add user");
       }
       const created = await res.json() as User;
+
+      if (selectedDepartmentId !== "all") {
+        await addMembership(created.id, selectedDepartmentId, newUserDeptRole);
+      }
+
       setShowAddUser(false);
       setNewUser({ display_name: "", phone_e164: "", email: "", global_role: "member" });
-      if (selectedDepartmentId === "all") {
-        setUsers((items) => [...items, created].sort(sortUsers));
-      }
+      setNewUserDeptRole("member");
+      setAllUsers((items) => [...items, created].sort(sortUsers));
+      setUsers((items) => [...items, created].sort(sortUsers));
     } catch (err) {
       console.error("Failed to add user:", err);
       setError(err instanceof Error ? err.message : "Failed to add user");
+    }
+  }
+
+  async function addExistingUser(e: React.FormEvent) {
+    e.preventDefault();
+    if (selectedDepartmentId === "all" || !existingUserId) return;
+
+    setAddingExisting(true);
+    setError(null);
+    try {
+      await addMembership(existingUserId, selectedDepartmentId, existingUserDeptRole);
+      const user = allUsers.find((item) => item.id === existingUserId);
+      if (user) {
+        setUsers((items) => [...items, user].sort(sortUsers));
+      }
+      setExistingUserId("");
+      setExistingUserDeptRole("member");
+    } catch (err) {
+      console.error("Failed to add existing user to department:", err);
+      setError(err instanceof Error ? err.message : "Failed to add user to department");
+    } finally {
+      setAddingExisting(false);
+    }
+  }
+
+  async function addMembership(userId: string, departmentId: string, deptRole: string) {
+    const res = await fetch(`/api/admin/users/${userId}/departments`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-key": adminKey,
+      },
+      body: JSON.stringify({ department_id: departmentId, dept_role: deptRole }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({})) as { error?: string };
+      throw new Error(data.error ?? "Failed to add department membership");
     }
   }
 
@@ -157,6 +237,7 @@ export default function UsersPage() {
         throw new Error(data.error ?? "Failed to delete user");
       }
       setUsers((items) => items.filter((item) => item.id !== user.id));
+      setAllUsers((items) => items.filter((item) => item.id !== user.id));
     } catch (err) {
       console.error("Failed to delete user:", err);
       setError(err instanceof Error ? err.message : "Failed to delete user");
@@ -224,10 +305,67 @@ export default function UsersPage() {
                     <option value="leadership_admin">Leadership / Admin</option>
                   </select>
                 </div>
+                {selectedDepartment && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Department Role in {selectedDepartment.name}</label>
+                    <select value={newUserDeptRole} onChange={(e) => setNewUserDeptRole(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
+                      <option value="member">Member</option>
+                      <option value="pm">PM</option>
+                      <option value="hod">HOD</option>
+                    </select>
+                  </div>
+                )}
                 <div className="flex justify-end space-x-3">
                   <button type="button" onClick={() => setShowAddUser(false)} className="px-4 py-2 text-gray-600">Cancel</button>
                   <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Add</button>
                 </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {selectedDepartment && (
+          <div className="mb-6 rounded-lg border bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
+              <div className="flex-1">
+                <h2 className="text-lg font-semibold text-gray-900">Add to {selectedDepartment.name}</h2>
+                <p className="text-sm text-gray-500">Choose an existing user or create a new user with this department already assigned.</p>
+              </div>
+              <form onSubmit={addExistingUser} className="grid flex-1 gap-3 md:grid-cols-[minmax(0,1fr)_140px_auto] md:items-end">
+                <label className="text-sm text-gray-700">
+                  Existing User
+                  <select
+                    value={existingUserId}
+                    onChange={(event) => setExistingUserId(event.target.value)}
+                    className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                  >
+                    <option value="">Select user...</option>
+                    {addableUsers.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.display_name || user.phone_e164}{user.email ? ` (${user.email})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm text-gray-700">
+                  Role
+                  <select
+                    value={existingUserDeptRole}
+                    onChange={(event) => setExistingUserDeptRole(event.target.value)}
+                    className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                  >
+                    <option value="member">Member</option>
+                    <option value="pm">PM</option>
+                    <option value="hod">HOD</option>
+                  </select>
+                </label>
+                <button
+                  type="submit"
+                  disabled={!existingUserId || addingExisting}
+                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+                >
+                  {addingExisting ? "Adding..." : "Add"}
+                </button>
               </form>
             </div>
           </div>
@@ -238,21 +376,35 @@ export default function UsersPage() {
           <div className="flex flex-col gap-3 border-b px-6 py-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Users</h2>
-              <p className="text-sm text-gray-500">{users.length} users shown</p>
+              <p className="text-sm text-gray-500">{filteredUsers.length} of {users.length} users shown</p>
             </div>
-            <label className="flex flex-col gap-1 text-sm text-gray-700 md:min-w-72">
-              Department
-              <select
-                value={selectedDepartmentId}
-                onChange={(event) => setSelectedDepartmentId(event.target.value)}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm"
-              >
-                <option value="all">All departments</option>
-                {departments.map((department) => (
-                  <option key={department.id} value={department.id}>{department.name}</option>
-                ))}
-              </select>
-            </label>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm text-gray-700 md:min-w-72">
+                Search
+                <input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Name, phone, email, role..."
+                  className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-gray-700 md:min-w-72">
+                Department
+                <select
+                  value={selectedDepartmentId}
+                  onChange={(event) => {
+                    setSelectedDepartmentId(event.target.value);
+                    setExistingUserId("");
+                  }}
+                  className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+                >
+                  <option value="all">All departments</option>
+                  {departments.map((department) => (
+                    <option key={department.id} value={department.id}>{department.name}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
@@ -268,7 +420,7 @@ export default function UsersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {users.map((user) => (
+                {filteredUsers.map((user) => (
                   <tr key={user.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 font-medium">{user.display_name ?? "—"}</td>
                     <td className="px-6 py-4 text-sm text-gray-600">{user.phone_e164}</td>
@@ -314,10 +466,10 @@ export default function UsersPage() {
                     </td>
                   </tr>
                 ))}
-                {users.length === 0 && (
+                {filteredUsers.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500">
-                      No users match this department filter.
+                      No users match the current filters.
                     </td>
                   </tr>
                 )}
