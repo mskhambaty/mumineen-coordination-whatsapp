@@ -40,7 +40,6 @@ type DepartmentMembership = {
 const USER_ROLE_OPTIONS = [
   { value: "committee", label: "Committee" },
   { value: "admin", label: "Admin / Leadership" },
-  { value: "visitor", label: "Visitor" },
 ];
 
 const GLOBAL_ROLE_OPTIONS = [
@@ -444,14 +443,6 @@ export default function UsersPage() {
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Global Role</label>
-                  <select value={newUser.global_role} onChange={(e) => setNewUser({ ...newUser, global_role: e.target.value })} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
-                    {GLOBAL_ROLE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                </div>
                 {selectedDepartment && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Department Role in {selectedDepartment.name}</label>
@@ -506,7 +497,7 @@ export default function UsersPage() {
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
                   />
                 </label>
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="grid gap-4 md:grid-cols-2">
                   <label className="block text-sm font-medium text-gray-700">
                     Account Role
                     <select
@@ -522,18 +513,6 @@ export default function UsersPage() {
                       className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
                     >
                       {USER_ROLE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block text-sm font-medium text-gray-700">
-                    Global Role
-                    <select
-                      value={editForm.global_role}
-                      onChange={(event) => setEditForm({ ...editForm, global_role: event.target.value })}
-                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
-                    >
-                      {GLOBAL_ROLE_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
                       ))}
                     </select>
@@ -665,7 +644,6 @@ export default function UsersPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Phone</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Account Role</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Global Role</th>
                   {selectedDepartment && (
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dept Role</th>
                   )}
@@ -686,17 +664,6 @@ export default function UsersPage() {
                         className="text-sm border rounded px-2 py-1"
                       >
                         {USER_ROLE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-6 py-4">
-                      <select
-                        value={user.global_role}
-                        onChange={(e) => updateUser(user.id, "global_role", e.target.value)}
-                        className="text-sm border rounded px-2 py-1"
-                      >
-                        {GLOBAL_ROLE_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>{option.label}</option>
                         ))}
                       </select>
@@ -756,7 +723,7 @@ export default function UsersPage() {
                 ))}
                 {filteredUsers.length === 0 && (
                   <tr>
-                    <td colSpan={selectedDepartment ? 8 : 7} className="px-6 py-8 text-center text-sm text-gray-500">
+                    <td colSpan={selectedDepartment ? 7 : 6} className="px-6 py-8 text-center text-sm text-gray-500">
                       No users match the current filters.
                     </td>
                   </tr>

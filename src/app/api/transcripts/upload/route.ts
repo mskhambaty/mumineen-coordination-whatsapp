@@ -88,6 +88,12 @@ export async function POST(req: NextRequest) {
       existingContext,
     });
 
+    let lastMessageAt: string | null = null;
+    if (parsed.last_message_at) {
+      const d = new Date(parsed.last_message_at);
+      lastMessageAt = isNaN(d.getTime()) ? null : d.toISOString();
+    }
+
     const { data: upload, error: uploadErr } = await supabase
       .from("conversation_uploads")
       .insert({
@@ -97,7 +103,7 @@ export async function POST(req: NextRequest) {
         group_name: parsed.group_name,
         raw_content: rawContent,
         parsed_at: new Date().toISOString(),
-        last_message_at: parsed.last_message_at,
+        last_message_at: lastMessageAt,
         parsed_new_members: parsed.new_members,
         transcript_type: transcriptType,
       })
@@ -108,14 +114,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: uploadErr.message }, { status: 500 });
     }
 
-    const events = parsed.events.map((event) => ({
+    const events = parsed.events.map((event) => {
+      let ts: string | null = null;
+      if (event.message_timestamp) {
+        const d = new Date(event.message_timestamp);
+        ts = isNaN(d.getTime()) ? null : d.toISOString();
+      }
+      return {
       upload_id: upload.id,
       department_id: departmentId,
       event_type: event.event_type,
       item_type: event.item_type ?? "task",
       sender_alias: event.sender_alias,
       message_text: event.message_text,
-      message_timestamp: event.message_timestamp,
+      message_timestamp: ts,
       ai_summary: event.ai_summary,
       task_title: event.task_title,
       milestone_title: event.milestone_title,
@@ -127,7 +139,8 @@ export async function POST(req: NextRequest) {
       notes: event.notes,
       description: event.description,
       applied: false,
-    }));
+    };
+    });
 
     if (events.length > 0) {
       const { error: eventsErr } = await supabase
