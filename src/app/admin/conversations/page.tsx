@@ -99,6 +99,17 @@ export default function ConversationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
+  // Poll for new messages so the inbox stays live without manual refresh.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void refreshConversationsSilently();
+      }
+    }, 8000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function apiFetch(path: string, init?: RequestInit) {
     return fetch(path, {
       ...init,
@@ -126,6 +137,19 @@ export default function ConversationsPage() {
       setError(err instanceof Error ? err.message : "Failed to load conversations");
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Silent background refresh for near real-time updates. Does not toggle the
+  // loading spinner, surface errors, or change the selected conversation.
+  async function refreshConversationsSilently() {
+    try {
+      const res = await apiFetch("/api/admin/conversations");
+      if (!res.ok) return;
+      const data = await res.json().catch(() => ({}));
+      setConversations((data.conversations ?? []) as Conversation[]);
+    } catch {
+      // Ignore transient polling failures.
     }
   }
 
@@ -338,8 +362,8 @@ export default function ConversationsPage() {
                     </span>
                   </div>
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{formatDate(call.created_at)}</p>
-                  {call.result_summary && <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{call.result_summary}</p>}
-                  <pre className="mt-2 max-h-32 overflow-auto rounded bg-white p-2 text-xs text-gray-500 dark:bg-gray-900 dark:text-gray-400">{stringify(call.arguments)}</pre>
+                  {call.result_summary && <p className="mt-2 break-words text-sm text-gray-600 dark:text-gray-300">{call.result_summary}</p>}
+                  <pre className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded bg-white p-2 text-xs text-gray-500 dark:bg-gray-900 dark:text-gray-400">{stringify(call.arguments)}</pre>
                 </div>
               ))}
               {selected && selected.tool_calls.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">No tool calls for this conversation yet.</p>}
