@@ -109,6 +109,31 @@ export async function recordOutboundMessage(input: {
   }
 }
 
+export type ConversationTurn = {
+  direction: "inbound" | "outbound";
+  body: string | null;
+};
+
+// Returns the most recent messages for a phone in chronological order.
+// Uses the (phone_e164, created_at desc) index, then reverses for replay.
+export async function getRecentMessages(
+  phoneE164: string,
+  limit = 12,
+): Promise<ConversationTurn[]> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("messages")
+    .select("direction, body")
+    .eq("phone_e164", phoneE164)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error || !data) {
+    return [];
+  }
+
+  return (data as ConversationTurn[]).reverse();
+}
+
 export async function touchConversationSession(input: {
   phoneE164: string;
   userId?: string;

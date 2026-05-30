@@ -5,6 +5,12 @@ import { AGENT_TEMPERATURE, AI_MODEL, getAIClient, MAX_AGENT_TOKENS } from "@/li
 import { resolveCallerFromPhone, type CallerContext } from "@/lib/api/auth";
 import type { AppUser } from "@/lib/permissions";
 import { retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
+import { getRecentMessages } from "@/lib/supabase/server";
+
+// Conversation window fed back to the model for multi-turn continuity.
+// Kept small to bound token cost; long individual messages are truncated.
+const HISTORY_MESSAGE_LIMIT = 12;
+const MAX_HISTORY_CHARS = 2000;
 
 export const SYSTEM_PROMPT = `You are the official WhatsApp assistant for Anjuman e Saifee Chicago during Ashara Mubarak 1448H.
 
@@ -52,46 +58,55 @@ export async function runAgent(input: AgentInput) {
     return "I received your message, but I cannot read that message type yet. Please send a text message and I will help.";
   }
 
-  // Resolve caller context if not already provided
-  let callerContext = input.callerContext;
-  if (!callerContext) {
-    try {
-      callerContext = await resolveCallerFromPhone(input.phoneE164);
-    } catch {
-      // If permissions can't be resolved, continue with basic access
-      callerContext = undefined;
-    }
-  }
-
   const client = getAIClient();
 
-  // Retrieve relevant site context for the user's query
+  // Resolve caller context, relevant site context, and conversation history
+  // concurrently so the extra history read adds no sequential latency.
+  const callerPromise: Promise<CallerContext | undefined> = input.callerContext
+    ? Promise.resolve(input.callerContext)
+    : resolveCallerFromPhone(input.phoneE164).catch(() => undefined);
+
+  const [callerContext, siteContext, history] = await Promise.all([
+    callerPromise,
+    retrieveSiteContext(input.message).catch((err) => {
+      console.error("Failed to retrieve site context, continuing without it:", err);
+      return "";
+    }),
+    getRecentMessages(input.phoneE164, HISTORY_MESSAGE_LIMIT).catch(() => []),
+  ]);
+
   let systemContent = SYSTEM_PROMPT;
-  try {
-    const siteContext = await retrieveSiteContext(input.message);
-    if (siteContext) {
-      systemContent = `${SYSTEM_PROMPT}\n\n## Current Site Information\nThe following is retrieved from the official Chicago Relay Center site (scraped daily):\n\n${siteContext}`;
-    }
-  } catch (err) {
-    console.error("Failed to retrieve site context, continuing without it:", err);
+  if (siteContext) {
+    systemContent += `\n\n## Current Site Information\nThe following is retrieved from the official Chicago Relay Center site (scraped daily):\n\n${siteContext}`;
   }
 
-  // Add caller context to the system prompt
+  // Sender + caller context belongs in the system prompt, not a user turn,
+  // so the message history can replay cleanly as the conversation.
+  systemContent += `\n\n## Sender Context\nPhone: ${input.phoneE164}\nBackend role: ${input.user.role}\nGlobal access: ${callerContext?.global_role ?? "unknown"}`;
   if (callerContext) {
     const deptNames = callerContext.departments.map((d) => `${d.department_name} (${d.dept_role})`).join(", ");
-    systemContent += `\n\n## Caller Context\nGlobal access: ${callerContext.global_role}\nDepartments: ${deptNames || "none"}\nCan read all: ${callerContext.can_read_all}\nCan write all: ${callerContext.can_write_all}`;
+    systemContent += `\nDepartments: ${deptNames || "none"}\nCan read all: ${callerContext.can_read_all}\nCan write all: ${callerContext.can_write_all}`;
   }
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemContent },
-    {
-      role: "user",
-      content: `Sender phone: ${input.phoneE164}
-Backend role: ${input.user.role}
-Global access: ${callerContext?.global_role ?? "unknown"}
-Message: ${input.message}`,
-    },
   ];
+
+  // The current inbound message is already persisted, so history ends with it.
+  for (const turn of history) {
+    const body = turn.body?.trim();
+    if (!body) continue;
+    messages.push({
+      role: turn.direction === "outbound" ? "assistant" : "user",
+      content: body.slice(0, MAX_HISTORY_CHARS),
+    });
+  }
+
+  // Fallback: if history is empty (e.g. transient read failure), still answer
+  // the current message so the agent never goes silent.
+  if (messages.length === 1) {
+    messages.push({ role: "user", content: input.message.slice(0, MAX_HISTORY_CHARS) });
+  }
 
   const firstResponse = await client.chat.completions.create({
     model: AI_MODEL,

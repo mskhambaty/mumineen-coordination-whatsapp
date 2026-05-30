@@ -2,7 +2,7 @@
 
 ## Overview
 
-The agent is a single-turn OpenAI chat completion loop with optional tool-calling.  
+The agent is a multi-turn OpenAI chat completion loop with optional tool-calling.  
 Source: `src/lib/agent/run-agent.ts`
 
 ## Flow
@@ -10,7 +10,13 @@ Source: `src/lib/agent/run-agent.ts`
 ```
 runAgent(user, phoneE164, message)
     │
-    ├─ retrieveSiteContext(message)     → prepend RAG content to system prompt
+    ├─ Promise.all (run concurrently, no extra latency):
+    │       resolveCallerFromPhone(phoneE164)  → caller role/departments/permissions
+    │       retrieveSiteContext(message)       → RAG content for system prompt
+    │       getRecentMessages(phoneE164)       → recent conversation turns
+    │
+    ├─ Build messages: [ system prompt (+ site + sender context),
+    │                    ...replayed history turns ]
     │
     ├─ First completion (tools enabled)
     │       if tool_calls present → executeTool() for each
@@ -20,6 +26,24 @@ runAgent(user, phoneE164, message)
 ```
 
 If no tool calls are made, the first completion's reply is returned directly.
+
+## Conversation History
+
+The agent replays recent messages so it has multi-turn memory instead of
+treating each message in isolation.
+
+- `getRecentMessages(phoneE164, limit)` (in `src/lib/supabase/server.ts`) reads the
+  last `HISTORY_MESSAGE_LIMIT` (12) messages via the `(phone_e164, created_at desc)`
+  index and returns them in chronological order.
+- Each turn is mapped to an OpenAI role: `inbound` → `user`, `outbound` → `assistant`.
+  Outbound covers both AI replies and manual admin replies.
+- The current inbound message is already persisted before `runAgent` runs, so it is the
+  final `user` turn — no separate "current message" block is needed.
+- Empty/non-text bodies are skipped, and each message is truncated to
+  `MAX_HISTORY_CHARS` (2000) to bound token cost. If history is empty (transient read
+  failure), the agent still answers the current message.
+- Sender phone, backend role, and caller permissions live in the **system prompt**
+  (`## Sender Context`), keeping the user/assistant history clean for replay.
 
 ## System Prompt
 
