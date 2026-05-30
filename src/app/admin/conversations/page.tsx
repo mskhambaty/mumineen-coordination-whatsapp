@@ -53,6 +53,7 @@ export default function ConversationsPage() {
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [darkMode, setDarkMode] = useState(false);
 
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
@@ -60,6 +61,25 @@ export default function ConversationsPage() {
     () => conversations.find((conversation) => conversation.phone_e164 === selectedPhone) ?? conversations[0] ?? null,
     [conversations, selectedPhone],
   );
+
+  useEffect(() => {
+    const stored = localStorage.getItem("admin_theme");
+    if (stored === "dark" || (stored === null && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
+      setDarkMode(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", darkMode);
+  }, [darkMode]);
+
+  function toggleTheme() {
+    setDarkMode((prev) => {
+      const next = !prev;
+      localStorage.setItem("admin_theme", next ? "dark" : "light");
+      return next;
+    });
+  }
 
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
@@ -161,21 +181,32 @@ export default function ConversationsPage() {
     }
   }
 
+  const isManual = selected?.handling_mode === "manual";
+
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      <nav className="bg-white shadow-sm border-b">
+    <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100">
+      <nav className="bg-white shadow-sm border-b dark:border-gray-800 dark:bg-gray-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex min-h-16 flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between">
             <h1 className="text-xl font-bold">Lead Inbox</h1>
-            <div className="flex flex-wrap gap-4 text-sm">
-              <Link href="/admin" className="text-gray-600 hover:text-blue-600">Home</Link>
-              <Link href="/admin/conversations" className="text-blue-600 font-medium">Inbox</Link>
-              <Link href="/admin/analytics" className="text-gray-600 hover:text-blue-600">Analytics</Link>
-              <Link href="/admin/kanban" className="text-gray-600 hover:text-blue-600">Kanban</Link>
-              <Link href="/admin/upload" className="text-gray-600 hover:text-blue-600">Upload</Link>
-              <Link href="/admin/users" className="text-gray-600 hover:text-blue-600">Users</Link>
-              <button onClick={() => { localStorage.clear(); router.push("/admin/login"); }} className="text-gray-600 hover:text-red-600">
+            <div className="flex flex-wrap items-center gap-4 text-sm">
+              <Link href="/admin" className="text-gray-600 hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400">Home</Link>
+              <Link href="/admin/conversations" className="text-blue-600 font-medium dark:text-blue-400">Inbox</Link>
+              <Link href="/admin/analytics" className="text-gray-600 hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400">Analytics</Link>
+              <Link href="/admin/kanban" className="text-gray-600 hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400">Kanban</Link>
+              <Link href="/admin/upload" className="text-gray-600 hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400">Upload</Link>
+              <Link href="/admin/users" className="text-gray-600 hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400">Users</Link>
+              <button onClick={() => { localStorage.clear(); router.push("/admin/login"); }} className="text-gray-600 hover:text-red-600 dark:text-gray-300 dark:hover:text-red-400">
                 Logout
+              </button>
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="rounded-md border border-gray-200 px-2 py-1 text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+                title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+              >
+                {darkMode ? "☀️ Light" : "🌙 Dark"}
               </button>
             </div>
           </div>
@@ -183,41 +214,41 @@ export default function ConversationsPage() {
       </nav>
 
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+        {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{error}</div>}
 
-        <div className="grid min-h-[720px] grid-cols-1 overflow-hidden rounded-lg border bg-white shadow-sm lg:grid-cols-[320px_minmax(0,1fr)_320px]">
-          <aside className="border-b bg-gray-50 lg:border-b-0 lg:border-r">
-            <div className="border-b px-4 py-3">
+        <div className="grid min-h-[720px] grid-cols-1 overflow-hidden rounded-lg border bg-white shadow-sm lg:grid-cols-[320px_minmax(0,1fr)_320px] dark:border-gray-800 dark:bg-gray-900">
+          <aside className="border-b bg-gray-50 lg:border-b-0 lg:border-r dark:border-gray-800 dark:bg-gray-900/40">
+            <div className="border-b px-4 py-3 dark:border-gray-800">
               <div className="flex items-center justify-between">
                 <h2 className="font-semibold">Conversations</h2>
-                <button onClick={() => void loadConversations()} className="text-sm text-blue-600 hover:text-blue-700">Refresh</button>
+                <button onClick={() => void loadConversations()} className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">Refresh</button>
               </div>
             </div>
             <div className="max-h-[668px] overflow-y-auto">
               {loading ? (
-                <p className="p-4 text-sm text-gray-500">Loading...</p>
+                <p className="p-4 text-sm text-gray-500 dark:text-gray-400">Loading...</p>
               ) : conversations.length === 0 ? (
-                <p className="p-4 text-sm text-gray-500">No conversations yet.</p>
+                <p className="p-4 text-sm text-gray-500 dark:text-gray-400">No conversations yet.</p>
               ) : (
                 conversations.map((conversation) => (
                   <button
                     key={conversation.id}
                     onClick={() => setSelectedPhone(conversation.phone_e164)}
-                    className={`block w-full border-b px-4 py-3 text-left hover:bg-white ${
-                      selected?.phone_e164 === conversation.phone_e164 ? "bg-white" : ""
+                    className={`block w-full border-b px-4 py-3 text-left hover:bg-white dark:border-gray-800 dark:hover:bg-gray-800 ${
+                      selected?.phone_e164 === conversation.phone_e164 ? "bg-white dark:bg-gray-800" : ""
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <p className="truncate font-medium">{conversation.display_name || conversation.phone_e164}</p>
-                      <span className={`rounded-full px-2 py-0.5 text-xs ${conversation.handling_mode === "manual" ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-700"}`}>
+                      <span className={`rounded-full px-2 py-0.5 text-xs ${conversation.handling_mode === "manual" ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"}`}>
                         {conversation.handling_mode.toUpperCase()}
                       </span>
                     </div>
-                    <p className="mt-1 truncate text-sm text-gray-500">{conversation.last_message?.body || "No message body"}</p>
-                    <div className="mt-2 flex items-center justify-between text-xs text-gray-400">
+                    <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">{conversation.last_message?.body || "No message body"}</p>
+                    <div className="mt-2 flex items-center justify-between text-xs text-gray-400 dark:text-gray-500">
                       <span>{formatDate(conversation.last_message_at)}</span>
                       {conversation.unread_inbound_count > 0 && (
-                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-green-700">{conversation.unread_inbound_count} new</span>
+                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-green-700 dark:bg-green-900/40 dark:text-green-300">{conversation.unread_inbound_count} new</span>
                       )}
                     </div>
                   </button>
@@ -227,48 +258,50 @@ export default function ConversationsPage() {
           </aside>
 
           <section className="flex min-h-[720px] flex-col">
-            <div className="border-b px-5 py-4">
+            <div className="border-b px-5 py-4 dark:border-gray-800">
               {selected ? (
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <h2 className="text-lg font-semibold">{selected.display_name || selected.phone_e164}</h2>
-                    <p className="text-sm text-gray-500">{selected.phone_e164}{selected.email ? ` · ${selected.email}` : ""}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{selected.phone_e164}{selected.email ? ` · ${selected.email}` : ""}</p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-500">Agent</span>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-sm font-medium ${!isManual ? "text-blue-600 dark:text-blue-400" : "text-gray-400 dark:text-gray-500"}`}>Agent</span>
                     <button
                       type="button"
-                      onClick={() => void setMode(selected.handling_mode === "manual" ? "ai" : "manual")}
+                      onClick={() => void setMode(isManual ? "ai" : "manual")}
                       disabled={savingMode}
-                      className={`relative h-7 w-14 rounded-full transition-colors ${selected.handling_mode === "manual" ? "bg-amber-500" : "bg-blue-600"} disabled:opacity-50`}
+                      role="switch"
+                      aria-checked={isManual}
+                      className={`relative inline-flex h-7 w-14 shrink-0 items-center rounded-full transition-colors ${isManual ? "bg-amber-500" : "bg-blue-600"} disabled:opacity-50`}
                       aria-label="Toggle manual mode"
                     >
-                      <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${selected.handling_mode === "manual" ? "translate-x-7" : "translate-x-1"}`} />
+                      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${isManual ? "translate-x-8" : "translate-x-1"}`} />
                     </button>
-                    <span className="text-sm text-gray-500">Manual</span>
+                    <span className={`text-sm font-medium ${isManual ? "text-amber-600 dark:text-amber-400" : "text-gray-400 dark:text-gray-500"}`}>Manual</span>
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-gray-500">Select a conversation.</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Select a conversation.</p>
               )}
             </div>
 
-            <div className="flex-1 space-y-3 overflow-y-auto bg-gray-50 p-5">
+            <div className="flex-1 space-y-3 overflow-y-auto bg-gray-50 p-5 dark:bg-gray-950/40">
               {selected?.messages.map((message) => (
                 <div key={message.id} className={`flex ${message.direction === "outbound" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[78%] rounded-lg border px-4 py-3 shadow-sm ${message.direction === "outbound" ? "bg-blue-600 text-white" : "bg-white text-gray-900"}`}>
+                  <div className={`max-w-[78%] rounded-lg border px-4 py-3 shadow-sm ${message.direction === "outbound" ? "bg-blue-600 text-white dark:bg-blue-700" : "bg-white text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"}`}>
                     <p className="whitespace-pre-wrap text-sm leading-6">{message.body || `[${message.message_type || "message"}]`}</p>
-                    <p className={`mt-2 text-xs ${message.direction === "outbound" ? "text-blue-100" : "text-gray-400"}`}>{formatDate(message.created_at)}</p>
+                    <p className={`mt-2 text-xs ${message.direction === "outbound" ? "text-blue-100" : "text-gray-400 dark:text-gray-500"}`}>{formatDate(message.created_at)}</p>
                   </div>
                 </div>
               ))}
-              {selected && selected.messages.length === 0 && <p className="text-sm text-gray-500">No messages stored for this conversation.</p>}
+              {selected && selected.messages.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">No messages stored for this conversation.</p>}
             </div>
 
-            <form onSubmit={sendReply} className="border-t bg-white p-4">
+            <form onSubmit={sendReply} className="border-t bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
               <div className="mb-2 flex items-center justify-between">
                 <p className="text-sm font-medium">Manual WhatsApp Reply</p>
-                {selected?.handling_mode !== "manual" && <p className="text-xs text-amber-700">Switch to Manual before replying.</p>}
+                {selected?.handling_mode !== "manual" && <p className="text-xs text-amber-700 dark:text-amber-400">Switch to Manual before replying.</p>}
               </div>
               <div className="flex gap-2">
                 <textarea
@@ -277,12 +310,12 @@ export default function ConversationsPage() {
                   rows={2}
                   disabled={!selected || selected.handling_mode !== "manual" || sending}
                   placeholder="Type a WhatsApp reply"
-                  className="min-h-[56px] flex-1 resize-none rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                  className="min-h-[56px] flex-1 resize-none rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500 dark:disabled:bg-gray-800/50"
                 />
                 <button
                   type="submit"
                   disabled={!selected || selected.handling_mode !== "manual" || !reply.trim() || sending}
-                  className="w-24 rounded-md bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+                  className="w-24 rounded-md bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300 dark:disabled:bg-gray-700"
                 >
                   {sending ? "Sending" : "Send"}
                 </button>
@@ -290,26 +323,26 @@ export default function ConversationsPage() {
             </form>
           </section>
 
-          <aside className="border-t bg-white lg:border-l lg:border-t-0">
-            <div className="border-b px-4 py-3">
+          <aside className="border-t bg-white lg:border-l lg:border-t-0 dark:border-gray-800 dark:bg-gray-900">
+            <div className="border-b px-4 py-3 dark:border-gray-800">
               <h2 className="font-semibold">Tool Calls</h2>
-              <p className="text-xs text-gray-500">Agent actions for this thread</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Agent actions for this thread</p>
             </div>
             <div className="max-h-[668px] space-y-3 overflow-y-auto p-4">
               {selected?.tool_calls.map((call) => (
-                <div key={call.id} className="rounded-lg border bg-gray-50 p-3">
+                <div key={call.id} className="rounded-lg border bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
                   <div className="flex items-center justify-between gap-2">
                     <p className="truncate text-sm font-medium">{call.tool_name}</p>
-                    <span className={`rounded-full px-2 py-0.5 text-xs ${call.allowed ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                    <span className={`rounded-full px-2 py-0.5 text-xs ${call.allowed ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"}`}>
                       {call.allowed ? "Allowed" : "Blocked"}
                     </span>
                   </div>
-                  <p className="mt-1 text-xs text-gray-500">{formatDate(call.created_at)}</p>
-                  {call.result_summary && <p className="mt-2 text-sm text-gray-600">{call.result_summary}</p>}
-                  <pre className="mt-2 max-h-32 overflow-auto rounded bg-white p-2 text-xs text-gray-500">{stringify(call.arguments)}</pre>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{formatDate(call.created_at)}</p>
+                  {call.result_summary && <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{call.result_summary}</p>}
+                  <pre className="mt-2 max-h-32 overflow-auto rounded bg-white p-2 text-xs text-gray-500 dark:bg-gray-900 dark:text-gray-400">{stringify(call.arguments)}</pre>
                 </div>
               ))}
-              {selected && selected.tool_calls.length === 0 && <p className="text-sm text-gray-500">No tool calls for this conversation yet.</p>}
+              {selected && selected.tool_calls.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">No tool calls for this conversation yet.</p>}
             </div>
           </aside>
         </div>
