@@ -6,6 +6,7 @@ import {
   ForbiddenError,
 } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { hasElevatedDeptRoleForDepartment } from "@/lib/permissions";
 import { isTaskPriority, isTaskStatus, priorityWeight } from "@/lib/tasks/types";
 
 const taskSelect =
@@ -18,9 +19,7 @@ export async function GET(
   try {
     const caller = await resolveCallerFromRequest(req);
     const { id } = await params;
-    if (caller.global_role !== "member") {
-      guardDeptAccess(caller, id);
-    }
+    guardDeptAccess(caller, id);
 
     const supabase = getSupabaseAdmin();
     const status = req.nextUrl.searchParams.get("status");
@@ -49,7 +48,7 @@ export async function GET(
       query = query.eq("priority", priority);
     }
 
-    if (caller.global_role === "member" && !caller.can_read_all) {
+    if (!caller.can_read_all && !hasElevatedDeptRoleForDepartment(caller, id)) {
       query = query.eq("assigned_to", caller.user_id);
     }
 

@@ -1,6 +1,6 @@
 import type OpenAI from "openai";
 
-import { canUseTool, canUseTaskTool, type AppUser, type GlobalRole } from "@/lib/permissions";
+import { canUseTool, canUseTaskToolForCaller, type AppUser } from "@/lib/permissions";
 import { recordToolAudit } from "@/lib/supabase/server";
 import type { CallerContext } from "@/lib/api/auth";
 
@@ -233,7 +233,7 @@ export const toolDefinitions: ToolDefinition[] = [
     type: "function",
     function: {
       name: "create_task",
-      description: "Create a new task. Requires PM, HOD, or Leadership/Admin role.",
+      description: "Create a ticket/task. Department members can create tickets assigned to themselves; PM/HOD/Leadership can assign tickets.",
       parameters: {
         type: "object",
         properties: {
@@ -346,10 +346,9 @@ export async function executeTool(name: string, args: ToolInput, context: ToolCo
   }
 
   // Additional permission check for task tools
-  const globalRole = context.callerContext?.global_role ?? "member";
-  if (!canUseTaskTool(globalRole as GlobalRole, name) && isTaskTool(name)) {
+  if (!canUseTaskToolForCaller(context.callerContext, name) && isTaskTool(name)) {
     const restricted = {
-      error: `This action requires ${getRequiredRole(name)} role. Your current role is: ${globalRole}`,
+      error: `This action requires ${getRequiredRole(name)} access.`,
     };
 
     await recordToolAudit({
@@ -390,7 +389,10 @@ function getRequiredRole(name: string): string {
   if (["get_all_departments_summary", "get_department_tasks"].includes(name)) {
     return "leadership_admin";
   }
-  if (["update_task_status", "create_task", "assign_task", "get_top_blockers"].includes(name)) {
+  if (name === "create_task") {
+    return "department membership";
+  }
+  if (["update_task_status", "assign_task", "get_top_blockers"].includes(name)) {
     return "pm, hod, or leadership_admin";
   }
   return "any authenticated user";

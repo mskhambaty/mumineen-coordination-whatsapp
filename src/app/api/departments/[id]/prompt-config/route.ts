@@ -15,9 +15,6 @@ export async function GET(
   try {
     const caller = await resolveCallerFromRequest(req);
     const { id } = await params;
-    if (!caller.can_write_all && caller.global_role === "member") {
-      return NextResponse.json({ error: "PM, HOD, or leadership/admin access required" }, { status: 403 });
-    }
     guardWriteAccess(caller, id);
 
     const supabase = getSupabaseAdmin();

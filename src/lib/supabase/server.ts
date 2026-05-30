@@ -56,27 +56,11 @@ export async function getOrCreateWhatsappUser(
     };
   }
 
-  const { data: created, error: createError } = await supabase
-    .from("whatsapp_users")
-    .insert({
-      phone_e164: phoneE164,
-      display_name: displayName,
-      role: "visitor",
-      status: "active",
-    })
-    .select("id, phone_e164, display_name, role, status")
-    .single();
-
-  if (createError) {
-    throw createError;
-  }
-
   return {
-    id: created.id,
-    phone_e164: created.phone_e164,
-    display_name: created.display_name,
-    role: created.role as UserRole,
-    status: created.status,
+    phone_e164: phoneE164,
+    display_name: displayName ?? null,
+    role: "visitor",
+    status: "active",
   };
 }
 

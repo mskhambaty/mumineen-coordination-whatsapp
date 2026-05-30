@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 export type CallerContext = {
   user_id: string;
   display_name: string | null;
+  role?: "visitor" | "committee" | "admin";
   global_role: "member" | "pm" | "hod" | "leadership_admin";
   can_read_all: boolean;
   can_write_all: boolean;
@@ -27,6 +28,7 @@ export async function resolveCallerFromPhone(phone: string): Promise<CallerConte
   return {
     user_id: result.user_id as string,
     display_name: (result.display_name as string) ?? null,
+    role: result.role as CallerContext["role"],
     global_role: result.global_role as CallerContext["global_role"],
     can_read_all: result.can_read_all as boolean,
     can_write_all: result.can_write_all as boolean,
@@ -74,6 +76,7 @@ export async function resolveCallerFromRequest(req: Request): Promise<CallerCont
     return {
       user_id: "admin-api",
       display_name: "Admin API",
+      role: "admin",
       global_role: "leadership_admin",
       can_read_all: true,
       can_write_all: true,

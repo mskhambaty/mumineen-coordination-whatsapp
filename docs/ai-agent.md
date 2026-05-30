@@ -78,7 +78,7 @@ All tools are defined in `src/lib/agent/tools.ts`.
 | `get_task_detail` | Gets a task by ID or keyword |
 | `get_department_summary` | Gets task counts for one department |
 | `update_task_status` | Updates status and/or priority |
-| `create_task` | Creates a task with optional priority |
+| `create_task` | Creates a ticket/task; department members create self-assigned tickets, PM/HOD can assign |
 | `assign_task` | Assigns a task to another user |
 | `get_top_blockers` | Returns highest priority blocked or overdue tasks |
 | `get_all_departments_summary` | Leadership/admin cross-department summary |
@@ -86,13 +86,11 @@ All tools are defined in `src/lib/agent/tools.ts`.
 
 ### Current Status
 
-All tools currently return placeholder `"not_published"` or `"not_connected"` responses.  
-They are wired and permission-gated but not yet connected to live data sources.  
-When integrating real data, update `runTool()` in `tools.ts` for the relevant case.
+Public event tools still return placeholder `"not_published"` or `"not_connected"` responses where the source system is not connected. Task tools are wired to the internal task APIs and are permission-gated by account role and department role.
 
 ## Tool Execution
 
-1. `canUseTool(user, toolName)` — checks role and active status (see [permissions.md](./permissions.md)).
+1. `canUseTool(user, toolName)` — checks account role and active status (see [permissions.md](./permissions.md)).
 2. If denied, returns the restriction error string and writes a `tool_audit_logs` row with `allowed: false`.
 3. If allowed, calls `runTool()` and writes a `tool_audit_logs` row with `allowed: true`.
 

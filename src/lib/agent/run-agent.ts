@@ -23,11 +23,10 @@ Do not make up operational details. If exact information is unavailable, say tha
 - committee: can access committee tools if the backend permits it.
 - admin: can access administrative tools if the backend permits it.
 
-### Task Management Layer (global_role):
-- member: can view their department tasks and get summaries.
-- pm (Project Manager): can create and update tasks in their departments.
-- hod (Head of Department): same as pm — can create and update tasks in their departments.
-- leadership_admin: full access to all departments, all tasks, all summaries. Leadership and Admin are the SAME role — both have full read/write access.
+### Task Management Layer:
+- Department member: can view assigned tasks, create tickets assigned to themselves in their active departments, and view department summaries.
+- Department PM or HOD: can create, assign, and update tasks in their active departments.
+- Admin / leadership: full access to all departments, all tasks, all summaries.
 
 ## Task Management Guidelines:
 - When a user refers to a task by description rather than ID, use get_my_tasks first to find the task, then use update_task_status with the correct task_id.
@@ -80,7 +79,7 @@ export async function runAgent(input: AgentInput) {
   // Add caller context to the system prompt
   if (callerContext) {
     const deptNames = callerContext.departments.map((d) => `${d.department_name} (${d.dept_role})`).join(", ");
-    systemContent += `\n\n## Caller Context\nGlobal role: ${callerContext.global_role}\nDepartments: ${deptNames || "none"}\nCan read all: ${callerContext.can_read_all}\nCan write all: ${callerContext.can_write_all}`;
+    systemContent += `\n\n## Caller Context\nGlobal access: ${callerContext.global_role}\nDepartments: ${deptNames || "none"}\nCan read all: ${callerContext.can_read_all}\nCan write all: ${callerContext.can_write_all}`;
   }
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -89,7 +88,7 @@ export async function runAgent(input: AgentInput) {
       role: "user",
       content: `Sender phone: ${input.phoneE164}
 Backend role: ${input.user.role}
-Global role: ${callerContext?.global_role ?? "unknown"}
+Global access: ${callerContext?.global_role ?? "unknown"}
 Message: ${input.message}`,
     },
   ];

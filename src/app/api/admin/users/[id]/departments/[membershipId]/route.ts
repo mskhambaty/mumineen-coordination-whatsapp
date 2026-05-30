@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminKey } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
+const deptRoles = new Set(["member", "pm", "hod"]);
+
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; membershipId: string }> },
@@ -17,7 +19,12 @@ export async function PUT(
 
   const updates: Record<string, unknown> = {};
   if (body.is_active !== undefined) updates.is_active = body.is_active;
-  if (body.dept_role) updates.dept_role = body.dept_role;
+  if (body.dept_role) {
+    if (!deptRoles.has(body.dept_role)) {
+      return NextResponse.json({ error: "Invalid dept_role" }, { status: 400 });
+    }
+    updates.dept_role = body.dept_role;
+  }
 
   const { data, error } = await supabase
     .from("department_members")

@@ -9,11 +9,6 @@ export async function POST(req: NextRequest) {
   try {
     const caller = await resolveCallerFromRequest(req);
 
-    // Only pm, hod, or leadership_admin can upload
-    if (caller.global_role === "member" && !caller.can_write_all) {
-      return NextResponse.json({ error: "Insufficient permissions to upload transcripts" }, { status: 403 });
-    }
-
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
     const departmentId = formData.get("department_id") as string | null;

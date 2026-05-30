@@ -10,12 +10,14 @@ type DigestUser = {
   phone_e164: string;
   display_name: string | null;
   email: string;
+  role: "visitor" | "committee" | "admin";
   global_role: "member" | "pm" | "hod" | "leadership_admin";
   email_digest: boolean;
 };
 
 type MembershipRow = {
   department_id: string;
+  dept_role: string;
 };
 
 type DigestTaskRow = {
@@ -26,7 +28,7 @@ type DigestTaskRow = {
   due_date: string | null;
   department_id: string;
   updated_at: string;
-  departments?: { name?: string | null } | null;
+  departments?: { name?: string | null } | { name?: string | null }[] | null;
 };
 
 type DigestResult = {
@@ -56,7 +58,7 @@ async function runDailyDigest(req: Request) {
   try {
     const { data: users, error } = await supabase
       .from("whatsapp_users")
-      .select("id, phone_e164, display_name, email, global_role, email_digest")
+      .select("id, phone_e164, display_name, email, role, global_role, email_digest")
       .eq("status", "active")
       .eq("email_digest", true)
       .not("email", "is", null);
@@ -123,18 +125,30 @@ async function getDigestTasksForUser(user: DigestUser): Promise<DigestTaskRow[]>
     .eq("archived", false)
     .neq("status", "complete");
 
-  if (user.global_role === "pm" || user.global_role === "hod") {
-    const { data: memberships, error } = await supabase
-      .from("department_members")
-      .select("department_id")
-      .eq("user_id", user.id)
-      .eq("is_active", true);
-
+  if (user.role === "admin" || user.global_role === "leadership_admin") {
+    const { data, error } = await query;
     if (error) {
       throw error;
     }
 
-    const departmentIds = Array.from(new Set(((memberships ?? []) as MembershipRow[]).map((row) => row.department_id)));
+    return sortDigestTasks(data ?? []);
+  }
+
+  const { data: memberships, error: membershipError } = await supabase
+    .from("department_members")
+    .select("department_id, dept_role")
+    .eq("user_id", user.id)
+    .eq("is_active", true);
+
+  if (membershipError) {
+    throw membershipError;
+  }
+
+  const elevatedMemberships = ((memberships ?? []) as MembershipRow[])
+    .filter((row) => row.dept_role === "pm" || row.dept_role === "hod");
+
+  if (elevatedMemberships.length > 0) {
+    const departmentIds = Array.from(new Set(elevatedMemberships.map((row) => row.department_id)));
     if (departmentIds.length === 0) {
       return [];
     }
@@ -148,7 +162,11 @@ async function getDigestTasksForUser(user: DigestUser): Promise<DigestTaskRow[]>
     throw error;
   }
 
-  return ((data ?? []) as DigestTaskRow[])
+  return sortDigestTasks(data ?? []);
+}
+
+function sortDigestTasks(tasks: DigestTaskRow[]) {
+  return (tasks as DigestTaskRow[])
     .sort((a, b) => {
       const priorityDiff = priorityWeight(b.priority) - priorityWeight(a.priority);
       if (priorityDiff !== 0) return priorityDiff;
@@ -162,7 +180,15 @@ function toEmailTask(task: DigestTaskRow): TaskNotificationEmailTask {
     title: task.title,
     status: task.status,
     priority: task.priority,
-    department: task.departments?.name ?? "Unknown",
+    department: getDepartmentName(task.departments),
     due_date: task.due_date ?? undefined,
   };
+}
+
+function getDepartmentName(department: DigestTaskRow["departments"]) {
+  if (Array.isArray(department)) {
+    return department[0]?.name ?? "Unknown";
+  }
+
+  return department?.name ?? "Unknown";
 }

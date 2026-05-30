@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { canWriteTasks, canUseTaskTool } from "@/lib/permissions";
+import {
+  canUseTaskTool,
+  canUseTaskToolForCaller,
+  canWriteTasks,
+  getElevatedDepartmentIds,
+  hasElevatedDeptRoleForDepartment,
+} from "@/lib/permissions";
 
 describe("canWriteTasks", () => {
   it("returns true for leadership_admin regardless of dept access", () => {
@@ -51,5 +57,51 @@ describe("canUseTaskTool", () => {
     expect(canUseTaskTool("pm", "get_all_departments_summary")).toBe(false);
     expect(canUseTaskTool("hod", "get_department_tasks")).toBe(false);
     expect(canUseTaskTool("member", "get_all_departments_summary")).toBe(false);
+  });
+});
+
+describe("canUseTaskToolForCaller", () => {
+  it("allows department members to create their own tickets", () => {
+    expect(canUseTaskToolForCaller({
+      global_role: "member",
+      departments: [{ dept_role: "member" }],
+    }, "create_task")).toBe(true);
+  });
+
+  it("allows task writes for department PM or HOD callers", () => {
+    expect(canUseTaskToolForCaller({
+      global_role: "member",
+      departments: [{ dept_role: "pm" }],
+    }, "update_task_status")).toBe(true);
+  });
+
+  it("blocks leadership tools for department PM/HOD callers", () => {
+    expect(canUseTaskToolForCaller({
+      global_role: "member",
+      departments: [{ dept_role: "hod" }],
+    }, "get_all_departments_summary")).toBe(false);
+  });
+});
+
+describe("department role helpers", () => {
+  it("returns only elevated departments", () => {
+    expect(getElevatedDepartmentIds({
+      departments: [
+        { department_id: "dept-member", dept_role: "member" },
+        { department_id: "dept-pm", dept_role: "pm" },
+      ],
+    })).toEqual(["dept-pm"]);
+  });
+
+  it("checks elevated access for the requested department only", () => {
+    const caller = {
+      departments: [
+        { department_id: "dept-a", dept_role: "hod" },
+        { department_id: "dept-b", dept_role: "member" },
+      ],
+    };
+
+    expect(hasElevatedDeptRoleForDepartment(caller, "dept-a")).toBe(true);
+    expect(hasElevatedDeptRoleForDepartment(caller, "dept-b")).toBe(false);
   });
 });

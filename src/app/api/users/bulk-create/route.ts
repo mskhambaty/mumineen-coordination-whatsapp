@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
             phone_e164: member.phone_e164,
             email: member.email,
             role: "committee",
-            global_role: member.dept_role === "member" ? "member" : member.dept_role,
+            global_role: "member",
             status: "active",
             transcript_aliases: member.transcript_aliases,
           },

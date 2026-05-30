@@ -12,12 +12,54 @@ type User = {
   role: string;
   global_role: string;
   status: string;
+  department_membership_id?: string | null;
+  department_role?: string | null;
 };
 
 type Department = {
   id: string;
   name: string;
 };
+
+type UserForm = {
+  display_name: string;
+  phone_e164: string;
+  email: string;
+  role: string;
+  global_role: string;
+  status: string;
+};
+
+type DepartmentMembership = {
+  id: string;
+  department_id: string;
+  dept_role: string;
+  is_active: boolean;
+};
+
+const USER_ROLE_OPTIONS = [
+  { value: "committee", label: "Committee" },
+  { value: "admin", label: "Admin / Leadership" },
+  { value: "visitor", label: "Visitor" },
+];
+
+const GLOBAL_ROLE_OPTIONS = [
+  { value: "member", label: "Member" },
+  { value: "pm", label: "PM" },
+  { value: "hod", label: "HOD" },
+  { value: "leadership_admin", label: "Leadership / Admin" },
+];
+
+const DEPT_ROLE_OPTIONS = [
+  { value: "member", label: "Member" },
+  { value: "pm", label: "PM" },
+  { value: "hod", label: "HOD" },
+];
+
+const STATUS_OPTIONS = [
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+];
 
 export default function UsersPage() {
   const router = useRouter();
@@ -29,8 +71,11 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddUser, setShowAddUser] = useState(false);
-  const [newUser, setNewUser] = useState({ display_name: "", phone_e164: "", email: "", global_role: "member" });
+  const [newUser, setNewUser] = useState({ display_name: "", phone_e164: "", email: "", role: "committee", global_role: "member" });
   const [newUserDeptRole, setNewUserDeptRole] = useState("member");
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editForm, setEditForm] = useState<UserForm | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [existingUserId, setExistingUserId] = useState("");
   const [existingUserDeptRole, setExistingUserDeptRole] = useState("member");
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -61,6 +106,7 @@ export default function UsersPage() {
         user.email,
         user.role,
         user.global_role,
+        user.department_role,
         user.status,
       ].some((value) => value?.toLowerCase().includes(query)),
     );
@@ -136,8 +182,8 @@ export default function UsersPage() {
         throw new Error(data.error ?? "Failed to update user");
       }
       const updated = await res.json() as User;
-      setUsers((items) => items.map((user) => user.id === id ? updated : user));
-      setAllUsers((items) => items.map((user) => user.id === id ? updated : user));
+      setUsers((items) => items.map((user) => user.id === id ? { ...user, ...updated } : user));
+      setAllUsers((items) => items.map((user) => user.id === id ? { ...user, ...updated } : user));
     } catch (err) {
       console.error("Failed to update user:", err);
       setError(err instanceof Error ? err.message : "Failed to update user");
@@ -160,16 +206,22 @@ export default function UsersPage() {
         throw new Error(data.error ?? "Failed to add user");
       }
       const created = await res.json() as User;
+      let createdForList = created;
 
       if (selectedDepartmentId !== "all") {
-        await addMembership(created.id, selectedDepartmentId, newUserDeptRole);
+        const membership = await addMembership(created.id, selectedDepartmentId, newUserDeptRole);
+        createdForList = {
+          ...created,
+          department_membership_id: membership.id,
+          department_role: membership.dept_role,
+        };
       }
 
       setShowAddUser(false);
-      setNewUser({ display_name: "", phone_e164: "", email: "", global_role: "member" });
+      setNewUser({ display_name: "", phone_e164: "", email: "", role: "committee", global_role: "member" });
       setNewUserDeptRole("member");
       setAllUsers((items) => [...items, created].sort(sortUsers));
-      setUsers((items) => [...items, created].sort(sortUsers));
+      setUsers((items) => [...items, createdForList].sort(sortUsers));
     } catch (err) {
       console.error("Failed to add user:", err);
       setError(err instanceof Error ? err.message : "Failed to add user");
@@ -183,10 +235,17 @@ export default function UsersPage() {
     setAddingExisting(true);
     setError(null);
     try {
-      await addMembership(existingUserId, selectedDepartmentId, existingUserDeptRole);
+      const membership = await addMembership(existingUserId, selectedDepartmentId, existingUserDeptRole);
       const user = allUsers.find((item) => item.id === existingUserId);
       if (user) {
-        setUsers((items) => [...items, user].sort(sortUsers));
+        setUsers((items) => [
+          ...items,
+          {
+            ...user,
+            department_membership_id: membership.id,
+            department_role: membership.dept_role,
+          },
+        ].sort(sortUsers));
       }
       setExistingUserId("");
       setExistingUserDeptRole("member");
@@ -198,7 +257,7 @@ export default function UsersPage() {
     }
   }
 
-  async function addMembership(userId: string, departmentId: string, deptRole: string) {
+  async function addMembership(userId: string, departmentId: string, deptRole: string): Promise<DepartmentMembership> {
     const res = await fetch(`/api/admin/users/${userId}/departments`, {
       method: "POST",
       headers: {
@@ -211,6 +270,86 @@ export default function UsersPage() {
     if (!res.ok) {
       const data = await res.json().catch(() => ({})) as { error?: string };
       throw new Error(data.error ?? "Failed to add department membership");
+    }
+
+    return await res.json() as DepartmentMembership;
+  }
+
+  function openEditUser(user: User) {
+    setEditingUser(user);
+    setEditForm({
+      display_name: user.display_name ?? "",
+      phone_e164: user.phone_e164,
+      email: user.email ?? "",
+      role: user.role,
+      global_role: user.global_role,
+      status: user.status,
+    });
+  }
+
+  async function saveUser(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingUser || !editForm) return;
+
+    setSavingEdit(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/users/${editingUser.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-key": adminKey,
+        },
+        body: JSON.stringify({
+          display_name: editForm.display_name,
+          phone_e164: editForm.phone_e164,
+          email: editForm.email || null,
+          role: editForm.role,
+          global_role: editForm.global_role,
+          status: editForm.status,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(data.error ?? "Failed to save user");
+      }
+
+      const updated = await res.json() as User;
+      setUsers((items) => items.map((user) => user.id === updated.id ? { ...user, ...updated } : user));
+      setAllUsers((items) => items.map((user) => user.id === updated.id ? { ...user, ...updated } : user));
+      setEditingUser(null);
+      setEditForm(null);
+    } catch (err) {
+      console.error("Failed to save user:", err);
+      setError(err instanceof Error ? err.message : "Failed to save user");
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  async function updateDepartmentRole(user: User, deptRole: string) {
+    if (!selectedDepartment || !user.department_membership_id) return;
+
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}/departments/${user.department_membership_id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-key": adminKey,
+        },
+        body: JSON.stringify({ dept_role: deptRole }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(data.error ?? "Failed to update department role");
+      }
+
+      setUsers((items) => items.map((item) => item.id === user.id ? { ...item, department_role: deptRole } : item));
+    } catch (err) {
+      console.error("Failed to update department role:", err);
+      setError(err instanceof Error ? err.message : "Failed to update department role");
     }
   }
 
@@ -297,27 +436,149 @@ export default function UsersPage() {
                   <input type="email" value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" />
                 </div>
                 <div>
+                  <label className="block text-sm font-medium text-gray-700">Account Role</label>
+                  <select
+                    value={newUser.role}
+                    onChange={(e) => {
+                      const role = e.target.value;
+                      setNewUser({
+                        ...newUser,
+                        role,
+                        global_role: role === "admin" ? "leadership_admin" : newUser.global_role,
+                      });
+                    }}
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                  >
+                    {USER_ROLE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-gray-700">Global Role</label>
                   <select value={newUser.global_role} onChange={(e) => setNewUser({ ...newUser, global_role: e.target.value })} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
-                    <option value="member">Member</option>
-                    <option value="pm">PM</option>
-                    <option value="hod">HOD</option>
-                    <option value="leadership_admin">Leadership / Admin</option>
+                    {GLOBAL_ROLE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
                   </select>
                 </div>
                 {selectedDepartment && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Department Role in {selectedDepartment.name}</label>
                     <select value={newUserDeptRole} onChange={(e) => setNewUserDeptRole(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
-                      <option value="member">Member</option>
-                      <option value="pm">PM</option>
-                      <option value="hod">HOD</option>
+                      {DEPT_ROLE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
                     </select>
                   </div>
                 )}
                 <div className="flex justify-end space-x-3">
                   <button type="button" onClick={() => setShowAddUser(false)} className="px-4 py-2 text-gray-600">Cancel</button>
                   <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Add</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {editingUser && editForm && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-lg">
+              <h3 className="text-lg font-semibold mb-4">Edit User</h3>
+              <form onSubmit={saveUser} className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Display Name
+                    <input
+                      type="text"
+                      value={editForm.display_name}
+                      onChange={(event) => setEditForm({ ...editForm, display_name: event.target.value })}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                    />
+                  </label>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Phone (E.164)
+                    <input
+                      type="text"
+                      required
+                      value={editForm.phone_e164}
+                      onChange={(event) => setEditForm({ ...editForm, phone_e164: event.target.value })}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                    />
+                  </label>
+                </div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Email
+                  <input
+                    type="email"
+                    value={editForm.email}
+                    onChange={(event) => setEditForm({ ...editForm, email: event.target.value })}
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </label>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Account Role
+                    <select
+                      value={editForm.role}
+                      onChange={(event) => {
+                        const role = event.target.value;
+                        setEditForm({
+                          ...editForm,
+                          role,
+                          global_role: role === "admin" ? "leadership_admin" : editForm.global_role,
+                        });
+                      }}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                    >
+                      {USER_ROLE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Global Role
+                    <select
+                      value={editForm.global_role}
+                      onChange={(event) => setEditForm({ ...editForm, global_role: event.target.value })}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                    >
+                      {GLOBAL_ROLE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Status
+                    <select
+                      value={editForm.status}
+                      onChange={(event) => setEditForm({ ...editForm, status: event.target.value })}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                    >
+                      {STATUS_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="flex justify-end space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingUser(null);
+                      setEditForm(null);
+                    }}
+                    className="px-4 py-2 text-gray-600"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingEdit}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+                  >
+                    {savingEdit ? "Saving..." : "Save"}
+                  </button>
                 </div>
               </form>
             </div>
@@ -354,9 +615,9 @@ export default function UsersPage() {
                     onChange={(event) => setExistingUserDeptRole(event.target.value)}
                     className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
                   >
-                    <option value="member">Member</option>
-                    <option value="pm">PM</option>
-                    <option value="hod">HOD</option>
+                    {DEPT_ROLE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
                   </select>
                 </label>
                 <button
@@ -413,8 +674,11 @@ export default function UsersPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Display Name</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Phone</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Account Role</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Global Role</th>
+                  {selectedDepartment && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dept Role</th>
+                  )}
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
@@ -425,34 +689,68 @@ export default function UsersPage() {
                     <td className="px-6 py-4 font-medium">{user.display_name ?? "—"}</td>
                     <td className="px-6 py-4 text-sm text-gray-600">{user.phone_e164}</td>
                     <td className="px-6 py-4 text-sm text-gray-600">{user.email ?? "—"}</td>
-                    <td className="px-6 py-4 text-sm">{user.role}</td>
+                    <td className="px-6 py-4">
+                      <select
+                        value={user.role}
+                        onChange={(e) => updateUser(user.id, "role", e.target.value)}
+                        className="text-sm border rounded px-2 py-1"
+                      >
+                        {USER_ROLE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </td>
                     <td className="px-6 py-4">
                       <select
                         value={user.global_role}
                         onChange={(e) => updateUser(user.id, "global_role", e.target.value)}
                         className="text-sm border rounded px-2 py-1"
                       >
-                        <option value="member">Member</option>
-                        <option value="pm">PM</option>
-                        <option value="hod">HOD</option>
-                        <option value="leadership_admin">Leadership / Admin</option>
+                        {GLOBAL_ROLE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
                       </select>
                     </td>
+                    {selectedDepartment && (
+                      <td className="px-6 py-4">
+                        {user.department_membership_id ? (
+                          <select
+                            value={user.department_role ?? "member"}
+                            onChange={(event) => void updateDepartmentRole(user, event.target.value)}
+                            className="text-sm border rounded px-2 py-1"
+                          >
+                            {DEPT_ROLE_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="text-sm text-gray-400">Not assigned</span>
+                        )}
+                      </td>
+                    )}
                     <td className="px-6 py-4">
                       <select
                         value={user.status}
                         onChange={(e) => updateUser(user.id, "status", e.target.value)}
                         className="text-sm border rounded px-2 py-1"
                       >
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
+                        {STATUS_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
                       </select>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                      <Link href={`/admin/users/${user.id}/departments`} className="text-blue-600 text-sm hover:underline">
-                        Departments
-                      </Link>
+                        <button
+                          type="button"
+                          onClick={() => openEditUser(user)}
+                          className="text-sm text-blue-600 hover:underline"
+                        >
+                          Edit
+                        </button>
+                        <Link href={`/admin/users/${user.id}/departments`} className="text-blue-600 text-sm hover:underline">
+                          Departments
+                        </Link>
                         <button
                           type="button"
                           onClick={() => void deleteUser(user)}
@@ -468,7 +766,7 @@ export default function UsersPage() {
                 ))}
                 {filteredUsers.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500">
+                    <td colSpan={selectedDepartment ? 8 : 7} className="px-6 py-8 text-center text-sm text-gray-500">
                       No users match the current filters.
                     </td>
                   </tr>
@@ -496,13 +794,14 @@ export default function UsersPage() {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {[
-                  ["View own dept tasks", true, true, true, true],
-                  ["View ALL dept tasks", false, false, false, true],
-                  ["Create tasks (own dept)", false, true, true, true],
-                  ["Update task status (own dept)", false, true, true, true],
-                  ["Update ANY dept tasks", false, false, false, true],
-                  ["Get dept summary (own)", true, true, true, true],
-                  ["Get ALL depts summary", false, false, false, true],
+                  ["View assigned tasks", true, true, true, true],
+                  ["View all tasks in assigned dept", false, true, true, true],
+                  ["Create own tickets", true, true, true, true],
+                  ["Assign created tickets", false, true, true, true],
+                  ["Update task status in dept", false, true, true, true],
+                  ["Update any dept tasks", false, false, false, true],
+                  ["Get dept summary", true, true, true, true],
+                  ["Get all dept summaries", false, false, false, true],
                   ["Upload transcripts", false, true, true, true],
                   ["Manage users & members", false, false, false, true],
                 ].map(([action, member, pm, hod, admin], i) => (

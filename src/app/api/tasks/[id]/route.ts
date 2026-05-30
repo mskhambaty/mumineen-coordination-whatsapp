@@ -6,6 +6,7 @@ import {
   ForbiddenError,
 } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { hasElevatedDeptRoleForDepartment } from "@/lib/permissions";
 import { isTaskPriority, isTaskStatus } from "@/lib/tasks/types";
 
 type UpdateTaskBody = {
@@ -43,6 +44,13 @@ export async function GET(
     }
 
     guardDeptAccess(caller, task.department_id);
+    if (
+      !caller.can_read_all &&
+      !hasElevatedDeptRoleForDepartment(caller, task.department_id) &&
+      task.assigned_to !== caller.user_id
+    ) {
+      return NextResponse.json({ error: "You do not have access to this task" }, { status: 403 });
+    }
 
     return NextResponse.json(task);
   } catch (err) {
@@ -74,13 +82,13 @@ export async function PUT(
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
-    const canUpdateOwnTask = caller.global_role === "member" && task.assigned_to === caller.user_id;
+    const callerDept = caller.departments.find((d) => d.department_id === task.department_id);
+    const canManageTaskDepartment =
+      caller.can_write_all || callerDept?.dept_role === "pm" || callerDept?.dept_role === "hod";
+    const canUpdateOwnTask = task.assigned_to === caller.user_id;
 
-    if (!caller.can_write_all) {
-      const hasDept = caller.departments.find((d) => d.department_id === task.department_id);
-      if ((!hasDept || hasDept.dept_role === "member") && !canUpdateOwnTask) {
-        return NextResponse.json({ error: "Insufficient permissions to update this task" }, { status: 403 });
-      }
+    if (!canManageTaskDepartment && !canUpdateOwnTask) {
+      return NextResponse.json({ error: "Insufficient permissions to update this task" }, { status: 403 });
     }
 
     const updates: Record<string, unknown> = {};
@@ -100,7 +108,7 @@ export async function PUT(
     if (body.description !== undefined) updates.description = body.description;
     if (body.due_date !== undefined) updates.due_date = body.due_date;
     if (typeof body.archived === "boolean") {
-      if (canUpdateOwnTask && !caller.can_write_all) {
+      if (!canManageTaskDepartment) {
         return NextResponse.json({ error: "Insufficient permissions to archive this task" }, { status: 403 });
       }
       updates.archived = body.archived;
@@ -108,13 +116,13 @@ export async function PUT(
 
     const assignedTo = typeof body.assigned_to === "string" ? body.assigned_to : undefined;
     if (assignedTo) {
-      if (canUpdateOwnTask && !caller.can_write_all) {
+      if (!canManageTaskDepartment) {
         return NextResponse.json({ error: "Members can only assign tasks to themselves" }, { status: 403 });
       }
       await guardAssigneeAccess(supabase, task.department_id, assignedTo, caller.can_write_all);
       updates.assigned_to = assignedTo;
     } else if (typeof body.assigned_to_alias === "string" && body.assigned_to_alias.trim()) {
-      if (canUpdateOwnTask && !caller.can_write_all) {
+      if (!canManageTaskDepartment) {
         return NextResponse.json({ error: "Members can only assign tasks to themselves" }, { status: 403 });
       }
       const { data: assignee } = await supabase

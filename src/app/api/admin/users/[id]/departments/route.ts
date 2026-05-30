@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminKey } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
+const deptRoles = new Set(["member", "pm", "hod"]);
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -48,6 +50,9 @@ export async function POST(
 
   if (!department_id || !dept_role) {
     return NextResponse.json({ error: "department_id and dept_role are required" }, { status: 400 });
+  }
+  if (!deptRoles.has(dept_role)) {
+    return NextResponse.json({ error: "Invalid dept_role" }, { status: 400 });
   }
 
   const supabase = getSupabaseAdmin();

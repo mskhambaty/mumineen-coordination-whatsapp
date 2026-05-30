@@ -5,6 +5,7 @@ import {
   ForbiddenError,
 } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { getElevatedDepartmentIds } from "@/lib/permissions";
 import { isTaskPriority, isTaskStatus, priorityWeight, type TaskPriority } from "@/lib/tasks/types";
 
 type CreateTaskBody = {
@@ -21,6 +22,13 @@ type CreateTaskBody = {
 
 const taskSelect =
   "id, title, description, status, priority, archived, assigned_to, created_by, source, due_date, department_id, created_at, updated_at, departments(name), assignee:whatsapp_users!tasks_assigned_to_fkey(display_name)";
+
+type TaskRow = {
+  priority?: string | null;
+  updated_at?: string | null;
+  department_id?: string | null;
+  assigned_to?: string | null;
+};
 
 export async function GET(req: NextRequest) {
   try {
@@ -66,9 +74,7 @@ export async function GET(req: NextRequest) {
       query = query.eq("assigned_to", assigneeId);
     }
 
-    if (!caller.can_read_all && caller.global_role === "member") {
-      query = query.eq("assigned_to", caller.user_id);
-    } else if (!caller.can_read_all) {
+    if (!caller.can_read_all) {
       const deptIds = caller.departments.map((d) => d.department_id);
       if (deptIds.length === 0) {
         return NextResponse.json([]);
@@ -81,7 +87,15 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json(sortTasksByPriority(data ?? []));
+    let scopedTasks = (data ?? []) as TaskRow[];
+    if (!caller.can_read_all) {
+      const elevatedDeptIds = new Set(getElevatedDepartmentIds(caller));
+      scopedTasks = scopedTasks.filter(
+        (task) => task.assigned_to === caller.user_id || elevatedDeptIds.has(task.department_id ?? ""),
+      );
+    }
+
+    return NextResponse.json(sortTasksByPriority(scopedTasks));
   } catch (err) {
     if (err instanceof ForbiddenError) {
       return NextResponse.json({ error: err.message }, { status: 403 });
@@ -124,18 +138,18 @@ export async function POST(req: NextRequest) {
     }
 
     const callerDept = caller.departments.find((d) => d.department_id === dept.id);
+    const canManageDepartment =
+      caller.can_write_all || callerDept?.dept_role === "pm" || callerDept?.dept_role === "hod";
+
     if (!caller.can_write_all && !callerDept) {
       return NextResponse.json({ error: "Insufficient permissions to create tasks in this department" }, { status: 403 });
     }
 
-    if (!caller.can_write_all && caller.global_role !== "member") {
-      if (callerDept?.dept_role === "member") {
-        return NextResponse.json({ error: "Insufficient permissions to create tasks in this department" }, { status: 403 });
-      }
-    }
-
     let assignedTo: string | null = null;
-    if (caller.global_role === "member" && !caller.can_write_all) {
+    if (!canManageDepartment) {
+      if (assignedToInput || assignedToAlias) {
+        return NextResponse.json({ error: "Members can only create tickets assigned to themselves" }, { status: 403 });
+      }
       assignedTo = caller.user_id;
     } else if (assignedToInput) {
       assignedTo = assignedToInput;

@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminKey } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
+const userRoles = new Set(["visitor", "committee", "admin"]);
+const globalRoles = new Set(["member", "pm", "hod", "leadership_admin"]);
+
 export async function GET(req: NextRequest) {
   if (!requireAdminKey(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -11,11 +14,12 @@ export async function GET(req: NextRequest) {
   const supabase = getSupabaseAdmin();
   const departmentId = req.nextUrl.searchParams.get("department_id");
 
+  let membershipByUserId = new Map<string, { id: string; dept_role: string }>();
   let userIds: string[] | null = null;
   if (departmentId && departmentId !== "all") {
     const { data: memberships, error: membershipError } = await supabase
       .from("department_members")
-      .select("user_id")
+      .select("id, user_id, dept_role")
       .eq("department_id", departmentId)
       .eq("is_active", true);
 
@@ -23,7 +27,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: membershipError.message }, { status: 500 });
     }
 
-    userIds = (memberships ?? []).map((membership) => membership.user_id as string);
+    membershipByUserId = new Map(
+      (memberships ?? []).map((membership) => [
+        membership.user_id as string,
+        { id: membership.id as string, dept_role: membership.dept_role as string },
+      ]),
+    );
+    userIds = Array.from(membershipByUserId.keys());
     if (userIds.length === 0) {
       return NextResponse.json([]);
     }
@@ -44,7 +54,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json(data);
+  return NextResponse.json((data ?? []).map((user) => {
+    const membership = membershipByUserId.get(user.id as string);
+    return {
+      ...user,
+      department_membership_id: membership?.id ?? null,
+      department_role: membership?.dept_role ?? null,
+    };
+  }));
 }
 
 export async function POST(req: NextRequest) {
@@ -53,7 +70,14 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { display_name, phone_e164, email, global_role } = body;
+  const { display_name, phone_e164, email } = body;
+  const role = typeof body.role === "string" && userRoles.has(body.role) ? body.role : "committee";
+  const globalRole =
+    typeof body.global_role === "string" && globalRoles.has(body.global_role)
+      ? body.global_role
+      : role === "admin"
+        ? "leadership_admin"
+        : "member";
 
   if (!display_name || !phone_e164) {
     return NextResponse.json({ error: "display_name and phone_e164 are required" }, { status: 400 });
@@ -66,8 +90,8 @@ export async function POST(req: NextRequest) {
       display_name,
       phone_e164,
       email: email || null,
-      global_role: global_role || "member",
-      role: "committee",
+      global_role: globalRole,
+      role,
       status: "active",
       transcript_aliases: [display_name],
     })

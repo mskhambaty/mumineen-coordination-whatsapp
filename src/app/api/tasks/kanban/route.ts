@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { ForbiddenError, resolveCallerFromRequest } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { getElevatedDepartmentIds } from "@/lib/permissions";
 import { isTaskPriority, priorityWeight, type TaskStatus } from "@/lib/tasks/types";
 
 type KanbanTask = {
@@ -58,9 +59,7 @@ export async function GET(req: NextRequest) {
       query = query.eq("assigned_to", assigneeId);
     }
 
-    if (!caller.can_read_all && caller.global_role === "member") {
-      query = query.eq("assigned_to", caller.user_id);
-    } else if (!caller.can_read_all) {
+    if (!caller.can_read_all) {
       const deptIds = caller.departments.map((department) => department.department_id);
       if (deptIds.length === 0) {
         return NextResponse.json(emptyBoard());
@@ -73,8 +72,16 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    let scopedTasks = (data ?? []) as KanbanTask[];
+    if (!caller.can_read_all) {
+      const elevatedDeptIds = new Set(getElevatedDepartmentIds(caller));
+      scopedTasks = scopedTasks.filter(
+        (task) => task.assigned_to === caller.user_id || elevatedDeptIds.has(task.department_id),
+      );
+    }
+
     const board = emptyBoard();
-    for (const task of (data ?? []) as KanbanTask[]) {
+    for (const task of scopedTasks) {
       if (task.status in board) {
         board[task.status].push(task);
       }
