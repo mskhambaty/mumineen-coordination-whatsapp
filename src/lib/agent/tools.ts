@@ -543,7 +543,7 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
         const board = await callInternalApi(`/api/tasks/kanban?${params.toString()}`, { phone: context.phoneE164 });
         return {
           board,
-          board_url: `${getBaseUrl()}/admin/kanban`,
+          board_url: `${getBaseUrl()}/admin/tasks`,
         };
       }
       return callInternalApi(`/api/tasks?${params.toString()}`, { phone: context.phoneE164 });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { ForbiddenError, resolveCallerFromRequest } from "@/lib/api/auth";
+import { sendAssignmentNotificationEmail } from "@/lib/email/postmark";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export async function GET(req: NextRequest) {
@@ -56,6 +57,7 @@ export async function POST(req: NextRequest) {
       notes?: unknown;
       status?: unknown;
       percent_complete?: unknown;
+      assigned_to?: unknown;
     };
 
     const title = typeof body.title === "string" ? body.title.trim() : "";
@@ -73,6 +75,8 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = getSupabaseAdmin();
+    const assignedTo = typeof body.assigned_to === "string" ? body.assigned_to : null;
+
     const { data, error } = await supabase
       .from("milestones")
       .insert({
@@ -83,13 +87,21 @@ export async function POST(req: NextRequest) {
         notes: typeof body.notes === "string" ? body.notes : null,
         status: typeof body.status === "string" && ["open", "in_progress", "blocked", "complete"].includes(body.status) ? body.status : "open",
         percent_complete: typeof body.percent_complete === "number" ? Math.max(0, Math.min(100, body.percent_complete)) : 0,
-        created_by: caller.user_id !== "admin-api" ? caller.user_id : null,
+        created_by: assignedTo ?? (caller.user_id !== "admin-api" ? caller.user_id : null),
       })
-      .select("id, title, description, budget, percent_complete, status, notes, department_id, created_at, updated_at")
+      .select("id, title, description, budget, percent_complete, status, notes, department_id, created_by, created_at, updated_at")
       .single();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (assignedTo) {
+      const { data: assignee } = await supabase.from("whatsapp_users").select("email, display_name").eq("id", assignedTo).maybeSingle();
+      const { data: dept } = await supabase.from("departments").select("name").eq("id", departmentId).single();
+      if (assignee?.email) {
+        void sendAssignmentNotificationEmail(assignee.email, assignee.display_name ?? "there", "milestone", title, dept?.name ?? "");
+      }
     }
 
     return NextResponse.json(data, { status: 201 });

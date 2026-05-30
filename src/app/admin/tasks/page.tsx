@@ -45,6 +45,7 @@ type TaskForm = {
   department_id: string;
   assigned_to: string;
   due_date: string;
+  item_type: string;
 };
 
 const statuses: { id: TaskStatus; label: string }[] = [
@@ -68,6 +69,7 @@ const emptyForm: TaskForm = {
   department_id: "",
   assigned_to: "",
   due_date: "",
+  item_type: "task",
 };
 
 export default function KanbanPage() {
@@ -173,6 +175,7 @@ export default function KanbanPage() {
       department_id: task.department_id,
       assigned_to: task.assigned_to ?? "",
       due_date: task.due_date ?? "",
+      item_type: task.item_type ?? "task",
     });
   }
 
@@ -189,6 +192,7 @@ export default function KanbanPage() {
       department_id: form.department_id,
       assigned_to: form.assigned_to || null,
       due_date: form.due_date || null,
+      item_type: form.item_type || "task",
       source: "manual",
     };
 
@@ -211,6 +215,12 @@ export default function KanbanPage() {
       method: "PUT",
       body: JSON.stringify({ status: "complete", archived: true }),
     });
+    if (res.ok) await loadBoard();
+  }
+
+  async function deleteTask(task: Task) {
+    if (!confirm(`Delete "${task.title}"? This cannot be undone.`)) return;
+    const res = await apiFetch(`/api/tasks/${task.id}`, { method: "DELETE" });
     if (res.ok) await loadBoard();
   }
 
@@ -287,8 +297,11 @@ export default function KanbanPage() {
                         <select value={task.status} onChange={(event) => updateTask(task, { status: event.target.value as TaskStatus })} className="min-w-0 flex-1 rounded-md border px-2 py-1 text-xs">
                           {statuses.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}
                         </select>
-                        <button onClick={() => archiveTask(task)} className="rounded-md border px-2 py-1 text-xs text-gray-600 hover:border-red-200 hover:text-red-600">
-                          Archive
+                        <button onClick={() => archiveTask(task)} className="rounded-md border px-2 py-1 text-xs text-gray-600 hover:border-green-200 hover:text-green-600">
+                          Close
+                        </button>
+                        <button onClick={() => deleteTask(task)} className="rounded-md border px-2 py-1 text-xs text-gray-600 hover:border-red-200 hover:text-red-600">
+                          Delete
                         </button>
                       </div>
                     </article>
@@ -300,15 +313,20 @@ export default function KanbanPage() {
         )}
       </main>
 
-      <button onClick={openNewTask} className="fixed bottom-6 right-6 rounded-full bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg hover:bg-blue-700">
-        New Task
-      </button>
+      <div className="fixed bottom-6 right-6 flex gap-3">
+        <button onClick={() => { setForm({ ...emptyForm, item_type: "issue", department_id: departmentId !== "all" ? departmentId : departments[0]?.id ?? "" }); }} className="rounded-full bg-orange-600 px-5 py-3 text-sm font-semibold text-white shadow-lg hover:bg-orange-700">
+          New Issue
+        </button>
+        <button onClick={openNewTask} className="rounded-full bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg hover:bg-blue-700">
+          New Task
+        </button>
+      </div>
 
       {form && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
           <form onSubmit={saveTask} className="w-full max-w-xl rounded-lg bg-white p-6 shadow-xl dark:bg-gray-900">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold">{form.id ? "Edit Task" : "New Task"}</h3>
+              <h3 className="text-lg font-semibold">{form.id ? "Edit" : "New"} {form.item_type === "issue" ? "Issue" : "Task"}</h3>
               <button type="button" onClick={() => setForm(null)} className="text-gray-500 hover:text-gray-800">Close</button>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -346,6 +364,13 @@ export default function KanbanPage() {
                   <option value="high">High</option>
                   <option value="medium">Medium</option>
                   <option value="low">Low</option>
+                </select>
+              </label>
+              <label className="text-sm font-medium">
+                Type
+                <select value={form.item_type} onChange={(event) => setForm({ ...form, item_type: event.target.value })} className="mt-1 w-full rounded-md border px-3 py-2">
+                  <option value="task">Task</option>
+                  <option value="issue">Issue</option>
                 </select>
               </label>
               <label className="text-sm font-medium">

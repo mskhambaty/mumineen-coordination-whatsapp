@@ -5,6 +5,7 @@ import {
   guardDeptAccess,
   ForbiddenError,
 } from "@/lib/api/auth";
+import { sendAssignmentNotificationEmail } from "@/lib/email/postmark";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { hasElevatedDeptRoleForDepartment } from "@/lib/permissions";
 import { isTaskPriority, isTaskStatus } from "@/lib/tasks/types";
@@ -150,14 +151,63 @@ export async function PUT(
       .from("tasks")
       .update(updates)
       .eq("id", id)
-      .select("id, title, status, priority, archived, assigned_to, department_id, updated_at")
+      .select("id, title, status, priority, item_type, archived, assigned_to, department_id, updated_at")
       .single();
 
     if (updateErr) {
       return NextResponse.json({ error: updateErr.message }, { status: 500 });
     }
 
+    if (updates.assigned_to && updates.assigned_to !== task.assigned_to) {
+      const { data: assignee } = await supabase.from("whatsapp_users").select("email, display_name").eq("id", updates.assigned_to as string).maybeSingle();
+      const { data: dept } = await supabase.from("departments").select("name").eq("id", task.department_id).single();
+      if (assignee?.email) {
+        const itemType = (updated.item_type === "issue" ? "issue" : "task") as "task" | "issue";
+        void sendAssignmentNotificationEmail(assignee.email, assignee.display_name ?? "there", itemType, updated.title, dept?.name ?? "");
+      }
+    }
+
     return NextResponse.json(updated);
+  } catch (err) {
+    if (err instanceof ForbiddenError) {
+      return NextResponse.json({ error: err.message }, { status: 403 });
+    }
+    return NextResponse.json({ error: (err as Error).message }, { status: 401 });
+  }
+}
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const caller = await resolveCallerFromRequest(req);
+    const { id } = await params;
+    const supabase = getSupabaseAdmin();
+
+    const { data: task } = await supabase
+      .from("tasks")
+      .select("id, department_id")
+      .eq("id", id)
+      .single();
+
+    if (!task) {
+      return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    }
+
+    if (!caller.can_write_all) {
+      const hasDept = caller.departments.find((d) => d.department_id === task.department_id);
+      if (!hasDept || hasDept.dept_role === "member") {
+        return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
+      }
+    }
+
+    const { error } = await supabase.from("tasks").delete().eq("id", id);
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ deleted: true });
   } catch (err) {
     if (err instanceof ForbiddenError) {
       return NextResponse.json({ error: err.message }, { status: 403 });

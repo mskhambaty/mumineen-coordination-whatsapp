@@ -80,7 +80,7 @@ async function runDailyDigest(req: Request) {
           user.email,
           user.display_name ?? "there",
           tasks.map(toEmailTask),
-          `${requireEnv("NEXT_PUBLIC_APP_URL")}/admin/kanban`,
+          `${requireEnv("NEXT_PUBLIC_APP_URL")}/admin/tasks`,
         );
         result.sent++;
       } catch (err) {

@@ -13,6 +13,7 @@ type TaskRow = {
   department_id: string;
   assigned_to: string | null;
   updated_at: string | null;
+  item_type: string | null;
 };
 
 type DepartmentRow = {
@@ -114,7 +115,7 @@ function buildTaskQuery(
 ) {
   let query = supabase
     .from("tasks")
-    .select("id, title, status, priority, due_date, department_id, assigned_to, updated_at")
+    .select("id, title, status, priority, due_date, department_id, assigned_to, updated_at, item_type")
     .eq("archived", false);
 
   if (departmentId && departmentId !== "all") {
@@ -168,6 +169,14 @@ function buildTaskAnalytics(tasks: TaskRow[], departmentMap: Map<string, string>
       department_name: departmentMap.get(task.department_id) ?? "Unknown",
     }));
 
+  const issues = tasks.filter((task) => task.item_type === "issue");
+  const issuesByStatus = { open: 0, in_progress: 0, blocked: 0, complete: 0 };
+  for (const issue of issues) {
+    if (issue.status in issuesByStatus) {
+      issuesByStatus[issue.status as keyof typeof issuesByStatus]++;
+    }
+  }
+
   return {
     total: tasks.length,
     active: tasks.filter((task) => task.status !== "complete").length,
@@ -177,6 +186,13 @@ function buildTaskAnalytics(tasks: TaskRow[], departmentMap: Map<string, string>
     by_priority: byPriority,
     by_department: Array.from(departmentCounts.values()).sort((a, b) => b.total - a.total),
     overdue_list: overdue,
+    issues: {
+      total: issues.length,
+      open: issuesByStatus.open + issuesByStatus.in_progress,
+      blocked: issuesByStatus.blocked,
+      resolved: issuesByStatus.complete,
+      by_status: issuesByStatus,
+    },
   };
 }
 

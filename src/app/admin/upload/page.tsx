@@ -118,7 +118,7 @@ export default function UploadPage() {
     if (userRaw) {
       const user = JSON.parse(userRaw) as { global_role?: string };
       if (user.global_role === "member") {
-        router.push("/admin/kanban");
+        router.push("/admin/tasks");
         return;
       }
     }

@@ -77,7 +77,34 @@ export async function sendTaskNotificationEmail(
       name,
       tasks,
       action_url: boardUrl,
-      notifications_url: `${requireEnv("NEXT_PUBLIC_APP_URL")}/admin/kanban`,
+      notifications_url: `${requireEnv("NEXT_PUBLIC_APP_URL")}/admin/tasks`,
     },
+  });
+}
+
+export async function sendAssignmentNotificationEmail(
+  to: string,
+  recipientName: string,
+  itemType: "milestone" | "task" | "issue",
+  itemTitle: string,
+  departmentName: string,
+) {
+  const appUrl = requireEnv("NEXT_PUBLIC_APP_URL");
+  const templateAlias = process.env.POSTMARK_ASSIGNMENT_TEMPLATE ?? "assignment-notification";
+  const actionUrl = itemType === "milestone" ? `${appUrl}/admin/milestones` : `${appUrl}/admin/tasks`;
+
+  return sendTemplateEmail({
+    To: to,
+    TemplateAlias: templateAlias,
+    TemplateModel: {
+      name: recipientName,
+      product_name: "Anjuman e Saifee Chicago Portal",
+      item_type: itemType,
+      item_title: itemTitle,
+      department_name: departmentName,
+      action_url: actionUrl,
+    },
+  }).catch((err) => {
+    console.error(`Failed to send ${itemType} assignment email to ${to}:`, err);
   });
 }

@@ -64,7 +64,7 @@ export default function PromptPage() {
     const userRaw = localStorage.getItem("admin_user");
     const user = userRaw ? JSON.parse(userRaw) as { role?: string; global_role?: string } : null;
     if (!isAdminOrLeadership(user)) {
-      router.push("/admin/kanban");
+      router.push("/admin/tasks");
       return;
     }
 
