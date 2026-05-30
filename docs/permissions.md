@@ -4,7 +4,8 @@
 
 Role-based access is enforced in two places:
 1. **Runtime** — `canUseTool()` in `src/lib/permissions.ts` before every tool execution.
-2. **Database** — `role` column on `whatsapp_users` is the source of truth; the server reads it and never trusts user claims.
+2. **Task/API routes** — `global_role` plus `department_members` scopes task access.
+3. **Database** — `role` and `global_role` columns on `whatsapp_users` are the source of truth; the server reads them and never trusts user claims.
 
 ## User Roles
 
@@ -15,6 +16,8 @@ Role-based access is enforced in two places:
 | `admin` | Super-user. Public + committee tools. Same tool access as `committee` today. |
 
 A user's role is set in the `whatsapp_users` table. New users default to `visitor`.
+
+Task management also uses `global_role`: `member`, `pm`, `hod`, or `leadership_admin`. Members see assigned tasks only, PM/HOD users see tasks in their active departments, and leadership/admin sees all tasks.
 
 To promote a number to committee:
 
@@ -44,6 +47,20 @@ Possible status values: `active` (default), `inactive`.
 | `lookup_committee_contact` | ❌ | ✅ | ✅ |
 | `update_volunteer_status` | ❌ | ✅ | ✅ |
 | `create_internal_note` | ❌ | ✅ | ✅ |
+
+Task tools first require `committee` or `admin` in the legacy WhatsApp tool layer, then apply `global_role`:
+
+| Tool | member | pm | hod | leadership_admin |
+|------|--------|----|-----|------------------|
+| `get_my_tasks` | ✅ | ✅ | ✅ | ✅ |
+| `get_task_detail` | ✅ | ✅ | ✅ | ✅ |
+| `get_department_summary` | ✅ | ✅ | ✅ | ✅ |
+| `update_task_status` | ❌ | ✅ | ✅ | ✅ |
+| `create_task` | ❌ | ✅ | ✅ | ✅ |
+| `assign_task` | ❌ | ✅ | ✅ | ✅ |
+| `get_top_blockers` | ❌ | ✅ | ✅ | ✅ |
+| `get_all_departments_summary` | ❌ | ❌ | ❌ | ✅ |
+| `get_department_tasks` | ❌ | ❌ | ❌ | ✅ |
 
 ## `canUseTool()` Logic
 

@@ -7,12 +7,15 @@ export default function AdminLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
   const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    setNotice("");
     setLoading(true);
 
     try {
@@ -40,6 +43,30 @@ export default function AdminLoginPage() {
     }
   }
 
+  async function handleForgotPassword() {
+    setError("");
+    setNotice("");
+
+    if (!email) {
+      setError("Enter your email first, then request a reset link.");
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      setNotice("If that email has portal access, a reset link will be sent shortly.");
+    } catch {
+      setNotice("If that email has portal access, a reset link will be sent shortly.");
+    } finally {
+      setResetLoading(false);
+    }
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow-md">
@@ -55,6 +82,11 @@ export default function AdminLoginPage() {
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
               {error}
+            </div>
+          )}
+          {notice && (
+            <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded">
+              {notice}
             </div>
           )}
           <div className="space-y-4">
@@ -73,9 +105,19 @@ export default function AdminLoginPage() {
               />
             </div>
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
-              </label>
+              <div className="flex items-center justify-between">
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  disabled={resetLoading}
+                  className="text-sm font-medium text-blue-600 hover:text-blue-700 disabled:opacity-50"
+                >
+                  {resetLoading ? "Sending..." : "Forgot password?"}
+                </button>
+              </div>
               <input
                 id="password"
                 type="password"

@@ -1,6 +1,5 @@
-import OpenAI from "openai";
-
-import { requireEnv, optionalEnv } from "@/lib/env";
+import { AI_MODEL, getAIClient, MAX_PARSE_TOKENS, PARSE_TEMPERATURE } from "@/lib/ai/model";
+import { buildTranscriptSystemPrompt } from "@/lib/transcripts/prompts";
 
 export type ParsedEvent = {
   event_type: "task_created" | "task_updated" | "task_completed" | "decision" | "info";
@@ -10,43 +9,21 @@ export type ParsedEvent = {
   ai_summary: string | null;
   task_title: string | null;
   assigned_to_alias: string | null;
+  priority: "low" | "medium" | "high";
   confidence: number;
+};
+
+export type ParsedNewMember = {
+  alias: string;
+  context: string;
 };
 
 export type ParsedTranscript = {
   group_name: string | null;
   last_message_at: string | null;
   events: ParsedEvent[];
+  new_members: ParsedNewMember[];
 };
-
-const PARSER_SYSTEM_PROMPT = `You are a project status extraction assistant for Anjuman e Saifee Chicago Ashara Mubarak 1448H coordination.
-
-Extract actionable project management events from the WhatsApp group conversation below.
-
-For each actionable item found, return a JSON object in this exact structure:
-{
-  "event_type": "task_created" | "task_updated" | "task_completed" | "decision" | "info",
-  "sender_alias": "<name as it appears in the transcript>",
-  "message_timestamp": "<ISO 8601 datetime if parseable, else null>",
-  "message_text": "<the original message verbatim>",
-  "ai_summary": "<one sentence summary of what this means for the project>",
-  "task_title": "<short task title if this creates or updates a task, else null>",
-  "assigned_to_alias": "<name of person assigned if mentioned, else null>",
-  "confidence": <0.0 to 1.0 — how confident you are this is truly actionable>
-}
-
-Only include items with confidence >= 0.5.
-Return a JSON object: { "group_name": "<from first line if parseable>", "last_message_at": "<ISO datetime of last message>", "events": [...] }
-Do not include media omission lines or system messages as events.`;
-
-let openaiClient: OpenAI | null = null;
-
-function getClient(): OpenAI {
-  if (!openaiClient) {
-    openaiClient = new OpenAI({ apiKey: requireEnv("OPENAI_API_KEY") });
-  }
-  return openaiClient;
-}
 
 function chunkContent(content: string, maxChars: number = 24000): string[] {
   if (content.length <= maxChars) return [content];
@@ -74,23 +51,26 @@ function chunkContent(content: string, maxChars: number = 24000): string[] {
   return chunks;
 }
 
-export async function parseTranscript(rawContent: string): Promise<ParsedTranscript> {
-  const client = getClient();
-  const model = optionalEnv("OPENAI_MODEL") || "gpt-4.1-mini";
+export async function parseTranscript(rawContent: string, flexiblePrompt?: string | null): Promise<ParsedTranscript> {
+  const client = getAIClient();
   const chunks = chunkContent(rawContent);
 
   const allEvents: ParsedEvent[] = [];
+  const allNewMembers: ParsedNewMember[] = [];
   let groupName: string | null = null;
   let lastMessageAt: string | null = null;
+  const systemPrompt = buildTranscriptSystemPrompt(flexiblePrompt);
 
   for (const chunk of chunks) {
     const response = await client.chat.completions.create({
-      model,
+      model: AI_MODEL,
       messages: [
-        { role: "system", content: PARSER_SYSTEM_PROMPT },
+        { role: "system", content: systemPrompt },
         { role: "user", content: chunk },
       ],
       response_format: { type: "json_object" },
+      temperature: PARSE_TEMPERATURE,
+      max_tokens: MAX_PARSE_TOKENS,
     });
 
     const content = response.choices[0]?.message?.content;
@@ -105,7 +85,10 @@ export async function parseTranscript(rawContent: string): Promise<ParsedTranscr
         lastMessageAt = parsed.last_message_at;
       }
       if (parsed.events) {
-        allEvents.push(...parsed.events.filter((e) => e.confidence >= 0.5));
+        allEvents.push(...parsed.events.filter((e) => e.confidence >= 0.5).map(normalizeEvent));
+      }
+      if (parsed.new_members) {
+        allNewMembers.push(...parsed.new_members.filter(isValidNewMember));
       }
     } catch {
       console.error("Failed to parse OpenAI response for transcript chunk");
@@ -116,5 +99,31 @@ export async function parseTranscript(rawContent: string): Promise<ParsedTranscr
     group_name: groupName,
     last_message_at: lastMessageAt,
     events: allEvents,
+    new_members: dedupeNewMembers(allNewMembers),
   };
+}
+
+function normalizeEvent(event: ParsedEvent): ParsedEvent {
+  return {
+    ...event,
+    priority: event.priority === "high" || event.priority === "low" ? event.priority : "medium",
+  };
+}
+
+function isValidNewMember(member: ParsedNewMember) {
+  return Boolean(member.alias?.trim());
+}
+
+function dedupeNewMembers(members: ParsedNewMember[]) {
+  const seen = new Set<string>();
+  const deduped: ParsedNewMember[] = [];
+
+  for (const member of members) {
+    const key = member.alias.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push({ alias: member.alias.trim(), context: member.context ?? "" });
+  }
+
+  return deduped;
 }

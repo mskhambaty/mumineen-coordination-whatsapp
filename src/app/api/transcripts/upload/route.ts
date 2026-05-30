@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveCallerFromRequest, ForbiddenError } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { parseTranscript } from "@/lib/transcripts/parser";
+import { getDefaultFlexiblePrompt } from "@/lib/transcripts/prompts";
 
 export async function POST(req: NextRequest) {
   try {
@@ -32,8 +33,22 @@ export async function POST(req: NextRequest) {
     const rawContent = await file.text();
     const supabase = getSupabaseAdmin();
 
+    const { data: department } = await supabase
+      .from("departments")
+      .select("name")
+      .eq("id", departmentId)
+      .single();
+
+    const { data: promptConfig } = await supabase
+      .from("department_prompt_config")
+      .select("flexible_prompt")
+      .eq("department_id", departmentId)
+      .maybeSingle();
+
+    const flexiblePrompt = promptConfig?.flexible_prompt || getDefaultFlexiblePrompt(department?.name);
+
     // Parse with AI
-    const parsed = await parseTranscript(rawContent);
+    const parsed = await parseTranscript(rawContent, flexiblePrompt);
 
     // Save upload record
     const { data: upload, error: uploadErr } = await supabase
@@ -46,6 +61,7 @@ export async function POST(req: NextRequest) {
         raw_content: rawContent,
         parsed_at: new Date().toISOString(),
         last_message_at: parsed.last_message_at,
+        parsed_new_members: parsed.new_members,
       })
       .select("id")
       .single();
@@ -63,6 +79,9 @@ export async function POST(req: NextRequest) {
       message_text: event.message_text,
       message_timestamp: event.message_timestamp,
       ai_summary: event.ai_summary,
+      task_title: event.task_title,
+      assigned_to_alias: event.assigned_to_alias,
+      priority: event.priority,
       confidence: event.confidence,
       applied: false,
     }));
@@ -80,7 +99,7 @@ export async function POST(req: NextRequest) {
     // Fetch saved events with IDs
     const { data: savedEvents } = await supabase
       .from("conversation_events")
-      .select("id, event_type, sender_alias, message_text, message_timestamp, ai_summary, confidence, applied")
+      .select("id, event_type, sender_alias, message_text, message_timestamp, ai_summary, task_title, assigned_to_alias, priority, confidence, applied")
       .eq("upload_id", upload.id)
       .order("message_timestamp", { ascending: true });
 
@@ -88,6 +107,8 @@ export async function POST(req: NextRequest) {
       upload_id: upload.id,
       group_name: parsed.group_name,
       events: savedEvents ?? [],
+      new_members: parsed.new_members,
+      flexible_prompt: flexiblePrompt,
     }, { status: 201 });
   } catch (err) {
     if (err instanceof ForbiddenError) {

@@ -25,13 +25,13 @@ At query time, the agent retrieves the most relevant chunks and injects them int
 3. Parse with Cheerio: extract `<h1>`/`<h2>`/`<h3>` + following paragraph text.  
    Chunks shorter than 30 characters are discarded.  
    Each chunk is trimmed to 1500 characters.
-4. Embed all chunks using `text-embedding-3-small` in batches of 100.
+4. Embed all chunks using `AI_EMBEDDING_MODEL` from `src/lib/ai/model.ts` in batches of 100.
 5. Mark all existing `site_content` rows as `is_current = false`.
 6. Insert new rows with `is_current = true`.
 
 ## RAG Retrieval (`retrieveSiteContext`)
 
-1. Embed the user's message with `text-embedding-3-small`.
+1. Embed the user's message with `AI_EMBEDDING_MODEL` from `src/lib/ai/model.ts`.
 2. Call `match_site_content` Supabase RPC with:
    - `match_threshold: 0.75` (cosine similarity)
    - `match_count: 3` (top-K results)

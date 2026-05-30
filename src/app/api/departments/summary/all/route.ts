@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { resolveCallerFromRequest, ForbiddenError } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { priorityWeight } from "@/lib/tasks/types";
 
 export async function GET(req: NextRequest) {
   try {
@@ -27,7 +28,8 @@ export async function GET(req: NextRequest) {
     // Get all tasks
     const { data: allTasks, error: tasksErr } = await supabase
       .from("tasks")
-      .select("id, department_id, status, due_date");
+      .select("id, department_id, title, status, priority, due_date, updated_at")
+      .eq("archived", false);
 
     if (tasksErr) {
       return NextResponse.json({ error: tasksErr.message }, { status: 500 });
@@ -46,6 +48,21 @@ export async function GET(req: NextRequest) {
         complete: 0,
         total: deptTasks.length,
         overdue: 0,
+        top_blockers: deptTasks
+          .filter((task) => task.status === "blocked" || (task.due_date && task.due_date < today && task.status !== "complete"))
+          .sort((a, b) => {
+            const priorityDiff = priorityWeight(b.priority) - priorityWeight(a.priority);
+            if (priorityDiff !== 0) return priorityDiff;
+            return new Date(b.updated_at ?? 0).getTime() - new Date(a.updated_at ?? 0).getTime();
+          })
+          .slice(0, 3)
+          .map((task) => ({
+            id: task.id,
+            title: task.title,
+            status: task.status,
+            priority: task.priority,
+            due_date: task.due_date,
+          })),
       };
 
       for (const task of deptTasks) {

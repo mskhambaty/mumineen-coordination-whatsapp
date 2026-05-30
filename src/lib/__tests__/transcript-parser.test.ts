@@ -23,6 +23,7 @@ vi.mock("openai", () => {
                       ai_summary: "Task to complete venue setup by Friday",
                       task_title: "Complete venue setup",
                       assigned_to_alias: null,
+                      priority: "medium",
                       confidence: 0.85,
                     },
                     {
@@ -33,6 +34,7 @@ vi.mock("openai", () => {
                       ai_summary: "Contractor arriving at 9am",
                       task_title: null,
                       assigned_to_alias: null,
+                      priority: "medium",
                       confidence: 0.6,
                     },
                     {
@@ -43,9 +45,11 @@ vi.mock("openai", () => {
                       ai_summary: "Something uncertain",
                       task_title: "Uncertain task",
                       assigned_to_alias: null,
+                      priority: "low",
                       confidence: 0.3,
                     },
                   ],
+                  new_members: [{ alias: "New Volunteer", context: "New Volunteer can help with setup" }],
                 }),
               },
             }],
@@ -77,7 +81,9 @@ describe("parseTranscript", () => {
     expect(result.events).toHaveLength(2); // Only events with confidence >= 0.5
     expect(result.events[0].event_type).toBe("task_created");
     expect(result.events[0].sender_alias).toBe("Moiz Broachwala");
+    expect(result.events[0].priority).toBe("medium");
     expect(result.events[0].confidence).toBeGreaterThanOrEqual(0.5);
+    expect(result.new_members).toHaveLength(1);
   });
 
   it("filters out low confidence events", async () => {

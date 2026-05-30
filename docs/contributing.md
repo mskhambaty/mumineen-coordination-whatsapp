@@ -13,6 +13,8 @@
 - Path alias: use `@/lib/...` and `@/app/...`, not relative `../../` imports.
 - No secrets in code. All secrets come from environment variables via `requireEnv()` or `optionalEnv()`.
 - Server-only code stays in `src/lib/` and `src/app/api/`. Nothing secret-adjacent goes to a client component.
+- API-first: pages and components must call `src/app/api/**` routes rather than querying Supabase directly.
+- OpenAI calls must use `src/lib/ai/model.ts`; do not hardcode model names elsewhere.
 
 ## Adding a New API Route
 
@@ -20,6 +22,7 @@
 2. Use `requireEnv()` for any required env vars; add them to [environment.md](./environment.md).
 3. Add the route to the key file locations table in [index.md](./index.md).
 4. Document the endpoint in the relevant feature doc (or create one if none exists).
+5. Update [openapi.yaml](./openapi.yaml) with parameters, request body, responses, auth, and schemas.
 
 ## Adding a New Tool
 

@@ -2,6 +2,24 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { resolveCallerFromRequest, ForbiddenError } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { isTaskPriority } from "@/lib/tasks/types";
+
+type ApplyEventInput = {
+  event_id?: unknown;
+  priority?: unknown;
+  assigned_to_alias?: unknown;
+};
+
+type ApplyBody = {
+  event_ids?: unknown;
+  selected_events?: unknown;
+};
+
+type NormalizedSelectedEvent = {
+  event_id: string;
+  priority?: "low" | "medium" | "high";
+  assigned_to_alias?: string;
+};
 
 export async function POST(
   req: NextRequest,
@@ -10,11 +28,12 @@ export async function POST(
   try {
     const caller = await resolveCallerFromRequest(req);
     const { id } = await params;
-    const body = await req.json();
-    const { event_ids } = body as { event_ids: string[] };
+    const body = (await req.json()) as ApplyBody;
+    const selectedEvents = normalizeSelectedEvents(body);
+    const eventIds = selectedEvents.map((event) => event.event_id);
 
-    if (!event_ids || !Array.isArray(event_ids) || event_ids.length === 0) {
-      return NextResponse.json({ error: "event_ids array is required" }, { status: 400 });
+    if (eventIds.length === 0) {
+      return NextResponse.json({ error: "event_ids or selected_events array is required" }, { status: 400 });
     }
 
     const supabase = getSupabaseAdmin();
@@ -43,7 +62,7 @@ export async function POST(
       .from("conversation_events")
       .select("*")
       .eq("upload_id", id)
-      .in("id", event_ids)
+      .in("id", eventIds)
       .eq("applied", false);
 
     if (eventsErr) {
@@ -54,17 +73,21 @@ export async function POST(
     let tasksUpdated = 0;
 
     for (const event of events ?? []) {
+      const override = selectedEvents.find((selectedEvent) => selectedEvent.event_id === event.id);
+      const priority = override?.priority ?? event.priority ?? "medium";
+      const assignedToAlias = override?.assigned_to_alias ?? event.assigned_to_alias;
+
       if (event.event_type === "task_created" || event.event_type === "decision") {
         // Create a new task
-        const title = (event.ai_summary as string) || (event.message_text as string)?.slice(0, 100) || "Untitled Task";
+        const title = (event.task_title as string) || (event.ai_summary as string) || (event.message_text as string)?.slice(0, 100) || "Untitled Task";
 
         // Resolve assigned_to if alias provided
         let assignedTo: string | null = null;
-        if (event.assigned_to_alias) {
+        if (assignedToAlias) {
           const { data: user } = await supabase
             .from("whatsapp_users")
             .select("id")
-            .contains("transcript_aliases", [event.assigned_to_alias])
+            .contains("transcript_aliases", [assignedToAlias])
             .maybeSingle();
           assignedTo = user?.id ?? null;
         }
@@ -78,6 +101,7 @@ export async function POST(
             assigned_to: assignedTo,
             created_by: caller.user_id !== "admin-api" ? caller.user_id : null,
             source: "transcript",
+            priority,
           })
           .select("id")
           .single();
@@ -116,4 +140,28 @@ export async function POST(
     }
     return NextResponse.json({ error: (err as Error).message }, { status: 401 });
   }
+}
+
+function normalizeSelectedEvents(body: ApplyBody): NormalizedSelectedEvent[] {
+  if (Array.isArray(body.selected_events)) {
+    return body.selected_events.flatMap((rawEvent): { event_id: string; priority?: "low" | "medium" | "high"; assigned_to_alias?: string }[] => {
+      const event = rawEvent as ApplyEventInput;
+      const eventId = typeof event.event_id === "string" ? event.event_id : undefined;
+      if (!eventId) return [];
+
+      return [{
+        event_id: eventId,
+        priority: isTaskPriority(event.priority) ? event.priority : undefined,
+        assigned_to_alias: typeof event.assigned_to_alias === "string" && event.assigned_to_alias.trim()
+          ? event.assigned_to_alias.trim()
+          : undefined,
+      }];
+    });
+  }
+
+  if (Array.isArray(body.event_ids)) {
+    return body.event_ids.flatMap((eventId): NormalizedSelectedEvent[] => typeof eventId === "string" ? [{ event_id: eventId }] : []);
+  }
+
+  return [];
 }
