@@ -11,14 +11,14 @@ type DropdownGroup = {
 
 const dropdownGroups: DropdownGroup[] = [
   {
-    label: "Management",
+    label: "WhatsApp",
     links: [
       { href: "/admin/conversations", label: "Inbox" },
       { href: "/admin/prompt", label: "Prompt" },
     ],
   },
   {
-    label: "Project",
+    label: "Management",
     links: [
       { href: "/admin/milestones", label: "Milestones" },
       { href: "/admin/tasks", label: "Task Management" },
