@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import Link from "next/link";
 
 type Task = {
   id: string;
@@ -110,30 +109,22 @@ export default function DepartmentDetailPage() {
   }
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center"><p className="text-gray-500">Loading...</p></div>;
+    return <div className="flex items-center justify-center py-20"><p className="text-gray-500">Loading...</p></div>;
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
-            <div className="flex items-center space-x-4">
-              <Link href="/admin" className="text-blue-600 hover:underline">← Dashboard</Link>
-              <Link href="/admin/kanban" className="text-gray-600 hover:text-blue-600">Kanban</Link>
-              <h1 className="text-xl font-bold text-gray-900">{deptName}</h1>
-            </div>
-            <button
-              onClick={() => setShowNewTask(true)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700"
-            >
-              New Task
-            </button>
-          </div>
-        </div>
-      </nav>
+    <>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 flex items-center justify-between">
+        <h2 className="text-lg font-semibold">{deptName}</h2>
+        <button
+          onClick={() => setShowNewTask(true)}
+          className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700"
+        >
+          New Task
+        </button>
+      </div>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         {/* New Task Modal */}
         {showNewTask && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -234,6 +225,6 @@ export default function DepartmentDetailPage() {
           </div>
         </div>
       </main>
-    </div>
+    </>
   );
 }

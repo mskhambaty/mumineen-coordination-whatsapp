@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
@@ -28,6 +27,7 @@ type Task = {
   source: string;
   due_date: string | null;
   department_id: string;
+  item_type?: string;
   created_at: string;
   updated_at: string;
   departments?: { name: string } | null;
@@ -80,6 +80,7 @@ export default function KanbanPage() {
   const [priority, setPriority] = useState("all");
   const [assigneeId, setAssigneeId] = useState("all");
   const [includeComplete, setIncludeComplete] = useState(false);
+  const [itemType, setItemType] = useState("all");
   const [form, setForm] = useState<TaskForm | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -100,7 +101,7 @@ export default function KanbanPage() {
   useEffect(() => {
     void loadBoard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [departmentId, priority, assigneeId, includeComplete]);
+  }, [departmentId, priority, assigneeId, includeComplete, itemType]);
 
   const totalOpen = useMemo(
     () => board.open.length + board.in_progress.length + board.blocked.length,
@@ -134,6 +135,7 @@ export default function KanbanPage() {
     if (departmentId !== "all") params.set("department_id", departmentId);
     if (priority !== "all") params.set("priority", priority);
     if (assigneeId !== "all") params.set("assignee_id", assigneeId);
+    if (itemType !== "all") params.set("item_type", itemType);
     if (includeComplete) params.set("include_complete", "true");
 
     try {
@@ -213,26 +215,7 @@ export default function KanbanPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      <nav className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
-            <h1 className="text-xl font-bold">Kanban Board</h1>
-            <div className="flex space-x-4">
-              <Link href="/admin" className="text-gray-600 hover:text-blue-600">Home</Link>
-              <Link href="/admin/conversations" className="text-gray-600 hover:text-blue-600">Inbox</Link>
-              <Link href="/admin/analytics" className="text-gray-600 hover:text-blue-600">Analytics</Link>
-              <Link href="/admin/kanban" className="text-blue-600 font-medium">Kanban</Link>
-              <Link href="/admin/upload" className="text-gray-600 hover:text-blue-600">Upload</Link>
-              <Link href="/admin/users" className="text-gray-600 hover:text-blue-600">Users</Link>
-              <button onClick={() => { localStorage.clear(); router.push("/admin/login"); }} className="text-gray-600 hover:text-red-600">
-                Logout
-              </button>
-            </div>
-          </div>
-        </div>
-      </nav>
-
+    <>
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <div className="mb-5 flex flex-col gap-3 rounded-lg border bg-white p-4 shadow-sm lg:flex-row lg:items-center">
           <select value={departmentId} onChange={(event) => setDepartmentId(event.target.value)} className="rounded-md border px-3 py-2 text-sm">
@@ -252,6 +235,11 @@ export default function KanbanPage() {
             {users.map((user) => (
               <option key={user.id} value={user.id}>{user.display_name ?? user.phone_e164}</option>
             ))}
+          </select>
+          <select value={itemType} onChange={(event) => setItemType(event.target.value)} className="rounded-md border px-3 py-2 text-sm">
+            <option value="all">All types</option>
+            <option value="task">Tasks only</option>
+            <option value="issue">Issues only</option>
           </select>
           <label className="flex items-center gap-2 text-sm text-gray-700">
             <input type="checkbox" checked={!includeComplete} onChange={(event) => setIncludeComplete(!event.target.checked)} />
@@ -285,6 +273,9 @@ export default function KanbanPage() {
                       <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-500">
                         <span className="rounded bg-gray-100 px-2 py-1">{task.departments?.name ?? "Department"}</span>
                         <span className="rounded bg-gray-100 px-2 py-1">{task.source}</span>
+                        {task.item_type === "issue" && (
+                          <span className="rounded bg-orange-100 px-2 py-1 text-orange-700 font-medium">Issue</span>
+                        )}
                       </div>
                       <div className="mt-3 text-sm text-gray-600">
                         <div>{task.assignee?.display_name ?? "Unassigned"}</div>
@@ -315,7 +306,7 @@ export default function KanbanPage() {
 
       {form && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <form onSubmit={saveTask} className="w-full max-w-xl rounded-lg bg-white p-6 shadow-xl">
+          <form onSubmit={saveTask} className="w-full max-w-xl rounded-lg bg-white p-6 shadow-xl dark:bg-gray-900">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold">{form.id ? "Edit Task" : "New Task"}</h3>
               <button type="button" onClick={() => setForm(null)} className="text-gray-500 hover:text-gray-800">Close</button>
@@ -371,7 +362,7 @@ export default function KanbanPage() {
           </form>
         </div>
       )}
-    </div>
+    </>
   );
 }
 

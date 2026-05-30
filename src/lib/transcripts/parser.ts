@@ -1,16 +1,26 @@
 import { AI_MODEL, getAIClient, MAX_PARSE_TOKENS, PARSE_TEMPERATURE } from "@/lib/ai/model";
-import { buildTranscriptSystemPrompt } from "@/lib/transcripts/prompts";
+import { buildTranscriptSystemPrompt, type TranscriptType } from "@/lib/transcripts/prompts";
 
 export type ParsedEvent = {
-  event_type: "task_created" | "task_updated" | "task_completed" | "decision" | "info";
+  event_type:
+    | "task_created" | "task_updated" | "task_completed"
+    | "milestone_created" | "milestone_updated"
+    | "issue_created" | "issue_updated" | "issue_resolved"
+    | "decision" | "info";
+  item_type: "task" | "issue" | "milestone";
   sender_alias: string | null;
   message_timestamp: string | null;
   message_text: string | null;
   ai_summary: string | null;
   task_title: string | null;
+  milestone_title: string | null;
   assigned_to_alias: string | null;
   priority: "low" | "medium" | "high";
   confidence: number;
+  percent_complete: number | null;
+  budget: number | null;
+  notes: string | null;
+  description: string | null;
 };
 
 export type ParsedNewMember = {
@@ -25,7 +35,7 @@ export type ParsedTranscript = {
   new_members: ParsedNewMember[];
 };
 
-function chunkContent(content: string, maxChars: number = 24000): string[] {
+function chunkWhatsApp(content: string, maxChars: number): string[] {
   if (content.length <= maxChars) return [content];
 
   const lines = content.split("\n");
@@ -33,7 +43,6 @@ function chunkContent(content: string, maxChars: number = 24000): string[] {
   let current = "";
 
   for (const line of lines) {
-    // Split on date boundaries (common WhatsApp format: MM/DD/YY or DD/MM/YY)
     const isDateBoundary = /^\d{1,2}\/\d{1,2}\/\d{2,4},?\s/.test(line);
 
     if (isDateBoundary && current.length > maxChars * 0.7) {
@@ -51,15 +60,58 @@ function chunkContent(content: string, maxChars: number = 24000): string[] {
   return chunks;
 }
 
-export async function parseTranscript(rawContent: string, flexiblePrompt?: string | null): Promise<ParsedTranscript> {
+function chunkMeeting(content: string, maxChars: number): string[] {
+  if (content.length <= maxChars) return [content];
+
+  const paragraphs = content.split(/\n{2,}/);
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const paragraph of paragraphs) {
+    if (current.length + paragraph.length > maxChars * 0.9 && current.length > maxChars * 0.3) {
+      chunks.push(current);
+      current = paragraph + "\n\n";
+    } else {
+      current += paragraph + "\n\n";
+    }
+  }
+
+  if (current.trim()) {
+    chunks.push(current);
+  }
+
+  return chunks;
+}
+
+function chunkContent(content: string, maxChars: number = 24000, transcriptType: TranscriptType = "whatsapp"): string[] {
+  return transcriptType === "meeting" ? chunkMeeting(content, maxChars) : chunkWhatsApp(content, maxChars);
+}
+
+type ParseOptions = {
+  flexiblePrompt?: string | null;
+  transcriptType?: TranscriptType;
+  existingContext?: string | null;
+};
+
+export async function parseTranscript(rawContent: string, optsOrFlexiblePrompt?: ParseOptions | string | null): Promise<ParsedTranscript> {
+  const opts: ParseOptions = typeof optsOrFlexiblePrompt === "string" || optsOrFlexiblePrompt === null || optsOrFlexiblePrompt === undefined
+    ? { flexiblePrompt: optsOrFlexiblePrompt }
+    : optsOrFlexiblePrompt;
+
+  const { flexiblePrompt, transcriptType = "whatsapp", existingContext } = opts;
+
   const client = getAIClient();
-  const chunks = chunkContent(rawContent);
+  const chunks = chunkContent(rawContent, 24000, transcriptType);
 
   const allEvents: ParsedEvent[] = [];
   const allNewMembers: ParsedNewMember[] = [];
   let groupName: string | null = null;
   let lastMessageAt: string | null = null;
-  const systemPrompt = buildTranscriptSystemPrompt(flexiblePrompt);
+  let systemPrompt = buildTranscriptSystemPrompt(flexiblePrompt, transcriptType);
+
+  if (existingContext) {
+    systemPrompt += `\n\n## Existing Items in Department\nReference these when detecting updates to existing milestones, tasks, or issues:\n${existingContext}`;
+  }
 
   for (const chunk of chunks) {
     const response = await client.chat.completions.create({
@@ -106,8 +158,20 @@ export async function parseTranscript(rawContent: string, flexiblePrompt?: strin
 function normalizeEvent(event: ParsedEvent): ParsedEvent {
   return {
     ...event,
+    item_type: event.item_type || inferItemType(event.event_type),
     priority: event.priority === "high" || event.priority === "low" ? event.priority : "medium",
+    percent_complete: event.percent_complete ?? null,
+    budget: event.budget ?? null,
+    notes: event.notes ?? null,
+    description: event.description ?? null,
+    milestone_title: event.milestone_title ?? null,
   };
+}
+
+function inferItemType(eventType: string): "task" | "issue" | "milestone" {
+  if (eventType.startsWith("milestone")) return "milestone";
+  if (eventType.startsWith("issue")) return "issue";
+  return "task";
 }
 
 function isValidNewMember(member: ParsedNewMember) {

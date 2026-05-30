@@ -1,10 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-import { FIXED_TRANSCRIPT_PROMPT } from "@/lib/transcripts/prompts";
+import { FIXED_TRANSCRIPT_PROMPT, FIXED_MEETING_PROMPT, type TranscriptType } from "@/lib/transcripts/prompts";
 
 type Department = { id: string; name: string };
 type TaskPriority = "low" | "medium" | "high";
@@ -12,6 +11,7 @@ type TaskPriority = "low" | "medium" | "high";
 type ParsedEvent = {
   id: string;
   event_type: string;
+  item_type: string;
   sender_alias: string | null;
   message_text: string | null;
   message_timestamp: string | null;
@@ -46,12 +46,17 @@ type MemberDraft = {
 type ApplyResult = {
   tasks_created: number;
   tasks_updated: number;
+  milestones_created: number;
+  milestones_updated: number;
+  issues_created: number;
+  issues_updated: number;
 };
 
 export default function UploadPage() {
   const router = useRouter();
   const [departments, setDepartments] = useState<Department[]>([]);
   const [selectedDept, setSelectedDept] = useState("");
+  const [transcriptType, setTranscriptType] = useState<TranscriptType>("whatsapp");
   const [flexiblePrompt, setFlexiblePrompt] = useState("");
   const [promptSaved, setPromptSaved] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -93,9 +98,9 @@ export default function UploadPage() {
     }
   }
 
-  async function fetchPromptConfig(departmentId: string) {
+  async function fetchPromptConfig(departmentId: string, type: TranscriptType = transcriptType) {
     setPromptSaved(false);
-    const res = await apiFetch(`/api/departments/${departmentId}/prompt-config`);
+    const res = await apiFetch(`/api/departments/${departmentId}/prompt-config?transcript_type=${type}`);
     if (res.ok) {
       const data = await res.json() as { flexible_prompt: string };
       setFlexiblePrompt(data.flexible_prompt);
@@ -124,18 +129,18 @@ export default function UploadPage() {
 
   useEffect(() => {
     if (!selectedDept) return;
-    void Promise.resolve().then(() => fetchPromptConfig(selectedDept));
+    void Promise.resolve().then(() => fetchPromptConfig(selectedDept, transcriptType));
     void Promise.resolve().then(() => {
       setNewMembers((members) => members.map((member) => ({ ...member, department_id: selectedDept })));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDept]);
+  }, [selectedDept, transcriptType]);
 
   async function savePromptConfig() {
     if (!selectedDept) return;
     const res = await apiFetch(`/api/departments/${selectedDept}/prompt-config`, {
       method: "PUT",
-      body: JSON.stringify({ flexible_prompt: flexiblePrompt }),
+      body: JSON.stringify({ flexible_prompt: flexiblePrompt, transcript_type: transcriptType }),
     });
     if (res.ok) {
       setPromptSaved(true);
@@ -153,6 +158,7 @@ export default function UploadPage() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("department_id", selectedDept);
+      formData.append("transcript_type", transcriptType);
 
       const res = await apiFetch("/api/transcripts/upload", {
         method: "POST",
@@ -281,30 +287,40 @@ export default function UploadPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      <nav className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
-            <div className="flex items-center space-x-4">
-              <Link href="/admin" className="text-blue-600 hover:underline">Dashboard</Link>
-              <Link href="/admin/conversations" className="text-gray-600 hover:text-blue-600">Inbox</Link>
-              <Link href="/admin/analytics" className="text-gray-600 hover:text-blue-600">Analytics</Link>
-              <Link href="/admin/kanban" className="text-gray-600 hover:text-blue-600">Kanban</Link>
-              <h1 className="text-xl font-bold">Upload Transcript</h1>
-            </div>
-          </div>
-        </div>
-      </nav>
-
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-6 flex items-center gap-1 rounded-lg border bg-white p-1 shadow-sm w-fit dark:border-gray-700 dark:bg-gray-900">
+          <button
+            type="button"
+            onClick={() => setTranscriptType("whatsapp")}
+            className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              transcriptType === "whatsapp"
+                ? "bg-blue-600 text-white"
+                : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+            }`}
+          >
+            WhatsApp Transcript
+          </button>
+          <button
+            type="button"
+            onClick={() => setTranscriptType("meeting")}
+            className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              transcriptType === "meeting"
+                ? "bg-blue-600 text-white"
+                : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+            }`}
+          >
+            Meeting Transcript
+          </button>
+        </div>
+
         <section className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-lg border bg-white p-5 shadow-sm">
+          <div className="rounded-lg border bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Fixed Prompt</h2>
-              <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600" title="This core prompt cannot be modified">Locked</span>
+              <h2 className="text-lg font-semibold">Fixed Prompt ({transcriptType === "meeting" ? "Meeting" : "WhatsApp"})</h2>
+              <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-400" title="This core prompt cannot be modified">Locked</span>
             </div>
-            <pre className="max-h-72 overflow-auto rounded-md bg-gray-100 p-3 text-xs leading-5 text-gray-700 whitespace-pre-wrap">
-              {FIXED_TRANSCRIPT_PROMPT}
+            <pre className="max-h-72 overflow-auto rounded-md bg-gray-100 p-3 text-xs leading-5 text-gray-700 whitespace-pre-wrap dark:bg-gray-800 dark:text-gray-300">
+              {transcriptType === "meeting" ? FIXED_MEETING_PROMPT : FIXED_TRANSCRIPT_PROMPT}
             </pre>
           </div>
 
@@ -375,9 +391,15 @@ export default function UploadPage() {
         </section>
 
         {applyResult && (
-          <div className="mt-6 rounded-lg border border-green-200 bg-green-50 p-4">
-            <p className="font-medium text-green-700">
+          <div className="mt-6 rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-900 dark:bg-green-950">
+            <p className="font-medium text-green-700 dark:text-green-300">
               {applyResult.tasks_created} tasks created, {applyResult.tasks_updated} tasks updated
+              {(applyResult.milestones_created > 0 || applyResult.milestones_updated > 0) && (
+                <>, {applyResult.milestones_created} milestones created, {applyResult.milestones_updated} milestones updated</>
+              )}
+              {(applyResult.issues_created > 0 || applyResult.issues_updated > 0) && (
+                <>, {applyResult.issues_created} issues created, {applyResult.issues_updated} issues updated</>
+              )}
             </p>
           </div>
         )}
@@ -403,6 +425,7 @@ export default function UploadPage() {
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Sender</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Message</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">AI Summary</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Category</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Type</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Priority</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Assigned To</th>
@@ -425,6 +448,13 @@ export default function UploadPage() {
                       <td className="px-4 py-3 text-sm">{event.sender_alias ?? "—"}</td>
                       <td className="max-w-xs px-4 py-3 text-sm text-gray-600">{event.message_text ?? "—"}</td>
                       <td className="max-w-xs px-4 py-3 text-sm">{event.ai_summary ?? event.task_title ?? "—"}</td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded px-2 py-1 text-xs font-medium ${
+                          event.item_type === "milestone" ? "bg-teal-100 text-teal-700" :
+                          event.item_type === "issue" ? "bg-red-100 text-red-700" :
+                          "bg-gray-100 text-gray-700"
+                        }`}>{event.item_type || "task"}</span>
+                      </td>
                       <td className="px-4 py-3"><span className="rounded bg-gray-100 px-2 py-1 text-xs">{event.event_type}</span></td>
                       <td className="px-4 py-3">
                         <select
@@ -516,6 +546,5 @@ export default function UploadPage() {
           </section>
         )}
       </main>
-    </div>
   );
 }

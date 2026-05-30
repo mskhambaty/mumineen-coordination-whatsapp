@@ -322,6 +322,48 @@ export const toolDefinitions: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "get_milestones",
+      description: "Get milestones for a department. Shows budget, completion %, and status.",
+      parameters: {
+        type: "object",
+        properties: {
+          department_name: { type: "string", description: "Department name." },
+          status: {
+            type: "string",
+            enum: ["open", "in_progress", "blocked", "complete", "all"],
+            description: "Filter by status.",
+          },
+        },
+        required: ["department_name"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_milestone",
+      description: "Update a milestone's status, completion percentage, budget, or notes. Requires PM, HOD, or Leadership/Admin role.",
+      parameters: {
+        type: "object",
+        properties: {
+          milestone_id: { type: "string", description: "Milestone ID (UUID)." },
+          status: {
+            type: "string",
+            enum: ["open", "in_progress", "blocked", "complete"],
+            description: "New status.",
+          },
+          percent_complete: { type: "number", description: "Completion percentage (0-100)." },
+          notes: { type: "string", description: "Notes or update details." },
+        },
+        required: ["milestone_id"],
+        additionalProperties: false,
+      },
+    },
+  },
 ];
 
 export async function executeTool(name: string, args: ToolInput, context: ToolContext) {
@@ -382,6 +424,7 @@ function isTaskTool(name: string): boolean {
     "get_my_tasks", "get_task_detail", "get_department_summary",
     "update_task_status", "create_task", "assign_task", "get_top_blockers",
     "get_all_departments_summary", "get_department_tasks",
+    "get_milestones", "update_milestone",
   ].includes(name);
 }
 
@@ -392,7 +435,7 @@ function getRequiredRole(name: string): string {
   if (name === "create_task") {
     return "department membership";
   }
-  if (["update_task_status", "assign_task", "get_top_blockers"].includes(name)) {
+  if (["update_task_status", "assign_task", "get_top_blockers", "update_milestone"].includes(name)) {
     return "pm, hod, or leadership_admin";
   }
   return "any authenticated user";
@@ -607,6 +650,28 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       const params = new URLSearchParams();
       if (status !== "all") params.set("status", status);
       return callInternalApi(`/api/departments/${dept.id}/tasks?${params.toString()}`, { phone: context.phoneE164 });
+    }
+    case "get_milestones": {
+      const deptName = args.department_name as string;
+      const depts = await callInternalApi("/api/departments", { phone: context.phoneE164 }) as Array<{ id: string; name: string }>;
+      if (!Array.isArray(depts)) return { error: "Could not fetch departments" };
+      const dept = depts.find((d) => d.name.toLowerCase() === deptName.toLowerCase());
+      if (!dept) return { error: `Department not found: ${deptName}` };
+      const status = (args.status as string) ?? "all";
+      const params = new URLSearchParams({ department_id: dept.id });
+      if (status !== "all") params.set("status", status);
+      return callInternalApi(`/api/milestones?${params.toString()}`, { phone: context.phoneE164 });
+    }
+    case "update_milestone": {
+      const updates: Record<string, unknown> = {};
+      if (args.status) updates.status = args.status;
+      if (typeof args.percent_complete === "number") updates.percent_complete = args.percent_complete;
+      if (args.notes) updates.notes = args.notes;
+      return callInternalApi(`/api/milestones/${args.milestone_id}`, {
+        method: "PUT",
+        phone: context.phoneE164,
+        body: updates,
+      });
     }
     default:
       return {

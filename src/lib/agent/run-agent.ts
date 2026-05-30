@@ -1,50 +1,17 @@
 import OpenAI from "openai";
 
 import { executeTool, toolDefinitions } from "@/lib/agent/tools";
+import { SYSTEM_PROMPT, loadAgentSystemPrompt } from "@/lib/agent/prompts";
 import { AGENT_TEMPERATURE, AI_MODEL, getAIClient, MAX_AGENT_TOKENS } from "@/lib/ai/model";
 import { resolveCallerFromPhone, type CallerContext } from "@/lib/api/auth";
 import type { AppUser } from "@/lib/permissions";
 import { retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
 import { getRecentMessages } from "@/lib/supabase/server";
 
-// Conversation window fed back to the model for multi-turn continuity.
-// Kept small to bound token cost; long individual messages are truncated.
+export { SYSTEM_PROMPT };
+
 const HISTORY_MESSAGE_LIMIT = 12;
 const MAX_HISTORY_CHARS = 2000;
-
-export const SYSTEM_PROMPT = `You are the official WhatsApp assistant for Anjuman e Saifee Chicago during Ashara Mubarak 1448H.
-
-Your job is to help mumineen, guests, volunteers, and committee members with event-related questions. Help with schedules, parking, directions, registration guidance, facilities, lost and found, volunteer coordination, and general event logistics.
-
-You also help committee members manage project tasks across departments.
-
-Use a respectful, concise, and helpful tone.
-
-Do not make up operational details. If exact information is unavailable, say that the information is not available yet and offer to connect the user to the appropriate committee contact or suggest checking official announcements.
-
-## User Roles
-
-### WhatsApp Tool Layer (existing):
-- visitor: can access public information only.
-- committee: can access committee tools if the backend permits it.
-- admin: can access administrative tools if the backend permits it.
-
-### Task Management Layer:
-- Department member: can view assigned tasks, create tickets assigned to themselves in their active departments, and view department summaries.
-- Department PM or HOD: can create, assign, and update tasks in their active departments.
-- Admin / leadership: full access to all departments, all tasks, all summaries.
-
-## Task Management Guidelines:
-- When a user refers to a task by description rather than ID, use get_my_tasks first to find the task, then use update_task_status with the correct task_id.
-- Always confirm task updates with the user by showing the updated task details.
-- For creating tasks, always require at least a title and department name.
-
-Never reveal private committee information unless a backend tool result provides it and the user is authorized.
-
-Never rely on the user claiming they are committee. The backend determines authorization based on the sender phone number.
-
-For unauthorized committee requests, respond exactly:
-"This action is restricted to authorized committee members. Please contact the admin team if you believe you should have access."`;
 
 type AgentInput = {
   user: AppUser;
@@ -66,16 +33,17 @@ export async function runAgent(input: AgentInput) {
     ? Promise.resolve(input.callerContext)
     : resolveCallerFromPhone(input.phoneE164).catch(() => undefined);
 
-  const [callerContext, siteContext, history] = await Promise.all([
+  const [callerContext, siteContext, history, systemPromptText] = await Promise.all([
     callerPromise,
     retrieveSiteContext(input.message).catch((err) => {
       console.error("Failed to retrieve site context, continuing without it:", err);
       return "";
     }),
     getRecentMessages(input.phoneE164, HISTORY_MESSAGE_LIMIT).catch(() => []),
+    loadAgentSystemPrompt(),
   ]);
 
-  let systemContent = SYSTEM_PROMPT;
+  let systemContent = systemPromptText;
   if (siteContext) {
     systemContent += `\n\n## Current Site Information\nThe following is retrieved from the official Chicago Relay Center site (scraped daily):\n\n${siteContext}`;
   }

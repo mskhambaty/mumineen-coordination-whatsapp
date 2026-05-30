@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
@@ -53,7 +52,6 @@ export default function ConversationsPage() {
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [darkMode, setDarkMode] = useState(false);
 
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
@@ -61,25 +59,6 @@ export default function ConversationsPage() {
     () => conversations.find((conversation) => conversation.phone_e164 === selectedPhone) ?? conversations[0] ?? null,
     [conversations, selectedPhone],
   );
-
-  useEffect(() => {
-    const stored = localStorage.getItem("admin_theme");
-    if (stored === "dark" || (stored === null && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
-      setDarkMode(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", darkMode);
-  }, [darkMode]);
-
-  function toggleTheme() {
-    setDarkMode((prev) => {
-      const next = !prev;
-      localStorage.setItem("admin_theme", next ? "dark" : "light");
-      return next;
-    });
-  }
 
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
@@ -208,35 +187,7 @@ export default function ConversationsPage() {
   const isManual = selected?.handling_mode === "manual";
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100">
-      <nav className="bg-white shadow-sm border-b dark:border-gray-800 dark:bg-gray-900">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex min-h-16 flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between">
-            <h1 className="text-xl font-bold">Lead Inbox</h1>
-            <div className="flex flex-wrap items-center gap-4 text-sm">
-              <Link href="/admin" className="text-gray-600 hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400">Home</Link>
-              <Link href="/admin/conversations" className="text-blue-600 font-medium dark:text-blue-400">Inbox</Link>
-              <Link href="/admin/analytics" className="text-gray-600 hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400">Analytics</Link>
-              <Link href="/admin/kanban" className="text-gray-600 hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400">Kanban</Link>
-              <Link href="/admin/upload" className="text-gray-600 hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400">Upload</Link>
-              <Link href="/admin/users" className="text-gray-600 hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400">Users</Link>
-              <button onClick={() => { localStorage.clear(); router.push("/admin/login"); }} className="text-gray-600 hover:text-red-600 dark:text-gray-300 dark:hover:text-red-400">
-                Logout
-              </button>
-              <button
-                type="button"
-                onClick={toggleTheme}
-                className="rounded-md border border-gray-200 px-2 py-1 text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
-                aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-                title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-              >
-                {darkMode ? "☀️ Light" : "🌙 Dark"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </nav>
-
+    <>
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{error}</div>}
 
@@ -371,7 +322,7 @@ export default function ConversationsPage() {
           </aside>
         </div>
       </main>
-    </div>
+    </>
   );
 }
 

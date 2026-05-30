@@ -25,20 +25,34 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: deptErr.message }, { status: 500 });
     }
 
-    // Get all tasks
-    const { data: allTasks, error: tasksErr } = await supabase
-      .from("tasks")
-      .select("id, department_id, title, status, priority, due_date, updated_at")
-      .eq("archived", false);
+    const [tasksResult, milestonesResult] = await Promise.all([
+      supabase
+        .from("tasks")
+        .select("id, department_id, title, status, priority, due_date, updated_at, item_type")
+        .eq("archived", false),
+      supabase
+        .from("milestones")
+        .select("id, department_id, title, status, budget, percent_complete"),
+    ]);
 
-    if (tasksErr) {
-      return NextResponse.json({ error: tasksErr.message }, { status: 500 });
+    if (tasksResult.error) {
+      return NextResponse.json({ error: tasksResult.error.message }, { status: 500 });
     }
+
+    const allTasks = tasksResult.data;
+    const allMilestones = milestonesResult.data ?? [];
 
     const today = new Date().toISOString().split("T")[0];
 
     const summary = (departments ?? []).map((dept) => {
       const deptTasks = (allTasks ?? []).filter((t) => t.department_id === dept.id);
+      const deptMilestones = allMilestones.filter((m) => m.department_id === dept.id);
+      const openIssues = deptTasks.filter((t) => t.item_type === "issue" && t.status !== "complete").length;
+      const totalBudget = deptMilestones.reduce((sum, m) => sum + (Number(m.budget) || 0), 0);
+      const avgCompletion = deptMilestones.length > 0
+        ? Math.round(deptMilestones.reduce((sum, m) => sum + m.percent_complete, 0) / deptMilestones.length)
+        : 0;
+
       const counts = {
         department_name: dept.name,
         department_id: dept.id,
@@ -48,6 +62,10 @@ export async function GET(req: NextRequest) {
         complete: 0,
         total: deptTasks.length,
         overdue: 0,
+        milestone_count: deptMilestones.length,
+        total_budget: totalBudget,
+        avg_completion: avgCompletion,
+        open_issues: openIssues,
         top_blockers: deptTasks
           .filter((task) => task.status === "blocked" || (task.due_date && task.due_date < today && task.status !== "complete"))
           .sort((a, b) => {

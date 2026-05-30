@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
@@ -105,26 +104,7 @@ export default function AnalyticsPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      <nav className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex min-h-16 flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between">
-            <h1 className="text-xl font-bold">Analytics</h1>
-            <div className="flex flex-wrap gap-4 text-sm">
-              <Link href="/admin" className="text-gray-600 hover:text-blue-600">Home</Link>
-              <Link href="/admin/conversations" className="text-gray-600 hover:text-blue-600">Inbox</Link>
-              <Link href="/admin/analytics" className="text-blue-600 font-medium">Analytics</Link>
-              <Link href="/admin/kanban" className="text-gray-600 hover:text-blue-600">Kanban</Link>
-              <Link href="/admin/upload" className="text-gray-600 hover:text-blue-600">Upload</Link>
-              <Link href="/admin/users" className="text-gray-600 hover:text-blue-600">Users</Link>
-              <button onClick={() => { localStorage.clear(); router.push("/admin/login"); }} className="text-gray-600 hover:text-red-600">
-                Logout
-              </button>
-            </div>
-          </div>
-        </div>
-      </nav>
-
+    <>
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
@@ -276,7 +256,7 @@ export default function AnalyticsPage() {
           </>
         )}
       </main>
-    </div>
+    </>
   );
 }
 

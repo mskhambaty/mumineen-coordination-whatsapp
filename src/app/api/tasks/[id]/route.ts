@@ -19,10 +19,12 @@ type UpdateTaskBody = {
   assigned_to_alias?: unknown;
   archived?: unknown;
   note?: unknown;
+  item_type?: unknown;
+  milestone_id?: unknown;
 };
 
 const taskSelect =
-  "id, title, description, status, priority, archived, assigned_to, created_by, source, due_date, department_id, created_at, updated_at, departments(name), assignee:whatsapp_users!tasks_assigned_to_fkey(display_name)";
+  "id, title, description, status, priority, archived, assigned_to, created_by, source, due_date, department_id, item_type, milestone_id, created_at, updated_at, departments(name), assignee:whatsapp_users!tasks_assigned_to_fkey(display_name)";
 
 export async function GET(
   req: NextRequest,
@@ -107,6 +109,10 @@ export async function PUT(
     if (typeof body.title === "string" && body.title.trim()) updates.title = body.title.trim();
     if (body.description !== undefined) updates.description = body.description;
     if (body.due_date !== undefined) updates.due_date = body.due_date;
+    if (typeof body.item_type === "string" && (body.item_type === "task" || body.item_type === "issue")) {
+      updates.item_type = body.item_type;
+    }
+    if (typeof body.milestone_id === "string") updates.milestone_id = body.milestone_id;
     if (typeof body.archived === "boolean") {
       if (!canManageTaskDepartment) {
         return NextResponse.json({ error: "Insufficient permissions to archive this task" }, { status: 403 });

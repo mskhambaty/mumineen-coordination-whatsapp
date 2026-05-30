@@ -6,6 +6,7 @@ import { getDefaultFlexiblePrompt } from "@/lib/transcripts/prompts";
 
 type PromptConfigBody = {
   flexible_prompt?: unknown;
+  transcript_type?: unknown;
 };
 
 export async function GET(
@@ -16,6 +17,8 @@ export async function GET(
     const caller = await resolveCallerFromRequest(req);
     const { id } = await params;
     guardWriteAccess(caller, id);
+
+    const transcriptType = req.nextUrl.searchParams.get("transcript_type") ?? "whatsapp";
 
     const supabase = getSupabaseAdmin();
     const { data: department } = await supabase
@@ -28,6 +31,7 @@ export async function GET(
       .from("department_prompt_config")
       .select("flexible_prompt, updated_at")
       .eq("department_id", id)
+      .eq("transcript_type", transcriptType)
       .maybeSingle();
 
     if (error) {
@@ -37,6 +41,7 @@ export async function GET(
     return NextResponse.json({
       fixed_prompt_locked: true,
       flexible_prompt: data?.flexible_prompt || getDefaultFlexiblePrompt(department?.name),
+      transcript_type: transcriptType,
       updated_at: data?.updated_at ?? null,
     });
   } catch (err) {
@@ -58,6 +63,9 @@ export async function PUT(
 
     const body = (await req.json()) as PromptConfigBody;
     const flexiblePrompt = typeof body.flexible_prompt === "string" ? body.flexible_prompt : "";
+    const transcriptType = typeof body.transcript_type === "string" && (body.transcript_type === "whatsapp" || body.transcript_type === "meeting")
+      ? body.transcript_type
+      : "whatsapp";
 
     if (flexiblePrompt.length > 4000) {
       return NextResponse.json({ error: "flexible_prompt must be 4000 characters or fewer" }, { status: 400 });
@@ -69,12 +77,13 @@ export async function PUT(
       .upsert(
         {
           department_id: id,
+          transcript_type: transcriptType,
           flexible_prompt: flexiblePrompt,
           updated_by: caller.user_id !== "admin-api" ? caller.user_id : null,
         },
-        { onConflict: "department_id" },
+        { onConflict: "department_id,transcript_type" },
       )
-      .select("flexible_prompt, updated_at")
+      .select("flexible_prompt, transcript_type, updated_at")
       .single();
 
     if (error) {

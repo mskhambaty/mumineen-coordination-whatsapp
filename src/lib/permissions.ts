@@ -31,6 +31,7 @@ export const taskReadTools = new Set([
   "get_my_tasks",
   "get_task_detail",
   "get_department_summary",
+  "get_milestones",
 ]);
 
 /** Task tools requiring pm, hod, or leadership_admin */
@@ -38,6 +39,7 @@ export const taskWriteTools = new Set([
   "update_task_status",
   "assign_task",
   "get_top_blockers",
+  "update_milestone",
 ]);
 
 /** Task tools any authenticated department member can start, scoped by API rules */

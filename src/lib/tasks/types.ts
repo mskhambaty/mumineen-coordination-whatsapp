@@ -1,8 +1,10 @@
 export const taskStatuses = ["open", "in_progress", "blocked", "complete"] as const;
 export const taskPriorities = ["low", "medium", "high"] as const;
+export const itemTypes = ["task", "issue"] as const;
 
 export type TaskStatus = (typeof taskStatuses)[number];
 export type TaskPriority = (typeof taskPriorities)[number];
+export type ItemType = (typeof itemTypes)[number];
 
 export function isTaskStatus(value: unknown): value is TaskStatus {
   return typeof value === "string" && taskStatuses.includes(value as TaskStatus);

@@ -18,10 +18,12 @@ type CreateTaskBody = {
   due_date?: unknown;
   source?: unknown;
   priority?: unknown;
+  item_type?: unknown;
+  milestone_id?: unknown;
 };
 
 const taskSelect =
-  "id, title, description, status, priority, archived, assigned_to, created_by, source, due_date, department_id, created_at, updated_at, departments(name), assignee:whatsapp_users!tasks_assigned_to_fkey(display_name)";
+  "id, title, description, status, priority, archived, assigned_to, created_by, source, due_date, department_id, item_type, milestone_id, created_at, updated_at, departments(name), assignee:whatsapp_users!tasks_assigned_to_fkey(display_name)";
 
 type TaskRow = {
   priority?: string | null;
@@ -39,6 +41,8 @@ export async function GET(req: NextRequest) {
     const departmentId = req.nextUrl.searchParams.get("department_id");
     const priority = req.nextUrl.searchParams.get("priority");
     const assigneeId = req.nextUrl.searchParams.get("assignee_id");
+    const itemType = req.nextUrl.searchParams.get("item_type");
+    const milestoneId = req.nextUrl.searchParams.get("milestone_id");
     const includeArchived = req.nextUrl.searchParams.get("include_archived") === "true";
 
     if (status && status !== "all" && !isTaskStatus(status)) {
@@ -72,6 +76,14 @@ export async function GET(req: NextRequest) {
 
     if (assigneeId) {
       query = query.eq("assigned_to", assigneeId);
+    }
+
+    if (itemType && itemType !== "all") {
+      query = query.eq("item_type", itemType);
+    }
+
+    if (milestoneId) {
+      query = query.eq("milestone_id", milestoneId);
     }
 
     if (!caller.can_read_all) {
@@ -176,6 +188,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const itemType = typeof body.item_type === "string" && (body.item_type === "task" || body.item_type === "issue") ? body.item_type : "task";
+    const milestoneIdInput = typeof body.milestone_id === "string" ? body.milestone_id : null;
+
     const { data: task, error: insertErr } = await supabase
       .from("tasks")
       .insert({
@@ -187,8 +202,10 @@ export async function POST(req: NextRequest) {
         source,
         due_date: dueDate,
         priority,
+        item_type: itemType,
+        milestone_id: milestoneIdInput,
       })
-      .select("id, title, status, priority, department_id, assigned_to, created_at")
+      .select("id, title, status, priority, item_type, milestone_id, department_id, assigned_to, created_at")
       .single();
 
     if (insertErr) {

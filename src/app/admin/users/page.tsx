@@ -386,31 +386,21 @@ export default function UsersPage() {
   }
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center"><p className="text-gray-500">Loading...</p></div>;
+    return <div className="flex items-center justify-center py-20"><p className="text-gray-500">Loading...</p></div>;
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
-            <div className="flex items-center space-x-4">
-              <Link href="/admin" className="text-blue-600 hover:underline">← Dashboard</Link>
-              <Link href="/admin/conversations" className="text-gray-600 hover:text-blue-600">Inbox</Link>
-              <Link href="/admin/analytics" className="text-gray-600 hover:text-blue-600">Analytics</Link>
-              <h1 className="text-xl font-bold text-gray-900">User Management</h1>
-            </div>
-            <button
-              onClick={() => setShowAddUser(true)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700"
-            >
-              Add User
-            </button>
-          </div>
-        </div>
-      </nav>
+    <>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 flex justify-end">
+        <button
+          onClick={() => setShowAddUser(true)}
+          className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700"
+        >
+          Add User
+        </button>
+      </div>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         {error && (
           <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
@@ -818,7 +808,7 @@ export default function UsersPage() {
           </div>
         </div>
       </main>
-    </div>
+    </>
   );
 }
 

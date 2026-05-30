@@ -22,7 +22,7 @@ type KanbanTask = {
 };
 
 const taskSelect =
-  "id, title, description, status, priority, archived, assigned_to, created_by, source, due_date, department_id, created_at, updated_at, departments(name), assignee:whatsapp_users!tasks_assigned_to_fkey(display_name)";
+  "id, title, description, status, priority, archived, assigned_to, created_by, source, due_date, department_id, item_type, milestone_id, created_at, updated_at, departments(name), assignee:whatsapp_users!tasks_assigned_to_fkey(display_name)";
 
 export async function GET(req: NextRequest) {
   try {
@@ -57,6 +57,11 @@ export async function GET(req: NextRequest) {
 
     if (assigneeId) {
       query = query.eq("assigned_to", assigneeId);
+    }
+
+    const itemType = req.nextUrl.searchParams.get("item_type");
+    if (itemType && itemType !== "all") {
+      query = query.eq("item_type", itemType);
     }
 
     if (!caller.can_read_all) {
