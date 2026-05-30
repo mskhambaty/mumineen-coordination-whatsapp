@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { isAdminOrLeadership } from "@/lib/admin/access";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export async function POST(req: NextRequest) {
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 401 });
     }
 
-    if (user.role !== "admin" && user.global_role !== "leadership_admin") {
+    if (!isAdminOrLeadership(user)) {
       return NextResponse.json({ error: "Access denied. Admin role required." }, { status: 403 });
     }
 
@@ -46,10 +47,15 @@ export async function POST(req: NextRequest) {
         id: user.id,
         display_name: user.display_name,
         email: user.email,
+        role: user.role,
         global_role: user.global_role,
       },
     });
-  } catch {
+  } catch (error) {
+    console.error("Admin login failed", error);
+    if (error instanceof Error && error.message.includes("Missing required environment variable")) {
+      return NextResponse.json({ error: "Server configuration error: Supabase env is missing." }, { status: 500 });
+    }
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }

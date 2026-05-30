@@ -220,6 +220,8 @@ export default function KanbanPage() {
             <h1 className="text-xl font-bold">Kanban Board</h1>
             <div className="flex space-x-4">
               <Link href="/admin" className="text-gray-600 hover:text-blue-600">Home</Link>
+              <Link href="/admin/conversations" className="text-gray-600 hover:text-blue-600">Inbox</Link>
+              <Link href="/admin/analytics" className="text-gray-600 hover:text-blue-600">Analytics</Link>
               <Link href="/admin/kanban" className="text-blue-600 font-medium">Kanban</Link>
               <Link href="/admin/upload" className="text-gray-600 hover:text-blue-600">Upload</Link>
               <Link href="/admin/users" className="text-gray-600 hover:text-blue-600">Users</Link>
