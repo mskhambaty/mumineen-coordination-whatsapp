@@ -38,16 +38,14 @@ const trailingLinks = [
 export default function AdminNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+
+    const stored = window.localStorage.getItem("admin_theme");
+    return stored === "dark" || (stored === null && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  });
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const navRef = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    const stored = localStorage.getItem("admin_theme");
-    if (stored === "dark" || (stored === null && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
-      setDarkMode(true);
-    }
-  }, []);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);

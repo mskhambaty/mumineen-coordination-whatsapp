@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { ForbiddenError, resolveCallerFromRequest } from "@/lib/api/auth";
 import { toolDefinitions } from "@/lib/agent/tools";
-import { getToolApiMapping } from "@/lib/agent/tool-metadata";
+import { getToolMetadata } from "@/lib/agent/tool-metadata";
 
 export async function GET(req: NextRequest) {
   try {
@@ -11,16 +11,24 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 });
     }
 
-    const apiMap = getToolApiMapping();
+    const metadataMap = getToolMetadata();
 
     const tools = toolDefinitions
       .filter((tool): tool is typeof tool & { type: "function" } => tool.type === "function")
-      .map((tool) => ({
-        name: tool.function.name,
-        description: tool.function.description,
-        parameters: tool.function.parameters,
-        internal_api: apiMap[tool.function.name] ?? "Unknown",
-      }));
+      .map((tool) => {
+        const metadata = metadataMap[tool.function.name];
+
+        return {
+          name: tool.function.name,
+          description: tool.function.description,
+          parameters: tool.function.parameters,
+          internal_api: metadata?.internal_api ?? "Unknown",
+          audience: metadata?.audience ?? "internal",
+          availability: metadata?.availability ?? "not_connected",
+          status_label: metadata?.status_label ?? "Unknown",
+          status_note: metadata?.status_note ?? "Metadata has not been configured for this tool.",
+        };
+      });
 
     return NextResponse.json({ tools });
   } catch (err) {

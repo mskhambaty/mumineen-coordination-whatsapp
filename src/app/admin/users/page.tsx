@@ -42,13 +42,6 @@ const USER_ROLE_OPTIONS = [
   { value: "admin", label: "Admin / Leadership" },
 ];
 
-const GLOBAL_ROLE_OPTIONS = [
-  { value: "member", label: "Member" },
-  { value: "pm", label: "PM" },
-  { value: "hod", label: "HOD" },
-  { value: "leadership_admin", label: "Leadership / Admin" },
-];
-
 const DEPT_ROLE_OPTIONS = [
   { value: "member", label: "Member" },
   { value: "pm", label: "PM" },
