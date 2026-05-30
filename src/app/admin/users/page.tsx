@@ -92,6 +92,8 @@ export default function UsersPage() {
           <div className="flex justify-between h-16 items-center">
             <div className="flex items-center space-x-4">
               <Link href="/admin" className="text-blue-600 hover:underline">← Dashboard</Link>
+              <Link href="/admin/conversations" className="text-gray-600 hover:text-blue-600">Inbox</Link>
+              <Link href="/admin/analytics" className="text-gray-600 hover:text-blue-600">Analytics</Link>
               <h1 className="text-xl font-bold text-gray-900">User Management</h1>
             </div>
             <button

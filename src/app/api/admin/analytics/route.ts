@@ -1,0 +1,238 @@
+import { NextRequest, NextResponse } from "next/server";
+
+import { ForbiddenError, resolveCallerFromRequest } from "@/lib/api/auth";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { priorityWeight } from "@/lib/tasks/types";
+
+type TaskRow = {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  due_date: string | null;
+  department_id: string;
+  assigned_to: string | null;
+  updated_at: string | null;
+};
+
+type DepartmentRow = {
+  id: string;
+  name: string;
+};
+
+type SessionRow = {
+  id: string;
+  phone_e164: string;
+  handling_mode: "ai" | "manual" | null;
+  last_message_at: string | null;
+  created_at: string | null;
+};
+
+type MessageRow = {
+  id: string;
+  phone_e164: string;
+  direction: "inbound" | "outbound";
+  created_at: string;
+};
+
+type ToolAuditRow = {
+  id: string;
+  phone_e164: string | null;
+  tool_name: string;
+  allowed: boolean;
+  created_at: string;
+};
+
+export async function GET(req: NextRequest) {
+  try {
+    const caller = await resolveCallerFromRequest(req);
+    if (!caller.can_read_all) {
+      return NextResponse.json({ error: "Leadership/Admin access required" }, { status: 403 });
+    }
+
+    const supabase = getSupabaseAdmin();
+    const departmentId = req.nextUrl.searchParams.get("department_id");
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now);
+    thirtyDaysAgo.setDate(now.getDate() - 30);
+    const today = now.toISOString().split("T")[0];
+
+    const [{ data: departments, error: deptError }, { data: tasks, error: tasksError }] =
+      await Promise.all([
+        supabase.from("departments").select("id, name").order("name"),
+        buildTaskQuery(supabase, departmentId),
+      ]);
+
+    if (deptError) {
+      return NextResponse.json({ error: deptError.message }, { status: 500 });
+    }
+    if (tasksError) {
+      return NextResponse.json({ error: tasksError.message }, { status: 500 });
+    }
+
+    const departmentMap = new Map(
+      ((departments ?? []) as DepartmentRow[]).map((department) => [department.id, department.name]),
+    );
+    const scopedTasks = (tasks ?? []) as TaskRow[];
+
+    const [{ data: sessions }, { data: messages }, { data: toolCalls }] = await Promise.all([
+      supabase
+        .from("conversation_sessions")
+        .select("id, phone_e164, handling_mode, last_message_at, created_at")
+        .gte("last_message_at", thirtyDaysAgo.toISOString()),
+      supabase
+        .from("messages")
+        .select("id, phone_e164, direction, created_at")
+        .gte("created_at", thirtyDaysAgo.toISOString()),
+      supabase
+        .from("tool_audit_logs")
+        .select("id, phone_e164, tool_name, allowed, created_at")
+        .gte("created_at", thirtyDaysAgo.toISOString()),
+    ]);
+
+    return NextResponse.json({
+      departments: departments ?? [],
+      tasks: buildTaskAnalytics(scopedTasks, departmentMap, today),
+      conversations: buildConversationAnalytics(
+        (sessions ?? []) as SessionRow[],
+        (messages ?? []) as MessageRow[],
+        (toolCalls ?? []) as ToolAuditRow[],
+        thirtyDaysAgo,
+      ),
+    });
+  } catch (err) {
+    if (err instanceof ForbiddenError) {
+      return NextResponse.json({ error: err.message }, { status: 403 });
+    }
+    return NextResponse.json({ error: (err as Error).message }, { status: 401 });
+  }
+}
+
+function buildTaskQuery(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  departmentId: string | null,
+) {
+  let query = supabase
+    .from("tasks")
+    .select("id, title, status, priority, due_date, department_id, assigned_to, updated_at")
+    .eq("archived", false);
+
+  if (departmentId && departmentId !== "all") {
+    query = query.eq("department_id", departmentId);
+  }
+
+  return query;
+}
+
+function buildTaskAnalytics(tasks: TaskRow[], departmentMap: Map<string, string>, today: string) {
+  const byStatus = { open: 0, in_progress: 0, blocked: 0, complete: 0 };
+  const byPriority = { high: 0, medium: 0, low: 0 };
+  const departmentCounts = new Map<string, { department_id: string; department_name: string; total: number; overdue: number; blocked: number }>();
+
+  for (const task of tasks) {
+    if (task.status in byStatus) {
+      byStatus[task.status as keyof typeof byStatus]++;
+    }
+    if (task.priority in byPriority) {
+      byPriority[task.priority as keyof typeof byPriority]++;
+    }
+
+    const existing = departmentCounts.get(task.department_id) ?? {
+      department_id: task.department_id,
+      department_name: departmentMap.get(task.department_id) ?? "Unknown",
+      total: 0,
+      overdue: 0,
+      blocked: 0,
+    };
+    existing.total++;
+    if (task.status === "blocked") existing.blocked++;
+    if (isOverdue(task, today)) existing.overdue++;
+    departmentCounts.set(task.department_id, existing);
+  }
+
+  const overdue = tasks
+    .filter((task) => isOverdue(task, today))
+    .sort((a, b) => {
+      const priorityDiff = priorityWeight(b.priority) - priorityWeight(a.priority);
+      if (priorityDiff !== 0) return priorityDiff;
+      return String(a.due_date).localeCompare(String(b.due_date));
+    })
+    .slice(0, 20)
+    .map((task) => ({
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      priority: task.priority,
+      due_date: task.due_date,
+      department_id: task.department_id,
+      department_name: departmentMap.get(task.department_id) ?? "Unknown",
+    }));
+
+  return {
+    total: tasks.length,
+    active: tasks.filter((task) => task.status !== "complete").length,
+    overdue: overdue.length,
+    blocked: byStatus.blocked,
+    by_status: byStatus,
+    by_priority: byPriority,
+    by_department: Array.from(departmentCounts.values()).sort((a, b) => b.total - a.total),
+    overdue_list: overdue,
+  };
+}
+
+function buildConversationAnalytics(
+  sessions: SessionRow[],
+  messages: MessageRow[],
+  toolCalls: ToolAuditRow[],
+  since: Date,
+) {
+  const inbound = messages.filter((message) => message.direction === "inbound").length;
+  const outbound = messages.filter((message) => message.direction === "outbound").length;
+  const byDay = buildDailyMessageCounts(messages, since);
+  const topTools = new Map<string, number>();
+
+  for (const call of toolCalls) {
+    topTools.set(call.tool_name, (topTools.get(call.tool_name) ?? 0) + 1);
+  }
+
+  return {
+    window_days: 30,
+    active_conversations: sessions.length,
+    manual_conversations: sessions.filter((session) => session.handling_mode === "manual").length,
+    ai_conversations: sessions.filter((session) => session.handling_mode !== "manual").length,
+    inbound_messages: inbound,
+    outbound_messages: outbound,
+    total_messages: messages.length,
+    tool_calls: toolCalls.length,
+    blocked_tool_calls: toolCalls.filter((call) => !call.allowed).length,
+    messages_by_day: byDay,
+    top_tools: Array.from(topTools.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10),
+  };
+}
+
+function isOverdue(task: TaskRow, today: string) {
+  return Boolean(task.due_date && task.due_date < today && task.status !== "complete");
+}
+
+function buildDailyMessageCounts(messages: MessageRow[], since: Date) {
+  const counts = new Map<string, { date: string; inbound: number; outbound: number }>();
+  for (let offset = 0; offset <= 30; offset++) {
+    const date = new Date(since);
+    date.setDate(since.getDate() + offset);
+    const key = date.toISOString().split("T")[0];
+    counts.set(key, { date: key, inbound: 0, outbound: 0 });
+  }
+
+  for (const message of messages) {
+    const key = new Date(message.created_at).toISOString().split("T")[0];
+    const bucket = counts.get(key);
+    if (!bucket) continue;
+    if (message.direction === "inbound") bucket.inbound++;
+    if (message.direction === "outbound") bucket.outbound++;
+  }
+
+  return Array.from(counts.values());
+}

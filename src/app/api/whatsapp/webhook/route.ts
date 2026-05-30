@@ -4,6 +4,7 @@ import { runAgent } from "@/lib/agent/run-agent";
 import { optionalEnv } from "@/lib/env";
 import { sendWhatsAppText, verifyMetaSignature } from "@/lib/meta/whatsapp";
 import {
+  getSupabaseAdmin,
   getOrCreateWhatsappUser,
   recordInboundMessage,
   recordOutboundMessage,
@@ -77,6 +78,16 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
     phoneE164: message.phoneE164,
     userId: user.id,
   });
+
+  const { data: session } = await getSupabaseAdmin()
+    .from("conversation_sessions")
+    .select("handling_mode")
+    .eq("phone_e164", message.phoneE164)
+    .maybeSingle();
+
+  if (session?.handling_mode === "manual") {
+    return true;
+  }
 
   const reply = await runAgent({
     user,

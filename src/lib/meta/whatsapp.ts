@@ -30,7 +30,7 @@ export function verifyMetaSignature(rawBody: string, signatureHeader: string | n
 }
 
 export async function sendWhatsAppText(to: string, body: string): Promise<MetaMessageResponse> {
-  const apiVersion = optionalEnv("META_GRAPH_API_VERSION") || "v23.0";
+  const apiVersion = optionalEnv("META_GRAPH_API_VERSION") || "v25.0";
   const phoneNumberId = requireEnv("WHATSAPP_PHONE_NUMBER_ID");
   const accessToken = requireEnv("WHATSAPP_ACCESS_TOKEN");
 
