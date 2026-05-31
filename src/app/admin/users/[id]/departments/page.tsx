@@ -98,7 +98,7 @@ export default function UserDepartmentsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm border-b">
+      <nav className="bg-white shadow-sm border-b dark:bg-gray-900 dark:border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <div className="flex items-center space-x-4">
@@ -112,7 +112,7 @@ export default function UserDepartmentsPage() {
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Current Memberships */}
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden mb-8">
-          <div className="px-6 py-4 border-b">
+          <div className="px-6 py-4 border-b dark:border-gray-800">
             <h2 className="text-lg font-semibold">Current Memberships</h2>
           </div>
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">

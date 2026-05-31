@@ -329,7 +329,7 @@ export default function UploadPage() {
             className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
               transcriptType === "whatsapp"
                 ? "bg-blue-600 text-white"
-                : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
             }`}
           >
             WhatsApp Transcript
@@ -340,7 +340,7 @@ export default function UploadPage() {
             className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
               transcriptType === "meeting"
                 ? "bg-blue-600 text-white"
-                : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
             }`}
           >
             Meeting Transcript
@@ -358,10 +358,10 @@ export default function UploadPage() {
             </pre>
           </div>
 
-          <div className="rounded-lg border bg-white p-5 shadow-sm">
+          <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-lg font-semibold">Department Rules</h2>
-              <span className="text-xs text-gray-500">{flexiblePrompt.length}/4000</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">{flexiblePrompt.length}/4000</span>
             </div>
             <textarea
               value={flexiblePrompt}
@@ -370,7 +370,7 @@ export default function UploadPage() {
                 setFlexiblePrompt(event.target.value.slice(0, 4000));
               }}
               rows={10}
-              className="w-full rounded-md border px-3 py-2 text-sm"
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
               disabled={!selectedDept}
             />
             <div className="mt-3 flex justify-end gap-3">
@@ -387,7 +387,7 @@ export default function UploadPage() {
           </div>
         </section>
 
-        <section className="mt-6 rounded-lg border bg-white p-6 shadow-sm">
+        <section className="mt-6 rounded-lg border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <form onSubmit={handleUpload} className="grid gap-4 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
             <label className="block text-sm font-medium">
               Department
@@ -395,7 +395,7 @@ export default function UploadPage() {
                 value={selectedDept}
                 onChange={(e) => setSelectedDept(e.target.value)}
                 required
-                className="mt-1 block w-full rounded-md border px-3 py-2"
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
               >
                 <option value="">Select department...</option>
                 {departments.map((department) => (
@@ -410,7 +410,7 @@ export default function UploadPage() {
                 accept=".txt"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 required
-                className="mt-1 block w-full rounded-md border px-3 py-2"
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
               />
             </label>
             <button
@@ -421,7 +421,7 @@ export default function UploadPage() {
               {loading ? "Parsing..." : "Parse with AI"}
             </button>
           </form>
-          {selectedDepartment && <p className="mt-3 text-sm text-gray-500">Rules will apply to {selectedDepartment.name}.</p>}
+          {selectedDepartment && <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">Rules will apply to {selectedDepartment.name}.</p>}
         </section>
 
         {applyResult && (
@@ -450,10 +450,10 @@ export default function UploadPage() {
 
         {events.length > 0 && (
           <section className="mt-6 rounded-lg border bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
-            <div className="flex items-center justify-between border-b px-6 py-4">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
               <div>
                 <h2 className="text-lg font-semibold">Review Proposed Changes ({events.length})</h2>
-                <p className="mt-1 text-sm text-gray-500">New items and suggested updates are matched against existing department records.</p>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">New items and suggested updates are matched against existing department records.</p>
               </div>
               <button
                 onClick={handleApply}
@@ -472,23 +472,23 @@ export default function UploadPage() {
             <div key={group.key} className="border-b last:border-b-0">
               <h3 className="px-6 py-3 text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">{group.title} ({group.events.length})</h3>
               <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
+                <thead className="bg-gray-50 dark:bg-gray-800/60">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Apply</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Action</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Proposal</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Existing Match</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Timestamp</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Sender</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Message</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Type</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Priority</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Assigned To</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Confidence</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Apply</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Action</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Proposal</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Existing Match</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Timestamp</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Sender</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Message</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Type</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Priority</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Assigned To</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Confidence</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200">
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
                   {group.events.map((event) => (
                     <tr key={event.id} className={event.confidence < 0.7 ? "bg-yellow-50" : ""}>
                       <td className="px-4 py-3">
@@ -504,7 +504,7 @@ export default function UploadPage() {
                         </span>
                       </td>
                       <td className="max-w-xs px-4 py-3 text-sm font-medium">{getEventTitle(event)}</td>
-                      <td className="max-w-xs px-4 py-3 text-sm text-gray-600">
+                      <td className="max-w-xs px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
                         {event.target_title ? (
                           <>
                             <span className="font-medium">{event.target_title}</span>
@@ -516,17 +516,17 @@ export default function UploadPage() {
                           "—"
                         )}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
                         {event.message_timestamp ? new Date(event.message_timestamp).toLocaleString() : "—"}
                       </td>
                       <td className="px-4 py-3 text-sm">{event.sender_alias ?? "—"}</td>
-                      <td className="max-w-xs px-4 py-3 text-sm text-gray-600">{event.message_text ?? "—"}</td>
+                      <td className="max-w-xs px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{event.message_text ?? "—"}</td>
                       <td className="px-4 py-3"><span className="rounded bg-gray-100 px-2 py-1 text-xs">{event.event_type}</span></td>
                       <td className="px-4 py-3">
                         <select
                           value={eventDrafts[event.id]?.priority ?? event.priority}
                           onChange={(e) => updateEventDraft(event.id, { priority: e.target.value as TaskPriority })}
-                          className="rounded-md border px-2 py-1 text-sm"
+                          className="rounded-md border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                           disabled={event.applied}
                         >
                           <option value="high">High</option>
@@ -538,7 +538,7 @@ export default function UploadPage() {
                         <input
                           value={eventDrafts[event.id]?.assigned_to_alias ?? ""}
                           onChange={(e) => updateEventDraft(event.id, { assigned_to_alias: e.target.value })}
-                          className="w-40 rounded-md border px-2 py-1 text-sm"
+                          className="w-40 rounded-md border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                           placeholder="Alias"
                           disabled={event.applied}
                         />
@@ -555,8 +555,8 @@ export default function UploadPage() {
         )}
 
         {newMembers.length > 0 && (
-          <section className="mt-6 rounded-lg border bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b px-6 py-4">
+          <section className="mt-6 rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
               <h2 className="text-lg font-semibold">New Members Not Currently in System ({newMembers.length})</h2>
               <button
                 onClick={handleAddMembers}
@@ -568,39 +568,39 @@ export default function UploadPage() {
             </div>
             {memberResult && <p className="px-6 py-3 text-sm font-medium text-green-700">{memberResult}</p>}
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
+                <thead className="bg-gray-50 dark:bg-gray-800/60">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Add</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Alias</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Context</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Display Name</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Phone</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Department</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Role</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Add</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Alias</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Context</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Display Name</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Phone</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Department</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Role</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200">
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
                   {newMembers.map((member, index) => (
                     <tr key={`${member.alias}-${index}`}>
                       <td className="px-4 py-3">
                         <input type="checkbox" checked={member.add} onChange={(e) => updateMemberDraft(index, { add: e.target.checked })} />
                       </td>
                       <td className="px-4 py-3 text-sm">{member.alias}</td>
-                      <td className="max-w-xs px-4 py-3 text-sm text-gray-600">{member.context}</td>
+                      <td className="max-w-xs px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{member.context}</td>
                       <td className="px-4 py-3">
-                        <input value={member.display_name} onChange={(e) => updateMemberDraft(index, { display_name: e.target.value })} className="w-44 rounded-md border px-2 py-1 text-sm" />
+                        <input value={member.display_name} onChange={(e) => updateMemberDraft(index, { display_name: e.target.value })} className="w-44 rounded-md border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100" />
                       </td>
                       <td className="px-4 py-3">
-                        <input value={member.phone_e164} onChange={(e) => updateMemberDraft(index, { phone_e164: e.target.value })} className="w-40 rounded-md border px-2 py-1 text-sm" placeholder="+13125551212" />
+                        <input value={member.phone_e164} onChange={(e) => updateMemberDraft(index, { phone_e164: e.target.value })} className="w-40 rounded-md border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100" placeholder="+13125551212" />
                       </td>
                       <td className="px-4 py-3">
-                        <select value={member.department_id} onChange={(e) => updateMemberDraft(index, { department_id: e.target.value })} className="w-44 rounded-md border px-2 py-1 text-sm">
+                        <select value={member.department_id} onChange={(e) => updateMemberDraft(index, { department_id: e.target.value })} className="w-44 rounded-md border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
                           {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
                         </select>
                       </td>
                       <td className="px-4 py-3">
-                        <select value={member.dept_role} onChange={(e) => updateMemberDraft(index, { dept_role: e.target.value as MemberDraft["dept_role"] })} className="rounded-md border px-2 py-1 text-sm">
+                        <select value={member.dept_role} onChange={(e) => updateMemberDraft(index, { dept_role: e.target.value as MemberDraft["dept_role"] })} className="rounded-md border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
                           <option value="member">Member</option>
                           <option value="pm">PM</option>
                           <option value="hod">HOD</option>
