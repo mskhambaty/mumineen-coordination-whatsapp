@@ -8,11 +8,11 @@ import {
 
 describe("transcript prompts", () => {
   it("includes coordination extraction rules in locked prompts", () => {
-    expect(FIXED_TRANSCRIPT_PROMPT).toContain("Coordination Language Rules");
-    expect(FIXED_TRANSCRIPT_PROMPT).toContain("can you");
-    expect(FIXED_TRANSCRIPT_PROMPT).toContain("new_members");
-    expect(FIXED_MEETING_PROMPT).toContain("Meeting-Specific Rules");
-    expect(FIXED_MEETING_PROMPT).toContain("Coordination Language Rules");
+    expect(FIXED_TRANSCRIPT_PROMPT).toContain("extract_project_events");
+    expect(FIXED_TRANSCRIPT_PROMPT).toContain("assigned_to_alias");
+    expect(FIXED_TRANSCRIPT_PROMPT).toContain("Do not output member creation suggestions");
+    expect(FIXED_MEETING_PROMPT).toContain("meeting transcript");
+    expect(FIXED_MEETING_PROMPT).toContain("extract_project_events");
   });
 
   it("returns Site/Construction-specific rules without matching IT", () => {

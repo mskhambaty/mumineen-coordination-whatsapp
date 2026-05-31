@@ -23,15 +23,22 @@ export async function GET(
       return NextResponse.json({ error: "Upload not found" }, { status: 404 });
     }
 
+    const { data: uploadDepartments } = await supabase
+      .from("conversation_upload_departments")
+      .select("department_id")
+      .eq("upload_id", id);
+    const departmentIds = (uploadDepartments ?? []).map((row) => row.department_id as string);
+    const scopedDepartmentIds = departmentIds.length ? departmentIds : [upload.department_id as string];
+
     const [milestonesResult, tasksResult] = await Promise.all([
       supabase
         .from("milestones")
         .select("id, title, status, percent_complete, budget")
-        .eq("department_id", upload.department_id),
+        .in("department_id", scopedDepartmentIds),
       supabase
         .from("tasks")
         .select("id, title, status, item_type")
-        .eq("department_id", upload.department_id)
+        .in("department_id", scopedDepartmentIds)
         .eq("archived", false),
     ]);
 
@@ -53,7 +60,7 @@ export async function GET(
 
     const { data, error } = await supabase
       .from("conversation_events")
-      .select("id, upload_id, department_id, event_type, item_type, task_id, milestone_id, sender_alias, message_text, message_timestamp, ai_summary, task_title, milestone_title, assigned_to_alias, priority, confidence, percent_complete, budget, notes, description, applied")
+      .select("id, upload_id, department_id, event_type, item_type, task_id, milestone_id, sender_alias, message_text, message_timestamp, ai_summary, task_title, milestone_title, assigned_to_alias, priority, confidence, percent_complete, budget, notes, description, suggested_status, due_date, assigned_to_user_id, source, raw_function_event, suggested_changes, applied")
       .eq("upload_id", id)
       .order("message_timestamp", { ascending: true });
 

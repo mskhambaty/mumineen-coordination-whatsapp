@@ -1,4 +1,12 @@
 import { AI_MODEL, getAIClient, MAX_PARSE_TOKENS, PARSE_TEMPERATURE } from "@/lib/ai/model";
+import {
+  EXTRACT_PROJECT_EVENTS_FUNCTION_NAME,
+  EXTRACT_PROJECT_EVENTS_TOOL,
+  type ExtractProjectEvent,
+  type ExtractProjectEventsArgs,
+  type ProjectEventType,
+  type ProjectStatus,
+} from "@/lib/transcripts/function-schema";
 import { buildTranscriptSystemPrompt, type TranscriptType } from "@/lib/transcripts/prompts";
 
 export type ParsedEvent = {
@@ -8,6 +16,13 @@ export type ParsedEvent = {
     | "issue_created" | "issue_updated" | "issue_resolved"
     | "decision" | "info";
   item_type: "task" | "issue" | "milestone";
+  id?: string | null;
+  department_id?: string | null;
+  milestone_id?: string | null;
+  assigned_to?: string | null;
+  source?: string | null;
+  status?: ProjectStatus | null;
+  due_date?: string | null;
   sender_alias: string | null;
   message_timestamp: string | null;
   message_text: string | null;
@@ -21,6 +36,7 @@ export type ParsedEvent = {
   budget: number | null;
   notes: string | null;
   description: string | null;
+  raw_function_event?: ExtractProjectEvent | null;
 };
 
 export type ParsedNewMember = {
@@ -33,6 +49,16 @@ export type ParsedTranscript = {
   last_message_at: string | null;
   events: ParsedEvent[];
   new_members: ParsedNewMember[];
+  function_calls?: ParsedFunctionCallLog[];
+};
+
+export type ParsedFunctionCallLog = {
+  function_name: string;
+  status: "succeeded" | "failed";
+  arguments: ExtractProjectEventsArgs | null;
+  raw_arguments: string | null;
+  raw_response: unknown;
+  parse_error: string | null;
 };
 
 function chunkWhatsApp(content: string, maxChars: number): string[] {
@@ -104,13 +130,14 @@ export async function parseTranscript(rawContent: string, optsOrFlexiblePrompt?:
 
   const allEvents: ParsedEvent[] = [];
   const allNewMembers: ParsedNewMember[] = [];
+  const functionCalls: ParsedFunctionCallLog[] = [];
   let groupName: string | null = null;
   let lastMessageAt: string | null = null;
   let systemPrompt = buildTranscriptSystemPrompt(flexiblePrompt, transcriptType);
 
   if (existingContext) {
-    systemPrompt += `\n\n## Existing Items in Department
-Reference these when detecting updates to existing milestones, tasks, or issues. If the transcript is about one of these existing records, classify it as the matching *_updated, *_completed, or *_resolved event instead of *_created. Use *_created only for genuinely new work not already represented below. Do not invent events from this context alone.
+    systemPrompt += `\n\n## Upload Context
+Reference these departments and existing records when detecting updates to existing milestones, tasks, or issues. If the transcript is about one of these existing records, classify it as the matching *_updated or *_resolved event instead of *_created. Use *_created only for genuinely new work not already represented below. Do not invent events from this context alone.
 ${existingContext}`;
   }
 
@@ -130,29 +157,53 @@ ${existingContext}`;
           { role: "system", content: systemPrompt },
           { role: "user", content: chunk },
         ],
-        response_format: { type: "json_object" },
+        tools: [EXTRACT_PROJECT_EVENTS_TOOL],
+        tool_choice: { type: "function", function: { name: EXTRACT_PROJECT_EVENTS_FUNCTION_NAME } },
         temperature: PARSE_TEMPERATURE,
         max_tokens: MAX_PARSE_TOKENS,
       });
 
-      const content = response.choices[0]?.message?.content;
-      if (!content) continue;
+      const message = response.choices[0]?.message;
+      const toolCall = message?.tool_calls?.find((call) =>
+        call.type === "function" &&
+        "function" in call &&
+        (call as { function: { name: string } }).function.name === EXTRACT_PROJECT_EVENTS_FUNCTION_NAME
+      ) as { function: { arguments: string } } | undefined;
+      if (toolCall) {
+        const log = parseFunctionCallLog(toolCall.function.arguments, response);
+        functionCalls.push(log);
+        if (log.arguments?.events) {
+          allEvents.push(...log.arguments.events.map(functionEventToParsedEvent).filter((event) => event.confidence >= 0.5));
+        }
+        continue;
+      }
 
-      const parsed = JSON.parse(content) as ParsedTranscript;
-      if (parsed.group_name && !groupName) {
-        groupName = parsed.group_name;
-      }
-      if (parsed.last_message_at) {
-        lastMessageAt = parsed.last_message_at;
-      }
-      if (parsed.events) {
-        allEvents.push(...parsed.events.filter((e) => e.confidence >= 0.5).map(normalizeEvent));
-      }
-      if (parsed.new_members) {
-        allNewMembers.push(...parsed.new_members.filter(isValidNewMember));
+      const content = message?.content;
+      if (typeof content === "string" && content.trim()) {
+        const parsed = JSON.parse(content) as ParsedTranscript;
+        if (parsed.group_name && !groupName) {
+          groupName = parsed.group_name;
+        }
+        if (parsed.last_message_at) {
+          lastMessageAt = parsed.last_message_at;
+        }
+        if (parsed.events) {
+          allEvents.push(...parsed.events.filter((e) => e.confidence >= 0.5).map(normalizeEvent));
+        }
+        if (parsed.new_members) {
+          allNewMembers.push(...parsed.new_members.filter(isValidNewMember));
+        }
       }
     } catch (err) {
       console.error("Failed to parse OpenAI response for transcript chunk", err);
+      functionCalls.push({
+        function_name: EXTRACT_PROJECT_EVENTS_FUNCTION_NAME,
+        status: "failed",
+        arguments: null,
+        raw_arguments: null,
+        raw_response: null,
+        parse_error: (err as Error).message,
+      });
     }
   }
 
@@ -164,6 +215,7 @@ ${existingContext}`;
       last_message_at: lastMessageAt ?? fallback.last_message_at,
       events: fallback.events,
       new_members: dedupeNewMembers([...allNewMembers, ...fallback.new_members]),
+      function_calls: functionCalls,
     };
   }
 
@@ -172,7 +224,80 @@ ${existingContext}`;
     last_message_at: lastMessageAt ?? fallback.last_message_at,
     events: mergeParsedEvents(allEvents, fallback.events),
     new_members: dedupeNewMembers([...allNewMembers, ...fallback.new_members]),
+    function_calls: functionCalls,
   };
+}
+
+function parseFunctionCallLog(rawArguments: string, rawResponse: unknown): ParsedFunctionCallLog {
+  try {
+    const args = JSON.parse(rawArguments) as ExtractProjectEventsArgs;
+    return {
+      function_name: EXTRACT_PROJECT_EVENTS_FUNCTION_NAME,
+      status: "succeeded",
+      arguments: {
+        events: Array.isArray(args.events) ? args.events.filter(isValidFunctionEvent) : [],
+      },
+      raw_arguments: rawArguments,
+      raw_response: rawResponse,
+      parse_error: null,
+    };
+  } catch (err) {
+    return {
+      function_name: EXTRACT_PROJECT_EVENTS_FUNCTION_NAME,
+      status: "failed",
+      arguments: null,
+      raw_arguments: rawArguments,
+      raw_response: rawResponse,
+      parse_error: (err as Error).message,
+    };
+  }
+}
+
+function isValidFunctionEvent(event: ExtractProjectEvent): event is ExtractProjectEvent {
+  return Boolean(event?.event_type && event.data && typeof event.data === "object");
+}
+
+function functionEventToParsedEvent(event: ExtractProjectEvent): ParsedEvent {
+  const data = event.data;
+  const itemType = inferFunctionItemType(event.event_type, data.item_type);
+  const title = data.title?.trim() || null;
+
+  return normalizeEvent({
+    event_type: normalizeFunctionEventType(event.event_type, data.status === "complete"),
+    item_type: itemType,
+    id: data.id,
+    department_id: data.department_id,
+    milestone_id: data.milestone_id,
+    assigned_to: data.assigned_to,
+    source: data.source,
+    status: data.status,
+    due_date: data.due_date,
+    sender_alias: null,
+    message_timestamp: null,
+    message_text: data.description,
+    ai_summary: title || data.description,
+    task_title: itemType === "milestone" ? null : title,
+    milestone_title: itemType === "milestone" ? title : null,
+    assigned_to_alias: data.assigned_to_alias,
+    priority: data.priority ?? "medium",
+    confidence: 0.86,
+    percent_complete: data.percent_complete,
+    budget: data.budget,
+    notes: data.notes,
+    description: data.description,
+    raw_function_event: event,
+  });
+}
+
+function inferFunctionItemType(eventType: ProjectEventType, itemType: ExtractProjectEvent["data"]["item_type"]): "task" | "issue" | "milestone" {
+  if (eventType.startsWith("milestone")) return "milestone";
+  if (eventType.startsWith("issue")) return "issue";
+  return itemType === "issue" ? "issue" : "task";
+}
+
+function normalizeFunctionEventType(eventType: ProjectEventType, completed: boolean): ParsedEvent["event_type"] {
+  if (eventType === "task_updated" && completed) return "task_completed";
+  return eventType;
 }
 
 function normalizeEvent(event: ParsedEvent): ParsedEvent {
@@ -185,6 +310,14 @@ function normalizeEvent(event: ParsedEvent): ParsedEvent {
     notes: event.notes ?? null,
     description: event.description ?? null,
     milestone_title: event.milestone_title ?? null,
+    id: event.id ?? null,
+    department_id: event.department_id ?? null,
+    milestone_id: event.milestone_id ?? null,
+    assigned_to: event.assigned_to ?? null,
+    source: event.source ?? null,
+    status: event.status ?? null,
+    due_date: event.due_date ?? null,
+    raw_function_event: event.raw_function_event ?? null,
   };
 }
 

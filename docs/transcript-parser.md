@@ -67,16 +67,16 @@ type ParsedEvent = {
 };
 ```
 
-The upload API also returns `new_members: { alias: string; context: string }[]`, filtered to aliases that are not currently known in `whatsapp_users.display_name` or `whatsapp_users.transcript_aliases`.
+The parser now requests an OpenAI `extract_project_events` function call instead of relying on free-form JSON. Raw function-call responses are stored in `transcript_function_calls` for debugging. Member auto-detection is intentionally disabled; friendly transcript names are returned as `assigned_to_alias` on task/issue proposals so the reviewer can map them to system users.
 
 ## Workflow
 
 1. User uploads a `.txt` file via `/admin/upload` or `POST /api/transcripts/upload`
-2. Parser extracts events, references existing department items, and stores reviewable proposals in `conversation_events`
-3. User reviews proposed milestone, task, and issue creations/updates in the dashboard (high confidence pre-selected)
-4. User can edit priority and assignee alias before applying
-5. User can approve detected new members via `POST /api/users/bulk-create`
-6. User selects events to apply → `POST /api/transcripts/[id]/apply`
+2. User selects one or more departments; selected departments define the existing milestone/task/issue context sent to the prompt
+3. Parser calls `extract_project_events`, stores the function-call audit row, and stores reviewable proposals in `conversation_events`
+4. User reviews existing work plus proposed milestone, task, and issue creations/updates in the dashboard
+5. User can edit proposal fields, choose which events to include, and map `assigned_to_alias` to a system user
+6. User selects events to apply -> `POST /api/transcripts/[id]/apply`
 7. Applied events create or update milestones, tasks, and issues
 
 ## Configuration

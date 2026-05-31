@@ -647,7 +647,7 @@ paths:
   /transcripts/upload:
     post:
       tags: [transcripts]
-      summary: Upload and parse a WhatsApp transcript.
+      summary: Upload and parse a WhatsApp or meeting transcript.
       security: [{ whatsappPhone: [] }, { adminKey: [] }]
       requestBody:
         required: true
@@ -655,10 +655,17 @@ paths:
           multipart/form-data:
             schema:
               type: object
-              required: [file, department_id]
+              required: [file]
               properties:
                 file: { type: string, format: binary }
-                department_id: { type: string, format: uuid }
+                department_id:
+                  type: string
+                  format: uuid
+                  description: Backward-compatible single department/primary department.
+                department_ids:
+                  type: array
+                  items: { type: string, format: uuid }
+                  description: Departments to include in parser context. Multipart clients may send this as JSON.
                 transcript_type: { type: string, enum: [whatsapp, meeting] }
       responses:
         "201":
@@ -990,12 +997,18 @@ components:
         task_title: { type: [string, "null"] }
         milestone_title: { type: [string, "null"] }
         assigned_to_alias: { type: [string, "null"] }
+        assigned_to_user_id: { type: [string, "null"], format: uuid }
         priority: { $ref: "#/components/schemas/TaskPriority" }
         confidence: { type: [number, "null"] }
         percent_complete: { type: [integer, "null"] }
         budget: { type: [number, "null"] }
         notes: { type: [string, "null"] }
         description: { type: [string, "null"] }
+        suggested_status: { $ref: "#/components/schemas/TaskStatus" }
+        due_date: { type: [string, "null"], format: date }
+        source: { type: [string, "null"], enum: [call_transcript, whatsapp_agent, manual, transcript] }
+        raw_function_event: { type: [object, "null"] }
+        suggested_changes: { type: [object, "null"] }
         applied: { type: boolean }
     ParsedTranscript:
       type: object
@@ -1003,12 +1016,16 @@ components:
       properties:
         group_name: { type: [string, "null"] }
         last_message_at: { type: [string, "null"], format: date-time }
+        departments:
+          type: array
+          items: { $ref: "#/components/schemas/Department" }
+        existing_items:
+          type: array
+          items: { type: object }
         events:
           type: array
           items: { $ref: "#/components/schemas/ConversationEvent" }
-        new_members:
-          type: array
-          items: { $ref: "#/components/schemas/ParsedNewMember" }
+        function_calls_saved: { type: integer }
         flexible_prompt: { type: string }
         transcript_type: { type: string, enum: [whatsapp, meeting] }
     ParsedNewMember:
@@ -1029,8 +1046,17 @@ components:
       required: [event_id]
       properties:
         event_id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: [string, "null"] }
+        status: { $ref: "#/components/schemas/TaskStatus" }
         priority: { $ref: "#/components/schemas/TaskPriority" }
+        due_date: { type: [string, "null"], format: date }
+        budget: { type: [number, "null"] }
+        percent_complete: { type: [number, "null"] }
+        notes: { type: [string, "null"] }
+        milestone_id: { type: [string, "null"], format: uuid }
         assigned_to_alias: { type: string }
+        assigned_to_user_id: { type: [string, "null"], format: uuid }
     CreateUserRequest:
       type: object
       required: [display_name, phone_e164]

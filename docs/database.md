@@ -213,6 +213,39 @@ Raw uploaded WhatsApp exports and parser metadata.
 | `parsed_new_members` | jsonb | New member aliases detected by the parser |
 | `created_at` | timestamptz | Auto |
 
+### `conversation_upload_departments`
+
+Join table for transcript uploads that were parsed against multiple departments.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `upload_id` | uuid | FK -> `conversation_uploads.id` |
+| `department_id` | uuid | FK -> `departments.id` |
+| `created_at` | timestamptz | Auto |
+
+Primary key: `(upload_id, department_id)`.
+
+### `transcript_function_calls`
+
+Audit table for OpenAI function calls produced during transcript parsing.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `upload_id` | uuid | FK -> `conversation_uploads.id` |
+| `department_ids` | uuid[] | Departments included in parser context |
+| `transcript_type` | text | `whatsapp` \| `meeting` |
+| `function_name` | text | Usually `extract_project_events` |
+| `model` | text | OpenAI model used |
+| `request_prompt` | text | Department-specific prompt content sent with fixed prompt |
+| `request_context` | jsonb | Existing milestones/tasks/issues and department context |
+| `raw_response` | jsonb | Raw OpenAI response |
+| `arguments` | jsonb | Parsed function-call arguments |
+| `parse_error` | text | JSON/function parsing error, if any |
+| `status` | text | `pending` \| `succeeded` \| `failed` |
+| `created_at` | timestamptz | Auto |
+| `completed_at` | timestamptz | Completion timestamp |
+
 ### `conversation_events`
 
 Parsed actionable transcript events that can be reviewed and applied as tasks.
@@ -222,12 +255,29 @@ Parsed actionable transcript events that can be reviewed and applied as tasks.
 | `id` | uuid | PK |
 | `upload_id` | uuid | FK → `conversation_uploads.id` |
 | `department_id` | uuid | FK → `departments.id` |
-| `event_type` | text | `task_created` \| `task_updated` \| `task_completed` \| `decision` \| `info` |
+| `event_type` | text | `task_created` \| `task_updated` \| `task_completed` \| `milestone_created` \| `milestone_updated` \| `issue_created` \| `issue_updated` \| `issue_resolved` \| `decision` \| `info` |
 | `task_id` | uuid | FK → `tasks.id` after applying |
+| `milestone_id` | uuid | FK -> `milestones.id` for milestone targets or related task/issue milestone |
+| `function_call_id` | uuid | FK -> `transcript_function_calls.id` |
+| `item_type` | text | `task` \| `issue` \| `milestone` |
 | `sender_alias` | text | Transcript sender |
 | `message_text` | text | Original message text |
 | `message_timestamp` | timestamptz | Parsed message timestamp |
 | `ai_summary` | text | Parser summary |
+| `task_title` | text | Suggested task/issue title |
+| `milestone_title` | text | Suggested milestone title |
+| `assigned_to_alias` | text | Friendly assignee name from transcript |
+| `assigned_to_user_id` | uuid | Reviewer-selected system user |
+| `priority` | text | `low` \| `medium` \| `high` |
+| `suggested_status` | text | `open` \| `in_progress` \| `blocked` \| `complete` |
+| `due_date` | date | Suggested task/issue due date |
+| `source` | text | Suggested source from function call |
+| `percent_complete` | integer | Suggested milestone progress |
+| `budget` | numeric | Suggested milestone budget |
+| `notes` | text | Suggested milestone notes |
+| `description` | text | Suggested description |
+| `raw_function_event` | jsonb | Individual function event returned by OpenAI |
+| `suggested_changes` | jsonb | Suggested field values from function event |
 | `task_title` | text | Parser task title |
 | `assigned_to_alias` | text | Parser assignee alias |
 | `priority` | text | `low` \| `medium` \| `high` |

@@ -7,8 +7,17 @@ import { buildEventReview, type ExistingTranscriptItems } from "@/lib/transcript
 
 type ApplyEventInput = {
   event_id?: unknown;
+  title?: unknown;
+  description?: unknown;
+  status?: unknown;
   priority?: unknown;
+  due_date?: unknown;
+  budget?: unknown;
+  percent_complete?: unknown;
+  notes?: unknown;
+  milestone_id?: unknown;
   assigned_to_alias?: unknown;
+  assigned_to_user_id?: unknown;
 };
 
 type ApplyBody = {
@@ -18,12 +27,22 @@ type ApplyBody = {
 
 type NormalizedSelectedEvent = {
   event_id: string;
+  title?: string;
+  description?: string;
+  status?: "open" | "in_progress" | "blocked" | "complete";
   priority?: "low" | "medium" | "high";
+  due_date?: string | null;
+  budget?: number | null;
+  percent_complete?: number | null;
+  notes?: string | null;
+  milestone_id?: string | null;
   assigned_to_alias?: string;
+  assigned_to_user_id?: string | null;
 };
 
 type ConversationEventRow = {
   id: string;
+  department_id: string;
   event_type: string;
   item_type: "task" | "issue" | "milestone" | null;
   task_id: string | null;
@@ -38,6 +57,10 @@ type ConversationEventRow = {
   budget: number | null;
   notes: string | null;
   description: string | null;
+  suggested_status: "open" | "in_progress" | "blocked" | "complete" | null;
+  due_date: string | null;
+  assigned_to_user_id: string | null;
+  source: string | null;
 };
 
 export async function POST(
@@ -67,13 +90,6 @@ export async function POST(
       return NextResponse.json({ error: "Upload not found" }, { status: 404 });
     }
 
-    if (!caller.can_write_all) {
-      const hasDept = caller.departments.find((d) => d.department_id === upload.department_id);
-      if (!hasDept || hasDept.dept_role === "member") {
-        return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
-      }
-    }
-
     const { data: events, error: eventsErr } = await supabase
       .from("conversation_events")
       .select("*")
@@ -85,15 +101,27 @@ export async function POST(
       return NextResponse.json({ error: eventsErr.message }, { status: 500 });
     }
 
+    const eventDepartments = Array.from(new Set(((events ?? []) as ConversationEventRow[]).map((event) => event.department_id)));
+    if (!caller.can_write_all) {
+      const writableDeptIds = new Set(
+        caller.departments
+          .filter((department) => department.dept_role === "pm" || department.dept_role === "hod")
+          .map((department) => department.department_id),
+      );
+      if (eventDepartments.some((departmentId) => !writableDeptIds.has(departmentId))) {
+        return NextResponse.json({ error: "Insufficient permissions for one or more selected events" }, { status: 403 });
+      }
+    }
+
     const [milestonesResult, tasksResult] = await Promise.all([
       supabase
         .from("milestones")
         .select("id, title, status, percent_complete, budget")
-        .eq("department_id", upload.department_id),
+        .in("department_id", eventDepartments.length ? eventDepartments : [upload.department_id]),
       supabase
         .from("tasks")
         .select("id, title, status, item_type")
-        .eq("department_id", upload.department_id)
+        .in("department_id", eventDepartments.length ? eventDepartments : [upload.department_id])
         .eq("archived", false),
     ]);
 
@@ -123,14 +151,16 @@ export async function POST(
 
     for (const event of (events ?? []) as ConversationEventRow[]) {
       const override = selectedEvents.find((se) => se.event_id === event.id);
-      const priority = override?.priority ?? event.priority ?? "medium";
-      const assignedToAlias = override?.assigned_to_alias ?? event.assigned_to_alias;
-      const review = buildEventReview(event, existingItems);
+      const eventToApply = applyOverrides(event, override);
+      const priority = eventToApply.priority ?? "medium";
+      const assignedToAlias = eventToApply.assigned_to_alias;
+      const assignedToUserId = eventToApply.assigned_to_user_id;
+      const review = buildEventReview(eventToApply, existingItems);
 
-      switch (event.event_type) {
+      switch (eventToApply.event_type) {
         case "milestone_created": {
           if (review.review_action === "update" && review.target_id) {
-            const updated = await updateMilestoneFromEvent(supabase, event, review.target_id);
+            const updated = await updateMilestoneFromEvent(supabase, eventToApply, review.target_id);
             if (updated) {
               await supabase
                 .from("conversation_events")
@@ -143,16 +173,17 @@ export async function POST(
             break;
           }
 
-          const title = event.milestone_title || event.task_title || event.ai_summary || "Untitled Milestone";
+          const title = eventToApply.milestone_title || eventToApply.task_title || eventToApply.ai_summary || "Untitled Milestone";
           const { data: milestone } = await supabase
             .from("milestones")
             .insert({
               title,
-              department_id: upload.department_id,
-              description: event.description || event.message_text,
-              budget: event.budget ?? null,
-              percent_complete: event.percent_complete ?? 0,
-              notes: event.notes ?? null,
+              department_id: eventToApply.department_id,
+              description: eventToApply.description || eventToApply.message_text,
+              budget: eventToApply.budget ?? null,
+              percent_complete: eventToApply.percent_complete ?? 0,
+              status: eventToApply.suggested_status ?? "open",
+              notes: eventToApply.notes ?? null,
               created_by: caller.user_id !== "admin-api" ? caller.user_id : null,
             })
             .select("id")
@@ -170,7 +201,7 @@ export async function POST(
 
         case "milestone_updated": {
           if (review.target_id) {
-            const updated = await updateMilestoneFromEvent(supabase, event, review.target_id);
+            const updated = await updateMilestoneFromEvent(supabase, eventToApply, review.target_id);
             if (updated) {
               await supabase
                 .from("conversation_events")
@@ -188,8 +219,8 @@ export async function POST(
 
         case "issue_created": {
           if (review.review_action === "update" && review.target_id) {
-            const assignedTo = await resolveAssignedTo(supabase, assignedToAlias);
-            const updated = await updateTaskFromEvent(supabase, event, review.target_id, priority, assignedTo);
+            const assignedTo = assignedToUserId ?? await resolveAssignedTo(supabase, assignedToAlias);
+            const updated = await updateTaskFromEvent(supabase, eventToApply, review.target_id, priority, assignedTo);
             if (updated) {
               await supabase
                 .from("conversation_events")
@@ -202,19 +233,22 @@ export async function POST(
             break;
           }
 
-          const title = event.task_title || event.ai_summary || (event.message_text as string)?.slice(0, 100) || "Untitled Issue";
-          const assignedTo = await resolveAssignedTo(supabase, assignedToAlias);
+          const title = eventToApply.task_title || eventToApply.ai_summary || (eventToApply.message_text as string)?.slice(0, 100) || "Untitled Issue";
+          const assignedTo = assignedToUserId ?? await resolveAssignedTo(supabase, assignedToAlias);
 
           const { data: task } = await supabase
             .from("tasks")
             .insert({
               title,
-              department_id: upload.department_id,
-              description: event.description || event.message_text,
+              department_id: eventToApply.department_id,
+              description: eventToApply.description || eventToApply.message_text,
               assigned_to: assignedTo,
               created_by: caller.user_id !== "admin-api" ? caller.user_id : null,
-              source: "transcript",
+              source: normalizeTaskSource(eventToApply.source),
+              status: eventToApply.suggested_status ?? "open",
+              due_date: eventToApply.due_date,
               priority,
+              milestone_id: eventToApply.milestone_id,
               item_type: "issue",
             })
             .select("id")
@@ -232,8 +266,8 @@ export async function POST(
 
         case "issue_updated": {
           if (review.target_id) {
-            const assignedTo = await resolveAssignedTo(supabase, assignedToAlias);
-            const updated = await updateTaskFromEvent(supabase, event, review.target_id, priority, assignedTo);
+            const assignedTo = assignedToUserId ?? await resolveAssignedTo(supabase, assignedToAlias);
+            const updated = await updateTaskFromEvent(supabase, eventToApply, review.target_id, priority, assignedTo);
             if (updated) {
               await supabase.from("conversation_events").update({ applied: true, task_id: review.target_id }).eq("id", event.id);
               issuesUpdated++;
@@ -248,8 +282,8 @@ export async function POST(
 
         case "issue_resolved": {
           if (review.target_id) {
-            const assignedTo = await resolveAssignedTo(supabase, assignedToAlias);
-            const updated = await updateTaskFromEvent(supabase, event, review.target_id, priority, assignedTo, "complete");
+            const assignedTo = assignedToUserId ?? await resolveAssignedTo(supabase, assignedToAlias);
+            const updated = await updateTaskFromEvent(supabase, eventToApply, review.target_id, priority, assignedTo, "complete");
             if (updated) {
               await supabase.from("conversation_events").update({ applied: true, task_id: review.target_id }).eq("id", event.id);
               issuesUpdated++;
@@ -265,8 +299,8 @@ export async function POST(
         case "task_created":
         case "decision": {
           if (review.review_action === "update" && review.target_id) {
-            const assignedTo = await resolveAssignedTo(supabase, assignedToAlias);
-            const updated = await updateTaskFromEvent(supabase, event, review.target_id, priority, assignedTo);
+            const assignedTo = assignedToUserId ?? await resolveAssignedTo(supabase, assignedToAlias);
+            const updated = await updateTaskFromEvent(supabase, eventToApply, review.target_id, priority, assignedTo);
             if (updated) {
               await supabase
                 .from("conversation_events")
@@ -279,19 +313,22 @@ export async function POST(
             break;
           }
 
-          const title = event.task_title || event.ai_summary || (event.message_text as string)?.slice(0, 100) || "Untitled Task";
-          const assignedTo = await resolveAssignedTo(supabase, assignedToAlias);
+          const title = eventToApply.task_title || eventToApply.ai_summary || (eventToApply.message_text as string)?.slice(0, 100) || "Untitled Task";
+          const assignedTo = assignedToUserId ?? await resolveAssignedTo(supabase, assignedToAlias);
 
           const { data: task } = await supabase
             .from("tasks")
             .insert({
               title,
-              department_id: upload.department_id,
-              description: event.description || event.message_text,
+              department_id: eventToApply.department_id,
+              description: eventToApply.description || eventToApply.message_text,
               assigned_to: assignedTo,
               created_by: caller.user_id !== "admin-api" ? caller.user_id : null,
-              source: "transcript",
+              source: normalizeTaskSource(eventToApply.source),
+              status: eventToApply.suggested_status ?? "open",
+              due_date: eventToApply.due_date,
               priority,
+              milestone_id: eventToApply.milestone_id,
               item_type: "task",
             })
             .select("id")
@@ -310,14 +347,14 @@ export async function POST(
         case "task_updated":
         case "task_completed": {
           if (review.target_id) {
-            const assignedTo = await resolveAssignedTo(supabase, assignedToAlias);
+            const assignedTo = assignedToUserId ?? await resolveAssignedTo(supabase, assignedToAlias);
             const updated = await updateTaskFromEvent(
               supabase,
-              event,
+              eventToApply,
               review.target_id,
               priority,
               assignedTo,
-              event.event_type === "task_completed" ? "complete" : undefined,
+              eventToApply.event_type === "task_completed" ? "complete" : eventToApply.suggested_status ?? undefined,
             );
             if (updated) {
               await supabase
@@ -377,6 +414,31 @@ async function resolveAssignedTo(
   return (user?.id as string | undefined) ?? null;
 }
 
+function applyOverrides(event: ConversationEventRow, override: NormalizedSelectedEvent | undefined): ConversationEventRow {
+  if (!override) return event;
+
+  const next: ConversationEventRow = { ...event };
+  if (override.title) {
+    if (next.item_type === "milestone" || next.event_type.startsWith("milestone")) {
+      next.milestone_title = override.title;
+    } else {
+      next.task_title = override.title;
+    }
+    next.ai_summary = override.title;
+  }
+  if (override.description !== undefined) next.description = override.description;
+  if (override.status) next.suggested_status = override.status;
+  if (override.priority) next.priority = override.priority;
+  if (override.due_date !== undefined) next.due_date = override.due_date;
+  if (override.budget !== undefined) next.budget = override.budget;
+  if (override.percent_complete !== undefined) next.percent_complete = override.percent_complete;
+  if (override.notes !== undefined) next.notes = override.notes;
+  if (override.milestone_id !== undefined) next.milestone_id = override.milestone_id;
+  if (override.assigned_to_alias !== undefined) next.assigned_to_alias = override.assigned_to_alias;
+  if (override.assigned_to_user_id !== undefined) next.assigned_to_user_id = override.assigned_to_user_id;
+  return next;
+}
+
 async function updateTaskFromEvent(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   event: ConversationEventRow,
@@ -387,9 +449,10 @@ async function updateTaskFromEvent(
 ) {
   const updates: Record<string, unknown> = { priority };
   if (assignedTo) updates.assigned_to = assignedTo;
-  if (status) updates.status = status;
+  if (status ?? event.suggested_status) updates.status = status ?? event.suggested_status;
   if (event.description) updates.description = event.description;
   if (event.milestone_id && event.item_type === "task") updates.milestone_id = event.milestone_id;
+  if (event.due_date) updates.due_date = event.due_date;
 
   const { error } = await supabase
     .from("tasks")
@@ -410,6 +473,7 @@ async function updateMilestoneFromEvent(
     if (event.percent_complete >= 100) updates.status = "complete";
     else if (event.percent_complete > 0) updates.status = "in_progress";
   }
+  if (event.suggested_status) updates.status = event.suggested_status;
   if (event.budget != null) updates.budget = event.budget;
   if (event.notes) updates.notes = event.notes;
   if (event.description) updates.description = event.description;
@@ -433,9 +497,20 @@ function normalizeSelectedEvents(body: ApplyBody): NormalizedSelectedEvent[] {
 
       return [{
         event_id: eventId,
+        title: getOptionalString(event.title) ?? undefined,
+        description: getOptionalString(event.description) ?? undefined,
+        status: isStatus(event.status) ? event.status : undefined,
         priority: isTaskPriority(event.priority) ? event.priority : undefined,
+        due_date: getOptionalString(event.due_date),
+        budget: getOptionalNumber(event.budget),
+        percent_complete: getOptionalNumber(event.percent_complete),
+        notes: getOptionalString(event.notes),
+        milestone_id: getOptionalString(event.milestone_id),
         assigned_to_alias: typeof event.assigned_to_alias === "string" && event.assigned_to_alias.trim()
           ? event.assigned_to_alias.trim()
+          : undefined,
+        assigned_to_user_id: typeof event.assigned_to_user_id === "string" && event.assigned_to_user_id.trim()
+          ? event.assigned_to_user_id.trim()
           : undefined,
       }];
     });
@@ -446,4 +521,26 @@ function normalizeSelectedEvents(body: ApplyBody): NormalizedSelectedEvent[] {
   }
 
   return [];
+}
+
+function normalizeTaskSource(source: string | null | undefined) {
+  if (source === "manual" || source === "whatsapp_agent") return source;
+  return "transcript";
+}
+
+function isStatus(value: unknown): value is "open" | "in_progress" | "blocked" | "complete" {
+  return value === "open" || value === "in_progress" || value === "blocked" || value === "complete";
+}
+
+function getOptionalString(value: unknown) {
+  if (value === null) return null;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function getOptionalNumber(value: unknown) {
+  if (value === null || value === "") return null;
+  const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(number) ? number : undefined;
 }
