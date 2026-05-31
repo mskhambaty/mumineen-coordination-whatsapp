@@ -156,8 +156,9 @@ ${existingContext}`;
     }
   }
 
+  const fallback = parseTranscriptHeuristically(rawContent);
+
   if (allEvents.length === 0) {
-    const fallback = parseTranscriptHeuristically(rawContent);
     return {
       group_name: groupName ?? fallback.group_name,
       last_message_at: lastMessageAt ?? fallback.last_message_at,
@@ -167,10 +168,10 @@ ${existingContext}`;
   }
 
   return {
-    group_name: groupName,
-    last_message_at: lastMessageAt,
-    events: allEvents,
-    new_members: dedupeNewMembers(allNewMembers),
+    group_name: groupName ?? fallback.group_name,
+    last_message_at: lastMessageAt ?? fallback.last_message_at,
+    events: mergeParsedEvents(allEvents, fallback.events),
+    new_members: dedupeNewMembers([...allNewMembers, ...fallback.new_members]),
   };
 }
 
@@ -209,6 +210,28 @@ function dedupeNewMembers(members: ParsedNewMember[]) {
   }
 
   return deduped;
+}
+
+function mergeParsedEvents(primaryEvents: ParsedEvent[], fallbackEvents: ParsedEvent[]) {
+  const seen = new Set<string>();
+  const merged: ParsedEvent[] = [];
+
+  for (const event of [...primaryEvents, ...fallbackEvents]) {
+    const key = eventKey(event);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(event);
+  }
+
+  return merged.slice(0, 80);
+}
+
+function eventKey(event: ParsedEvent) {
+  const title = event.message_text || event.milestone_title || event.task_title || event.ai_summary || "";
+  return [
+    event.item_type,
+    title.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80),
+  ].join(":");
 }
 
 type TranscriptMessage = {

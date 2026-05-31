@@ -183,14 +183,26 @@ export async function POST(req: NextRequest) {
 
       if (eventsErr) {
         console.error("Failed to insert conversation events:", eventsErr);
+        return NextResponse.json({
+          error: `Parsed ${events.length} transcript proposals, but could not save them for review: ${eventsErr.message}`,
+          parsed_events_count: events.length,
+        }, { status: 500 });
       }
     }
 
-    const { data: savedEvents } = await supabase
+    const { data: savedEvents, error: savedEventsErr } = await supabase
       .from("conversation_events")
       .select("id, upload_id, department_id, event_type, item_type, task_id, milestone_id, sender_alias, message_text, message_timestamp, ai_summary, task_title, milestone_title, assigned_to_alias, priority, confidence, percent_complete, budget, notes, description, applied")
       .eq("upload_id", upload.id)
       .order("message_timestamp", { ascending: true });
+
+    if (savedEventsErr) {
+      console.error("Failed to load saved conversation events:", savedEventsErr);
+      return NextResponse.json({
+        error: `Parsed ${events.length} transcript proposals, but could not load them for review: ${savedEventsErr.message}`,
+        parsed_events_count: events.length,
+      }, { status: 500 });
+    }
 
     return NextResponse.json({
       upload_id: upload.id,
