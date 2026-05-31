@@ -147,7 +147,8 @@ export default function EscalationSupportPage() {
   }
 
   const memberUserIds = new Set(members.map((m) => m.user?.id));
-  const addableUsers = users.filter((u) => !memberUserIds.has(u.id));
+  // Only users with an email can be added — escalations are delivered by email.
+  const addableUsers = users.filter((u) => !memberUserIds.has(u.id) && Boolean(u.email && u.email.trim()));
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
@@ -181,6 +182,9 @@ export default function EscalationSupportPage() {
                 </option>
               ))}
             </select>
+            <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">
+              Only users with an email are listed — escalations are delivered by email.
+            </span>
           </label>
           <button
             type="button"

@@ -37,6 +37,23 @@ export async function POST(req: NextRequest) {
   }
 
   const supabase = getSupabaseAdmin();
+
+  // Escalation alerts are delivered by email, so a support member must have one.
+  const { data: user } = await supabase
+    .from("whatsapp_users")
+    .select("email")
+    .eq("id", userId)
+    .maybeSingle();
+  if (!user) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  }
+  if (!user.email || !user.email.trim()) {
+    return NextResponse.json(
+      { error: "This user has no email. Add an email to the user before adding them to the support team — escalations are delivered by email." },
+      { status: 400 },
+    );
+  }
+
   const { data, error } = await supabase
     .from("escalation_support_members")
     .insert({ user_id: userId })
