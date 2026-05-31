@@ -362,7 +362,9 @@ export default function UploadPage() {
 
   useEffect(() => {
     if (selectedDepartmentIds.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCutoffTimestamp("");
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLastParsedLabel("");
       return;
     }

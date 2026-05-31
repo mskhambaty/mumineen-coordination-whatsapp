@@ -271,30 +271,30 @@ function KanbanPage() {
   return (
     <>
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div className="mb-5 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 p-4 shadow-sm lg:flex-row lg:items-center">
-          <select value={departmentId} onChange={(event) => setDepartmentId(event.target.value)} className="rounded-md border px-3 py-2 text-sm">
+        <div className="mb-5 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 p-4 shadow-sm lg:flex-row lg:flex-wrap lg:items-center">
+          <select value={departmentId} onChange={(event) => setDepartmentId(event.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
             <option value="all">All departments</option>
             {departments.map((department) => (
               <option key={department.id} value={department.id}>{department.name}</option>
             ))}
           </select>
-          <select value={priority} onChange={(event) => setPriority(event.target.value)} className="rounded-md border px-3 py-2 text-sm">
+          <select value={priority} onChange={(event) => setPriority(event.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
             <option value="all">All priorities</option>
             <option value="high">High</option>
             <option value="medium">Medium</option>
             <option value="low">Low</option>
           </select>
-          <select value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} className="rounded-md border px-3 py-2 text-sm">
+          <select value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
             <option value="all">All assignees</option>
             {users.map((user) => (
               <option key={user.id} value={user.id}>{user.display_name ?? user.phone_e164}</option>
             ))}
           </select>
-          <select value={milestoneId} onChange={(event) => setMilestoneId(event.target.value)} className="rounded-md border px-3 py-2 text-sm">
+          <select value={milestoneId} onChange={(event) => setMilestoneId(event.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
             <option value="all">All milestones</option>
             {filteredMilestones.map((ms) => <option key={ms.id} value={ms.id}>{ms.title}</option>)}
           </select>
-          <select value={itemType} onChange={(event) => setItemType(event.target.value)} className="rounded-md border px-3 py-2 text-sm">
+          <select value={itemType} onChange={(event) => setItemType(event.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
             <option value="all">All types</option>
             <option value="task">Tasks only</option>
             <option value="issue">Issues only</option>
@@ -316,13 +316,13 @@ function KanbanPage() {
           <div className="grid gap-4 lg:grid-cols-4">
             {statuses.map((column) => (
               <section key={column.id} className="min-h-[28rem] rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
-                <div className="flex items-center justify-between border-b px-4 py-3">
+                <div className="flex items-center justify-between border-b px-4 py-3 dark:border-gray-800">
                   <h2 className="font-semibold">{column.label}</h2>
                   <span className="rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-1 text-xs text-gray-600 dark:text-gray-300">{filteredBoard[column.id].length}</span>
                 </div>
                 <div className="space-y-3 p-3">
                   {filteredBoard[column.id].map((task) => (
-                    <article key={task.id} className="rounded-md border bg-white p-3 shadow-sm">
+                    <article key={task.id} className="rounded-md border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-800">
                       <div className="flex items-start justify-between gap-2">
                         <button onClick={() => openEditTask(task)} className="text-left font-medium text-gray-900 dark:text-gray-100 hover:text-blue-700">
                           {task.title}
@@ -351,13 +351,13 @@ function KanbanPage() {
                         </div>
                       </div>
                       <div className="mt-3 flex gap-2">
-                        <select value={task.status} onChange={(event) => updateTask(task, { status: event.target.value as TaskStatus })} className="min-w-0 flex-1 rounded-md border px-2 py-1 text-xs">
+                        <select value={task.status} onChange={(event) => updateTask(task, { status: event.target.value as TaskStatus })} className="min-w-0 flex-1 rounded-md border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
                           {statuses.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}
                         </select>
-                        <button onClick={() => archiveTask(task)} className="rounded-md border px-2 py-1 text-xs text-gray-600 dark:text-gray-300 hover:border-green-200 hover:text-green-600">
+                        <button onClick={() => archiveTask(task)} className="rounded-md border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-green-200 hover:text-green-600">
                           Close
                         </button>
-                        <button onClick={() => deleteTask(task)} className="rounded-md border px-2 py-1 text-xs text-gray-600 dark:text-gray-300 hover:border-red-200 hover:text-red-600">
+                        <button onClick={() => deleteTask(task)} className="rounded-md border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-red-200 hover:text-red-600">
                           Delete
                         </button>
                       </div>
