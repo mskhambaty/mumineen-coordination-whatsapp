@@ -17,12 +17,13 @@ const result = await parseTranscript(rawTextContent);
 
 ## How It Works
 
-1. **Chunking**: If the transcript exceeds 24,000 characters, it's split on date boundaries to stay within token limits
+1. **Chunking**: If the transcript exceeds 24,000 characters, it's split on WhatsApp date boundaries, including bracketed iOS exports like `[5/29/26, 10:17:37 AM] Sender: message`
 2. **Prompt Configuration**: The fixed parser prompt is combined with department-specific flexible rules from `department_prompt_config`
 3. **AI Extraction**: Each chunk is sent to OpenAI with a structured extraction prompt
 4. **Review Matching**: Parsed events are compared against existing department milestones, tasks, and issues to classify each proposal as `create` or `update`
-5. **Filtering**: Only events with confidence >= 0.5 are returned, and detected members already known by display name or transcript alias are filtered out
-6. **Response Format**: Uses `response_format: { type: "json_object" }` for reliable JSON output
+5. **Fallback Extraction**: If AI parsing returns no usable events or the OpenAI client is unavailable, a deterministic parser extracts obvious action items, issues, milestones, and added members from the transcript so the review screen is not blank
+6. **Filtering**: Only AI events with confidence >= 0.5 are returned, and detected members already known by display name or transcript alias are filtered out
+7. **Response Format**: Uses `response_format: { type: "json_object" }` for reliable JSON output
 
 ## Event Types
 
@@ -31,6 +32,11 @@ const result = await parseTranscript(rawTextContent);
 | `task_created` | A new task or action item was assigned |
 | `task_updated` | An existing task received a status update |
 | `task_completed` | A task was marked as done |
+| `milestone_created` | A major deliverable, readiness checkpoint, budget line, or project phase was identified |
+| `milestone_updated` | An existing milestone received a progress, budget, status, or decision update |
+| `issue_created` | A blocker, risk, open decision, bug, capacity concern, or dependency was identified |
+| `issue_updated` | An existing issue received new status or context |
+| `issue_resolved` | An issue was resolved or no longer blocking |
 | `decision` | A decision was made that may require action |
 | `info` | Informational update relevant to project management |
 
@@ -38,12 +44,18 @@ const result = await parseTranscript(rawTextContent);
 
 ```typescript
 type ParsedEvent = {
-  event_type: "task_created" | "task_updated" | "task_completed" | "decision" | "info";
+  event_type:
+    | "task_created" | "task_updated" | "task_completed"
+    | "milestone_created" | "milestone_updated"
+    | "issue_created" | "issue_updated" | "issue_resolved"
+    | "decision" | "info";
+  item_type: "task" | "issue" | "milestone";
   sender_alias: string | null;
   message_timestamp: string | null;
   message_text: string | null;
   ai_summary: string | null;
   task_title: string | null;
+  milestone_title: string | null;
   assigned_to_alias: string | null;
   priority: "low" | "medium" | "high";
   confidence: number; // 0.0 to 1.0
@@ -73,7 +85,7 @@ The upload API also returns `new_members: { alias: string; context: string }[]`,
 - **Temperature/token cap**: Uses `PARSE_TEMPERATURE` and `MAX_PARSE_TOKENS` from `src/lib/ai/model.ts`
 - **Chunk size**: 24,000 characters maximum per API call
 - **Confidence threshold**: 0.5 minimum for inclusion in results
-- **Prompt rules**: Fixed prompt is in `src/lib/transcripts/prompts.ts`; department flexible prompts are saved via `GET/PUT /api/departments/[id]/prompt-config`
+- **Prompt rules**: Fixed WhatsApp and meeting prompts live in `src/lib/transcripts/prompts.ts` and appear in the locked dashboard preview. Department-specific defaults also live there and vary by transcript type; saved department overrides are managed via `GET/PUT /api/departments/[id]/prompt-config`.
 
 ## Testing
 

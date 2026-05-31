@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { parseTranscript } from "@/lib/transcripts/parser";
+import { parseTranscript, parseTranscriptHeuristically } from "@/lib/transcripts/parser";
 
 // Mock OpenAI
 vi.mock("openai", () => {
@@ -90,5 +90,22 @@ describe("parseTranscript", () => {
     const result = await parseTranscript("any content");
     // The mock returns 3 events, but one has confidence 0.3 so it gets filtered
     expect(result.events.every((e) => e.confidence >= 0.5)).toBe(true);
+  });
+
+  it("extracts proposals from bracketed WhatsApp exports when AI returns no usable events", () => {
+    const result = parseTranscriptHeuristically(`[5/29/26, 10:17:37 AM] Huzaifa Tapal.Chicago: @⁨Mansoor Anjarwala.Chicago⁩ I think we should setup a FAQ page with common questions and answers to them.
+[5/29/26, 10:20:41 AM] Mansoor Anjarwala.Chicago: Raja, can you take this and create a faq doc?
+[5/29/26, 12:13:37 PM] Yusuf Bhaisaheb S Vajihuddin.Chicago: Mansoor Anjarwala.Chicago added Yusuf Bhaisaheb S Vajihuddin.Chicago
+[5/29/26, 12:17:49 PM] Shabbir Karimi.chicago: need to disable the website from the public from now. If you can find a way to make it password protected so our people can see it for private review, but it can't be public.`);
+
+    expect(result.last_message_at).toBe("2026-05-29T12:17:49.000Z");
+    expect(result.events.length).toBeGreaterThanOrEqual(3);
+    expect(result.events.some((event) => event.item_type === "issue")).toBe(true);
+    expect(result.new_members).toEqual([
+      {
+        alias: "Yusuf Bhaisaheb S Vajihuddin.Chicago",
+        context: "Yusuf Bhaisaheb S Vajihuddin.Chicago added Yusuf Bhaisaheb S Vajihuddin.Chicago",
+      },
+    ]);
   });
 });

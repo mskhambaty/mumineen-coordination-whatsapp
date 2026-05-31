@@ -18,7 +18,7 @@ export async function GET(
     const { id } = await params;
     guardWriteAccess(caller, id);
 
-    const transcriptType = req.nextUrl.searchParams.get("transcript_type") ?? "whatsapp";
+    const transcriptType = req.nextUrl.searchParams.get("transcript_type") === "meeting" ? "meeting" : "whatsapp";
 
     const supabase = getSupabaseAdmin();
     const { data: department } = await supabase
@@ -40,7 +40,7 @@ export async function GET(
 
     return NextResponse.json({
       fixed_prompt_locked: true,
-      flexible_prompt: data?.flexible_prompt || getDefaultFlexiblePrompt(department?.name),
+      flexible_prompt: data?.flexible_prompt || getDefaultFlexiblePrompt(department?.name, transcriptType),
       transcript_type: transcriptType,
       updated_at: data?.updated_at ?? null,
     });

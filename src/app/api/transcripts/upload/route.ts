@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
         .limit(500),
     ]);
 
-    const flexiblePrompt = promptConfigResult.data?.flexible_prompt || getDefaultFlexiblePrompt(department?.name);
+    const flexiblePrompt = promptConfigResult.data?.flexible_prompt || getDefaultFlexiblePrompt(department?.name, transcriptType);
     const existingItems: ExistingTranscriptItems = {
       milestones: (milestonesResult.data ?? []).map((milestone) => ({
         id: milestone.id as string,
