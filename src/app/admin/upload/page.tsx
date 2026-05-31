@@ -584,43 +584,48 @@ export default function UploadPage() {
         <div className="rounded-lg border bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-lg font-semibold">Department Rules</h2>
-            <span className="text-xs text-gray-500">{promptEditorDepartment?.name ?? "Select a department"}</span>
           </div>
-          <label className="mb-3 block text-sm font-medium">
-            Edit rules for
-            <select
-              value={promptDepartmentId}
-              onChange={(event) => setPromptEditorDepartmentId(event.target.value)}
-              disabled={selectedDepartments.length === 0 || loading}
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
-            >
-              {selectedDepartments.length === 0 && <option value="">Select departments below...</option>}
-              {selectedDepartments.map((department) => (
-                <option key={department.id} value={department.id}>{department.name}</option>
-              ))}
-            </select>
-          </label>
-          <textarea
-            value={flexiblePrompt}
-            onChange={(event) => {
-              setPromptSaved(false);
-              setFlexiblePrompt(event.target.value.slice(0, 4000));
-            }}
-            rows={10}
-            className="w-full rounded-md border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
-            disabled={!promptDepartmentId}
-          />
-          <div className="mt-3 flex justify-end gap-3">
-            {promptSaved && <span className="self-center text-sm text-green-700">Saved</span>}
-            <button
-              type="button"
-              onClick={savePromptConfig}
-              disabled={!promptDepartmentId || loading}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              Save Rules
-            </button>
-          </div>
+          {selectedDepartments.length === 0 && (
+            <p className="text-sm text-gray-500">Select departments below to edit their rules.</p>
+          )}
+          {selectedDepartments.length > 0 && (
+            <>
+              <div className="mb-3 flex flex-wrap gap-1 rounded-lg border bg-gray-50 p-1 dark:border-gray-700 dark:bg-gray-800">
+                {selectedDepartments.map((department) => (
+                  <button
+                    key={department.id}
+                    type="button"
+                    onClick={() => setPromptEditorDepartmentId(department.id)}
+                    disabled={loading}
+                    className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${promptDepartmentId === department.id ? "bg-blue-600 text-white shadow-sm" : "text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700"}`}
+                  >
+                    {department.name}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={flexiblePrompt}
+                onChange={(event) => {
+                  setPromptSaved(false);
+                  setFlexiblePrompt(event.target.value.slice(0, 4000));
+                }}
+                rows={10}
+                className="w-full rounded-md border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+                disabled={!promptDepartmentId}
+              />
+              <div className="mt-3 flex justify-end gap-3">
+                {promptSaved && <span className="self-center text-sm text-green-700">Saved</span>}
+                <button
+                  type="button"
+                  onClick={savePromptConfig}
+                  disabled={!promptDepartmentId || loading}
+                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Save Rules
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </section>
 
