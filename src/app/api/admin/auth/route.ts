@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { verifyPassword } from "@/lib/admin/passwords";
 import { optionalEnv } from "@/lib/env";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { getSupabaseAdmin, isEscalationSupportMember } from "@/lib/supabase/server";
 
 export async function POST(req: NextRequest) {
   try {
@@ -40,7 +40,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 401 });
     }
 
-    if (!isAdminOrLeadership(user)) {
+    const isSupport = await isEscalationSupportMember(user.id);
+
+    if (!isAdminOrLeadership(user) && !isSupport) {
       return NextResponse.json({ error: "Access denied. Admin role required." }, { status: 403 });
     }
 
@@ -65,6 +67,7 @@ export async function POST(req: NextRequest) {
         email: user.email,
         role: user.role,
         global_role: user.global_role,
+        is_support: isSupport,
       },
     });
   } catch (error) {

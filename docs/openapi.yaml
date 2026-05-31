@@ -303,6 +303,72 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /admin/escalation-support:
+    get:
+      tags: [conversations, users]
+      summary: List escalation/support team members with on-call hours.
+      security: [{ adminKey: [] }]
+      responses:
+        "200": { description: Support members with user info and on-call hours. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [conversations, users]
+      summary: Add an existing user to the support team.
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id: { type: string, format: uuid }
+      responses:
+        "201": { description: Created support member. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { description: User is already on the support team. }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/escalation-support/{id}:
+    delete:
+      tags: [conversations, users]
+      summary: Remove a support team member (cascades their on-call hours).
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { description: Removed. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    put:
+      tags: [conversations, users]
+      summary: Replace a member's weekly on-call hours (America/Chicago).
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hours]
+              properties:
+                hours:
+                  type: array
+                  items:
+                    type: object
+                    required: [day_of_week, start_time, end_time]
+                    properties:
+                      day_of_week: { type: integer, minimum: 0, maximum: 6 }
+                      start_time: { type: string, example: "09:00" }
+                      end_time: { type: string, example: "17:00" }
+      responses:
+        "200": { description: On-call hours replaced. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /admin/analytics:
     get:
       tags: [conversations, tasks]

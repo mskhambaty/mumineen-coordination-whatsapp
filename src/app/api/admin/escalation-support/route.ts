@@ -1,0 +1,54 @@
+import { NextRequest, NextResponse } from "next/server";
+
+import { requireAdminKey } from "@/lib/api/auth";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
+
+const MEMBER_SELECT =
+  "id, created_at, user:whatsapp_users(id, display_name, email, phone_e164), hours:escalation_oncall_hours(id, day_of_week, start_time, end_time)";
+
+// GET: list escalation/support members with their user info and on-call hours.
+export async function GET(req: NextRequest) {
+  if (!requireAdminKey(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { data, error } = await getSupabaseAdmin()
+    .from("escalation_support_members")
+    .select(MEMBER_SELECT)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ members: data ?? [] });
+}
+
+// POST: add an existing user to the support team (membership = role assignment).
+export async function POST(req: NextRequest) {
+  if (!requireAdminKey(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const body = (await req.json().catch(() => ({}))) as { user_id?: unknown };
+  const userId = typeof body.user_id === "string" ? body.user_id : "";
+  if (!userId) {
+    return NextResponse.json({ error: "user_id is required" }, { status: 400 });
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("escalation_support_members")
+    .insert({ user_id: userId })
+    .select(MEMBER_SELECT)
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      return NextResponse.json({ error: "User is already on the support team" }, { status: 409 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ member: data }, { status: 201 });
+}

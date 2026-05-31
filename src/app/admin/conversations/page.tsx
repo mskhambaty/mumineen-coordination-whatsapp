@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessInbox } from "@/lib/admin/access";
 
 type HandlingMode = "ai" | "manual";
 
@@ -96,8 +96,8 @@ export default function ConversationsPage() {
     }
 
     const userRaw = localStorage.getItem("admin_user");
-    const user = userRaw ? JSON.parse(userRaw) as { role?: string; global_role?: string } : null;
-    if (!isAdminOrLeadership(user)) {
+    const user = userRaw ? JSON.parse(userRaw) as { role?: string; global_role?: string; is_support?: boolean } : null;
+    if (!canAccessInbox(user)) {
       router.push("/admin/tasks");
       return;
     }

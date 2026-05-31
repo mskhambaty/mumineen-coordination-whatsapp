@@ -188,6 +188,11 @@ All notification sends are fire-and-forget (failures never block the agent reply
    Escalations tab + De-escalate button).
 2. **Support management** — role membership UI under Memberships, on-call hours editor,
    inbox-access widening.
+   ✅ **Done** — `/admin/escalation` page (add members from existing users, remove, weekly
+   on-call hours editor) under the WhatsApp nav dropdown; `GET/POST /api/admin/escalation-support`
+   and `DELETE/PUT /api/admin/escalation-support/[id]`; login + inbox access widened to support
+   members (`is_support` flag, `canAccessInbox`). On-call hours are edited on the Support page;
+   showing the membership on the user's profile page is a small follow-up.
 3. **Notifications** — on-call evaluation, Postmark email (`escalation-request` template) +
    HTML template, deep link + redirect-after-login. **Email ships first (guaranteed channel).**
    WhatsApp push is deferred until a Meta utility template is approved (separate follow-up).

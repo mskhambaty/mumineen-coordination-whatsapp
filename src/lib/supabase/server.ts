@@ -109,6 +109,18 @@ export async function recordOutboundMessage(input: {
   }
 }
 
+// True if the user is on the escalation/support team (membership = the role).
+export async function isEscalationSupportMember(userId: string): Promise<boolean> {
+  if (!userId) return false;
+  const { data, error } = await getSupabaseAdmin()
+    .from("escalation_support_members")
+    .select("id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) return false;
+  return Boolean(data);
+}
+
 export type ConversationTurn = {
   direction: "inbound" | "outbound";
   body: string | null;

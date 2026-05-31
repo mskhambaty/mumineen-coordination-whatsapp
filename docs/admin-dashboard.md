@@ -37,6 +37,12 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - **Dark mode** toggle (🌙/☀️) in the nav; preference persists in `localStorage("admin_theme")` and falls back to the OS preference on first load
 - Restricted to `role = 'admin'` or `global_role = 'leadership_admin'`
 
+### Escalation / Site Support (`/admin/escalation`)
+- Admin/leadership-only management of the support team (see [escalation.md](./escalation.md))
+- Add an existing user as a support member (membership = the `escalation/support` role, granting Lead Inbox access)
+- Per-member **on-call hours** editor: weekly recurring time ranges (multiple per day), evaluated in America/Chicago — only on-call members are alerted about escalations
+- Backed by `GET/POST /api/admin/escalation-support` and `DELETE/PUT /api/admin/escalation-support/[id]`
+
 ### Analytics (`/admin/analytics`)
 - Leadership/admin-only KPIs over a rolling 30-day window, served by `GET /api/admin/analytics`
 - Task metrics: totals by status/priority, overdue list, and per-department breakdown (optional `department_id` filter)

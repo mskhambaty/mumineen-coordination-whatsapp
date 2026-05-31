@@ -15,6 +15,7 @@ const dropdownGroups: DropdownGroup[] = [
     links: [
       { href: "/admin/conversations", label: "Inbox" },
       { href: "/admin/prompt", label: "Prompt" },
+      { href: "/admin/escalation", label: "Site Support" },
     ],
   },
   {
