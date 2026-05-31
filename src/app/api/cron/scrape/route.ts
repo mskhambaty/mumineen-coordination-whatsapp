@@ -18,6 +18,6 @@ async function runScrape(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  await scrapeSite();
-  return NextResponse.json({ ok: true });
+  const stats = await scrapeSite();
+  return NextResponse.json({ ok: true, stats });
 }

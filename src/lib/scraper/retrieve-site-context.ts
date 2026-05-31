@@ -13,7 +13,7 @@ export async function retrieveSiteContext(query: string, topK = 3): Promise<stri
 
   const { data, error } = await supabase.rpc("match_site_content", {
     query_embedding: JSON.stringify(queryEmbedding),
-    match_threshold: 0.75,
+    match_threshold: 0.55,
     match_count: topK,
   });
 
@@ -25,6 +25,9 @@ export async function retrieveSiteContext(query: string, topK = 3): Promise<stri
   if (!data?.length) return "";
 
   return data
-    .map((row: { page_title: string; content: string }) => `[${row.page_title}]\n${row.content}`)
+    .map((row: { page_title: string; page_url?: string; content: string }) => {
+      const source = row.page_url ? `\nSource: ${row.page_url}` : "";
+      return `[${row.page_title}]${source}\n${row.content}`;
+    })
     .join("\n\n---\n\n");
 }

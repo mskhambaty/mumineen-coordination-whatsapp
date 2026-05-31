@@ -1,6 +1,7 @@
 import type OpenAI from "openai";
 
 import { canUseTool, canUseTaskToolForCaller, type AppUser } from "@/lib/permissions";
+import { retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
 import { recordToolAudit } from "@/lib/supabase/server";
 import type { CallerContext } from "@/lib/api/auth";
 
@@ -469,42 +470,50 @@ async function callInternalApi(path: string, options: {
   return res.json();
 }
 
+async function getPublicSiteInfo(query: string, fallbackMessage: string) {
+  const context = await retrieveSiteContext(query, 5);
+
+  if (!context) {
+    return {
+      status: "no_indexed_match",
+      message: fallbackMessage,
+    };
+  }
+
+  return {
+    status: "ok",
+    source: "indexed_site_content",
+    context,
+  };
+}
+
 async function runTool(name: string, args: ToolInput, context: ToolContext) {
   switch (name) {
     case "get_event_schedule":
-      return {
-        status: "not_published",
-        message:
-          "The detailed Ashara Mubarak 1447H event schedule has not been published in this assistant yet. Please check official Anjuman announcements for confirmed timings.",
-        day: args.day ?? null,
-      };
+      return getPublicSiteInfo(
+        `Ashara 1448 Chicago schedule programme dates daily waaz ${args.day ?? ""}`,
+        "No detailed day-by-day schedule has been published in the indexed site content yet.",
+      );
     case "get_parking_info":
-      return {
-        status: "not_published",
-        message:
-          "Parking guidance is not available in this assistant yet. Please follow official parking announcements and on-site volunteer directions.",
-        location: args.location ?? null,
-      };
+      return getPublicSiteInfo(
+        `Ashara 1448 Chicago parking travel venue masjid ${args.location ?? ""}`,
+        "Parking guidance was not found in the indexed site content yet.",
+      );
     case "get_directions":
-      return {
-        status: "not_published",
-        message:
-          "Venue directions have not been configured in this assistant yet. Please check official Anjuman communication for the confirmed venue address.",
-        from: args.from ?? null,
-      };
+      return getPublicSiteInfo(
+        `Ashara 1448 Chicago directions travel venue masjid airport ORD MDW ${args.from ?? ""}`,
+        "Venue directions were not found in the indexed site content yet.",
+      );
     case "get_faq_answer":
-      return {
-        status: "not_published",
-        question: args.question,
-        message:
-          "That FAQ answer has not been added yet. I can help once the event operations team publishes the confirmed information.",
-      };
+      return getPublicSiteInfo(
+        String(args.question ?? "Ashara 1448 Chicago visitor question hotels travel venue get involved"),
+        "I could not find an answer in the indexed site content yet.",
+      );
     case "get_lost_found_info":
-      return {
-        status: "not_published",
-        message:
-          "Lost and found procedures have not been published in this assistant yet. Please contact an on-site volunteer or check official announcements.",
-      };
+      return getPublicSiteInfo(
+        "Ashara 1448 Chicago lost found help contact helpline",
+        "Lost and found procedures were not found in the indexed site content yet.",
+      );
     case "get_volunteer_assignment":
       return {
         status: "not_connected",

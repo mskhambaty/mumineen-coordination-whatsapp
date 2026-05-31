@@ -15,41 +15,37 @@ const activeApiStatus = {
   status_note: "API-backed and expected to return live data when matching records exist.",
 } satisfies Pick<ToolMetadata, "availability" | "status_label" | "status_note">;
 
+const indexedSiteStatus = {
+  availability: "active",
+  status_label: "Indexed site",
+  status_note: "Backed by the scraped relay site and hotel sheet content in the vector store.",
+} satisfies Pick<ToolMetadata, "availability" | "status_label" | "status_note">;
+
 const toolMetadata: Record<string, ToolMetadata> = {
   get_event_schedule: {
-    internal_api: "Static response (schedule not yet published)",
+    internal_api: "Vector search: site_content",
     audience: "external",
-    availability: "setup_no_data",
-    status_label: "Setup only",
-    status_note: "Visible to external users, but the schedule has not been published in the assistant yet.",
+    ...indexedSiteStatus,
   },
   get_parking_info: {
-    internal_api: "Static response (parking info not yet published)",
+    internal_api: "Vector search: site_content",
     audience: "external",
-    availability: "setup_no_data",
-    status_label: "Setup only",
-    status_note: "Visible to external users, but parking details are not configured yet.",
+    ...indexedSiteStatus,
   },
   get_directions: {
-    internal_api: "Static response (directions not yet published)",
+    internal_api: "Vector search: site_content",
     audience: "external",
-    availability: "setup_no_data",
-    status_label: "Setup only",
-    status_note: "Visible to external users, but venue directions are not configured yet.",
+    ...indexedSiteStatus,
   },
   get_faq_answer: {
-    internal_api: "Static response (FAQ not yet published)",
+    internal_api: "Vector search: site_content",
     audience: "external",
-    availability: "setup_no_data",
-    status_label: "Setup only",
-    status_note: "Visible to external users, but FAQ answers have not been added yet.",
+    ...indexedSiteStatus,
   },
   get_lost_found_info: {
-    internal_api: "Static response (lost & found not yet published)",
+    internal_api: "Vector search: site_content",
     audience: "external",
-    availability: "setup_no_data",
-    status_label: "Setup only",
-    status_note: "Visible to external users, but lost and found guidance is not configured yet.",
+    ...indexedSiteStatus,
   },
   get_volunteer_assignment: {
     internal_api: "Static response (volunteer system not connected)",

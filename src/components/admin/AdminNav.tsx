@@ -61,7 +61,7 @@ export default function AdminNav() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  if (pathname === "/admin/login") return null;
+  if (pathname === "/admin/login" || pathname === "/admin/reset-password") return null;
 
   function toggleTheme() {
     setDarkMode((prev) => {

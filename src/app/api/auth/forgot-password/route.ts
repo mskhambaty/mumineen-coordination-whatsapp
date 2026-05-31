@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { optionalEnv } from "@/lib/env";
+import { isAdminOrLeadership } from "@/lib/admin/access";
+import { createPasswordResetToken } from "@/lib/admin/passwords";
+import { requireEnv } from "@/lib/env";
 import { sendPasswordResetEmail } from "@/lib/email/postmark";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -21,28 +23,33 @@ export async function POST(req: NextRequest) {
 
     const { data: profile } = await supabase
       .from("whatsapp_users")
-      .select("display_name, email")
+      .select("id, display_name, email, role, global_role, status")
       .eq("email", email)
       .maybeSingle();
 
-    if (!profile?.email) {
+    if (!profile?.email || profile.status !== "active" || !isAdminOrLeadership(profile)) {
       return NextResponse.json({ ok: true });
     }
 
-    const { data, error } = await supabase.auth.admin.generateLink({
-      type: "recovery",
-      email,
-      options: optionalEnv("NEXT_PUBLIC_APP_URL")
-        ? { redirectTo: `${optionalEnv("NEXT_PUBLIC_APP_URL")}/admin/login` }
-        : undefined,
-    });
+    const appUrl = requireEnv("NEXT_PUBLIC_APP_URL");
+    const { token, tokenHash } = createPasswordResetToken();
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
-    const resetUrl = data.properties?.action_link;
-    if (!error && resetUrl) {
-      await sendPasswordResetEmail(email, profile.display_name ?? "there", resetUrl);
-    } else if (error) {
-      console.error("Failed to generate password reset link:", error.message);
+    const { error: updateError } = await supabase
+      .from("whatsapp_users")
+      .update({
+        password_reset_token_hash: tokenHash,
+        password_reset_expires_at: expiresAt,
+      })
+      .eq("id", profile.id);
+
+    if (updateError) {
+      console.error("Failed to store password reset token:", updateError.message);
+      return NextResponse.json({ ok: true });
     }
+
+    const resetUrl = `${appUrl}/admin/reset-password?token=${encodeURIComponent(token)}`;
+    await sendPasswordResetEmail(email, profile.display_name ?? "there", resetUrl);
 
     return NextResponse.json({ ok: true });
   } catch (err) {

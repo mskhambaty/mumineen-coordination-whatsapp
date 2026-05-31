@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
+import { verifyPassword } from "@/lib/admin/passwords";
+import { optionalEnv } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export async function POST(req: NextRequest) {
@@ -11,18 +13,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
     }
 
-    // Simple password check - in production this would use proper hashing
-    const validPassword = "786110";
-    if (password !== validPassword) {
-      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
-    }
-
     const supabase = getSupabaseAdmin();
 
     // Check if user exists and has admin/leadership_admin role
     const { data: user, error } = await supabase
       .from("whatsapp_users")
-      .select("id, display_name, email, global_role, role")
+      .select("id, display_name, email, global_role, role, password_hash")
       .eq("email", email)
       .maybeSingle();
 
@@ -36,6 +32,16 @@ export async function POST(req: NextRequest) {
 
     if (!isAdminOrLeadership(user)) {
       return NextResponse.json({ error: "Access denied. Admin role required." }, { status: 403 });
+    }
+
+    const passwordHash = typeof user.password_hash === "string" ? user.password_hash : null;
+    const legacyPassword = optionalEnv("ADMIN_FALLBACK_PASSWORD") ?? "786110";
+    const validPassword = passwordHash
+      ? await verifyPassword(password, passwordHash)
+      : password === legacyPassword;
+
+    if (!validPassword) {
+      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
     // Return a simple session token (user ID based for simplicity)
