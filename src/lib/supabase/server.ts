@@ -40,27 +40,68 @@ export async function getOrCreateWhatsappUser(
   }
 
   if (existing) {
+    // Backfill the WhatsApp profile name if we didn't have one yet.
+    let resolvedName = existing.display_name;
     if (displayName && !existing.display_name) {
       await supabase
         .from("whatsapp_users")
         .update({ display_name: displayName })
         .eq("id", existing.id);
+      resolvedName = displayName;
     }
 
     return {
       id: existing.id,
       phone_e164: existing.phone_e164,
-      display_name: existing.display_name,
+      display_name: resolvedName,
       role: existing.role as UserRole,
       status: existing.status,
     };
   }
 
+  // Persist new senders (with their WhatsApp profile name) so the Lead Inbox can
+  // show a name alongside the number and link the conversation to a user.
+  const { data: created, error: insertError } = await supabase
+    .from("whatsapp_users")
+    .insert({
+      phone_e164: phoneE164,
+      display_name: displayName ?? null,
+      role: "visitor",
+      status: "active",
+    })
+    .select("id, phone_e164, display_name, role, status")
+    .single();
+
+  if (insertError) {
+    // Lost a race to a concurrent insert for the same phone — read the winner.
+    if (insertError.code === "23505") {
+      const { data: raced } = await supabase
+        .from("whatsapp_users")
+        .select("id, phone_e164, display_name, role, status")
+        .eq("phone_e164", phoneE164)
+        .maybeSingle();
+      if (raced) {
+        if (displayName && !raced.display_name) {
+          await supabase.from("whatsapp_users").update({ display_name: displayName }).eq("id", raced.id);
+        }
+        return {
+          id: raced.id,
+          phone_e164: raced.phone_e164,
+          display_name: raced.display_name ?? displayName ?? null,
+          role: raced.role as UserRole,
+          status: raced.status,
+        };
+      }
+    }
+    throw insertError;
+  }
+
   return {
-    phone_e164: phoneE164,
-    display_name: displayName ?? null,
-    role: "visitor",
-    status: "active",
+    id: created.id,
+    phone_e164: created.phone_e164,
+    display_name: created.display_name,
+    role: created.role as UserRole,
+    status: created.status,
   };
 }
 
