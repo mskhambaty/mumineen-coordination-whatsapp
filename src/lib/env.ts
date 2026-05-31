@@ -16,6 +16,8 @@ const envAliases: Record<string, string[]> = {
   SUPABASE_SERVICE_ROLE_KEY: ["SUPABASE_SERVICE_ROLE_KEY", "Supabase_service_role_key"],
   SUPABASE_URL: ["SUPABASE_URL", "Supabase_url", "Supabase_project_url"],
   WHATSAPP_ACCESS_TOKEN: ["WHATSAPP_ACCESS_TOKEN", "Whatsapp_access_token"],
+  WHATSAPP_ALLOWED_PHONE_NUMBER_IDS: ["WHATSAPP_ALLOWED_PHONE_NUMBER_IDS", "Whatsapp_allowed_phone_number_ids"],
+  WHATSAPP_DISPLAY_PHONE_NUMBER: ["WHATSAPP_DISPLAY_PHONE_NUMBER", "Whatsapp_display_phone_number"],
   WHATSAPP_PHONE_NUMBER_ID: ["WHATSAPP_PHONE_NUMBER_ID", "Whatsapp_phone_number_id"],
 };
 

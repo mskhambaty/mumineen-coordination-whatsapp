@@ -10,6 +10,10 @@ describe("extractIncomingMessages", () => {
           changes: [
             {
               value: {
+                metadata: {
+                  display_phone_number: "16308190250",
+                  phone_number_id: "1071263409410708",
+                },
                 contacts: [{ wa_id: "13125551212", profile: { name: "Mufaddal" } }],
                 messages: [
                   {
@@ -28,16 +32,24 @@ describe("extractIncomingMessages", () => {
 
     expect(result).toEqual([
       {
+        businessPhoneNumberId: "1071263409410708",
+        businessDisplayPhoneNumber: "+16308190250",
         phoneE164: "+13125551212",
         profileName: "Mufaddal",
         whatsappMessageId: "wamid.123",
         body: "What time is waaz?",
         messageType: "text",
         rawMessage: {
-          from: "13125551212",
-          id: "wamid.123",
-          type: "text",
-          text: { body: "What time is waaz?" },
+          metadata: {
+            display_phone_number: "16308190250",
+            phone_number_id: "1071263409410708",
+          },
+          message: {
+            from: "13125551212",
+            id: "wamid.123",
+            type: "text",
+            text: { body: "What time is waaz?" },
+          },
         },
       },
     ]);

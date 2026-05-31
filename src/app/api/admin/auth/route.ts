@@ -16,11 +16,21 @@ export async function POST(req: NextRequest) {
     const supabase = getSupabaseAdmin();
 
     // Check if user exists and has admin/leadership_admin role
-    const { data: user, error } = await supabase
+    let { data: user, error } = await supabase
       .from("whatsapp_users")
       .select("id, display_name, email, global_role, role, password_hash")
       .eq("email", email)
       .maybeSingle();
+
+    if (error?.message.includes("password_hash")) {
+      const fallbackResult = await supabase
+        .from("whatsapp_users")
+        .select("id, display_name, email, global_role, role")
+        .eq("email", email)
+        .maybeSingle();
+      user = fallbackResult.data ? { ...fallbackResult.data, password_hash: null } : null;
+      error = fallbackResult.error;
+    }
 
     if (error) {
       return NextResponse.json({ error: "Database error" }, { status: 500 });

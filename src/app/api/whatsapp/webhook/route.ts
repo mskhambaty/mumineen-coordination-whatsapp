@@ -66,6 +66,15 @@ export async function POST(req: NextRequest) {
 }
 
 async function processIncomingMessage(message: IncomingWhatsAppMessage) {
+  if (!isAllowedBusinessPhone(message)) {
+    console.log("Ignoring WhatsApp webhook message for non-Ashara phone number", {
+      businessPhoneNumberId: message.businessPhoneNumberId,
+      businessDisplayPhoneNumber: message.businessDisplayPhoneNumber,
+      whatsappMessageId: message.whatsappMessageId,
+    });
+    return false;
+  }
+
   const inbound = await recordInboundMessage(message);
 
   if (!inbound.inserted) {
@@ -111,4 +120,34 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
   });
 
   return true;
+}
+
+function isAllowedBusinessPhone(message: IncomingWhatsAppMessage) {
+  const allowedIds = getAllowedPhoneNumberIds();
+  const allowedDisplayNumber = optionalEnv("WHATSAPP_DISPLAY_PHONE_NUMBER");
+  const normalizedAllowedDisplay = allowedDisplayNumber
+    ? normalizePhoneDigits(allowedDisplayNumber)
+    : null;
+
+  if (allowedIds.length > 0) {
+    return Boolean(message.businessPhoneNumberId && allowedIds.includes(message.businessPhoneNumberId));
+  }
+
+  if (normalizedAllowedDisplay) {
+    return normalizePhoneDigits(message.businessDisplayPhoneNumber ?? "") === normalizedAllowedDisplay;
+  }
+
+  return true;
+}
+
+function getAllowedPhoneNumberIds() {
+  const configured = optionalEnv("WHATSAPP_ALLOWED_PHONE_NUMBER_IDS") ?? optionalEnv("WHATSAPP_PHONE_NUMBER_ID");
+  return (configured ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function normalizePhoneDigits(phone: string) {
+  return phone.replace(/[^\d]/g, "");
 }
