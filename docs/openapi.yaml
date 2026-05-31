@@ -179,6 +179,24 @@ paths:
         "200": { description: Conversations with handling mode, messages, and tool calls. }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /admin/conversations/stream:
+    get:
+      tags: [conversations]
+      summary: Server-Sent Events stream of inbox activity for live updates.
+      description: >-
+        EventSource endpoint. Emits a `changed` event when conversation activity
+        changes so the Lead Inbox refetches without polling. The admin key is passed
+        as the `key` query param because EventSource cannot send custom headers.
+      security: []
+      parameters:
+        - name: key
+          in: query
+          required: true
+          schema: { type: string }
+          description: Admin API key (same value as x-admin-key).
+      responses:
+        "200": { description: "text/event-stream of ready/changed/ping events." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /admin/conversations/{phoneE164}/mode:
     put:
       tags: [conversations]

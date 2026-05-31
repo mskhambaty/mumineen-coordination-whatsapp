@@ -106,14 +106,26 @@ export default function ConversationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
-  // Poll for new messages so the inbox stays live without manual refresh.
+  // Live updates via Server-Sent Events: the server pushes a "changed" event when
+  // conversation activity changes, instead of the browser polling on a timer.
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (document.visibilityState === "visible") {
-        void refreshConversationsSilently();
-      }
-    }, 8000);
-    return () => clearInterval(interval);
+    if (!adminKey) return;
+    const source = new EventSource(`/api/admin/conversations/stream?key=${encodeURIComponent(adminKey)}`);
+    // Refetch on every (re)connect to catch anything missed during a reconnect gap.
+    source.onopen = () => void refreshConversationsSilently();
+    source.addEventListener("changed", () => void refreshConversationsSilently());
+    // EventSource reconnects automatically on error/close; just clean up on unmount.
+    return () => source.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminKey]);
+
+  // Backstop: refetch when the tab regains focus.
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === "visible") void refreshConversationsSilently();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

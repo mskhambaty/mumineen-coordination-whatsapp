@@ -32,6 +32,7 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - Conversation list shows display name, last message, unread inbound count, an AI/MANUAL badge, and an ESCALATED/URGENT badge + category when escalated
 - **Agent ↔ Manual toggle** per conversation switches `handling_mode` via `PUT /api/admin/conversations/[phoneE164]/mode`. `manual` pauses the AI agent so an admin handles the thread by hand
 - Manual reply box (enabled only in Manual mode) sends a WhatsApp message via `POST /api/admin/conversations/[phoneE164]/messages`
+- **Live updates via SSE** — the inbox subscribes to `GET /api/admin/conversations/stream` (EventSource) and refetches only when the server signals new activity, instead of polling on a timer
 - Tool Calls pane lists agent actions for the thread with allowed/blocked status and arguments
 - **Dark mode** toggle (🌙/☀️) in the nav; preference persists in `localStorage("admin_theme")` and falls back to the OS preference on first load
 - Restricted to `role = 'admin'` or `global_role = 'leadership_admin'`

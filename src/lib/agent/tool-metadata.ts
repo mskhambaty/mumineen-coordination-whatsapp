@@ -22,30 +22,15 @@ const indexedSiteStatus = {
 } satisfies Pick<ToolMetadata, "availability" | "status_label" | "status_note">;
 
 const toolMetadata: Record<string, ToolMetadata> = {
-  get_event_schedule: {
+  get_site_content_faq: {
     internal_api: "Vector search: site_content",
     audience: "external",
     ...indexedSiteStatus,
   },
-  get_parking_info: {
-    internal_api: "Vector search: site_content",
+  move_to_escalation: {
+    internal_api: "POST /api/escalations",
     audience: "external",
-    ...indexedSiteStatus,
-  },
-  get_directions: {
-    internal_api: "Vector search: site_content",
-    audience: "external",
-    ...indexedSiteStatus,
-  },
-  get_faq_answer: {
-    internal_api: "Vector search: site_content",
-    audience: "external",
-    ...indexedSiteStatus,
-  },
-  get_lost_found_info: {
-    internal_api: "Vector search: site_content",
-    audience: "external",
-    ...indexedSiteStatus,
+    ...activeApiStatus,
   },
   get_volunteer_assignment: {
     internal_api: "Static response (volunteer system not connected)",
