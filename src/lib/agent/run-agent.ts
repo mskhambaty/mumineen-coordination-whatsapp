@@ -43,6 +43,12 @@ const NO_DEAD_END_RULE = `\n\n## Never Leave the User Without Help
 - If you cannot resolve their need yourself, either escalate with move_to_escalation (someone will follow up) or use create_issue to log it for the internal team — then reassure the user it has been passed on and someone will get back to them.
 - Always leave the user with a clear next step (you'll keep helping, or the team has been notified), never a dead end.`;
 
+// Always-on tone so replies sound like a real person, not a formal AI.
+const TONE_RULE = `\n\n## Tone — Natural and Human
+- Sound like a warm, helpful person texting on WhatsApp — brief, plain, and conversational. Not formal or robotic.
+- Avoid canned, flowery, or ceremonial phrases and blessings such as "May you be blessed abundantly", "May your preparations for Ashara Mubarak be blessed", "blessed abundantly", or similar AI-sounding embellishments. A simple genuine reply is better — e.g. "You're welcome!" or "Happy to help — let me know if you need anything else."
+- Mirror the user's tone and length. If they're brief, be brief. Don't pad messages with formal openings or closings.`;
+
 type AgentInput = {
   user: AppUser;
   phoneE164: string;
@@ -90,6 +96,7 @@ export async function runAgent(input: AgentInput) {
   systemContent += GREETING_RULE;
   systemContent += ACCURACY_RULE;
   systemContent += NO_DEAD_END_RULE;
+  systemContent += TONE_RULE;
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemContent },
