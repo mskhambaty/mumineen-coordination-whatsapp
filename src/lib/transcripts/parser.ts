@@ -31,11 +31,11 @@ export type ParsedEvent = {
   milestone_title: string | null;
   assigned_to_alias: string | null;
   priority: "low" | "medium" | "high";
-  confidence: number;
   percent_complete: number | null;
   budget: number | null;
   notes: string | null;
   description: string | null;
+  temp_milestone_id: string | null;
   raw_function_event?: ExtractProjectEvent | null;
 };
 
@@ -173,7 +173,7 @@ ${existingContext}`;
         const log = parseFunctionCallLog(toolCall.function.arguments, response);
         functionCalls.push(log);
         if (log.arguments?.events) {
-          allEvents.push(...log.arguments.events.map(functionEventToParsedEvent).filter((event) => event.confidence >= 0.5));
+          allEvents.push(...log.arguments.events.map(functionEventToParsedEvent));
         }
         continue;
       }
@@ -188,7 +188,7 @@ ${existingContext}`;
           lastMessageAt = parsed.last_message_at;
         }
         if (parsed.events) {
-          allEvents.push(...parsed.events.filter((e) => e.confidence >= 0.5).map(normalizeEvent));
+          allEvents.push(...parsed.events.map(normalizeEvent));
         }
         if (parsed.new_members) {
           allNewMembers.push(...parsed.new_members.filter(isValidNewMember));
@@ -261,13 +261,14 @@ function functionEventToParsedEvent(event: ExtractProjectEvent): ParsedEvent {
   const data = event.data;
   const itemType = inferFunctionItemType(event.event_type, data.item_type);
   const title = data.title?.trim() || null;
+  const isTempMilestoneRef = data.milestone_id?.startsWith("temp_") ?? false;
 
   return normalizeEvent({
     event_type: normalizeFunctionEventType(event.event_type, data.status === "complete"),
     item_type: itemType,
     id: data.id,
     department_id: data.department_id,
-    milestone_id: data.milestone_id,
+    milestone_id: isTempMilestoneRef ? null : data.milestone_id,
     assigned_to: data.assigned_to,
     source: data.source,
     status: data.status,
@@ -280,11 +281,11 @@ function functionEventToParsedEvent(event: ExtractProjectEvent): ParsedEvent {
     milestone_title: itemType === "milestone" ? title : null,
     assigned_to_alias: data.assigned_to_alias,
     priority: data.priority ?? "medium",
-    confidence: 0.86,
     percent_complete: data.percent_complete,
     budget: data.budget,
     notes: data.notes,
     description: data.description,
+    temp_milestone_id: itemType === "milestone" ? data.temp_milestone_id : (isTempMilestoneRef ? data.milestone_id : null),
     raw_function_event: event,
   });
 }
@@ -317,6 +318,7 @@ function normalizeEvent(event: ParsedEvent): ParsedEvent {
     source: event.source ?? null,
     status: event.status ?? null,
     due_date: event.due_date ?? null,
+    temp_milestone_id: event.temp_milestone_id ?? null,
     raw_function_event: event.raw_function_event ?? null,
   };
 }
@@ -474,11 +476,11 @@ function classifyMessage(message: TranscriptMessage): ParsedEvent | null {
     milestone_title: itemType === "milestone" ? titleFromText(text) : null,
     assigned_to_alias: inferAssignedAlias(message.sender, message.text),
     priority: inferPriority(text, itemType),
-    confidence: 0.62,
     percent_complete: completion ? 100 : null,
     budget: null,
     notes: null,
     description: text,
+    temp_milestone_id: null,
   });
 }
 

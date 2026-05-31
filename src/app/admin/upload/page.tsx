@@ -27,7 +27,6 @@ type ParsedEvent = {
   message_text: string | null;
   assigned_to_alias: string | null;
   priority: TaskPriority;
-  confidence: number;
   percent_complete: number | null;
   budget: number | null;
   notes: string | null;
@@ -36,6 +35,7 @@ type ParsedEvent = {
   due_date: string | null;
   assigned_to_user_id: string | null;
   milestone_id: string | null;
+  temp_milestone_id: string | null;
   applied: boolean;
 };
 
@@ -98,6 +98,7 @@ export default function UploadPage() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [selectedDepartmentIds, setSelectedDepartmentIds] = useState<string[]>([]);
+  const [promptEditorDepartmentId, setPromptEditorDepartmentId] = useState("");
   const [transcriptType, setTranscriptType] = useState<TranscriptType>("whatsapp");
   const [flexiblePrompt, setFlexiblePrompt] = useState("");
   const [promptSaved, setPromptSaved] = useState(false);
@@ -112,11 +113,18 @@ export default function UploadPage() {
   const [applyResult, setApplyResult] = useState<ApplyResult | null>(null);
 
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
-  const promptDepartmentId = selectedDepartmentIds[0] ?? "";
+  const promptDepartmentId = promptEditorDepartmentId && selectedDepartmentIds.includes(promptEditorDepartmentId)
+    ? promptEditorDepartmentId
+    : selectedDepartmentIds[0] ?? "";
 
   const selectedDepartments = useMemo(
     () => departments.filter((department) => selectedDepartmentIds.includes(department.id)),
     [departments, selectedDepartmentIds],
+  );
+
+  const promptEditorDepartment = useMemo(
+    () => departments.find((department) => department.id === promptDepartmentId),
+    [departments, promptDepartmentId],
   );
 
   const allMilestones = useMemo(
@@ -124,11 +132,165 @@ export default function UploadPage() {
     [existingItems],
   );
 
-  const eventGroups = useMemo(() => [
-    { key: "milestone", title: "Milestones", events: events.filter((event) => event.review_kind === "milestone") },
-    { key: "task", title: "Tasks", events: events.filter((event) => event.review_kind === "task") },
-    { key: "issue", title: "Issues", events: events.filter((event) => event.review_kind === "issue") },
-  ], [events]);
+  type MergedItem = {
+    existing: ExistingTask | null;
+    event: ParsedEvent | null;
+    changeType: "existing" | "new" | "updated";
+  };
+
+  type MergedMilestone = {
+    key: string;
+    title: string;
+    existing: ExistingMilestone | null;
+    event: ParsedEvent | null;
+    changeType: "existing" | "new" | "updated";
+    items: MergedItem[];
+  };
+
+  type MergedDepartment = {
+    department: Department;
+    milestones: MergedMilestone[];
+    unassigned: MergedItem[];
+    hasChanges: boolean;
+  };
+
+  const newMilestoneEvents = useMemo(
+    () => events.filter((e) => e.review_kind === "milestone" && e.review_action === "create"),
+    [events],
+  );
+
+  const allMilestonesForDropdown = useMemo(() => {
+    const existing = allMilestones.map((ms) => ({ id: ms.id, title: ms.title ?? "Untitled" }));
+    const newOnes = newMilestoneEvents.map((e) => ({
+      id: e.temp_milestone_id ?? `event_${e.id}`,
+      title: `(New) ${e.milestone_title ?? e.task_title ?? e.ai_summary ?? "Untitled"}`,
+    }));
+    return [...existing, ...newOnes];
+  }, [allMilestones, newMilestoneEvents]);
+
+  const mergedDepartments = useMemo((): MergedDepartment[] => {
+    const deptMap = new Map<string, Department>();
+    for (const tree of existingItems) deptMap.set(tree.department.id, tree.department);
+    for (const event of events) {
+      if (!deptMap.has(event.department_id)) {
+        const dept = departments.find((d) => d.id === event.department_id);
+        if (dept) deptMap.set(dept.id, dept);
+      }
+    }
+
+    return Array.from(deptMap.values()).map((dept) => {
+      const tree = existingItems.find((t) => t.department.id === dept.id);
+      const deptEvents = events.filter((e) => e.department_id === dept.id);
+
+      const milestoneMap = new Map<string, MergedMilestone>();
+
+      for (const ms of tree?.milestones ?? []) {
+        const existingItems: MergedItem[] = [
+          ...ms.tasks.map((t) => ({ existing: t, event: null, changeType: "existing" as const })),
+          ...ms.issues.map((t) => ({ existing: t, event: null, changeType: "existing" as const })),
+        ];
+        milestoneMap.set(ms.id, {
+          key: ms.id,
+          title: ms.title ?? "Untitled",
+          existing: ms,
+          event: null,
+          changeType: "existing",
+          items: existingItems,
+        });
+      }
+
+      for (const e of deptEvents.filter((ev) => ev.review_kind === "milestone")) {
+        if (e.review_action === "update" && e.target_id && milestoneMap.has(e.target_id)) {
+          const ms = milestoneMap.get(e.target_id)!;
+          ms.event = e;
+          ms.changeType = "updated";
+        } else if (e.review_action === "create") {
+          const key = e.temp_milestone_id ?? `event_${e.id}`;
+          milestoneMap.set(key, {
+            key,
+            title: e.milestone_title ?? e.task_title ?? e.ai_summary ?? "New Milestone",
+            existing: null,
+            event: e,
+            changeType: "new",
+            items: [],
+          });
+        }
+      }
+
+      for (const e of deptEvents.filter((ev) => ev.review_kind !== "milestone")) {
+        let placed = false;
+
+        if (e.review_action === "update" && e.target_id) {
+          for (const ms of milestoneMap.values()) {
+            const match = ms.items.find((item) => item.existing?.id === e.target_id);
+            if (match) {
+              match.event = e;
+              match.changeType = "updated";
+              placed = true;
+              break;
+            }
+          }
+        }
+
+        if (!placed) {
+          const msRef = e.temp_milestone_id ?? e.milestone_id;
+          if (msRef && milestoneMap.has(msRef)) {
+            milestoneMap.get(msRef)!.items.push({
+              existing: null,
+              event: e,
+              changeType: e.review_action === "update" ? "updated" : "new",
+            });
+            placed = true;
+          }
+        }
+
+        if (!placed) {
+          const unassignedKey = "__unassigned__";
+          if (!milestoneMap.has(unassignedKey)) {
+            milestoneMap.set(unassignedKey, {
+              key: unassignedKey,
+              title: "Unassigned Items",
+              existing: null,
+              event: null,
+              changeType: "existing",
+              items: [],
+            });
+          }
+          milestoneMap.get(unassignedKey)!.items.push({
+            existing: null,
+            event: e,
+            changeType: e.review_action === "update" ? "updated" : "new",
+          });
+        }
+      }
+
+      const unassignedExisting: MergedItem[] = [
+        ...(tree?.unassigned_tasks ?? []).map((t) => ({ existing: t, event: null, changeType: "existing" as const })),
+        ...(tree?.unassigned_issues ?? []).map((t) => ({ existing: t, event: null, changeType: "existing" as const })),
+      ];
+      if (unassignedExisting.length > 0) {
+        const unKey = "__unassigned__";
+        if (!milestoneMap.has(unKey)) {
+          milestoneMap.set(unKey, {
+            key: unKey,
+            title: "Unassigned Items",
+            existing: null,
+            event: null,
+            changeType: "existing",
+            items: [],
+          });
+        }
+        milestoneMap.get(unKey)!.items.unshift(...unassignedExisting);
+      }
+
+      const milestones = Array.from(milestoneMap.values()).filter((ms) => ms.key !== "__unassigned__");
+      const unassignedMs = milestoneMap.get("__unassigned__");
+      const unassigned = unassignedMs?.items ?? [];
+      const hasChanges = milestones.some((ms) => ms.changeType !== "existing" || ms.items.some((i) => i.changeType !== "existing")) || unassigned.some((i) => i.changeType !== "existing");
+
+      return { department: dept, milestones, unassigned, hasChanges };
+    }).filter((d) => d.milestones.length > 0 || d.unassigned.length > 0);
+  }, [existingItems, events, departments]);
 
   async function apiFetch(path: string, init?: RequestInit) {
     return fetch(path, {
@@ -148,6 +310,7 @@ export default function UploadPage() {
     setDepartments(data);
     if (selectedDepartmentIds.length === 0 && data[0]) {
       setSelectedDepartmentIds([data[0].id]);
+      setPromptEditorDepartmentId(data[0].id);
     }
   }
 
@@ -194,7 +357,16 @@ export default function UploadPage() {
 
   function toggleDepartment(departmentId: string) {
     setSelectedDepartmentIds((ids) => {
-      if (ids.includes(departmentId)) return ids.filter((id) => id !== departmentId);
+      if (ids.includes(departmentId)) {
+        const next = ids.filter((id) => id !== departmentId);
+        if (promptEditorDepartmentId === departmentId) {
+          setPromptEditorDepartmentId(next[0] ?? "");
+        }
+        return next;
+      }
+      if (!promptEditorDepartmentId) {
+        setPromptEditorDepartmentId(departmentId);
+      }
       return [...ids, departmentId];
     });
   }
@@ -256,14 +428,14 @@ export default function UploadPage() {
           budget: event.budget == null ? "" : String(event.budget),
           percent_complete: event.percent_complete == null ? "" : String(event.percent_complete),
           notes: event.notes ?? "",
-          milestone_id: event.review_kind === "milestone" ? "" : event.milestone_id ?? "",
+          milestone_id: event.review_kind === "milestone" ? "" : (event.milestone_id ?? event.temp_milestone_id ?? ""),
           assigned_to_alias: event.assigned_to_alias ?? "",
           assigned_to_user_id: event.assigned_to_user_id ?? "",
           new_user_phone: "",
         };
       }
       setEventDrafts(drafts);
-      setSelectedEvents(new Set(data.events.filter((event) => event.confidence >= 0.7 && !event.applied).map((event) => event.id)));
+      setSelectedEvents(new Set(data.events.filter((event) => !event.applied).map((event) => event.id)));
     } catch (err) {
       console.error("Upload error:", err);
       alert("Upload failed");
@@ -351,6 +523,17 @@ export default function UploadPage() {
     setSelectedEvents(next);
   }
 
+  function toggleMilestoneGroup(milestoneEvent: ParsedEvent | null, childEvents: ParsedEvent[]) {
+    const allIds = [...(milestoneEvent ? [milestoneEvent.id] : []), ...childEvents.map((e) => e.id)];
+    const allSelected = allIds.every((id) => selectedEvents.has(id));
+    const next = new Set(selectedEvents);
+    for (const id of allIds) {
+      if (allSelected) next.delete(id);
+      else next.add(id);
+    }
+    setSelectedEvents(next);
+  }
+
   function updateEventDraft(id: string, patch: Partial<EventDraft>) {
     setEventDrafts((drafts) => ({
       ...drafts,
@@ -366,12 +549,6 @@ export default function UploadPage() {
     if (event.event_type === "issue_resolved" || event.event_type === "task_completed") return "complete";
     if (event.event_type.includes("updated")) return "in_progress";
     return "open";
-  }
-
-  function actionClasses(event: ParsedEvent) {
-    return event.review_action === "update"
-      ? "border-amber-300 bg-amber-50 text-amber-900"
-      : "border-emerald-300 bg-emerald-50 text-emerald-900";
   }
 
   return (
@@ -407,8 +584,22 @@ export default function UploadPage() {
         <div className="rounded-lg border bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-lg font-semibold">Department Rules</h2>
-            <span className="text-xs text-gray-500">{promptDepartmentId ? selectedDepartments[0]?.name : "Select a department"}</span>
+            <span className="text-xs text-gray-500">{promptEditorDepartment?.name ?? "Select a department"}</span>
           </div>
+          <label className="mb-3 block text-sm font-medium">
+            Edit rules for
+            <select
+              value={promptDepartmentId}
+              onChange={(event) => setPromptEditorDepartmentId(event.target.value)}
+              disabled={selectedDepartments.length === 0 || loading}
+              className="mt-1 w-full rounded-md border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+            >
+              {selectedDepartments.length === 0 && <option value="">Select departments below...</option>}
+              {selectedDepartments.map((department) => (
+                <option key={department.id} value={department.id}>{department.name}</option>
+              ))}
+            </select>
+          </label>
           <textarea
             value={flexiblePrompt}
             onChange={(event) => {
@@ -440,7 +631,16 @@ export default function UploadPage() {
               <span className="text-sm font-medium">Departments</span>
               <button
                 type="button"
-                onClick={() => setSelectedDepartmentIds(selectedDepartmentIds.length === departments.length ? [] : departments.map((department) => department.id))}
+                onClick={() => {
+                  if (selectedDepartmentIds.length === departments.length) {
+                    setSelectedDepartmentIds([]);
+                    setPromptEditorDepartmentId("");
+                    return;
+                  }
+                  const allDepartmentIds = departments.map((department) => department.id);
+                  setSelectedDepartmentIds(allDepartmentIds);
+                  setPromptEditorDepartmentId(promptEditorDepartmentId || allDepartmentIds[0] || "");
+                }}
                 disabled={departments.length === 0}
                 className="text-sm font-medium text-blue-700 hover:text-blue-800"
               >
@@ -493,43 +693,7 @@ export default function UploadPage() {
         </div>
       )}
 
-      {existingItems.length > 0 && (
-        <section className="mt-6 rounded-lg border bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
-          <div className="border-b px-6 py-4">
-            <h2 className="text-lg font-semibold">Existing Work Sent to Extractor</h2>
-            <p className="mt-1 text-sm text-gray-500">Open milestones are shown with their current tasks and issues.</p>
-          </div>
-          <div className="divide-y">
-            {existingItems.map((departmentTree) => (
-              <div key={departmentTree.department.id} className="px-6 py-4">
-                <h3 className="font-semibold">{departmentTree.department.name}</h3>
-                {departmentTree.milestones.length === 0 && departmentTree.unassigned_tasks.length === 0 && departmentTree.unassigned_issues.length === 0 && (
-                  <p className="mt-2 text-sm text-gray-500">No open existing items.</p>
-                )}
-                <div className="mt-3 grid gap-3">
-                  {departmentTree.milestones.map((milestone) => (
-                    <div key={milestone.id} className="rounded-md border p-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium">{milestone.title}</span>
-                        <span className="rounded bg-gray-100 px-2 py-1 text-xs">{milestone.status}</span>
-                        <span className="text-xs text-gray-500">{milestone.percent_complete ?? 0}% complete</span>
-                      </div>
-                      {(milestone.tasks.length > 0 || milestone.issues.length > 0) && (
-                        <div className="mt-2 grid gap-2 text-sm md:grid-cols-2">
-                          <ExistingList title="Tasks" items={milestone.tasks} />
-                          <ExistingList title="Issues" items={milestone.issues} />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {parseFinished && events.length === 0 && (
+      {parseFinished && events.length === 0 && existingItems.length === 0 && (
         <section className="mt-6 rounded-lg border bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <h2 className="text-lg font-semibold">No Proposed Changes Found</h2>
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
@@ -538,155 +702,262 @@ export default function UploadPage() {
         </section>
       )}
 
-      {events.length > 0 && (
+      {mergedDepartments.length > 0 && (
         <section className="mt-6 rounded-lg border bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-4">
             <div>
-              <h2 className="text-lg font-semibold">Review AI Suggested Changes ({events.length})</h2>
-              <p className="mt-1 text-sm text-gray-500">Edit fields, map friendly assignee aliases, then submit only the selected changes.</p>
+              <h2 className="text-lg font-semibold">Related Work Items</h2>
+              <p className="mt-1 text-sm text-gray-500">
+                {events.length > 0
+                  ? "Review proposed changes alongside existing work. Edit fields, then submit selected changes."
+                  : "Existing milestones, tasks, and issues for selected departments."}
+              </p>
             </div>
-            <button
-              onClick={handleApply}
-              disabled={loading || selectedEvents.size === 0}
-              className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
-            >
-              Submit Selected ({selectedEvents.size})
-            </button>
+            {events.length > 0 && (
+              <button
+                onClick={handleApply}
+                disabled={loading || selectedEvents.size === 0}
+                className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+              >
+                Submit Selected ({selectedEvents.size})
+              </button>
+            )}
           </div>
-          <div className="grid gap-3 border-b px-6 py-4 text-sm sm:grid-cols-3">
-            <div><span className="font-semibold">{events.filter((event) => event.review_action === "create").length}</span> new items</div>
-            <div><span className="font-semibold">{events.filter((event) => event.review_action === "update").length}</span> suggested updates</div>
-            <div><span className="font-semibold">{events.filter((event) => event.confidence >= 0.7).length}</span> high confidence</div>
-          </div>
+          {events.length > 0 && (
+            <div className="grid gap-3 border-b px-6 py-4 text-sm sm:grid-cols-2">
+              <div><span className="font-semibold">{events.filter((e) => e.review_action === "create").length}</span> new items</div>
+              <div><span className="font-semibold">{events.filter((e) => e.review_action === "update").length}</span> suggested updates</div>
+            </div>
+          )}
 
-          {eventGroups.filter((group) => group.events.length > 0).map((group) => (
-            <div key={group.key} className="border-b px-6 py-5 last:border-b-0">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">{group.title} ({group.events.length})</h3>
-              <div className="mt-3 grid gap-4">
-                {group.events.map((event) => {
-                  const draft = eventDrafts[event.id];
-                  return (
-                    <div key={event.id} className={`rounded-lg border p-4 ${event.confidence < 0.7 ? "bg-yellow-50" : "bg-white dark:bg-gray-900"}`}>
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <label className="flex items-center gap-2 text-sm font-medium">
-                          <input type="checkbox" checked={selectedEvents.has(event.id)} onChange={() => toggleEvent(event.id)} disabled={event.applied} />
-                          {event.applied ? "Applied" : "Include"}
-                        </label>
-                        <div className="flex flex-wrap items-center gap-2 text-xs">
-                          <span className={`rounded-full border px-2 py-1 font-medium ${actionClasses(event)}`}>{event.review_action === "update" ? "Suggested update" : "New item"}</span>
-                          <span className="rounded-full bg-gray-100 px-2 py-1">{event.event_type}</span>
-                          <span>{(event.confidence * 100).toFixed(0)}% confidence</span>
+          <div className="divide-y">
+            {mergedDepartments.map((dept) => (
+              <details key={dept.department.id} open className="group">
+                <summary className="flex cursor-pointer items-center gap-2 px-6 py-4 font-semibold hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <span className="transition-transform group-open:rotate-90">&#9654;</span>
+                  {dept.department.name}
+                  {dept.hasChanges && <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">has changes</span>}
+                </summary>
+                <div className="px-6 pb-4">
+                  {dept.milestones.length === 0 && dept.unassigned.length === 0 && (
+                    <p className="text-sm text-gray-500">No items.</p>
+                  )}
+                  <div className="grid gap-3">
+                    {dept.milestones.map((ms) => {
+                      const childEvents = ms.items.filter((i) => i.event).map((i) => i.event!);
+                      const allGroupEvents = [...(ms.event ? [ms.event] : []), ...childEvents];
+                      const hasGroupChanges = ms.changeType !== "existing" || ms.items.some((i) => i.changeType !== "existing");
+                      const allGroupIds = allGroupEvents.filter((e) => !e.applied).map((e) => e.id);
+                      const allGroupSelected = allGroupIds.length > 0 && allGroupIds.every((id) => selectedEvents.has(id));
+                      const someGroupSelected = allGroupIds.some((id) => selectedEvents.has(id));
+
+                      return (
+                        <details key={ms.key} open={hasGroupChanges}>
+                          <summary className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800">
+                            {ms.changeType === "new" && allGroupIds.length > 0 && (
+                              <input
+                                type="checkbox"
+                                checked={allGroupSelected}
+                                ref={(el) => { if (el) el.indeterminate = someGroupSelected && !allGroupSelected; }}
+                                onChange={() => toggleMilestoneGroup(ms.event, childEvents)}
+                                onClick={(e) => e.stopPropagation()}
+                                className="mr-1"
+                              />
+                            )}
+                            <span className="font-medium">{ms.title}</span>
+                            {ms.existing && (
+                              <>
+                                <span className="rounded bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-700">{ms.existing.status}</span>
+                                <span className="text-xs text-gray-500">{ms.existing.percent_complete ?? 0}%</span>
+                              </>
+                            )}
+                            {ms.changeType === "new" && <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-900">NEW</span>}
+                            {ms.changeType === "updated" && <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900">UPDATE</span>}
+                            <span className="ml-auto text-xs text-gray-400">{ms.items.length} item{ms.items.length !== 1 ? "s" : ""}</span>
+                          </summary>
+                          <div className="mt-2 ml-4 grid gap-2">
+                            {ms.event && (
+                              <EventEditor event={ms.event} draft={eventDrafts[ms.event.id]} isMilestone selectedEvents={selectedEvents} toggleEvent={toggleEvent} updateEventDraft={updateEventDraft} users={users} allMilestonesForDropdown={allMilestonesForDropdown} createUserFromAlias={createUserFromAlias} loading={loading} />
+                            )}
+                            {ms.items.map((item) => {
+                              if (item.existing && !item.event) {
+                                return (
+                                  <div key={item.existing.id} className="flex items-center gap-2 rounded bg-gray-50 px-3 py-1.5 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                                    <span className={`inline-block h-2 w-2 rounded-full ${item.existing.item_type === "issue" ? "bg-red-400" : "bg-blue-400"}`} />
+                                    <span>{item.existing.title}</span>
+                                    <span className="text-xs text-gray-400">({item.existing.status})</span>
+                                    {item.existing.item_type === "issue" && <span className="text-xs text-red-500">issue</span>}
+                                  </div>
+                                );
+                              }
+                              if (item.event) {
+                                return (
+                                  <EventEditor key={item.event.id} event={item.event} draft={eventDrafts[item.event.id]} isMilestone={false} selectedEvents={selectedEvents} toggleEvent={toggleEvent} updateEventDraft={updateEventDraft} users={users} allMilestonesForDropdown={allMilestonesForDropdown} createUserFromAlias={createUserFromAlias} loading={loading} />
+                                );
+                              }
+                              return null;
+                            })}
+                          </div>
+                        </details>
+                      );
+                    })}
+
+                    {dept.unassigned.length > 0 && (
+                      <details open={dept.unassigned.some((i) => i.changeType !== "existing")}>
+                        <summary className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed px-3 py-2 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800">
+                          <span className="font-medium">Unassigned Items</span>
+                          <span className="text-xs text-gray-400">{dept.unassigned.length} item{dept.unassigned.length !== 1 ? "s" : ""}</span>
+                        </summary>
+                        <div className="mt-2 ml-4 grid gap-2">
+                          {dept.unassigned.map((item) => {
+                            if (item.existing && !item.event) {
+                              return (
+                                <div key={item.existing.id} className="flex items-center gap-2 rounded bg-gray-50 px-3 py-1.5 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                                  <span className={`inline-block h-2 w-2 rounded-full ${item.existing.item_type === "issue" ? "bg-red-400" : "bg-blue-400"}`} />
+                                  <span>{item.existing.title}</span>
+                                  <span className="text-xs text-gray-400">({item.existing.status})</span>
+                                </div>
+                              );
+                            }
+                            if (item.event) {
+                              return (
+                                <EventEditor key={item.event.id} event={item.event} draft={eventDrafts[item.event.id]} isMilestone={false} selectedEvents={selectedEvents} toggleEvent={toggleEvent} updateEventDraft={updateEventDraft} users={users} allMilestonesForDropdown={allMilestonesForDropdown} createUserFromAlias={createUserFromAlias} loading={loading} />
+                              );
+                            }
+                            return null;
+                          })}
                         </div>
-                      </div>
-
-                      {event.review_action === "update" && (
-                        <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                          Existing match: {event.target_title ?? "No match found"}{event.target_status ? ` (${event.target_status})` : ""}
-                        </p>
-                      )}
-
-                      <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                        <label className="text-sm font-medium">
-                          Title
-                          <input value={draft?.title ?? ""} onChange={(e) => updateEventDraft(event.id, { title: e.target.value })} className="mt-1 w-full rounded-md border px-3 py-2" disabled={event.applied} />
-                        </label>
-                        <label className="text-sm font-medium">
-                          Status
-                          <select value={draft?.status ?? "open"} onChange={(e) => updateEventDraft(event.id, { status: e.target.value as ItemStatus })} className="mt-1 w-full rounded-md border px-3 py-2" disabled={event.applied}>
-                            <option value="open">Open</option>
-                            <option value="in_progress">In progress</option>
-                            <option value="blocked">Blocked</option>
-                            <option value="complete">Complete</option>
-                          </select>
-                        </label>
-                        {event.review_kind !== "milestone" && (
-                          <>
-                            <label className="text-sm font-medium">
-                              Priority
-                              <select value={draft?.priority ?? "medium"} onChange={(e) => updateEventDraft(event.id, { priority: e.target.value as TaskPriority })} className="mt-1 w-full rounded-md border px-3 py-2" disabled={event.applied}>
-                                <option value="high">High</option>
-                                <option value="medium">Medium</option>
-                                <option value="low">Low</option>
-                              </select>
-                            </label>
-                            <label className="text-sm font-medium">
-                              Milestone
-                              <select value={draft?.milestone_id ?? ""} onChange={(e) => updateEventDraft(event.id, { milestone_id: e.target.value })} className="mt-1 w-full rounded-md border px-3 py-2" disabled={event.applied}>
-                                <option value="">No milestone</option>
-                                {allMilestones.map((milestone) => <option key={milestone.id} value={milestone.id}>{milestone.title}</option>)}
-                              </select>
-                            </label>
-                            <label className="text-sm font-medium">
-                              Assignee alias from transcript
-                              <input value={draft?.assigned_to_alias ?? ""} onChange={(e) => updateEventDraft(event.id, { assigned_to_alias: e.target.value })} className="mt-1 w-full rounded-md border px-3 py-2" disabled={event.applied} />
-                            </label>
-                            <label className="text-sm font-medium">
-                              Assign system user
-                              <select value={draft?.assigned_to_user_id ?? ""} onChange={(e) => updateEventDraft(event.id, { assigned_to_user_id: e.target.value })} className="mt-1 w-full rounded-md border px-3 py-2" disabled={event.applied}>
-                                <option value="">Unassigned</option>
-                                {users.map((user) => <option key={user.id} value={user.id}>{user.display_name}</option>)}
-                              </select>
-                            </label>
-                            <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                              <label className="text-sm font-medium">
-                                New user phone
-                                <input value={draft?.new_user_phone ?? ""} onChange={(e) => updateEventDraft(event.id, { new_user_phone: e.target.value })} placeholder="+13125551212" className="mt-1 w-full rounded-md border px-3 py-2" disabled={event.applied} />
-                              </label>
-                              <button type="button" onClick={() => createUserFromAlias(event.id)} disabled={event.applied || loading} className="self-end rounded-md border px-3 py-2 text-sm font-medium hover:bg-gray-50">
-                                Create User
-                              </button>
-                            </div>
-                            <label className="text-sm font-medium">
-                              Due date
-                              <input type="date" value={draft?.due_date ?? ""} onChange={(e) => updateEventDraft(event.id, { due_date: e.target.value })} className="mt-1 w-full rounded-md border px-3 py-2" disabled={event.applied} />
-                            </label>
-                          </>
-                        )}
-                        {event.review_kind === "milestone" && (
-                          <>
-                            <label className="text-sm font-medium">
-                              Budget
-                              <input type="number" value={draft?.budget ?? ""} onChange={(e) => updateEventDraft(event.id, { budget: e.target.value })} className="mt-1 w-full rounded-md border px-3 py-2" disabled={event.applied} />
-                            </label>
-                            <label className="text-sm font-medium">
-                              Percent complete
-                              <input type="number" min="0" max="100" value={draft?.percent_complete ?? ""} onChange={(e) => updateEventDraft(event.id, { percent_complete: e.target.value })} className="mt-1 w-full rounded-md border px-3 py-2" disabled={event.applied} />
-                            </label>
-                          </>
-                        )}
-                        <label className="text-sm font-medium lg:col-span-2">
-                          Description
-                          <textarea value={draft?.description ?? ""} onChange={(e) => updateEventDraft(event.id, { description: e.target.value })} rows={3} className="mt-1 w-full rounded-md border px-3 py-2" disabled={event.applied} />
-                        </label>
-                        <label className="text-sm font-medium lg:col-span-2">
-                          Notes
-                          <textarea value={draft?.notes ?? ""} onChange={(e) => updateEventDraft(event.id, { notes: e.target.value })} rows={2} className="mt-1 w-full rounded-md border px-3 py-2" disabled={event.applied} />
-                        </label>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
+                      </details>
+                    )}
+                  </div>
+                </div>
+              </details>
+            ))}
+          </div>
         </section>
       )}
     </main>
   );
 }
 
-function ExistingList({ title, items }: { title: string; items: ExistingTask[] }) {
-  if (items.length === 0) return null;
+type EventEditorProps = {
+  event: ParsedEvent;
+  draft: EventDraft | undefined;
+  isMilestone: boolean;
+  selectedEvents: Set<string>;
+  toggleEvent: (id: string) => void;
+  updateEventDraft: (id: string, patch: Partial<EventDraft>) => void;
+  users: User[];
+  allMilestonesForDropdown: { id: string; title: string }[];
+  createUserFromAlias: (eventId: string) => void;
+  loading: boolean;
+};
+
+function EventEditor({ event, draft, isMilestone, selectedEvents, toggleEvent, updateEventDraft, users, allMilestonesForDropdown, createUserFromAlias, loading }: EventEditorProps) {
+  const isUpdate = event.review_action === "update";
+  const badgeClasses = isUpdate
+    ? "border-amber-300 bg-amber-50 text-amber-900"
+    : "border-emerald-300 bg-emerald-50 text-emerald-900";
+
   return (
-    <div>
-      <p className="font-medium text-gray-700">{title}</p>
-      <ul className="mt-1 space-y-1 text-gray-600">
-        {items.map((item) => (
-          <li key={item.id} className="rounded bg-gray-50 px-2 py-1">
-            {item.title} <span className="text-xs text-gray-400">({item.status})</span>
-          </li>
-        ))}
-      </ul>
+    <div className={`rounded-lg border p-4 ${isUpdate ? "border-amber-200 bg-amber-50/30 dark:border-amber-900 dark:bg-amber-950/20" : "border-emerald-200 bg-emerald-50/30 dark:border-emerald-900 dark:bg-emerald-950/20"}`}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <input type="checkbox" checked={selectedEvents.has(event.id)} onChange={() => toggleEvent(event.id)} disabled={event.applied} />
+          {event.applied ? "Applied" : "Include"}
+        </label>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className={`rounded-full border px-2 py-1 font-medium ${badgeClasses}`}>
+            {isUpdate ? "Update" : "New"} {isMilestone ? "milestone" : event.review_kind}
+          </span>
+          <span className="rounded-full bg-gray-100 px-2 py-0.5 dark:bg-gray-700">{event.event_type}</span>
+        </div>
+      </div>
+
+      {isUpdate && (
+        <p className="mt-2 rounded-md bg-amber-50 px-3 py-1.5 text-sm text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
+          Updating: {event.target_title ?? "Unknown"}{event.target_status ? ` (${event.target_status})` : ""}
+        </p>
+      )}
+
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        <label className="text-sm font-medium">
+          Title
+          <input value={draft?.title ?? ""} onChange={(e) => updateEventDraft(event.id, { title: e.target.value })} className="mt-1 w-full rounded-md border px-3 py-2 dark:border-gray-700 dark:bg-gray-800" disabled={event.applied} />
+        </label>
+        <label className="text-sm font-medium">
+          Status
+          <select value={draft?.status ?? "open"} onChange={(e) => updateEventDraft(event.id, { status: e.target.value as ItemStatus })} className="mt-1 w-full rounded-md border px-3 py-2 dark:border-gray-700 dark:bg-gray-800" disabled={event.applied}>
+            <option value="open">Open</option>
+            <option value="in_progress">In progress</option>
+            <option value="blocked">Blocked</option>
+            <option value="complete">Complete</option>
+          </select>
+        </label>
+        {!isMilestone && (
+          <>
+            <label className="text-sm font-medium">
+              Priority
+              <select value={draft?.priority ?? "medium"} onChange={(e) => updateEventDraft(event.id, { priority: e.target.value as TaskPriority })} className="mt-1 w-full rounded-md border px-3 py-2 dark:border-gray-700 dark:bg-gray-800" disabled={event.applied}>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </label>
+            <label className="text-sm font-medium">
+              Milestone
+              <select value={draft?.milestone_id ?? ""} onChange={(e) => updateEventDraft(event.id, { milestone_id: e.target.value })} className="mt-1 w-full rounded-md border px-3 py-2 dark:border-gray-700 dark:bg-gray-800" disabled={event.applied}>
+                <option value="">No milestone</option>
+                {allMilestonesForDropdown.map((ms) => <option key={ms.id} value={ms.id}>{ms.title}</option>)}
+              </select>
+            </label>
+            <label className="text-sm font-medium">
+              Assignee alias
+              <input value={draft?.assigned_to_alias ?? ""} onChange={(e) => updateEventDraft(event.id, { assigned_to_alias: e.target.value })} className="mt-1 w-full rounded-md border px-3 py-2 dark:border-gray-700 dark:bg-gray-800" disabled={event.applied} />
+            </label>
+            <label className="text-sm font-medium">
+              Assign system user
+              <select value={draft?.assigned_to_user_id ?? ""} onChange={(e) => updateEventDraft(event.id, { assigned_to_user_id: e.target.value })} className="mt-1 w-full rounded-md border px-3 py-2 dark:border-gray-700 dark:bg-gray-800" disabled={event.applied}>
+                <option value="">Unassigned</option>
+                {users.map((user) => <option key={user.id} value={user.id}>{user.display_name}</option>)}
+              </select>
+            </label>
+            <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+              <label className="text-sm font-medium">
+                New user phone
+                <input value={draft?.new_user_phone ?? ""} onChange={(e) => updateEventDraft(event.id, { new_user_phone: e.target.value })} placeholder="+13125551212" className="mt-1 w-full rounded-md border px-3 py-2 dark:border-gray-700 dark:bg-gray-800" disabled={event.applied} />
+              </label>
+              <button type="button" onClick={() => createUserFromAlias(event.id)} disabled={event.applied || loading} className="self-end rounded-md border px-3 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800">
+                Create User
+              </button>
+            </div>
+            <label className="text-sm font-medium">
+              Due date
+              <input type="date" value={draft?.due_date ?? ""} onChange={(e) => updateEventDraft(event.id, { due_date: e.target.value })} className="mt-1 w-full rounded-md border px-3 py-2 dark:border-gray-700 dark:bg-gray-800" disabled={event.applied} />
+            </label>
+          </>
+        )}
+        {isMilestone && (
+          <>
+            <label className="text-sm font-medium">
+              Budget
+              <input type="number" value={draft?.budget ?? ""} onChange={(e) => updateEventDraft(event.id, { budget: e.target.value })} className="mt-1 w-full rounded-md border px-3 py-2 dark:border-gray-700 dark:bg-gray-800" disabled={event.applied} />
+            </label>
+            <label className="text-sm font-medium">
+              Percent complete
+              <input type="number" min="0" max="100" value={draft?.percent_complete ?? ""} onChange={(e) => updateEventDraft(event.id, { percent_complete: e.target.value })} className="mt-1 w-full rounded-md border px-3 py-2 dark:border-gray-700 dark:bg-gray-800" disabled={event.applied} />
+            </label>
+          </>
+        )}
+        <label className="text-sm font-medium lg:col-span-2">
+          Description
+          <textarea value={draft?.description ?? ""} onChange={(e) => updateEventDraft(event.id, { description: e.target.value })} rows={2} className="mt-1 w-full rounded-md border px-3 py-2 dark:border-gray-700 dark:bg-gray-800" disabled={event.applied} />
+        </label>
+        <label className="text-sm font-medium lg:col-span-2">
+          Notes
+          <textarea value={draft?.notes ?? ""} onChange={(e) => updateEventDraft(event.id, { notes: e.target.value })} rows={2} className="mt-1 w-full rounded-md border px-3 py-2 dark:border-gray-700 dark:bg-gray-800" disabled={event.applied} />
+        </label>
+      </div>
     </div>
   );
 }

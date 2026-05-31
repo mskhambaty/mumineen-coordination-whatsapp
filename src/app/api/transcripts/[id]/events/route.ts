@@ -60,7 +60,7 @@ export async function GET(
 
     const { data, error } = await supabase
       .from("conversation_events")
-      .select("id, upload_id, department_id, event_type, item_type, task_id, milestone_id, sender_alias, message_text, message_timestamp, ai_summary, task_title, milestone_title, assigned_to_alias, priority, confidence, percent_complete, budget, notes, description, suggested_status, due_date, assigned_to_user_id, source, raw_function_event, suggested_changes, applied")
+      .select("id, upload_id, department_id, event_type, item_type, task_id, milestone_id, sender_alias, message_text, message_timestamp, ai_summary, task_title, milestone_title, assigned_to_alias, priority, percent_complete, budget, notes, description, suggested_status, due_date, assigned_to_user_id, source, raw_function_event, suggested_changes, temp_milestone_id, applied")
       .eq("upload_id", id)
       .order("message_timestamp", { ascending: true });
 

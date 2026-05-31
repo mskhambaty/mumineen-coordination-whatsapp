@@ -32,6 +32,7 @@ export type ExtractProjectEventData = {
   priority: ProjectPriority | null;
   milestone_id: string | null;
   item_type: ProjectItemType | null;
+  temp_milestone_id: string | null;
 };
 
 export type ExtractProjectEvent = {
@@ -84,6 +85,7 @@ export const EXTRACT_PROJECT_EVENTS_TOOL = {
                   "priority",
                   "milestone_id",
                   "item_type",
+                  "temp_milestone_id",
                 ],
                 properties: {
                   id: nullableString,
@@ -101,6 +103,7 @@ export const EXTRACT_PROJECT_EVENTS_TOOL = {
                   priority: { type: ["string", "null"], enum: ["low", "medium", "high", null] },
                   milestone_id: nullableString,
                   item_type: { type: ["string", "null"], enum: ["task", "issue", null] },
+                  temp_milestone_id: nullableString,
                 },
               },
             },

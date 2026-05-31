@@ -61,6 +61,7 @@ type ConversationEventRow = {
   due_date: string | null;
   assigned_to_user_id: string | null;
   source: string | null;
+  temp_milestone_id: string | null;
 };
 
 export async function POST(
@@ -149,9 +150,25 @@ export async function POST(
     let issuesUpdated = 0;
     let eventsSkipped = 0;
 
-    for (const event of (events ?? []) as ConversationEventRow[]) {
+    const allEvents = (events ?? []) as ConversationEventRow[];
+    const milestoneEvents = allEvents.filter((e) => e.event_type.startsWith("milestone"));
+    const nonMilestoneEvents = allEvents.filter((e) => !e.event_type.startsWith("milestone"));
+    const orderedEvents = [...milestoneEvents, ...nonMilestoneEvents];
+    const tempMilestoneIdMap = new Map<string, string>();
+
+    for (const event of orderedEvents) {
       const override = selectedEvents.find((se) => se.event_id === event.id);
       const eventToApply = applyOverrides(event, override);
+
+      if (eventToApply.temp_milestone_id && !eventToApply.milestone_id) {
+        const resolvedId = tempMilestoneIdMap.get(eventToApply.temp_milestone_id);
+        if (resolvedId) eventToApply.milestone_id = resolvedId;
+      }
+      if (override?.milestone_id?.startsWith("temp_")) {
+        const resolvedId = tempMilestoneIdMap.get(override.milestone_id);
+        if (resolvedId) eventToApply.milestone_id = resolvedId;
+      }
+
       const priority = eventToApply.priority ?? "medium";
       const assignedToAlias = eventToApply.assigned_to_alias;
       const assignedToUserId = eventToApply.assigned_to_user_id;
@@ -190,6 +207,9 @@ export async function POST(
             .single();
 
           if (milestone) {
+            if (event.temp_milestone_id) {
+              tempMilestoneIdMap.set(event.temp_milestone_id, milestone.id as string);
+            }
             await supabase
               .from("conversation_events")
               .update({ applied: true, milestone_id: milestone.id })

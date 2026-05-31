@@ -204,7 +204,7 @@ export async function POST(req: NextRequest) {
         milestone_title: event.milestone_title,
         assigned_to_alias: event.assigned_to_alias,
         priority: event.priority,
-        confidence: event.confidence,
+        confidence: null,
         percent_complete: event.percent_complete,
         budget: event.budget,
         notes: event.notes,
@@ -216,6 +216,7 @@ export async function POST(req: NextRequest) {
         function_call_id: firstFunctionCallId,
         raw_function_event: event.raw_function_event ?? null,
         suggested_changes: event.raw_function_event?.data ?? null,
+        temp_milestone_id: event.temp_milestone_id ?? null,
         applied: false,
       };
     });
@@ -234,7 +235,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const selectColumns = "id, upload_id, department_id, event_type, item_type, task_id, milestone_id, sender_alias, message_text, message_timestamp, ai_summary, task_title, milestone_title, assigned_to_alias, priority, confidence, percent_complete, budget, notes, description, suggested_status, due_date, assigned_to_user_id, source, raw_function_event, suggested_changes, applied";
+    const selectColumns = "id, upload_id, department_id, event_type, item_type, task_id, milestone_id, sender_alias, message_text, message_timestamp, ai_summary, task_title, milestone_title, assigned_to_alias, priority, percent_complete, budget, notes, description, suggested_status, due_date, assigned_to_user_id, source, raw_function_event, suggested_changes, temp_milestone_id, applied";
     const { data: savedEvents, error: savedEventsErr } = await supabase
       .from("conversation_events")
       .select(selectColumns)

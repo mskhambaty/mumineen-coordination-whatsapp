@@ -22,6 +22,7 @@ General guidance:
 - percent_complete: Integer progress value from 0 to 100. Use only when progress is stated or strongly implied.
 - status: Allowed values are open, in_progress, blocked, complete.
 - notes: Extra context, constraints, dependencies, owner names, or decisions.
+- temp_milestone_id: When creating a new milestone, assign a sequential temporary identifier like "temp_10001", "temp_10002", etc. This lets new tasks and issues reference the milestone before it has a database ID. Do not use temp_milestone_id when updating an existing milestone; set it to null for updates.
 - created_by, created_at, updated_at: System-managed. Do not output.
 
 For milestone extraction, use these event types:
@@ -47,8 +48,9 @@ Tasks/issues use these database fields:
 - due_date: Date deadline, if clearly stated or inferable from explicit transcript context.
 - priority: Allowed values are low, medium, high.
 - archived: System-managed. Do not output.
-- milestone_id: UUID of the milestone this relates to.
+- milestone_id: UUID of an existing milestone this relates to, OR a temp_milestone_id value (e.g. "temp_10001") when linking to a newly created milestone from the same extraction.
 - item_type: Allowed values are task or issue.
+- temp_milestone_id: Set to null for tasks and issues. Only milestones use this field.
 - created_at, updated_at: System-managed. Do not output.
 - assigned_to_alias: Friendly name of the person this task should be assigned to based on the transcript.
 
