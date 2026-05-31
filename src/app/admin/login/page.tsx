@@ -40,9 +40,14 @@ export default function AdminLoginPage() {
       const isAdmin = data.user?.role === "admin" || data.user?.global_role === "leadership_admin";
       if (redirect && redirect.startsWith("/admin")) {
         router.push(redirect);
+      } else if (isAdmin) {
+        router.push("/admin");
+      } else if (data.user?.is_support) {
+        // Support members land on the inbox.
+        router.push("/admin/conversations");
       } else {
-        // Support-only members can't see the admin home; send them to the inbox.
-        router.push(isAdmin ? "/admin" : "/admin/conversations");
+        // PM/HOD managers land on the FAQ & Guides upload page.
+        router.push("/admin/knowledge");
       }
     } catch {
       setError("Network error. Please try again.");

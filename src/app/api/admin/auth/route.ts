@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { verifyPassword } from "@/lib/admin/passwords";
 import { optionalEnv } from "@/lib/env";
-import { getSupabaseAdmin, isEscalationSupportMember } from "@/lib/supabase/server";
+import { getSupabaseAdmin, isDepartmentManager, isEscalationSupportMember } from "@/lib/supabase/server";
 
 export async function POST(req: NextRequest) {
   try {
@@ -41,8 +41,10 @@ export async function POST(req: NextRequest) {
     }
 
     const isSupport = await isEscalationSupportMember(user.id);
+    const isManager =
+      user.global_role === "pm" || user.global_role === "hod" || (await isDepartmentManager(user.id));
 
-    if (!isAdminOrLeadership(user) && !isSupport) {
+    if (!isAdminOrLeadership(user) && !isSupport && !isManager) {
       return NextResponse.json({ error: "Access denied. Admin role required." }, { status: 403 });
     }
 
@@ -68,6 +70,7 @@ export async function POST(req: NextRequest) {
         role: user.role,
         global_role: user.global_role,
         is_support: isSupport,
+        is_manager: isManager,
       },
     });
   } catch (error) {

@@ -150,6 +150,21 @@ export async function recordOutboundMessage(input: {
   }
 }
 
+// True if the user is an active PM/HOD in any department (can manage knowledge uploads).
+export async function isDepartmentManager(userId: string): Promise<boolean> {
+  if (!userId) return false;
+  const { data, error } = await getSupabaseAdmin()
+    .from("department_members")
+    .select("id")
+    .eq("user_id", userId)
+    .in("dept_role", ["pm", "hod"])
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+  if (error) return false;
+  return Boolean(data);
+}
+
 // True if the user is on the escalation/support team (membership = the role).
 export async function isEscalationSupportMember(userId: string): Promise<boolean> {
   if (!userId) return false;

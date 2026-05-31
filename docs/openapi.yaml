@@ -392,6 +392,47 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /knowledge:
+    get:
+      tags: [conversations]
+      summary: List uploaded FAQ/guide documents.
+      security: [{ adminKey: [] }]
+      responses:
+        "200": { description: Documents with status and chunk counts. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [conversations]
+      summary: Upload a CSV/Excel/Word/PDF document and index it into site_content.
+      description: Admin/leadership or department PM/HOD. Extracted text is chunked, embedded, and stored for the agent's get_site_content_faq.
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                title: { type: string }
+                department_id: { type: string, format: uuid }
+      responses:
+        "201": { description: Indexed document with chunk count. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { description: No extractable text (e.g. scanned PDF). }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /knowledge/{id}:
+    delete:
+      tags: [conversations]
+      summary: Delete a document and remove its vectors from site_content.
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /admin/scrape:
     post:
       tags: [conversations]

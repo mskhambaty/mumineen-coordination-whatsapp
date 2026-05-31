@@ -105,6 +105,27 @@ alerted about escalations.
 
 Index: `(member_id)`. Multiple rows per member (multiple ranges per day).
 
+### `knowledge_documents`
+
+Uploaded FAQ/guide documents (CSV, Excel, Word, PDF). Their extracted text is chunked,
+embedded, and stored in `site_content` with `page_url = 'knowledge://<id>'`, so the agent's
+`get_site_content_faq` grounds on them. Deleting a row also removes those chunks.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `department_id` | uuid | FK → `departments.id` (nullable) — optional labeling |
+| `uploaded_by` | uuid | FK → `whatsapp_users.id` (nullable) |
+| `title` | text | Display title (defaults to filename) |
+| `filename` | text | Original filename (nullable) |
+| `file_type` | text | `csv` \| `excel` \| `word` \| `pdf` |
+| `status` | text | `processing` \| `indexed` \| `failed` |
+| `chunk_count` | integer | Number of vectorized chunks |
+| `error` | text | Failure reason (nullable) |
+| `created_at` | timestamptz | Auto |
+
+Raw files are not stored — only the extracted/vectorized text (same approach as the hotel sheet).
+
 ### `committee_permissions`
 
 Fine-grained permission keys per user (reserved for future use).

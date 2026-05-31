@@ -24,6 +24,7 @@ const dropdownGroups: DropdownGroup[] = [
       { href: "/admin/milestones", label: "Milestones" },
       { href: "/admin/tasks", label: "Task Management" },
       { href: "/admin/upload", label: "Upload Transcripts" },
+      { href: "/admin/knowledge", label: "FAQ & Guides" },
     ],
   },
 ];

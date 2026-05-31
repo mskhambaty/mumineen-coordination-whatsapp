@@ -12,10 +12,13 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
     "cheerio": "^1.2.0",
+    "mammoth": "^1.12.0",
     "next": "16.2.6",
     "openai": "^6.39.1",
+    "pdf-parse": "^2.4.5",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {

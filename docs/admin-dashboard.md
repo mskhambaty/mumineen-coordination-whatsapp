@@ -48,6 +48,12 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - Task metrics: totals by status/priority, overdue list, and per-department breakdown (optional `department_id` filter)
 - Conversation metrics: active/manual/AI conversation counts, inbound vs outbound message volume, messages-by-day series, and top agent tools
 
+### FAQ & Guides (`/admin/knowledge`)
+- Upload customer-facing facts, FAQs, and guides as **CSV, Excel (.xlsx/.xls), Word (.docx), or PDF** (≤ 15 MB)
+- Extracted text is chunked, embedded, and indexed into `site_content` (`page_url = knowledge://<id>`), so the WhatsApp agent answers from it via `get_site_content_faq` — same vector store as the scraped site/hotel sheet
+- Document list shows status (processing/indexed/failed), chunk count, department, and a delete action (removes the document and its vectors)
+- Access: **admin/leadership and department PM/HOD** (`POST/GET /api/knowledge`, `DELETE /api/knowledge/[id]`). Scanned/image-only PDFs can't be read.
+
 ### Department Detail (`/admin/departments/[id]`)
 - Department name and task count
 - Tasks table with: Title, Status, Assigned To, Due Date, Source, Updated
