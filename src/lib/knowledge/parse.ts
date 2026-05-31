@@ -30,10 +30,10 @@ export async function extractText(buffer: Buffer, type: KnowledgeFileType): Prom
       return result.value.trim();
     }
     case "pdf": {
-      const { PDFParse } = await import("pdf-parse");
-      const parser = new PDFParse({ data: new Uint8Array(buffer) });
-      const result = await parser.getText();
-      return (result.text ?? "").trim();
+      // unpdf ships a serverless-safe pdf.js build (no DOM globals like DOMMatrix).
+      const { extractText } = await import("unpdf");
+      const { text } = await extractText(new Uint8Array(buffer), { mergePages: true });
+      return (Array.isArray(text) ? text.join("\n") : text).trim();
     }
   }
 }

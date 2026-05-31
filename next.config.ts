@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
     root: __dirname,
   },
   // Keep heavy/native-ish parsers out of the bundle; load them at runtime.
-  serverExternalPackages: ["pdf-parse", "mammoth"],
+  serverExternalPackages: ["mammoth"],
 };
 
 export default nextConfig;
