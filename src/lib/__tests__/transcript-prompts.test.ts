@@ -28,7 +28,7 @@ describe("transcript prompts", () => {
     const meetingPrompt = getDefaultFlexiblePrompt("IT", "meeting");
 
     expect(whatsappPrompt).toContain("mentions, direct replies");
-    expect(meetingPrompt).toContain("agenda decisions");
+    expect(meetingPrompt).toContain("follow-ups without owners");
     expect(whatsappPrompt).toContain("IT/ITS");
     expect(meetingPrompt).toContain("IT/ITS");
   });

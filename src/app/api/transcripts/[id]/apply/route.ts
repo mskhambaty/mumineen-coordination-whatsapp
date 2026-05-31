@@ -23,6 +23,20 @@ type ApplyEventInput = {
 type ApplyBody = {
   event_ids?: unknown;
   selected_events?: unknown;
+  manual_events?: unknown;
+};
+
+type ManualEventInput = {
+  item_type?: unknown;
+  department_id?: unknown;
+  title?: unknown;
+  description?: unknown;
+  status?: unknown;
+  priority?: unknown;
+  due_date?: unknown;
+  milestone_id?: unknown;
+  assigned_to_alias?: unknown;
+  assigned_to_user_id?: unknown;
 };
 
 type NormalizedSelectedEvent = {
@@ -401,6 +415,40 @@ export async function POST(
       }
     }
 
+    const manualEvents = normalizeManualEvents(body);
+    for (const manual of manualEvents) {
+      let milestoneId = manual.milestone_id;
+      if (milestoneId?.startsWith("temp_") || milestoneId?.startsWith("event_")) {
+        milestoneId = tempMilestoneIdMap.get(milestoneId) ?? null;
+      }
+
+      const assignedTo = manual.assigned_to_user_id ?? await resolveAssignedTo(supabase, manual.assigned_to_alias);
+      const itemType = manual.item_type === "issue" ? "issue" : "task";
+
+      const { data: task } = await supabase
+        .from("tasks")
+        .insert({
+          title: manual.title,
+          department_id: manual.department_id,
+          description: manual.description,
+          assigned_to: assignedTo,
+          created_by: caller.user_id !== "admin-api" ? caller.user_id : null,
+          source: "manual",
+          status: manual.status ?? "open",
+          due_date: manual.due_date,
+          priority: manual.priority ?? "medium",
+          milestone_id: milestoneId,
+          item_type: itemType,
+        })
+        .select("id")
+        .single();
+
+      if (task) {
+        if (itemType === "issue") issuesCreated++;
+        else tasksCreated++;
+      }
+    }
+
     return NextResponse.json({
       tasks_created: tasksCreated,
       tasks_updated: tasksUpdated,
@@ -563,4 +611,45 @@ function getOptionalNumber(value: unknown) {
   if (value === null || value === "") return null;
   const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
   return Number.isFinite(number) ? number : undefined;
+}
+
+type NormalizedManualEvent = {
+  item_type: "task" | "issue";
+  department_id: string;
+  title: string;
+  description: string | null;
+  status: "open" | "in_progress" | "blocked" | "complete";
+  priority: "low" | "medium" | "high";
+  due_date: string | null;
+  milestone_id: string | null;
+  assigned_to_alias: string | null;
+  assigned_to_user_id: string | null;
+};
+
+function normalizeManualEvents(body: ApplyBody): NormalizedManualEvent[] {
+  if (!Array.isArray(body.manual_events)) return [];
+
+  return body.manual_events.flatMap((raw): NormalizedManualEvent[] => {
+    const event = raw as ManualEventInput;
+    const title = typeof event.title === "string" && event.title.trim() ? event.title.trim() : null;
+    const departmentId = typeof event.department_id === "string" ? event.department_id : null;
+    if (!title || !departmentId) return [];
+
+    return [{
+      item_type: event.item_type === "issue" ? "issue" : "task",
+      department_id: departmentId,
+      title,
+      description: getOptionalString(event.description) ?? null,
+      status: isStatus(event.status) ? event.status : "open",
+      priority: isTaskPriority(event.priority) ? event.priority : "medium",
+      due_date: getOptionalString(event.due_date) ?? null,
+      milestone_id: getOptionalString(event.milestone_id) ?? null,
+      assigned_to_alias: typeof event.assigned_to_alias === "string" && event.assigned_to_alias.trim()
+        ? event.assigned_to_alias.trim()
+        : null,
+      assigned_to_user_id: typeof event.assigned_to_user_id === "string" && event.assigned_to_user_id.trim()
+        ? event.assigned_to_user_id.trim()
+        : null,
+    }];
+  });
 }

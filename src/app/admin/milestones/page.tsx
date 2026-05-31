@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 type Department = { id: string; name: string };
 type User = { id: string; display_name: string | null; phone_e164: string };
 
+type TaskCount = { milestone_id: string; open_tasks: number; open_issues: number };
+
 type Milestone = {
   id: string;
   title: string;
@@ -17,6 +19,8 @@ type Milestone = {
   department_id: string;
   created_by: string | null;
   departments: { name: string } | null;
+  open_tasks?: number;
+  open_issues?: number;
 };
 
 type MilestoneForm = {
@@ -66,14 +70,26 @@ export default function MilestonesPage() {
   async function loadData() {
     setLoading(true);
     try {
-      const [mRes, dRes, uRes] = await Promise.all([
+      const [mRes, dRes, uRes, cRes] = await Promise.all([
         apiFetch("/api/milestones"),
         apiFetch("/api/departments"),
         apiFetch("/api/admin/users"),
+        apiFetch("/api/milestones/task-counts"),
       ]);
-      if (mRes.ok) setMilestones(await mRes.json());
+      const rawMilestones: Milestone[] = mRes.ok ? await mRes.json() : [];
       if (dRes.ok) setDepartments(await dRes.json());
       if (uRes.ok) setUsers(await uRes.json());
+
+      if (cRes.ok) {
+        const counts = (await cRes.json()) as TaskCount[];
+        const countMap = new Map(counts.map((c) => [c.milestone_id, c]));
+        for (const m of rawMilestones) {
+          const c = countMap.get(m.id);
+          m.open_tasks = c?.open_tasks ?? 0;
+          m.open_issues = c?.open_issues ?? 0;
+        }
+      }
+      setMilestones(rawMilestones);
     } finally { setLoading(false); }
   }
 
@@ -173,6 +189,7 @@ export default function MilestonesPage() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Milestone</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Department</th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Budget</th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Open Items</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Progress</th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Status</th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Actions</th>
@@ -187,6 +204,21 @@ export default function MilestonesPage() {
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{m.departments?.name ?? "—"}</td>
                   <td className="px-6 py-4 text-center">{m.budget != null ? `$${Number(m.budget).toLocaleString()}` : "—"}</td>
+                  <td className="px-6 py-4 text-center">
+                    <div className="flex flex-col items-center gap-1">
+                      {(m.open_tasks ?? 0) > 0 && (
+                        <a href={`/admin/tasks?milestone_id=${m.id}&department_id=${m.department_id}`} className="text-xs text-blue-600 hover:underline dark:text-blue-400">
+                          {m.open_tasks} task{m.open_tasks !== 1 ? "s" : ""}
+                        </a>
+                      )}
+                      {(m.open_issues ?? 0) > 0 && (
+                        <a href={`/admin/tasks?milestone_id=${m.id}&department_id=${m.department_id}&item_type=issue`} className="text-xs text-orange-600 hover:underline dark:text-orange-400">
+                          {m.open_issues} issue{m.open_issues !== 1 ? "s" : ""}
+                        </a>
+                      )}
+                      {!(m.open_tasks ?? 0) && !(m.open_issues ?? 0) && <span className="text-xs text-gray-400">—</span>}
+                    </div>
+                  </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <div className="w-24 h-2 rounded-full bg-gray-200 dark:bg-gray-700">
@@ -209,7 +241,7 @@ export default function MilestonesPage() {
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No milestones found.</td></tr>
+                <tr><td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No milestones found.</td></tr>
               )}
             </tbody>
           </table>

@@ -111,6 +111,9 @@ export default function UploadPage() {
   const [parseFinished, setParseFinished] = useState(false);
   const [selectedEvents, setSelectedEvents] = useState<Set<string>>(new Set());
   const [applyResult, setApplyResult] = useState<ApplyResult | null>(null);
+  const [manualCounter, setManualCounter] = useState(1);
+  const [cutoffTimestamp, setCutoffTimestamp] = useState("");
+  const [lastParsedLabel, setLastParsedLabel] = useState("");
 
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
   const promptDepartmentId = promptEditorDepartmentId && selectedDepartmentIds.includes(promptEditorDepartmentId)
@@ -161,12 +164,14 @@ export default function UploadPage() {
 
   const allMilestonesForDropdown = useMemo(() => {
     const existing = allMilestones.map((ms) => ({ id: ms.id, title: ms.title ?? "Untitled" }));
-    const newOnes = newMilestoneEvents.map((e) => ({
-      id: e.temp_milestone_id ?? `event_${e.id}`,
-      title: `(New) ${e.milestone_title ?? e.task_title ?? e.ai_summary ?? "Untitled"}`,
-    }));
+    const newOnes = newMilestoneEvents.map((e) => {
+      const key = e.temp_milestone_id ?? `event_${e.id}`;
+      const draftTitle = eventDrafts[e.id]?.title;
+      const displayTitle = draftTitle || e.milestone_title || e.task_title || e.ai_summary || "Untitled";
+      return { id: key, title: `(New) ${displayTitle}` };
+    });
     return [...existing, ...newOnes];
-  }, [allMilestones, newMilestoneEvents]);
+  }, [allMilestones, newMilestoneEvents, eventDrafts]);
 
   const mergedDepartments = useMemo((): MergedDepartment[] => {
     const deptMap = new Map<string, Department>();
@@ -355,6 +360,30 @@ export default function UploadPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [promptDepartmentId, transcriptType]);
 
+  useEffect(() => {
+    if (selectedDepartmentIds.length === 0) {
+      setCutoffTimestamp("");
+      setLastParsedLabel("");
+      return;
+    }
+    void (async () => {
+      const res = await apiFetch(`/api/transcripts/last-parsed?department_ids=${selectedDepartmentIds.join(",")}`);
+      if (res.ok) {
+        const data = await res.json() as { last_message_at: string | null };
+        if (data.last_message_at) {
+          const dt = new Date(data.last_message_at);
+          const local = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+          setCutoffTimestamp(local);
+          setLastParsedLabel(`Last parsed: ${dt.toLocaleString()}`);
+        } else {
+          setCutoffTimestamp("");
+          setLastParsedLabel("No previous uploads for selected departments");
+        }
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDepartmentIds]);
+
   function toggleDepartment(departmentId: string) {
     setSelectedDepartmentIds((ids) => {
       if (ids.includes(departmentId)) {
@@ -395,6 +424,9 @@ export default function UploadPage() {
       formData.append("department_ids", JSON.stringify(selectedDepartmentIds));
       formData.append("department_id", selectedDepartmentIds[0]);
       formData.append("transcript_type", transcriptType);
+      if (cutoffTimestamp) {
+        formData.append("cutoff_timestamp", new Date(cutoffTimestamp).toISOString());
+      }
 
       const res = await apiFetch("/api/transcripts/upload", {
         method: "POST",
@@ -452,7 +484,7 @@ export default function UploadPage() {
       const res = await apiFetch(`/api/transcripts/${uploadId}/apply`, {
         method: "POST",
         body: JSON.stringify({
-          selected_events: Array.from(selectedEvents).map((eventId) => {
+          selected_events: Array.from(selectedEvents).filter((id) => !id.startsWith("manual_")).map((eventId) => {
             const draft = eventDrafts[eventId];
             return {
               event_id: eventId,
@@ -469,6 +501,22 @@ export default function UploadPage() {
               assigned_to_user_id: draft?.assigned_to_user_id || null,
             };
           }),
+          manual_events: Array.from(selectedEvents).filter((id) => id.startsWith("manual_")).map((eventId) => {
+            const draft = eventDrafts[eventId];
+            const ev = events.find((e) => e.id === eventId);
+            return {
+              item_type: ev?.item_type ?? "task",
+              department_id: ev?.department_id,
+              title: draft?.title || "Untitled",
+              description: draft?.description || null,
+              status: draft?.status ?? "open",
+              priority: draft?.priority ?? "medium",
+              due_date: draft?.due_date || null,
+              milestone_id: draft?.milestone_id || null,
+              assigned_to_alias: draft?.assigned_to_alias || null,
+              assigned_to_user_id: draft?.assigned_to_user_id || null,
+            };
+          }),
         }),
       });
 
@@ -477,7 +525,16 @@ export default function UploadPage() {
         setApplyResult(result);
         const eventsRes = await apiFetch(`/api/transcripts/${uploadId}/events`);
         if (eventsRes.ok) {
-          setEvents(await eventsRes.json() as ParsedEvent[]);
+          const serverEvents = await eventsRes.json() as ParsedEvent[];
+          const remainingManual = events.filter((e) => e.id.startsWith("manual_") && !selectedEvents.has(e.id));
+          setEvents([...serverEvents, ...remainingManual]);
+          setSelectedEvents((prev) => {
+            const next = new Set<string>();
+            for (const id of prev) {
+              if (!id.startsWith("manual_")) next.add(id);
+            }
+            return next;
+          });
         }
       } else {
         const err = await res.json() as { error?: string };
@@ -532,6 +589,60 @@ export default function UploadPage() {
       else next.add(id);
     }
     setSelectedEvents(next);
+  }
+
+  function addManualItem(departmentId: string, milestoneRef: string | null, itemType: "task" | "issue") {
+    const id = `manual_${manualCounter}`;
+    setManualCounter((c) => c + 1);
+
+    const newEvent: ParsedEvent = {
+      id,
+      event_type: itemType === "issue" ? "issue_created" : "task_created",
+      item_type: itemType,
+      department_id: departmentId,
+      review_action: "create",
+      review_kind: itemType,
+      target_id: null,
+      target_title: null,
+      target_status: null,
+      review_label: `Create new ${itemType}`,
+      task_title: null,
+      milestone_title: null,
+      ai_summary: null,
+      message_text: null,
+      assigned_to_alias: null,
+      priority: "medium",
+      percent_complete: null,
+      budget: null,
+      notes: null,
+      description: null,
+      suggested_status: "open",
+      due_date: null,
+      assigned_to_user_id: null,
+      milestone_id: milestoneRef?.startsWith("temp_") ? null : milestoneRef,
+      temp_milestone_id: milestoneRef?.startsWith("temp_") || milestoneRef?.startsWith("event_") ? milestoneRef : null,
+      applied: false,
+    };
+
+    setEvents((prev) => [...prev, newEvent]);
+    setEventDrafts((prev) => ({
+      ...prev,
+      [id]: {
+        title: "",
+        description: "",
+        status: "open",
+        priority: "medium",
+        due_date: "",
+        budget: "",
+        percent_complete: "",
+        notes: "",
+        milestone_id: milestoneRef ?? "",
+        assigned_to_alias: "",
+        assigned_to_user_id: "",
+        new_user_phone: "",
+      },
+    }));
+    setSelectedEvents((prev) => new Set(prev).add(id));
   }
 
   function updateEventDraft(id: string, patch: Partial<EventDraft>) {
@@ -666,16 +777,30 @@ export default function UploadPage() {
               ))}
             </div>
           </div>
-          <label className="block text-sm font-medium">
-            Transcript File (.txt)
-            <input
-              type="file"
-              accept=".txt"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              required
-              className="mt-1 block w-full rounded-md border px-3 py-2"
-            />
-          </label>
+          <div className="grid gap-3">
+            <label className="block text-sm font-medium">
+              Transcript File (.txt)
+              <input
+                type="file"
+                accept=".txt"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                required
+                className="mt-1 block w-full rounded-md border px-3 py-2"
+              />
+            </label>
+            {transcriptType === "whatsapp" && selectedDepartmentIds.length > 0 && (
+              <label className="block text-sm font-medium">
+                Only parse messages after
+                <input
+                  type="datetime-local"
+                  value={cutoffTimestamp}
+                  onChange={(e) => setCutoffTimestamp(e.target.value)}
+                  className="mt-1 block w-full rounded-md border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+                />
+                <span className="mt-1 block text-xs text-gray-500">{lastParsedLabel || "Messages before this time will be excluded"}</span>
+              </label>
+            )}
+          </div>
           <button
             type="submit"
             disabled={loading || !file || selectedDepartmentIds.length === 0}
@@ -802,6 +927,14 @@ export default function UploadPage() {
                               }
                               return null;
                             })}
+                            <div className="flex gap-2 pt-1">
+                              <button type="button" onClick={() => addManualItem(dept.department.id, ms.key, "task")} className="rounded border border-dashed border-blue-300 px-3 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-950">
+                                + Add Task
+                              </button>
+                              <button type="button" onClick={() => addManualItem(dept.department.id, ms.key, "issue")} className="rounded border border-dashed border-red-300 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950">
+                                + Add Issue
+                              </button>
+                            </div>
                           </div>
                         </details>
                       );
@@ -838,6 +971,17 @@ export default function UploadPage() {
                 </div>
               </details>
             ))}
+          {events.length > 0 && (
+            <div className="flex justify-end border-t px-6 py-4">
+              <button
+                onClick={handleApply}
+                disabled={loading || selectedEvents.size === 0}
+                className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+              >
+                Submit Selected ({selectedEvents.size})
+              </button>
+            </div>
+          )}
           </div>
         </section>
       )}

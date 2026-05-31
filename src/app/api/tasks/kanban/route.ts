@@ -51,6 +51,11 @@ export async function GET(req: NextRequest) {
       query = query.eq("department_id", departmentId);
     }
 
+    const milestoneId = req.nextUrl.searchParams.get("milestone_id");
+    if (milestoneId) {
+      query = query.eq("milestone_id", milestoneId);
+    }
+
     if (priority && priority !== "all") {
       query = query.eq("priority", priority);
     }

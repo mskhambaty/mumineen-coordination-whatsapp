@@ -65,7 +65,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const rawContent = await file.text();
+    const fullContent = await file.text();
+    const cutoffRaw = formData.get("cutoff_timestamp") as string | null;
+    const rawContent = cutoffRaw && transcriptType === "whatsapp"
+      ? trimTranscriptAfterCutoff(fullContent, cutoffRaw)
+      : fullContent;
     const supabase = getSupabaseAdmin();
 
     const [allDepartmentsResult, selectedDepartmentsResult, promptConfigsResult, milestonesResult, tasksResult] = await Promise.all([
@@ -433,4 +437,59 @@ async function saveFunctionCalls(
   }
 
   return ids;
+}
+
+function trimTranscriptAfterCutoff(content: string, cutoffIso: string): string {
+  const cutoff = new Date(cutoffIso);
+  if (isNaN(cutoff.getTime())) return content;
+
+  const lines = content.split("\n");
+  const result: string[] = [];
+  let pastCutoff = false;
+
+  for (const rawLine of lines) {
+    if (pastCutoff) {
+      result.push(rawLine);
+      continue;
+    }
+
+    const ts = extractLineTimestamp(rawLine);
+    if (ts && ts > cutoff) {
+      pastCutoff = true;
+      result.push(rawLine);
+    } else if (!ts && result.length > 0) {
+      result.push(rawLine);
+    }
+  }
+
+  return result.length > 0 ? result.join("\n") : content;
+}
+
+function extractLineTimestamp(line: string): Date | null {
+  const cleaned = line.replace(/[‎‏‪-‮⁦-⁩]/g, "");
+
+  const bracketed = cleaned.match(/^\[(\d{1,2}\/\d{1,2}\/\d{2,4}),\s+(\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM))\]/i);
+  if (bracketed) return parseTimeParts(bracketed[1], bracketed[2]);
+
+  const dashed = cleaned.match(/^(\d{1,2}\/\d{1,2}\/\d{2,4}),?\s+(\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?)\s+-/i);
+  if (dashed) return parseTimeParts(dashed[1], dashed[2]);
+
+  return null;
+}
+
+function parseTimeParts(datePart: string, timePart: string): Date | null {
+  const [monthRaw, dayRaw, yearRaw] = datePart.split("/").map(Number);
+  const timeMatch = timePart.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+  if (!monthRaw || !dayRaw || !yearRaw || !timeMatch) return null;
+
+  let hour = Number(timeMatch[1]);
+  const minute = Number(timeMatch[2]);
+  const second = Number(timeMatch[3] ?? "0");
+  const meridiem = timeMatch[4]?.toUpperCase();
+  if (meridiem === "PM" && hour < 12) hour += 12;
+  if (meridiem === "AM" && hour === 12) hour = 0;
+
+  const year = yearRaw < 100 ? 2000 + yearRaw : yearRaw;
+  const date = new Date(year, monthRaw - 1, dayRaw, hour, minute, second);
+  return isNaN(date.getTime()) ? null : date;
 }

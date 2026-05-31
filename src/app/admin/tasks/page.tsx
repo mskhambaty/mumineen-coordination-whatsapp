@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 
 type TaskStatus = "open" | "in_progress" | "blocked" | "complete";
 type TaskPriority = "low" | "medium" | "high";
@@ -17,6 +17,12 @@ type User = {
   phone_e164: string;
 };
 
+type Milestone = {
+  id: string;
+  title: string;
+  department_id: string;
+};
+
 type Task = {
   id: string;
   title: string;
@@ -27,6 +33,7 @@ type Task = {
   source: string;
   due_date: string | null;
   department_id: string | null;
+  milestone_id?: string | null;
   item_type?: string;
   origin?: string | null;
   created_at: string;
@@ -47,6 +54,7 @@ type TaskForm = {
   assigned_to: string;
   due_date: string;
   item_type: string;
+  milestone_id: string;
 };
 
 const statuses: { id: TaskStatus; label: string }[] = [
@@ -71,19 +79,32 @@ const emptyForm: TaskForm = {
   assigned_to: "",
   due_date: "",
   item_type: "task",
+  milestone_id: "",
 };
 
-export default function KanbanPage() {
+export default function KanbanPageWrapper() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center py-20"><p className="text-gray-500">Loading...</p></div>}>
+      <KanbanPage />
+    </Suspense>
+  );
+}
+
+function KanbanPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [board, setBoard] = useState<Board>({ open: [], in_progress: [], blocked: [], complete: [] });
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
-  const [departmentId, setDepartmentId] = useState("all");
+  const [departmentId, setDepartmentId] = useState(searchParams.get("department_id") ?? "all");
+  const [milestoneId, setMilestoneId] = useState(searchParams.get("milestone_id") ?? "all");
   const [priority, setPriority] = useState("all");
   const [assigneeId, setAssigneeId] = useState("all");
   const [includeComplete, setIncludeComplete] = useState(false);
-  const [itemType, setItemType] = useState("all");
+  const [showOverdueOnly, setShowOverdueOnly] = useState(false);
+  const [itemType, setItemType] = useState(searchParams.get("item_type") ?? "all");
   const [form, setForm] = useState<TaskForm | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -104,11 +125,28 @@ export default function KanbanPage() {
   useEffect(() => {
     void loadBoard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [departmentId, priority, assigneeId, includeComplete, itemType]);
+  }, [departmentId, milestoneId, priority, assigneeId, includeComplete, itemType]);
+
+  const filteredBoard = useMemo((): Board => {
+    if (!showOverdueOnly) return board;
+    const today = new Date().toISOString().split("T")[0];
+    const filterOverdue = (tasks: Task[]) => tasks.filter((t) => t.due_date && t.due_date < today && t.status !== "complete");
+    return {
+      open: filterOverdue(board.open),
+      in_progress: filterOverdue(board.in_progress),
+      blocked: filterOverdue(board.blocked),
+      complete: [],
+    };
+  }, [board, showOverdueOnly]);
 
   const totalOpen = useMemo(
-    () => board.open.length + board.in_progress.length + board.blocked.length,
-    [board],
+    () => filteredBoard.open.length + filteredBoard.in_progress.length + filteredBoard.blocked.length,
+    [filteredBoard],
+  );
+
+  const filteredMilestones = useMemo(
+    () => departmentId === "all" ? milestones : milestones.filter((m) => m.department_id === departmentId),
+    [milestones, departmentId],
   );
 
   async function apiFetch(path: string, init?: RequestInit) {
@@ -123,19 +161,22 @@ export default function KanbanPage() {
   }
 
   async function loadReferenceData() {
-    const [deptRes, usersRes] = await Promise.all([
+    const [deptRes, usersRes, msRes] = await Promise.all([
       apiFetch("/api/departments"),
       apiFetch("/api/admin/users"),
+      apiFetch("/api/milestones"),
     ]);
 
     if (deptRes.ok) setDepartments(await deptRes.json() as Department[]);
     if (usersRes.ok) setUsers(await usersRes.json() as User[]);
+    if (msRes.ok) setMilestones(await msRes.json() as Milestone[]);
   }
 
   async function loadBoard() {
     setLoading(true);
     const params = new URLSearchParams();
     if (departmentId !== "all") params.set("department_id", departmentId);
+    if (milestoneId !== "all") params.set("milestone_id", milestoneId);
     if (priority !== "all") params.set("priority", priority);
     if (assigneeId !== "all") params.set("assignee_id", assigneeId);
     if (itemType !== "all") params.set("item_type", itemType);
@@ -177,6 +218,7 @@ export default function KanbanPage() {
       assigned_to: task.assigned_to ?? "",
       due_date: task.due_date ?? "",
       item_type: task.item_type ?? "task",
+      milestone_id: task.milestone_id ?? "",
     });
   }
 
@@ -194,6 +236,7 @@ export default function KanbanPage() {
       assigned_to: form.assigned_to || null,
       due_date: form.due_date || null,
       item_type: form.item_type || "task",
+      milestone_id: form.milestone_id || null,
       source: "manual",
     };
 
@@ -247,6 +290,10 @@ export default function KanbanPage() {
               <option key={user.id} value={user.id}>{user.display_name ?? user.phone_e164}</option>
             ))}
           </select>
+          <select value={milestoneId} onChange={(event) => setMilestoneId(event.target.value)} className="rounded-md border px-3 py-2 text-sm">
+            <option value="all">All milestones</option>
+            {filteredMilestones.map((ms) => <option key={ms.id} value={ms.id}>{ms.title}</option>)}
+          </select>
           <select value={itemType} onChange={(event) => setItemType(event.target.value)} className="rounded-md border px-3 py-2 text-sm">
             <option value="all">All types</option>
             <option value="task">Tasks only</option>
@@ -255,6 +302,10 @@ export default function KanbanPage() {
           <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
             <input type="checkbox" checked={!includeComplete} onChange={(event) => setIncludeComplete(!event.target.checked)} />
             Show only open
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <input type="checkbox" checked={showOverdueOnly} onChange={(event) => setShowOverdueOnly(event.target.checked)} />
+            Overdue only
           </label>
           <div className="lg:ml-auto text-sm text-gray-500 dark:text-gray-400">{totalOpen} active tasks</div>
         </div>
@@ -267,10 +318,10 @@ export default function KanbanPage() {
               <section key={column.id} className="min-h-[28rem] rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
                 <div className="flex items-center justify-between border-b px-4 py-3">
                   <h2 className="font-semibold">{column.label}</h2>
-                  <span className="rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-1 text-xs text-gray-600 dark:text-gray-300">{board[column.id].length}</span>
+                  <span className="rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-1 text-xs text-gray-600 dark:text-gray-300">{filteredBoard[column.id].length}</span>
                 </div>
                 <div className="space-y-3 p-3">
-                  {board[column.id].map((task) => (
+                  {filteredBoard[column.id].map((task) => (
                     <article key={task.id} className="rounded-md border bg-white p-3 shadow-sm">
                       <div className="flex items-start justify-between gap-2">
                         <button onClick={() => openEditTask(task)} className="text-left font-medium text-gray-900 dark:text-gray-100 hover:text-blue-700">
@@ -356,6 +407,13 @@ export default function KanbanPage() {
                 <select value={form.assigned_to} onChange={(event) => setForm({ ...form, assigned_to: event.target.value })} className="mt-1 w-full rounded-md border px-3 py-2">
                   <option value="">Unassigned</option>
                   {users.map((user) => <option key={user.id} value={user.id}>{user.display_name ?? user.phone_e164}</option>)}
+                </select>
+              </label>
+              <label className="sm:col-span-2 text-sm font-medium">
+                Milestone
+                <select value={form.milestone_id} onChange={(event) => setForm({ ...form, milestone_id: event.target.value })} className="mt-1 w-full rounded-md border px-3 py-2">
+                  <option value="">No milestone</option>
+                  {milestones.filter((ms) => !form.department_id || ms.department_id === form.department_id).map((ms) => <option key={ms.id} value={ms.id}>{ms.title}</option>)}
                 </select>
               </label>
               <label className="text-sm font-medium">
