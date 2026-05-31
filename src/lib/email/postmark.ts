@@ -85,6 +85,15 @@ export async function sendTaskNotificationEmail(
   });
 }
 
+export async function sendEscalationEmail(to: string, model: Record<string, unknown>) {
+  const templateAlias = process.env.POSTMARK_ESCALATION_REQUEST_TEMPLATE ?? "escalation-request";
+  return sendTemplateEmail({
+    To: to,
+    TemplateAlias: templateAlias,
+    TemplateModel: model,
+  });
+}
+
 export async function sendAssignmentNotificationEmail(
   to: string,
   recipientName: string,

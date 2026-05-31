@@ -35,9 +35,15 @@ export default function AdminLoginPage() {
       // Store token in localStorage
       localStorage.setItem("admin_token", data.token);
       localStorage.setItem("admin_user", JSON.stringify(data.user));
-      // Support-only members can't see the admin home; send them to the inbox.
+      // Honor a deep-link redirect (e.g. from an escalation email) when present.
+      const redirect = new URLSearchParams(window.location.search).get("redirect");
       const isAdmin = data.user?.role === "admin" || data.user?.global_role === "leadership_admin";
-      router.push(isAdmin ? "/admin" : "/admin/conversations");
+      if (redirect && redirect.startsWith("/admin")) {
+        router.push(redirect);
+      } else {
+        // Support-only members can't see the admin home; send them to the inbox.
+        router.push(isAdmin ? "/admin" : "/admin/conversations");
+      }
     } catch {
       setError("Network error. Please try again.");
     } finally {

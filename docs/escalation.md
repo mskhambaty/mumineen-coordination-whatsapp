@@ -1,4 +1,4 @@
-# Escalation & Site Support
+# Escalation/Support
 
 > **Status: design spec — not yet implemented.** This captures the agreed design for
 > escalating WhatsApp conversations to a human support team. Build in phases (see end).
@@ -151,7 +151,7 @@ section on their profile (same page as department memberships), with on-call hou
 
 ## Admin UI
 
-- **New WhatsApp dropdown: "Escalation / Site Support"** — management screen with a **user
+- **New WhatsApp dropdown: "Escalation/Support"** — management screen with a **user
   table** + **Add** button. Add picks from the **existing user list**; adding a user inserts
   an `escalation_support_members` row (= assigns the role) and lets them set **on-call hours**
   (weekday × time ranges).
@@ -196,6 +196,12 @@ All notification sends are fire-and-forget (failures never block the agent reply
 3. **Notifications** — on-call evaluation, Postmark email (`escalation-request` template) +
    HTML template, deep link + redirect-after-login. **Email ships first (guaranteed channel).**
    WhatsApp push is deferred until a Meta utility template is approved (separate follow-up).
+   ✅ **Done (email)** — `/api/escalations` now emails every currently on-call support member
+   (evaluated in America/Chicago via `src/lib/escalation/notify.ts`) using the
+   `escalation-request` Postmark template (`POSTMARK_ESCALATION_REQUEST_TEMPLATE`; HTML in
+   `docs/postmark-escalation-template.html`). The email deep-links to
+   `/admin/conversations?phone=...&tab=escalations`; unauthenticated users are sent to login
+   with a `?redirect=` and returned to the thread after signing in. WhatsApp still pending.
 4. **Issues** — `create_issue` tool + external/internal distinction on the Kanban board.
 
 ## Build-time / config items

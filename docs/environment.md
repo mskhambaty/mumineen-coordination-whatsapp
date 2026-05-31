@@ -20,6 +20,7 @@ All env var lookups go through `src/lib/env.ts`, which supports mixed-case alias
 | `POSTMARK_FROM_EMAIL` | `Postmark_from_email` | Verified Postmark sender address |
 | `POSTMARK_PASSWORD_RESET_TEMPLATE` | `Postmark_password_reset_template` | Postmark template alias for password reset |
 | `POSTMARK_TASK_NOTIFICATION_TEMPLATE` | `Postmark_task_notification_template` | Postmark template alias for task digest |
+| `POSTMARK_ESCALATION_REQUEST_TEMPLATE` | `Postmark_escalation_request_template` | Postmark template alias for escalation alerts (default `escalation-request`) |
 
 ## Optional Variables
 

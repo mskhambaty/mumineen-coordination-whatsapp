@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { notifyOnCallSupport } from "@/lib/escalation/notify";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+
+function appBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return "http://localhost:3000";
+}
 
 export const runtime = "nodejs";
 
@@ -71,7 +78,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
   }
 
-  // Phase 3 will notify on-call support members here (email + WhatsApp template).
+  // Notify currently on-call support members by email. Best-effort: a notification
+  // failure must never break the agent's reply, so it's wrapped and swallowed.
+  try {
+    const { data: guest } = await supabase
+      .from("whatsapp_users")
+      .select("display_name")
+      .eq("phone_e164", phone)
+      .maybeSingle();
+
+    await notifyOnCallSupport({
+      guestName: guest?.display_name || phone,
+      guestPhone: phone,
+      reason: reason || "(no reason provided)",
+      priority,
+      category,
+      conversationUrl: `${appBaseUrl()}/admin/conversations?phone=${encodeURIComponent(phone)}&tab=escalations`,
+    });
+  } catch (err) {
+    console.error("Escalation notification failed:", err);
+  }
 
   return NextResponse.json({
     status: "escalated",

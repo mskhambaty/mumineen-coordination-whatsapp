@@ -51,11 +51,17 @@ type Conversation = {
 export default function ConversationsPage() {
   const router = useRouter();
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
+  // Initialize selection/tab from the URL so escalation email deep links land
+  // directly on the right thread (?phone=...&tab=escalations).
+  const [selectedPhone, setSelectedPhone] = useState<string | null>(
+    () => (typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("phone")),
+  );
   const [loading, setLoading] = useState(true);
   const [savingMode, setSavingMode] = useState(false);
   const [savingEscalation, setSavingEscalation] = useState(false);
-  const [tab, setTab] = useState<"conversations" | "escalations">("conversations");
+  const [tab, setTab] = useState<"conversations" | "escalations">(
+    () => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "escalations" ? "escalations" : "conversations"),
+  );
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,7 +97,8 @@ export default function ConversationsPage() {
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
     if (!token) {
-      router.push("/admin/login");
+      const here = window.location.pathname + window.location.search;
+      router.push(`/admin/login?redirect=${encodeURIComponent(here)}`);
       return;
     }
 
