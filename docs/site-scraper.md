@@ -50,6 +50,12 @@ Authorization: ******
 Configured in `vercel.json` for daily execution.  
 If the `Authorization` header does not match `CRON_SECRET`, returns `401 Unauthorized`.
 
+### Manual trigger
+
+Admins can re-scrape on demand from the **Prompt** page — a **Run scrape** button next to the
+`get_site_content_faq` tool calls `POST /api/admin/scrape` (same work as the cron, gated by the
+admin key instead of `CRON_SECRET`). This avoids waiting for the daily cron after a site update.
+
 ## Adding or Changing Scraped Pages
 
 Edit the `PAGES_TO_SCRAPE` array in `scrape-site.ts`.  

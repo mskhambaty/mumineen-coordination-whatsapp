@@ -392,6 +392,16 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /admin/scrape:
+    post:
+      tags: [conversations]
+      summary: Manually re-scrape and re-embed the official site content.
+      description: Same work as the daily cron, triggered from the Prompt page, gated by the admin key.
+      security: [{ adminKey: [] }]
+      responses:
+        "200": { description: Scrape stats (pages, chunks embedded/stored). }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /admin/analytics:
     get:
       tags: [conversations, tasks]

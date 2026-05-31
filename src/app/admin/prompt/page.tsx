@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
@@ -52,12 +52,14 @@ function ToolGroup({
   tools,
   expandedTool,
   onToggleTool,
+  renderAction,
 }: {
   title: string;
   description: string;
   tools: ToolInfo[];
   expandedTool: string | null;
   onToggleTool: (name: string) => void;
+  renderAction?: (tool: ToolInfo) => ReactNode;
 }) {
   const inactiveCount = tools.filter((tool) => tool.availability !== "active").length;
 
@@ -79,12 +81,12 @@ function ToolGroup({
       <div className="divide-y dark:divide-gray-800">
         {tools.map((tool) => (
           <div key={tool.name}>
-            <button
-              type="button"
-              onClick={() => onToggleTool(tool.name)}
-              className="flex w-full items-start justify-between gap-4 px-6 py-4 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50"
-            >
-              <div className="min-w-0">
+            <div className="flex w-full items-start justify-between gap-4 px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+              <button
+                type="button"
+                onClick={() => onToggleTool(tool.name)}
+                className="min-w-0 flex-1 text-left"
+              >
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="font-medium text-gray-900 dark:text-gray-100">{tool.name}</p>
                   <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${getStatusClasses(tool.availability)}`}>
@@ -97,9 +99,19 @@ function ToolGroup({
                     {tool.status_note}
                   </p>
                 )}
+              </button>
+              <div className="flex shrink-0 items-center gap-3">
+                {renderAction?.(tool)}
+                <button
+                  type="button"
+                  onClick={() => onToggleTool(tool.name)}
+                  className="text-gray-400"
+                  aria-label={expandedTool === tool.name ? "Collapse" : "Expand"}
+                >
+                  {expandedTool === tool.name ? "▲" : "▼"}
+                </button>
               </div>
-              <span className="shrink-0 text-gray-400">{expandedTool === tool.name ? "▲" : "▼"}</span>
-            </button>
+            </div>
 
             {expandedTool === tool.name && (
               <div className="border-t bg-gray-50 px-6 py-4 dark:border-gray-800 dark:bg-gray-800/30">
@@ -159,6 +171,8 @@ export default function PromptPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [scraping, setScraping] = useState(false);
+  const [scrapeResult, setScrapeResult] = useState<string | null>(null);
 
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
@@ -241,6 +255,22 @@ export default function PromptPage() {
     setExpandedTool((prev) => (prev === name ? null : name));
   }
 
+  async function runScrape() {
+    setScraping(true);
+    setScrapeResult(null);
+    try {
+      const res = await apiFetch("/api/admin/scrape", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Scrape failed");
+      const s = (data.stats ?? {}) as { discoveredPages?: number; embeddedChunks?: number; insertedChunks?: number };
+      setScrapeResult(`Done · ${s.discoveredPages ?? 0} pages · ${s.embeddedChunks ?? 0} new chunks embedded · ${s.insertedChunks ?? 0} stored`);
+    } catch (err) {
+      setScrapeResult(err instanceof Error ? err.message : "Scrape failed");
+    } finally {
+      setScraping(false);
+    }
+  }
+
   const externalTools = tools.filter((tool) => tool.audience === "external");
   const internalTools = tools.filter((tool) => tool.audience === "internal");
   const inactiveTools = tools.filter((tool) => tool.availability !== "active");
@@ -311,6 +341,9 @@ export default function PromptPage() {
             <p className="text-sm text-gray-500 dark:text-gray-400">
               Tools available to the WhatsApp agent, grouped by user access. Update via code.
             </p>
+            {scrapeResult && (
+              <p className="mt-1 text-xs font-medium text-blue-700 dark:text-blue-400">{scrapeResult}</p>
+            )}
           </div>
           <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-400">
             {tools.length} tools &middot; {inactiveTools.length} setup only/not connected &middot; Read-only
@@ -323,6 +356,19 @@ export default function PromptPage() {
           tools={externalTools}
           expandedTool={expandedTool}
           onToggleTool={toggleTool}
+          renderAction={(tool) =>
+            tool.name === "get_site_content_faq" ? (
+              <button
+                type="button"
+                onClick={() => void runScrape()}
+                disabled={scraping}
+                title="Re-scrape the official site now and refresh the indexed content (independent of the daily cron)"
+                className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {scraping ? "Scraping..." : "Run scrape"}
+              </button>
+            ) : null
+          }
         />
 
         <ToolGroup
