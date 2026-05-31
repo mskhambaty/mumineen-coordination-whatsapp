@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { createPasswordResetToken } from "@/lib/admin/passwords";
-import { requireEnv } from "@/lib/env";
 import { sendPasswordResetEmail } from "@/lib/email/postmark";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -31,7 +30,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    const appUrl = requireEnv("NEXT_PUBLIC_APP_URL");
+    const appUrl = getAppUrl(req);
     const { token, tokenHash } = createPasswordResetToken();
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
@@ -49,11 +48,22 @@ export async function POST(req: NextRequest) {
     }
 
     const resetUrl = `${appUrl}/admin/reset-password?token=${encodeURIComponent(token)}`;
-    await sendPasswordResetEmail(email, profile.display_name ?? "there", resetUrl);
+    await sendPasswordResetEmail(email, profile.display_name ?? "there", resetUrl, `${appUrl}/admin`);
 
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("Forgot password request failed:", err);
     return NextResponse.json({ ok: true });
   }
+}
+
+function getAppUrl(req: NextRequest) {
+  const forwardedProto = req.headers.get("x-forwarded-proto");
+  const forwardedHost = req.headers.get("x-forwarded-host");
+
+  if (forwardedHost) {
+    return `${forwardedProto ?? "https"}://${forwardedHost}`;
+  }
+
+  return req.nextUrl.origin;
 }

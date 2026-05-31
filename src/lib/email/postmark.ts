@@ -47,9 +47,12 @@ async function sendTemplateEmail(payload: PostmarkTemplatePayload): Promise<Post
   return (await res.json()) as PostmarkTemplateResponse;
 }
 
-export async function sendPasswordResetEmail(to: string, name: string, resetUrl: string) {
-  const appUrl = requireEnv("NEXT_PUBLIC_APP_URL");
-
+export async function sendPasswordResetEmail(
+  to: string,
+  name: string,
+  resetUrl: string,
+  supportUrl: string,
+) {
   return sendTemplateEmail({
     To: to,
     TemplateAlias: requireEnv("POSTMARK_PASSWORD_RESET_TEMPLATE"),
@@ -59,7 +62,7 @@ export async function sendPasswordResetEmail(to: string, name: string, resetUrl:
       action_url: resetUrl,
       operating_system: "Unknown",
       browser_name: "Unknown",
-      support_url: `${appUrl}/admin`,
+      support_url: supportUrl,
     },
   });
 }
