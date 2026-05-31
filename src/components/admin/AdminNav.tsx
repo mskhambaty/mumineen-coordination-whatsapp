@@ -4,37 +4,45 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+// access controls who sees a link, matching each page's gate:
+//  admin  = admin/leadership only
+//  inbox  = admin/leadership or escalation support members
+//  manage = admin/leadership or department PM/HOD
+type Access = "admin" | "inbox" | "manage";
+
+type NavLink = { href: string; label: string; access: Access; exact?: boolean };
+
 type DropdownGroup = {
   label: string;
-  links: { href: string; label: string }[];
+  links: NavLink[];
 };
 
 const dropdownGroups: DropdownGroup[] = [
   {
     label: "WhatsApp",
     links: [
-      { href: "/admin/conversations", label: "Inbox" },
-      { href: "/admin/prompt", label: "Prompt" },
-      { href: "/admin/escalation", label: "Escalation/Support" },
+      { href: "/admin/conversations", label: "Inbox", access: "inbox" },
+      { href: "/admin/prompt", label: "Prompt", access: "admin" },
+      { href: "/admin/escalation", label: "Escalation/Support", access: "admin" },
     ],
   },
   {
     label: "Management",
     links: [
-      { href: "/admin/milestones", label: "Milestones" },
-      { href: "/admin/tasks", label: "Task Management" },
-      { href: "/admin/upload", label: "Upload Transcripts" },
-      { href: "/admin/knowledge", label: "FAQ & Guides" },
+      { href: "/admin/milestones", label: "Milestones", access: "manage" },
+      { href: "/admin/tasks", label: "Task Management", access: "manage" },
+      { href: "/admin/upload", label: "Upload Transcripts", access: "manage" },
+      { href: "/admin/knowledge", label: "FAQ & Guides", access: "manage" },
     ],
   },
 ];
 
-const standaloneLinks = [
-  { href: "/admin", label: "Home", exact: true },
+const standaloneLinks: NavLink[] = [
+  { href: "/admin", label: "Home", access: "admin", exact: true },
 ];
 
-const trailingLinks = [
-  { href: "/admin/users", label: "Users" },
+const trailingLinks: NavLink[] = [
+  { href: "/admin/users", label: "Users", access: "admin" },
 ];
 
 export default function AdminNav() {
@@ -48,6 +56,30 @@ export default function AdminNav() {
   });
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const navRef = useRef<HTMLElement>(null);
+
+  // Role flags from the signed-in user, used to show only accessible links.
+  const [access] = useState(() => {
+    const empty = { isAdmin: false, isSupport: false, isManager: false };
+    if (typeof window === "undefined") return empty;
+    try {
+      const user = JSON.parse(window.localStorage.getItem("admin_user") ?? "null") as
+        | { role?: string; global_role?: string; is_support?: boolean; is_manager?: boolean }
+        | null;
+      return {
+        isAdmin: user?.role === "admin" || user?.global_role === "leadership_admin",
+        isSupport: user?.is_support === true,
+        isManager: user?.is_manager === true,
+      };
+    } catch {
+      return empty;
+    }
+  });
+
+  function canSee(itemAccess: Access) {
+    if (itemAccess === "admin") return access.isAdmin;
+    if (itemAccess === "inbox") return access.isAdmin || access.isSupport;
+    return access.isAdmin || access.isManager; // manage
+  }
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
@@ -97,7 +129,7 @@ export default function AdminNav() {
             <h1 className="text-xl font-bold dark:text-gray-100">Ashara 1448H</h1>
           </div>
           <div className="flex flex-wrap items-center gap-4 text-sm">
-            {standaloneLinks.map((link) => (
+            {standaloneLinks.filter((link) => canSee(link.access)).map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
@@ -111,7 +143,10 @@ export default function AdminNav() {
               </Link>
             ))}
 
-            {dropdownGroups.map((group) => (
+            {dropdownGroups.map((group) => {
+              const visibleLinks = group.links.filter((link) => canSee(link.access));
+              if (visibleLinks.length === 0) return null;
+              return (
               <div key={group.label} className="relative">
                 <button
                   type="button"
@@ -130,7 +165,7 @@ export default function AdminNav() {
 
                 {openDropdown === group.label && (
                   <div className="absolute left-0 top-full z-50 mt-2 w-44 rounded-md border bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-800">
-                    {group.links.map((link) => (
+                    {visibleLinks.map((link) => (
                       <Link
                         key={link.href}
                         href={link.href}
@@ -147,9 +182,10 @@ export default function AdminNav() {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
 
-            {trailingLinks.map((link) => (
+            {trailingLinks.filter((link) => canSee(link.access)).map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
