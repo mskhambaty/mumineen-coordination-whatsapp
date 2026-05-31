@@ -24,6 +24,7 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 | [task-management.md](./task-management.md) | Task management system: roles, API routes, agent tools |
 | [transcript-parser.md](./transcript-parser.md) | AI-powered WhatsApp transcript parsing service |
 | [admin-dashboard.md](./admin-dashboard.md) | Admin web dashboard: pages, auth, features |
+| [escalation.md](./escalation.md) | Escalation & site support: triggers, roles, on-call, notifications (design spec) |
 | [openapi.yaml](./openapi.yaml) | API-first contract for all `src/app/api/**` routes |
 
 ## Key File Locations
