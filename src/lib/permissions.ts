@@ -14,6 +14,7 @@ export type AppUser = {
 export const publicTools = new Set([
   "get_site_content_faq",
   "move_to_escalation",
+  "create_issue",
 ]);
 
 export const committeeTools = new Set([

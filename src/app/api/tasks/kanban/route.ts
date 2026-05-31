@@ -22,7 +22,7 @@ type KanbanTask = {
 };
 
 const taskSelect =
-  "id, title, description, status, priority, archived, assigned_to, created_by, source, due_date, department_id, item_type, milestone_id, created_at, updated_at, departments(name), assignee:whatsapp_users!tasks_assigned_to_fkey(display_name)";
+  "id, title, description, status, priority, archived, assigned_to, created_by, source, due_date, department_id, item_type, origin, milestone_id, created_at, updated_at, departments(name), assignee:whatsapp_users!tasks_assigned_to_fkey(display_name)";
 
 export async function GET(req: NextRequest) {
   try {

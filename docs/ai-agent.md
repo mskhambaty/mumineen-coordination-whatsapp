@@ -81,6 +81,7 @@ All tools are defined in `src/lib/agent/tools.ts`.
 |------|-------------|
 | `get_site_content_faq` | Single public-info tool — looks up schedule, parking, directions, accommodation, registration, lost & found, and general FAQs from the indexed site content (RAG). Consolidates the former five `get_*` tools. |
 | `move_to_escalation` | **Last resort** — hands the conversation to the human support team. Deterministic guardrails enforced server-side in `/api/escalations` (see [escalation.md](./escalation.md)). |
+| `create_issue` | Logs an external issue the visitor reports (`POST /api/issues` → `tasks` row with `item_type='issue'`, `origin='external'`). Shown on the Kanban with External/Internal badges. |
 
 ### Committee Tools (role: `committee` or `admin`)
 

@@ -32,6 +32,11 @@ const toolMetadata: Record<string, ToolMetadata> = {
     audience: "external",
     ...activeApiStatus,
   },
+  create_issue: {
+    internal_api: "POST /api/issues",
+    audience: "external",
+    ...activeApiStatus,
+  },
   get_volunteer_assignment: {
     internal_api: "Static response (volunteer system not connected)",
     audience: "internal",

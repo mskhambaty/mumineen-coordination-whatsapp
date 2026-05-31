@@ -203,6 +203,10 @@ All notification sends are fire-and-forget (failures never block the agent reply
    `/admin/conversations?phone=...&tab=escalations`; unauthenticated users are sent to login
    with a `?redirect=` and returned to the thread after signing in. WhatsApp still pending.
 4. **Issues** — `create_issue` tool + external/internal distinction on the Kanban board.
+   ✅ **Done** — `create_issue` tool (audience external) → `POST /api/issues` creates an
+   `item_type='issue'`, `origin='external'`, department-less task linked to the reporting
+   guest. `tasks.department_id` is now nullable (`20260531140000_tasks_department_nullable.sql`).
+   The Kanban shows an **Issue** badge plus an **External**/**Internal** origin badge.
 
 ## Build-time / config items
 - Confirm the issues table schema and Kanban external/internal rendering.

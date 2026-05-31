@@ -167,7 +167,7 @@ Project-management tickets used by the WhatsApp agent and admin portal.
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | uuid | PK |
-| `department_id` | uuid | FK → `departments.id` |
+| `department_id` | uuid | FK → `departments.id` (nullable — external issues are untriaged until assigned) |
 | `title` | text | Required |
 | `description` | text | Nullable |
 | `status` | text | `open` \| `in_progress` \| `blocked` \| `complete` |

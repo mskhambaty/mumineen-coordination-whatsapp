@@ -26,8 +26,9 @@ type Task = {
   assigned_to: string | null;
   source: string;
   due_date: string | null;
-  department_id: string;
+  department_id: string | null;
   item_type?: string;
+  origin?: string | null;
   created_at: string;
   updated_at: string;
   departments?: { name: string } | null;
@@ -172,7 +173,7 @@ export default function KanbanPage() {
       description: task.description ?? "",
       status: task.status,
       priority: task.priority,
-      department_id: task.department_id,
+      department_id: task.department_id ?? "",
       assigned_to: task.assigned_to ?? "",
       due_date: task.due_date ?? "",
       item_type: task.item_type ?? "task",
@@ -281,10 +282,15 @@ export default function KanbanPage() {
                       </div>
                       {task.description && <p className="mt-2 line-clamp-2 text-sm text-gray-600 dark:text-gray-300">{task.description}</p>}
                       <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-500 dark:text-gray-400">
-                        <span className="rounded bg-gray-100 dark:bg-gray-700 px-2 py-1">{task.departments?.name ?? "Department"}</span>
+                        <span className="rounded bg-gray-100 dark:bg-gray-700 px-2 py-1">{task.departments?.name ?? "No department"}</span>
                         <span className="rounded bg-gray-100 dark:bg-gray-700 px-2 py-1">{task.source}</span>
                         {task.item_type === "issue" && (
-                          <span className="rounded bg-orange-100 px-2 py-1 text-orange-700 font-medium">Issue</span>
+                          <span className="rounded bg-orange-100 px-2 py-1 font-medium text-orange-700 dark:bg-orange-900/40 dark:text-orange-300">Issue</span>
+                        )}
+                        {task.item_type === "issue" && (
+                          <span className={`rounded px-2 py-1 font-medium ${task.origin === "external" ? "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300" : "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300"}`}>
+                            {task.origin === "external" ? "External" : "Internal"}
+                          </span>
                         )}
                       </div>
                       <div className="mt-3 text-sm text-gray-600 dark:text-gray-300">

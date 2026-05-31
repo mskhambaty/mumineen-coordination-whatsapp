@@ -76,6 +76,28 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "create_issue",
+      description:
+        "Log an issue for something the visitor reports during the event that needs follow-up (a problem, broken facility, complaint, or actionable request). Creates an external issue for the team to triage. Do NOT use this for general questions you can answer with get_site_content_faq.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Short summary of the issue." },
+          description: { type: "string", description: "Details of what the visitor reported." },
+          priority: {
+            type: "string",
+            enum: ["low", "medium", "high"],
+            description: "Defaults to medium; use high for safety or time-sensitive problems.",
+          },
+        },
+        required: ["title"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_volunteer_assignment",
       description: "Get a committee member's volunteer assignment.",
       parameters: {
@@ -491,6 +513,16 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
           priority: args.priority,
           category: args.category,
           source: "ai",
+        },
+      });
+    case "create_issue":
+      return callInternalApi("/api/issues", {
+        method: "POST",
+        phone: context.phoneE164,
+        body: {
+          title: args.title,
+          description: args.description,
+          priority: args.priority,
         },
       });
     case "get_volunteer_assignment":
