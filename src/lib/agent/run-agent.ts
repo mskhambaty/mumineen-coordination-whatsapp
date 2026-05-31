@@ -27,6 +27,13 @@ const GREETING_RULE = `\n\n## Greeting Style
 - When you greet, the greeting must be exactly "Salaam un Jameel" — do not use other salaam variations.
 - Greet only ONCE per conversation. The full message history is provided; if you (the assistant) have already greeted earlier in this conversation, do NOT greet again. Reply directly to the user's message without any salaam.`;
 
+// Always-on rule: authentic, sourced information only — never fabricate specifics.
+const ACCURACY_RULE = `\n\n## Accuracy First — Never Hallucinate
+- Authentic, sourced information is the top priority. Only state facts that come from a tool result (get_site_content_faq, web_search) or earlier verified context in this conversation.
+- NEVER invent or guess specifics — prices, fares, addresses, pickup/dropoff points, times, phone numbers, names, capacities, routes, or logistics. If you are not certain from a source, you do not know it.
+- If get_site_content_faq does not have the answer and a web_search tool is available, use it to find authentic, sourced information, and cite the source.
+- If you still cannot verify it, do NOT guess — say you don't have confirmed details yet, point the user to the official site (with its URL), and offer to escalate or create an issue.`;
+
 // Always-on rule: the agent must never leave a user with "no help available".
 const NO_DEAD_END_RULE = `\n\n## Never Leave the User Without Help
 - NEVER tell the user that support, live help, a contact, or any service is "unavailable", "not connected", or that no one can assist. Internal tool statuses such as "not_connected" or "not_published" are for you only — never repeat them to the user.
@@ -81,6 +88,7 @@ export async function runAgent(input: AgentInput) {
 
   systemContent += ESCALATION_POLICY;
   systemContent += GREETING_RULE;
+  systemContent += ACCURACY_RULE;
   systemContent += NO_DEAD_END_RULE;
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
