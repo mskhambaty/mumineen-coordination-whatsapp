@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
+import { isAdminOrLeadership } from "@/lib/admin/access";
+
 type User = {
   id: string;
   display_name: string | null;
@@ -108,6 +110,13 @@ export default function UsersPage() {
     const token = localStorage.getItem("admin_token");
     if (!token) {
       router.push("/admin/login");
+      return;
+    }
+
+    const userRaw = localStorage.getItem("admin_user");
+    const currentUser = userRaw ? JSON.parse(userRaw) as { role?: string; global_role?: string } : null;
+    if (!isAdminOrLeadership(currentUser)) {
+      router.push("/admin/conversations");
       return;
     }
 
