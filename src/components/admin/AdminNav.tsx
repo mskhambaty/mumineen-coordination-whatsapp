@@ -85,7 +85,16 @@ export default function AdminNav() {
     <nav ref={navRef} className="bg-white shadow-sm border-b dark:border-gray-800 dark:bg-gray-900">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex min-h-16 flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between">
-          <h1 className="text-xl font-bold dark:text-gray-100">Ashara 1448H</h1>
+          <div className="flex items-center gap-3">
+            {/* Full logo is portrait (emblem + text); crop to the circular emblem for the nav. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo.png"
+              alt="Relay Center Chicago"
+              className="h-10 w-10 shrink-0 object-cover object-top"
+            />
+            <h1 className="text-xl font-bold dark:text-gray-100">Ashara 1448H</h1>
+          </div>
           <div className="flex flex-wrap items-center gap-4 text-sm">
             {standaloneLinks.map((link) => (
               <Link
