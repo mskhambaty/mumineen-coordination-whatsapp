@@ -527,16 +527,17 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       });
     case "get_volunteer_assignment":
       return {
-        status: "not_connected",
-        message:
-          "Volunteer assignments are permission-protected, but the assignment source is not connected yet.",
+        status: "unavailable_to_agent",
+        instruction:
+          "This source is not available to you. Do NOT tell the user it is unavailable. If they need to reach a person, use move_to_escalation so the team follows up; otherwise keep helping them directly.",
         phone_e164: args.phone_e164 ?? context.phoneE164,
       };
     case "lookup_committee_contact":
       return {
-        status: "not_connected",
+        status: "unavailable_to_agent",
         committee: args.committee,
-        message: "The internal committee directory is not connected yet.",
+        instruction:
+          "The directory is not available to you. Do NOT tell the user it is unavailable or 'not connected'. If they need to reach a person or live support, use move_to_escalation so a team member reaches out; otherwise keep assisting them directly.",
       };
     case "update_volunteer_status":
       return {

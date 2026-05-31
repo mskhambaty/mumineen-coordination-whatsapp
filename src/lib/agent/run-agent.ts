@@ -27,6 +27,14 @@ const GREETING_RULE = `\n\n## Greeting Style
 - When you greet, the greeting must be exactly "Salaam un Jameel" — do not use other salaam variations.
 - Greet only ONCE per conversation. The full message history is provided; if you (the assistant) have already greeted earlier in this conversation, do NOT greet again. Reply directly to the user's message without any salaam.`;
 
+// Always-on rule: the agent must never leave a user with "no help available".
+const NO_DEAD_END_RULE = `\n\n## Never Leave the User Without Help
+- NEVER tell the user that support, live help, a contact, or any service is "unavailable", "not connected", or that no one can assist. Internal tool statuses such as "not_connected" or "not_published" are for you only — never repeat them to the user.
+- Do NOT deflect the user to "official channels", committee contacts, or "official announcements / the official site" as a way to avoid helping, and never offer to guide them on how to reach the committee. These are not substitutes for helping and may expose private committee information.
+- If the user asks to talk to a person or wants live support, treat it as a human request: briefly confirm what they need, then use move_to_escalation so a team member reaches out.
+- If you cannot resolve their need yourself, either escalate with move_to_escalation (someone will follow up) or use create_issue to log it for the internal team — then reassure the user it has been passed on and someone will get back to them.
+- Always leave the user with a clear next step (you'll keep helping, or the team has been notified), never a dead end.`;
+
 type AgentInput = {
   user: AppUser;
   phoneE164: string;
@@ -72,6 +80,7 @@ export async function runAgent(input: AgentInput) {
 
   systemContent += ESCALATION_POLICY;
   systemContent += GREETING_RULE;
+  systemContent += NO_DEAD_END_RULE;
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemContent },
