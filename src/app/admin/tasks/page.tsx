@@ -192,7 +192,7 @@ function KanbanPage() {
     }
   }
 
-  async function updateTask(task: Task, updates: Partial<Pick<Task, "status" | "priority">>) {
+  async function updateTask(task: Task, updates: Partial<Pick<Task, "status" | "priority" | "assigned_to">>) {
     const res = await apiFetch(`/api/tasks/${task.id}`, {
       method: "PUT",
       body: JSON.stringify(updates),
@@ -345,8 +345,18 @@ function KanbanPage() {
                         )}
                       </div>
                       <div className="mt-3 text-sm text-gray-600 dark:text-gray-300">
-                        <div>{task.assignee?.display_name ?? "Unassigned"}</div>
-                        <div className={isOverdue(task) ? "font-medium text-red-600" : "text-gray-500 dark:text-gray-400"}>
+                        <select
+                          value={task.assigned_to ?? ""}
+                          onChange={(event) => updateTask(task, { assigned_to: event.target.value || null })}
+                          className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                          title="Assignee"
+                        >
+                          <option value="">Unassigned</option>
+                          {users.map((user) => (
+                            <option key={user.id} value={user.id}>{user.display_name ?? user.phone_e164}</option>
+                          ))}
+                        </select>
+                        <div className={`mt-1 ${isOverdue(task) ? "font-medium text-red-600" : "text-gray-500 dark:text-gray-400"}`}>
                           {task.due_date ? `Due ${task.due_date}` : "No due date"}
                         </div>
                       </div>

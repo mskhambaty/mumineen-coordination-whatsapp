@@ -4,6 +4,8 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
+  /* Make native controls (select dropdowns, date pickers, scrollbars) follow the theme. */
+  color-scheme: light;
   --background: #ffffff;
   --foreground: #171717;
 }
@@ -16,6 +18,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: #0a0a0a;
   --foreground: #ededed;
 }

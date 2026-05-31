@@ -121,13 +121,16 @@ export async function PUT(
       updates.archived = body.archived;
     }
 
-    const assignedTo = typeof body.assigned_to === "string" ? body.assigned_to : undefined;
-    if (assignedTo) {
+    if (body.assigned_to !== undefined) {
       if (!canManageTaskDepartment) {
         return NextResponse.json({ error: "Members can only assign tasks to themselves" }, { status: 403 });
       }
-      await guardAssigneeAccess(supabase, task.department_id, assignedTo, caller.can_write_all);
-      updates.assigned_to = assignedTo;
+      if (body.assigned_to === null || body.assigned_to === "") {
+        updates.assigned_to = null; // unassign
+      } else if (typeof body.assigned_to === "string") {
+        await guardAssigneeAccess(supabase, task.department_id, body.assigned_to, caller.can_write_all);
+        updates.assigned_to = body.assigned_to;
+      }
     } else if (typeof body.assigned_to_alias === "string" && body.assigned_to_alias.trim()) {
       if (!canManageTaskDepartment) {
         return NextResponse.json({ error: "Members can only assign tasks to themselves" }, { status: 403 });
