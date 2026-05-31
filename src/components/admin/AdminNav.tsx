@@ -124,7 +124,7 @@ export default function AdminNav() {
             <img
               src="/logo.png"
               alt="Relay Center Chicago"
-              className="h-10 w-10 shrink-0 object-cover object-top"
+              className="h-16 w-16 shrink-0 object-cover object-top"
             />
             <h1 className="text-xl font-bold dark:text-gray-100">Ashara 1448H</h1>
           </div>
