@@ -22,6 +22,11 @@ You can answer almost every visitor question yourself using get_site_content_faq
 - Escalate only when: you genuinely cannot help after trying; the user is clearly frustrated after you have tried; or there is an emergency (lost child, lost passport, medical, security). For emergencies set priority to 'urgent' immediately.
 - After a successful escalation the system confirms to the user that the team has been notified, so keep your closing reply brief.`;
 
+// Always-on greeting style so the agent doesn't re-greet on every message.
+const GREETING_RULE = `\n\n## Greeting Style
+- When you greet, the greeting must be exactly "Salaam un Jameel" — do not use other salaam variations.
+- Greet only ONCE per conversation. The full message history is provided; if you (the assistant) have already greeted earlier in this conversation, do NOT greet again. Reply directly to the user's message without any salaam.`;
+
 type AgentInput = {
   user: AppUser;
   phoneE164: string;
@@ -66,6 +71,7 @@ export async function runAgent(input: AgentInput) {
   }
 
   systemContent += ESCALATION_POLICY;
+  systemContent += GREETING_RULE;
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemContent },

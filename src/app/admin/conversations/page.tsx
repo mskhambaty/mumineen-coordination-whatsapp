@@ -299,8 +299,10 @@ export default function ConversationsPage() {
                   <button
                     key={conversation.id}
                     onClick={() => setSelectedPhone(conversation.phone_e164)}
-                    className={`block w-full border-b px-4 py-3 text-left hover:bg-white dark:border-gray-800 dark:hover:bg-gray-800 ${
-                      selected?.phone_e164 === conversation.phone_e164 ? "bg-white dark:bg-gray-800" : ""
+                    className={`block w-full border-b border-l-4 px-4 py-3 text-left dark:border-gray-800 ${
+                      selected?.phone_e164 === conversation.phone_e164
+                        ? "border-l-blue-600 bg-blue-50 dark:border-l-blue-400 dark:bg-gray-800"
+                        : "border-l-transparent hover:bg-gray-100 dark:hover:bg-gray-800/60"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
