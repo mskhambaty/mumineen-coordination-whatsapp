@@ -498,8 +498,13 @@ paths:
               properties:
                 file: { type: string, format: binary }
                 department_id: { type: string, format: uuid }
+                transcript_type: { type: string, enum: [whatsapp, meeting] }
       responses:
-        "201": { description: Parsed transcript upload. }
+        "201":
+          description: Parsed transcript upload with reviewable create/update proposals.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ParsedTranscript" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -511,7 +516,13 @@ paths:
       security: [{ whatsappPhone: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses:
-        "200": { description: Conversation events. }
+        "200":
+          description: Conversation events enriched with review action and existing-match metadata.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ConversationEvent" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -799,15 +810,31 @@ components:
         id: { type: string, format: uuid }
         upload_id: { type: string, format: uuid }
         department_id: { type: string, format: uuid }
-        event_type: { type: string, enum: [task_created, task_updated, task_completed, decision, info] }
+        event_type:
+          type: string
+          enum: [task_created, task_updated, task_completed, milestone_created, milestone_updated, issue_created, issue_updated, issue_resolved, decision, info]
+        item_type: { type: string, enum: [task, issue, milestone] }
+        task_id: { type: [string, "null"], format: uuid }
+        milestone_id: { type: [string, "null"], format: uuid }
+        review_action: { type: string, enum: [create, update] }
+        review_kind: { type: string, enum: [task, issue, milestone] }
+        target_id: { type: [string, "null"], format: uuid }
+        target_title: { type: [string, "null"] }
+        target_status: { type: [string, "null"] }
+        review_label: { type: string }
         sender_alias: { type: [string, "null"] }
         message_text: { type: [string, "null"] }
         message_timestamp: { type: [string, "null"], format: date-time }
         ai_summary: { type: [string, "null"] }
         task_title: { type: [string, "null"] }
+        milestone_title: { type: [string, "null"] }
         assigned_to_alias: { type: [string, "null"] }
         priority: { $ref: "#/components/schemas/TaskPriority" }
         confidence: { type: [number, "null"] }
+        percent_complete: { type: [integer, "null"] }
+        budget: { type: [number, "null"] }
+        notes: { type: [string, "null"] }
+        description: { type: [string, "null"] }
         applied: { type: boolean }
     ParsedTranscript:
       type: object
@@ -821,6 +848,8 @@ components:
         new_members:
           type: array
           items: { $ref: "#/components/schemas/ParsedNewMember" }
+        flexible_prompt: { type: string }
+        transcript_type: { type: string, enum: [whatsapp, meeting] }
     ParsedNewMember:
       type: object
       required: [alias, context]

@@ -20,8 +20,9 @@ const result = await parseTranscript(rawTextContent);
 1. **Chunking**: If the transcript exceeds 24,000 characters, it's split on date boundaries to stay within token limits
 2. **Prompt Configuration**: The fixed parser prompt is combined with department-specific flexible rules from `department_prompt_config`
 3. **AI Extraction**: Each chunk is sent to OpenAI with a structured extraction prompt
-4. **Filtering**: Only events with confidence >= 0.5 are returned
-5. **Response Format**: Uses `response_format: { type: "json_object" }` for reliable JSON output
+4. **Review Matching**: Parsed events are compared against existing department milestones, tasks, and issues to classify each proposal as `create` or `update`
+5. **Filtering**: Only events with confidence >= 0.5 are returned, and detected members already known by display name or transcript alias are filtered out
+6. **Response Format**: Uses `response_format: { type: "json_object" }` for reliable JSON output
 
 ## Event Types
 
@@ -46,20 +47,25 @@ type ParsedEvent = {
   assigned_to_alias: string | null;
   priority: "low" | "medium" | "high";
   confidence: number; // 0.0 to 1.0
+  review_action: "create" | "update";
+  review_kind: "task" | "issue" | "milestone";
+  target_id: string | null;
+  target_title: string | null;
+  target_status: string | null;
 };
 ```
 
-The parser also returns `new_members: { alias: string; context: string }[]`, which powers the review table for adding users detected in a transcript.
+The upload API also returns `new_members: { alias: string; context: string }[]`, filtered to aliases that are not currently known in `whatsapp_users.display_name` or `whatsapp_users.transcript_aliases`.
 
 ## Workflow
 
 1. User uploads a `.txt` file via `/admin/upload` or `POST /api/transcripts/upload`
-2. Parser extracts events and stores them in `conversation_events`
-3. User reviews events in the dashboard (high confidence pre-selected)
+2. Parser extracts events, references existing department items, and stores reviewable proposals in `conversation_events`
+3. User reviews proposed milestone, task, and issue creations/updates in the dashboard (high confidence pre-selected)
 4. User can edit priority and assignee alias before applying
 5. User can approve detected new members via `POST /api/users/bulk-create`
 6. User selects events to apply → `POST /api/transcripts/[id]/apply`
-7. Applied events create or update tasks in the `tasks` table
+7. Applied events create or update milestones, tasks, and issues
 
 ## Configuration
 

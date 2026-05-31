@@ -50,11 +50,12 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - Department selector and file upload (`.txt` only)
 - Locked fixed prompt preview plus editable department-specific prompt rules
 - "Parse with AI" button
-- Review table showing parsed events with confidence scores
+- Review tables grouped by milestones, tasks, and issues with New vs Update proposals
+- Existing-match column showing which current milestone/task/issue an update will apply to
 - Editable priority and assignee alias before applying selected events
 - Checkbox selection (high confidence pre-checked)
-- New members detected from the transcript can be reviewed and added immediately
-- "Apply Selected" button creates tasks from selected events
+- New members detected from the transcript are filtered against existing users and can be reviewed before adding
+- "Submit Selected" applies selected creations and updates through the transcript API
 
 ### Users (`/admin/users`)
 - Table of all users with inline editing for global_role and status

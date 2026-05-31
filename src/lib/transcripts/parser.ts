@@ -110,7 +110,9 @@ export async function parseTranscript(rawContent: string, optsOrFlexiblePrompt?:
   let systemPrompt = buildTranscriptSystemPrompt(flexiblePrompt, transcriptType);
 
   if (existingContext) {
-    systemPrompt += `\n\n## Existing Items in Department\nReference these when detecting updates to existing milestones, tasks, or issues:\n${existingContext}`;
+    systemPrompt += `\n\n## Existing Items in Department
+Reference these when detecting updates to existing milestones, tasks, or issues. If the transcript is about one of these existing records, classify it as the matching *_updated, *_completed, or *_resolved event instead of *_created. Use *_created only for genuinely new work not already represented below. Do not invent events from this context alone.
+${existingContext}`;
   }
 
   for (const chunk of chunks) {

@@ -4,6 +4,13 @@ import { resolveCallerFromRequest, ForbiddenError } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { parseTranscript } from "@/lib/transcripts/parser";
 import { getDefaultFlexiblePrompt, type TranscriptType } from "@/lib/transcripts/prompts";
+import {
+  addReviewFieldsToEvents,
+  buildEventReview,
+  filterUnknownNewMembers,
+  type ExistingTranscriptItems,
+  type ExistingTranscriptUser,
+} from "@/lib/transcripts/review";
 
 export async function POST(req: NextRequest) {
   try {
@@ -35,7 +42,7 @@ export async function POST(req: NextRequest) {
       .eq("id", departmentId)
       .single();
 
-    const [promptConfigResult, milestonesResult, tasksResult] = await Promise.all([
+    const [promptConfigResult, milestonesResult, tasksResult, usersResult] = await Promise.all([
       supabase
         .from("department_prompt_config")
         .select("flexible_prompt")
@@ -53,20 +60,43 @@ export async function POST(req: NextRequest) {
         .eq("department_id", departmentId)
         .eq("archived", false)
         .limit(100),
+      supabase
+        .from("whatsapp_users")
+        .select("display_name, transcript_aliases")
+        .limit(500),
     ]);
 
     const flexiblePrompt = promptConfigResult.data?.flexible_prompt || getDefaultFlexiblePrompt(department?.name);
+    const existingItems: ExistingTranscriptItems = {
+      milestones: (milestonesResult.data ?? []).map((milestone) => ({
+        id: milestone.id as string,
+        title: (milestone.title as string | null) ?? null,
+        status: (milestone.status as string | null) ?? null,
+        percent_complete: (milestone.percent_complete as number | null) ?? null,
+        budget: (milestone.budget as number | string | null) ?? null,
+      })),
+      tasks: (tasksResult.data ?? []).map((task) => ({
+        id: task.id as string,
+        title: (task.title as string | null) ?? null,
+        status: (task.status as string | null) ?? null,
+        item_type: task.item_type === "issue" ? "issue" : "task",
+      })),
+    };
+    const existingUsers: ExistingTranscriptUser[] = (usersResult.data ?? []).map((user) => ({
+      display_name: (user.display_name as string | null) ?? null,
+      transcript_aliases: Array.isArray(user.transcript_aliases) ? user.transcript_aliases as string[] : null,
+    }));
 
     let existingContext: string | null = null;
     const contextParts: string[] = [];
-    if (milestonesResult.data?.length) {
-      contextParts.push("Milestones:\n" + milestonesResult.data.map((m) =>
+    if (existingItems.milestones.length) {
+      contextParts.push("Milestones:\n" + existingItems.milestones.map((m) =>
         `- [${m.id}] "${m.title}" (status: ${m.status}, ${m.percent_complete}% complete, budget: ${m.budget ?? "N/A"})`
       ).join("\n"));
     }
-    if (tasksResult.data?.length) {
-      const tasks = tasksResult.data.filter((t) => t.item_type === "task" || !t.item_type);
-      const issues = tasksResult.data.filter((t) => t.item_type === "issue");
+    if (existingItems.tasks.length) {
+      const tasks = existingItems.tasks.filter((t) => t.item_type === "task" || !t.item_type);
+      const issues = existingItems.tasks.filter((t) => t.item_type === "issue");
       if (tasks.length) {
         contextParts.push("Tasks:\n" + tasks.map((t) =>
           `- [${t.id}] "${t.title}" (status: ${t.status})`
@@ -87,6 +117,7 @@ export async function POST(req: NextRequest) {
       transcriptType,
       existingContext,
     });
+    const newMembers = filterUnknownNewMembers(parsed.new_members, existingUsers);
 
     let lastMessageAt: string | null = null;
     if (parsed.last_message_at) {
@@ -104,7 +135,7 @@ export async function POST(req: NextRequest) {
         raw_content: rawContent,
         parsed_at: new Date().toISOString(),
         last_message_at: lastMessageAt,
-        parsed_new_members: parsed.new_members,
+        parsed_new_members: newMembers,
         transcript_type: transcriptType,
       })
       .select("id")
@@ -115,31 +146,34 @@ export async function POST(req: NextRequest) {
     }
 
     const events = parsed.events.map((event) => {
+      const review = buildEventReview(event, existingItems);
       let ts: string | null = null;
       if (event.message_timestamp) {
         const d = new Date(event.message_timestamp);
         ts = isNaN(d.getTime()) ? null : d.toISOString();
       }
       return {
-      upload_id: upload.id,
-      department_id: departmentId,
-      event_type: event.event_type,
-      item_type: event.item_type ?? "task",
-      sender_alias: event.sender_alias,
-      message_text: event.message_text,
-      message_timestamp: ts,
-      ai_summary: event.ai_summary,
-      task_title: event.task_title,
-      milestone_title: event.milestone_title,
-      assigned_to_alias: event.assigned_to_alias,
-      priority: event.priority,
-      confidence: event.confidence,
-      percent_complete: event.percent_complete,
-      budget: event.budget,
-      notes: event.notes,
-      description: event.description,
-      applied: false,
-    };
+        upload_id: upload.id,
+        department_id: departmentId,
+        event_type: event.event_type,
+        item_type: event.item_type ?? "task",
+        task_id: review.review_action === "update" && review.review_kind !== "milestone" ? review.target_id : null,
+        milestone_id: review.review_action === "update" && review.review_kind === "milestone" ? review.target_id : null,
+        sender_alias: event.sender_alias,
+        message_text: event.message_text,
+        message_timestamp: ts,
+        ai_summary: event.ai_summary,
+        task_title: event.task_title,
+        milestone_title: event.milestone_title,
+        assigned_to_alias: event.assigned_to_alias,
+        priority: event.priority,
+        confidence: event.confidence,
+        percent_complete: event.percent_complete,
+        budget: event.budget,
+        notes: event.notes,
+        description: event.description,
+        applied: false,
+      };
     });
 
     if (events.length > 0) {
@@ -154,15 +188,15 @@ export async function POST(req: NextRequest) {
 
     const { data: savedEvents } = await supabase
       .from("conversation_events")
-      .select("id, event_type, item_type, sender_alias, message_text, message_timestamp, ai_summary, task_title, milestone_title, assigned_to_alias, priority, confidence, percent_complete, budget, notes, description, applied")
+      .select("id, upload_id, department_id, event_type, item_type, task_id, milestone_id, sender_alias, message_text, message_timestamp, ai_summary, task_title, milestone_title, assigned_to_alias, priority, confidence, percent_complete, budget, notes, description, applied")
       .eq("upload_id", upload.id)
       .order("message_timestamp", { ascending: true });
 
     return NextResponse.json({
       upload_id: upload.id,
       group_name: parsed.group_name,
-      events: savedEvents ?? [],
-      new_members: parsed.new_members,
+      events: addReviewFieldsToEvents(savedEvents ?? [], existingItems),
+      new_members: newMembers,
       flexible_prompt: flexiblePrompt,
       transcript_type: transcriptType,
     }, { status: 201 });

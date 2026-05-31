@@ -12,14 +12,25 @@ type ParsedEvent = {
   id: string;
   event_type: string;
   item_type: string;
+  review_action: "create" | "update";
+  review_kind: "task" | "issue" | "milestone";
+  target_id: string | null;
+  target_title: string | null;
+  target_status: string | null;
+  review_label: string;
   sender_alias: string | null;
   message_text: string | null;
   message_timestamp: string | null;
   ai_summary: string | null;
   task_title: string | null;
+  milestone_title: string | null;
   assigned_to_alias: string | null;
   priority: TaskPriority;
   confidence: number;
+  percent_complete: number | null;
+  budget: number | null;
+  notes: string | null;
+  description: string | null;
   applied: boolean;
 };
 
@@ -50,6 +61,7 @@ type ApplyResult = {
   milestones_updated: number;
   issues_created: number;
   issues_updated: number;
+  events_skipped?: number;
 };
 
 export default function UploadPage() {
@@ -64,6 +76,7 @@ export default function UploadPage() {
   const [events, setEvents] = useState<ParsedEvent[]>([]);
   const [eventDrafts, setEventDrafts] = useState<Record<string, EventDraft>>({});
   const [uploadId, setUploadId] = useState<string | null>(null);
+  const [parseFinished, setParseFinished] = useState(false);
   const [selectedEvents, setSelectedEvents] = useState<Set<string>>(new Set());
   const [newMembers, setNewMembers] = useState<MemberDraft[]>([]);
   const [applyResult, setApplyResult] = useState<ApplyResult | null>(null);
@@ -75,6 +88,12 @@ export default function UploadPage() {
     () => departments.find((department) => department.id === selectedDept),
     [departments, selectedDept],
   );
+
+  const eventGroups = useMemo(() => [
+    { key: "milestone", title: "Milestones to Review", events: events.filter((event) => event.review_kind === "milestone" || event.item_type === "milestone") },
+    { key: "task", title: "Tasks to Review", events: events.filter((event) => (event.review_kind === "task" || event.item_type === "task") && event.item_type !== "milestone") },
+    { key: "issue", title: "Issues to Review", events: events.filter((event) => event.review_kind === "issue" || event.item_type === "issue") },
+  ], [events]);
 
   async function apiFetch(path: string, init?: RequestInit) {
     return fetch(path, {
@@ -151,8 +170,11 @@ export default function UploadPage() {
     e.preventDefault();
     if (!file || !selectedDept) return;
     setLoading(true);
+    setParseFinished(false);
     setApplyResult(null);
     setMemberResult(null);
+    setEvents([]);
+    setNewMembers([]);
 
     try {
       const formData = new FormData();
@@ -173,6 +195,7 @@ export default function UploadPage() {
         };
         setUploadId(data.upload_id);
         setEvents(data.events);
+        setParseFinished(true);
 
         const drafts: Record<string, EventDraft> = {};
         for (const event of data.events) {
@@ -284,6 +307,17 @@ export default function UploadPage() {
 
   function updateMemberDraft(index: number, patch: Partial<MemberDraft>) {
     setNewMembers((members) => members.map((member, memberIndex) => memberIndex === index ? { ...member, ...patch } : member));
+  }
+
+  function getEventTitle(event: ParsedEvent) {
+    return event.milestone_title || event.task_title || event.ai_summary || event.message_text || "Untitled proposal";
+  }
+
+  function getActionClasses(event: ParsedEvent) {
+    if (event.review_action === "update") {
+      return "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200";
+    }
+    return "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200";
   }
 
   return (
@@ -400,32 +434,54 @@ export default function UploadPage() {
               {(applyResult.issues_created > 0 || applyResult.issues_updated > 0) && (
                 <>, {applyResult.issues_created} issues created, {applyResult.issues_updated} issues updated</>
               )}
+              {applyResult.events_skipped ? <>, {applyResult.events_skipped} skipped because no matching existing item was found</> : null}
             </p>
           </div>
         )}
 
+        {parseFinished && events.length === 0 && (
+          <section className="mt-6 rounded-lg border bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <h2 className="text-lg font-semibold">No Proposed Changes Found</h2>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+              The transcript parsed successfully, but the API did not find any new or updated milestones, tasks, or issues above the confidence threshold.
+            </p>
+          </section>
+        )}
+
         {events.length > 0 && (
-          <section className="mt-6 rounded-lg border bg-white shadow-sm">
+          <section className="mt-6 rounded-lg border bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <div className="flex items-center justify-between border-b px-6 py-4">
-              <h2 className="text-lg font-semibold">Review Tasks ({events.length})</h2>
+              <div>
+                <h2 className="text-lg font-semibold">Review Proposed Changes ({events.length})</h2>
+                <p className="mt-1 text-sm text-gray-500">New items and suggested updates are matched against existing department records.</p>
+              </div>
               <button
                 onClick={handleApply}
                 disabled={loading || selectedEvents.size === 0}
                 className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
               >
-                Apply Selected ({selectedEvents.size})
+                Submit Selected ({selectedEvents.size})
               </button>
             </div>
-            <div className="overflow-x-auto">
+            <div className="grid gap-3 border-b px-6 py-4 text-sm sm:grid-cols-3">
+              <div><span className="font-semibold">{events.filter((event) => event.review_action === "create").length}</span> new items</div>
+              <div><span className="font-semibold">{events.filter((event) => event.review_action === "update").length}</span> suggested updates</div>
+              <div><span className="font-semibold">{events.filter((event) => event.confidence >= 0.7).length}</span> high confidence</div>
+            </div>
+            {eventGroups.filter((group) => group.events.length > 0).map((group) => (
+            <div key={group.key} className="border-b last:border-b-0">
+              <h3 className="px-6 py-3 text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">{group.title} ({group.events.length})</h3>
+              <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Apply</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Action</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Proposal</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Existing Match</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Timestamp</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Sender</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Message</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">AI Summary</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Category</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Type</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Priority</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Assigned To</th>
@@ -433,7 +489,7 @@ export default function UploadPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {events.map((event) => (
+                  {group.events.map((event) => (
                     <tr key={event.id} className={event.confidence < 0.7 ? "bg-yellow-50" : ""}>
                       <td className="px-4 py-3">
                         {!event.applied ? (
@@ -442,19 +498,29 @@ export default function UploadPage() {
                           <span className="text-sm text-green-600">Applied</span>
                         )}
                       </td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded px-2 py-1 text-xs font-medium ${getActionClasses(event)}`}>
+                          {event.review_action === "update" ? "Update" : "New"}
+                        </span>
+                      </td>
+                      <td className="max-w-xs px-4 py-3 text-sm font-medium">{getEventTitle(event)}</td>
+                      <td className="max-w-xs px-4 py-3 text-sm text-gray-600">
+                        {event.target_title ? (
+                          <>
+                            <span className="font-medium">{event.target_title}</span>
+                            {event.target_status && <span className="ml-2 rounded bg-gray-100 px-2 py-1 text-xs">{event.target_status}</span>}
+                          </>
+                        ) : event.review_action === "update" ? (
+                          <span className="text-amber-700">No match found</span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-sm text-gray-600">
                         {event.message_timestamp ? new Date(event.message_timestamp).toLocaleString() : "—"}
                       </td>
                       <td className="px-4 py-3 text-sm">{event.sender_alias ?? "—"}</td>
                       <td className="max-w-xs px-4 py-3 text-sm text-gray-600">{event.message_text ?? "—"}</td>
-                      <td className="max-w-xs px-4 py-3 text-sm">{event.ai_summary ?? event.task_title ?? "—"}</td>
-                      <td className="px-4 py-3">
-                        <span className={`rounded px-2 py-1 text-xs font-medium ${
-                          event.item_type === "milestone" ? "bg-teal-100 text-teal-700" :
-                          event.item_type === "issue" ? "bg-red-100 text-red-700" :
-                          "bg-gray-100 text-gray-700"
-                        }`}>{event.item_type || "task"}</span>
-                      </td>
                       <td className="px-4 py-3"><span className="rounded bg-gray-100 px-2 py-1 text-xs">{event.event_type}</span></td>
                       <td className="px-4 py-3">
                         <select
@@ -477,19 +543,21 @@ export default function UploadPage() {
                           disabled={event.applied}
                         />
                       </td>
-                      <td className="px-4 py-3 text-sm">{event.confidence < 0.7 ? "⚠ " : ""}{(event.confidence * 100).toFixed(0)}%</td>
+                      <td className="px-4 py-3 text-sm">{event.confidence < 0.7 ? "Review " : ""}{(event.confidence * 100).toFixed(0)}%</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
+            ))}
           </section>
         )}
 
         {newMembers.length > 0 && (
           <section className="mt-6 rounded-lg border bg-white shadow-sm">
             <div className="flex items-center justify-between border-b px-6 py-4">
-              <h2 className="text-lg font-semibold">New Members Detected ({newMembers.length})</h2>
+              <h2 className="text-lg font-semibold">New Members Not Currently in System ({newMembers.length})</h2>
               <button
                 onClick={handleAddMembers}
                 disabled={loading || newMembers.every((member) => !member.add)}
