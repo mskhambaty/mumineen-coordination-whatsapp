@@ -183,6 +183,9 @@ All notification sends are fire-and-forget (failures never block the agent reply
 
 1. **Core** — schema (escalation fields + support/on-call tables), tool consolidation,
    `move_to_escalation` + guardrails + guest acknowledgment, Escalations tab + de-escalate.
+   ✅ **Done** (`20260531130000_escalation_and_support.sql`; `get_site_content_faq`;
+   `POST /api/escalations` + `PUT /api/admin/conversations/[phoneE164]/escalation`;
+   Escalations tab + De-escalate button).
 2. **Support management** — role membership UI under Memberships, on-call hours editor,
    inbox-access widening.
 3. **Notifications** — on-call evaluation, Postmark email (`escalation-request` template) +

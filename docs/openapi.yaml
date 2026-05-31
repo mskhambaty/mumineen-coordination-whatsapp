@@ -231,6 +231,60 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /admin/conversations/{phoneE164}/escalation:
+    put:
+      tags: [conversations]
+      summary: De-escalate or set the escalation status of a conversation.
+      description: Used by the Lead Inbox De-escalate button.
+      security: [{ adminKey: [] }]
+      parameters:
+        - name: phoneE164
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [resolved, pending, none] }
+      responses:
+        "200": { description: Updated escalation status. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /escalations:
+    post:
+      tags: [conversations]
+      summary: Escalate the caller's conversation to the human support team.
+      description: >-
+        Called by the agent's move_to_escalation tool. Identified by the
+        x-whatsapp-from header. Non-emergency escalations are declined until a
+        minimum number of inbound messages exist (deterministic last-resort gate).
+      security: [{ whatsappPhone: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason, priority, category]
+              properties:
+                reason: { type: string }
+                priority: { type: string, enum: [normal, urgent] }
+                category:
+                  type: string
+                  enum: [emergency, accommodation, transport, registration, schedule, facilities, complaint, other]
+                source: { type: string, enum: [ai, rule, manual] }
+      responses:
+        "200": { description: "Escalated, or declined by the last-resort guardrail." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /admin/analytics:
     get:
       tags: [conversations, tasks]

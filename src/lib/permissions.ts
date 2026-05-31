@@ -12,11 +12,8 @@ export type AppUser = {
 };
 
 export const publicTools = new Set([
-  "get_event_schedule",
-  "get_parking_info",
-  "get_directions",
-  "get_faq_answer",
-  "get_lost_found_info",
+  "get_site_content_faq",
+  "move_to_escalation",
 ]);
 
 export const committeeTools = new Set([

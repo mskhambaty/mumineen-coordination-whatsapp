@@ -43,6 +43,11 @@ type SessionRow = {
   created_at: string;
   handling_mode?: "ai" | "manual" | null;
   handling_mode_at?: string | null;
+  escalation_status?: "none" | "pending" | "resolved" | null;
+  escalation_reason?: string | null;
+  escalation_priority?: "normal" | "urgent" | null;
+  escalation_category?: string | null;
+  escalated_at?: string | null;
   user?: UserRelation | UserRelation[];
 };
 
@@ -57,7 +62,7 @@ export async function GET(req: NextRequest) {
 
   let sessionsQuery = supabase
     .from("conversation_sessions")
-    .select("id, phone_e164, user_id, current_intent, state, last_message_at, created_at, handling_mode, handling_mode_at, user:whatsapp_users!conversation_sessions_user_id_fkey(id, display_name, phone_e164, email, role, global_role)")
+    .select("id, phone_e164, user_id, current_intent, state, last_message_at, created_at, handling_mode, handling_mode_at, escalation_status, escalation_reason, escalation_priority, escalation_category, escalated_at, user:whatsapp_users!conversation_sessions_user_id_fkey(id, display_name, phone_e164, email, role, global_role)")
     .order("last_message_at", { ascending: false })
     .limit(limit);
 
@@ -117,6 +122,11 @@ export async function GET(req: NextRequest) {
       current_intent: session.current_intent,
       handling_mode: session.handling_mode ?? "ai",
       handling_mode_at: session.handling_mode_at ?? null,
+      escalation_status: session.escalation_status ?? "none",
+      escalation_reason: session.escalation_reason ?? null,
+      escalation_priority: session.escalation_priority ?? "normal",
+      escalation_category: session.escalation_category ?? null,
+      escalated_at: session.escalated_at ?? null,
       last_message_at: session.last_message_at,
       created_at: session.created_at,
       last_message: lastMessage,

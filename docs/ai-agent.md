@@ -79,11 +79,8 @@ All tools are defined in `src/lib/agent/tools.ts`.
 
 | Tool | Description |
 |------|-------------|
-| `get_event_schedule` | Ashara Mubarak 1447H schedule |
-| `get_parking_info` | Parking guidance |
-| `get_directions` | Venue directions |
-| `get_faq_answer` | FAQ answers |
-| `get_lost_found_info` | Lost and found guidance |
+| `get_site_content_faq` | Single public-info tool — looks up schedule, parking, directions, accommodation, registration, lost & found, and general FAQs from the indexed site content (RAG). Consolidates the former five `get_*` tools. |
+| `move_to_escalation` | **Last resort** — hands the conversation to the human support team. Deterministic guardrails enforced server-side in `/api/escalations` (see [escalation.md](./escalation.md)). |
 
 ### Committee Tools (role: `committee` or `admin`)
 
@@ -110,7 +107,17 @@ All tools are defined in `src/lib/agent/tools.ts`.
 
 ### Current Status
 
-Public event tools still return placeholder `"not_published"` or `"not_connected"` responses where the source system is not connected. Task tools are wired to the internal task APIs and are permission-gated by account role and department role.
+`get_site_content_faq` returns indexed site content (or `no_indexed_match` when nothing
+clears the similarity threshold). `move_to_escalation` is live and gated server-side. The
+committee tools (`get_volunteer_assignment`, etc.) still return `not_connected` placeholders.
+Task tools are wired to the internal task APIs and are permission-gated by account/department role.
+
+An always-on **Escalation Policy** block is appended to the system prompt in `run-agent.ts`
+so it can't be edited away: escalation is a last resort, never on a premature "talk to a
+human", and emergencies (lost child/passport, medical, security) escalate immediately as
+`urgent`. The hard turn-gate (min. inbound messages, emergency bypass) lives in
+`/api/escalations`. On a successful escalation the agent replies with a deterministic
+acknowledgment and skips the second completion.
 
 ## Tool Execution
 

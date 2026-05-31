@@ -13,6 +13,15 @@ export { SYSTEM_PROMPT };
 const HISTORY_MESSAGE_LIMIT = 12;
 const MAX_HISTORY_CHARS = 2000;
 
+// Always-on escalation guidance, appended to whatever system prompt is loaded so
+// it can't be edited away. The hard turn-gate lives server-side in /api/escalations.
+const ESCALATION_POLICY = `\n\n## Escalation Policy (last resort)
+You can answer almost every visitor question yourself using get_site_content_faq. Handing a conversation to a human via move_to_escalation is a LAST RESORT.
+- Always try to understand the request and answer it with get_site_content_faq first.
+- Never escalate just because the user asks for a person, especially early in the chat. First ask what they need and genuinely try to help; only escalate if you still cannot.
+- Escalate only when: you genuinely cannot help after trying; the user is clearly frustrated after you have tried; or there is an emergency (lost child, lost passport, medical, security). For emergencies set priority to 'urgent' immediately.
+- After a successful escalation the system confirms to the user that the team has been notified, so keep your closing reply brief.`;
+
 type AgentInput = {
   user: AppUser;
   phoneE164: string;
@@ -56,6 +65,8 @@ export async function runAgent(input: AgentInput) {
     systemContent += `\nDepartments: ${deptNames || "none"}\nCan read all: ${callerContext.can_read_all}\nCan write all: ${callerContext.can_write_all}`;
   }
 
+  systemContent += ESCALATION_POLICY;
+
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemContent },
   ];
@@ -93,6 +104,8 @@ export async function runAgent(input: AgentInput) {
 
   messages.push(firstMessage);
 
+  let escalationAck: string | null = null;
+
   for (const toolCall of firstMessage.tool_calls) {
     if (toolCall.type !== "function") {
       continue;
@@ -105,11 +118,22 @@ export async function runAgent(input: AgentInput) {
       callerContext,
     });
 
+    if (toolCall.function.name === "move_to_escalation" && isEscalated(toolResult)) {
+      escalationAck = escalationAcknowledgment(toolResult);
+    }
+
     messages.push({
       role: "tool",
       tool_call_id: toolCall.id,
       content: JSON.stringify(toolResult),
     });
+  }
+
+  // On a successful escalation, reply with a deterministic acknowledgment and skip
+  // the second completion. A 'declined' guardrail result falls through so the model
+  // keeps assisting normally.
+  if (escalationAck) {
+    return escalationAck;
   }
 
   const finalResponse = await client.chat.completions.create({
@@ -129,6 +153,21 @@ function parseToolArguments(rawArguments: string): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function isEscalated(result: unknown): result is { status: string; priority?: string } {
+  return (
+    typeof result === "object" &&
+    result !== null &&
+    (result as { status?: unknown }).status === "escalated"
+  );
+}
+
+function escalationAcknowledgment(result: { priority?: string }): string {
+  if (result.priority === "urgent") {
+    return "I understand this is urgent. I've alerted our support team right away — someone will reach out to you as soon as possible. Please keep this number reachable.";
+  }
+  return "I've passed this on to our support team, and someone will follow up with you shortly. Is there anything else I can help you with in the meantime?";
 }
 
 function fallbackReply() {

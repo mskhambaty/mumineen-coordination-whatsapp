@@ -19,13 +19,18 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "get_event_schedule",
-      description: "Get public Ashara Mubarak 1447H schedule information.",
+      name: "get_site_content_faq",
+      description:
+        "Look up answers to public visitor questions (schedule, parking, directions, accommodation/hotels, registration, lost and found, general FAQs) from the indexed official site content. Always try this before telling a visitor that information is unavailable.",
       parameters: {
         type: "object",
         properties: {
-          day: { type: "string", description: "Optional day or date the user asked about." },
+          query: {
+            type: "string",
+            description: "The visitor's question or topic to look up in the indexed site content.",
+          },
         },
+        required: ["query"],
         additionalProperties: false,
       },
     },
@@ -33,54 +38,37 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "get_parking_info",
-      description: "Get public parking guidance for event visitors.",
+      name: "move_to_escalation",
+      description:
+        "LAST RESORT ONLY. Hand the conversation to the human support team. Use this only after you have genuinely tried to help with get_site_content_faq and still cannot, or the user is clearly frustrated after you tried, or there is an emergency (lost child, lost passport, medical, security). Never escalate just because someone asks for a person early on — first ask what they need and try to help.",
       parameters: {
         type: "object",
         properties: {
-          location: { type: "string", description: "Optional parking area or venue hint." },
+          reason: {
+            type: "string",
+            description: "Concise reason for escalating, including what you already tried.",
+          },
+          priority: {
+            type: "string",
+            enum: ["normal", "urgent"],
+            description: "Use 'urgent' for emergencies or strong distress; otherwise 'normal'.",
+          },
+          category: {
+            type: "string",
+            enum: [
+              "emergency",
+              "accommodation",
+              "transport",
+              "registration",
+              "schedule",
+              "facilities",
+              "complaint",
+              "other",
+            ],
+            description: "Best-fit category for routing.",
+          },
         },
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_directions",
-      description: "Get public directions guidance.",
-      parameters: {
-        type: "object",
-        properties: {
-          from: { type: "string", description: "Optional starting point." },
-        },
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_faq_answer",
-      description: "Answer public event FAQ questions.",
-      parameters: {
-        type: "object",
-        properties: {
-          question: { type: "string", description: "The user's question." },
-        },
-        required: ["question"],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_lost_found_info",
-      description: "Get public lost and found guidance.",
-      parameters: {
-        type: "object",
-        properties: {},
+        required: ["reason", "priority", "category"],
         additionalProperties: false,
       },
     },
@@ -489,31 +477,22 @@ async function getPublicSiteInfo(query: string, fallbackMessage: string) {
 
 async function runTool(name: string, args: ToolInput, context: ToolContext) {
   switch (name) {
-    case "get_event_schedule":
+    case "get_site_content_faq":
       return getPublicSiteInfo(
-        `Ashara 1448 Chicago schedule programme dates daily waaz ${args.day ?? ""}`,
-        "No detailed day-by-day schedule has been published in the indexed site content yet.",
-      );
-    case "get_parking_info":
-      return getPublicSiteInfo(
-        `Ashara 1448 Chicago parking travel venue masjid ${args.location ?? ""}`,
-        "Parking guidance was not found in the indexed site content yet.",
-      );
-    case "get_directions":
-      return getPublicSiteInfo(
-        `Ashara 1448 Chicago directions travel venue masjid airport ORD MDW ${args.from ?? ""}`,
-        "Venue directions were not found in the indexed site content yet.",
-      );
-    case "get_faq_answer":
-      return getPublicSiteInfo(
-        String(args.question ?? "Ashara 1448 Chicago visitor question hotels travel venue get involved"),
+        String(args.query ?? "Ashara 1448 Chicago visitor information"),
         "I could not find an answer in the indexed site content yet.",
       );
-    case "get_lost_found_info":
-      return getPublicSiteInfo(
-        "Ashara 1448 Chicago lost found help contact helpline",
-        "Lost and found procedures were not found in the indexed site content yet.",
-      );
+    case "move_to_escalation":
+      return callInternalApi("/api/escalations", {
+        method: "POST",
+        phone: context.phoneE164,
+        body: {
+          reason: args.reason,
+          priority: args.priority,
+          category: args.category,
+          source: "ai",
+        },
+      });
     case "get_volunteer_assignment":
       return {
         status: "not_connected",

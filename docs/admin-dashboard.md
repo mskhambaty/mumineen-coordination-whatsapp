@@ -28,7 +28,8 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 
 ### Lead Inbox (`/admin/conversations`)
 - Three-pane WhatsApp inbox: conversation list, message thread, and agent tool-call log
-- Conversation list shows display name, last message, unread inbound count, and an AI/MANUAL badge
+- **Conversations / Escalations tabs** — escalated threads (`escalation_status = 'pending'`) move to the Escalations tab (urgent first), with a count badge. The **De-escalate** button on an escalated chat resolves it back to Conversations. See [escalation.md](./escalation.md).
+- Conversation list shows display name, last message, unread inbound count, an AI/MANUAL badge, and an ESCALATED/URGENT badge + category when escalated
 - **Agent ↔ Manual toggle** per conversation switches `handling_mode` via `PUT /api/admin/conversations/[phoneE164]/mode`. `manual` pauses the AI agent so an admin handles the thread by hand
 - Manual reply box (enabled only in Manual mode) sends a WhatsApp message via `POST /api/admin/conversations/[phoneE164]/messages`
 - Tool Calls pane lists agent actions for the thread with allowed/blocked status and arguments

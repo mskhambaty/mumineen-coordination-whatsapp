@@ -68,10 +68,42 @@ One row per phone number; upserted on every message.
 | `handling_mode` | text | `ai` \| `manual` (default: `ai`). `manual` pauses the agent so admins reply by hand from the Lead Inbox |
 | `handling_mode_at` | timestamptz | When the handling mode last changed (nullable) |
 | `handling_mode_by` | uuid | FK → `whatsapp_users.id` (nullable on delete) — admin who changed the mode |
+| `escalation_status` | text | `none` \| `pending` \| `resolved` (default `none`). `pending` = shown in the Escalations tab. Orthogonal to `handling_mode` — the AI keeps replying |
+| `escalation_reason` | text | Why the conversation was escalated (nullable) |
+| `escalation_priority` | text | `normal` \| `urgent` (default `normal`) |
+| `escalation_category` | text | Routing tag, e.g. `emergency`, `transport`, `accommodation` (nullable) |
+| `escalated_at` | timestamptz | When it was last escalated (nullable) |
+| `escalation_source` | text | `ai` \| `rule` \| `manual` (nullable) |
 | `last_message_at` | timestamptz | Updated each exchange |
 | `created_at` | timestamptz | Auto |
 
-Indexes: `(handling_mode)`, `(last_message_at desc)`.
+Indexes: `(handling_mode)`, `(last_message_at desc)`, `(escalation_status)`.
+
+### `escalation_support_members`
+
+Membership in this table **is** the `escalation/support` role (see [escalation.md](./escalation.md)).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `user_id` | uuid | Unique FK → `whatsapp_users.id` (cascade delete) |
+| `created_at` | timestamptz | Auto |
+
+### `escalation_oncall_hours`
+
+Weekly-recurring on-call windows, evaluated in `America/Chicago`. Only on-call members are
+alerted about escalations.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `member_id` | uuid | FK → `escalation_support_members.id` (cascade delete) |
+| `day_of_week` | smallint | 0–6 (Sun–Sat) |
+| `start_time` | time | Local start (America/Chicago) |
+| `end_time` | time | Local end |
+| `created_at` | timestamptz | Auto |
+
+Index: `(member_id)`. Multiple rows per member (multiple ranges per day).
 
 ### `committee_permissions`
 
@@ -141,6 +173,8 @@ Project-management tickets used by the WhatsApp agent and admin portal.
 | `status` | text | `open` \| `in_progress` \| `blocked` \| `complete` |
 | `priority` | text | `low` \| `medium` \| `high`, default `medium` |
 | `archived` | boolean | Soft-delete flag, default `false` |
+| `item_type` | text | `task` \| `issue` (default `task`) |
+| `origin` | text | `external` \| `internal` (default `internal`). `external` = issues raised from the inbox via `create_issue` |
 | `assigned_to` | uuid | FK → `whatsapp_users.id` |
 | `created_by` | uuid | FK → `whatsapp_users.id` |
 | `source` | text | `transcript` \| `whatsapp_agent` \| `manual` |
