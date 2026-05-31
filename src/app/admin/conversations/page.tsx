@@ -36,6 +36,11 @@ type Conversation = {
   current_intent: string | null;
   handling_mode: HandlingMode;
   handling_mode_at: string | null;
+  escalation_status: "none" | "pending" | "resolved";
+  escalation_reason: string | null;
+  escalation_priority: "normal" | "urgent";
+  escalation_category: string | null;
+  escalated_at: string | null;
   last_message_at: string;
   last_message: Message | null;
   unread_inbound_count: number;
@@ -49,15 +54,38 @@ export default function ConversationsPage() {
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingMode, setSavingMode] = useState(false);
+  const [savingEscalation, setSavingEscalation] = useState(false);
+  const [tab, setTab] = useState<"conversations" | "escalations">("conversations");
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
+  const escalatedCount = useMemo(
+    () => conversations.filter((conversation) => conversation.escalation_status === "pending").length,
+    [conversations],
+  );
+
+  // Escalated threads live in the Escalations tab (urgent first); everything else
+  // stays in Conversations.
+  const visibleConversations = useMemo(() => {
+    const inEscalations = (c: Conversation) => c.escalation_status === "pending";
+    const list = conversations.filter((c) => (tab === "escalations" ? inEscalations(c) : !inEscalations(c)));
+    if (tab === "escalations") {
+      return [...list].sort((a, b) => {
+        if (a.escalation_priority !== b.escalation_priority) {
+          return a.escalation_priority === "urgent" ? -1 : 1;
+        }
+        return b.last_message_at.localeCompare(a.last_message_at);
+      });
+    }
+    return list;
+  }, [conversations, tab]);
+
   const selected = useMemo(
-    () => conversations.find((conversation) => conversation.phone_e164 === selectedPhone) ?? conversations[0] ?? null,
-    [conversations, selectedPhone],
+    () => visibleConversations.find((conversation) => conversation.phone_e164 === selectedPhone) ?? visibleConversations[0] ?? null,
+    [visibleConversations, selectedPhone],
   );
 
   useEffect(() => {
@@ -161,6 +189,31 @@ export default function ConversationsPage() {
     }
   }
 
+  async function resolveEscalation() {
+    if (!selected || selected.escalation_status !== "pending") return;
+    setSavingEscalation(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/admin/conversations/${encodeURIComponent(selected.phone_e164)}/escalation`, {
+        method: "PUT",
+        body: JSON.stringify({ status: "resolved" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error ?? "Failed to de-escalate");
+      }
+      setConversations((items) =>
+        items.map((item) =>
+          item.phone_e164 === selected.phone_e164 ? { ...item, escalation_status: "resolved" } : item,
+        ),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to de-escalate");
+    } finally {
+      setSavingEscalation(false);
+    }
+  }
+
   async function sendReply(event: React.FormEvent) {
     event.preventDefault();
     if (!selected || !reply.trim()) return;
@@ -191,21 +244,39 @@ export default function ConversationsPage() {
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{error}</div>}
 
-        <div className="grid min-h-[720px] grid-cols-1 overflow-hidden rounded-lg border bg-white shadow-sm lg:grid-cols-[320px_minmax(0,1fr)_320px] dark:border-gray-800 dark:bg-gray-900">
+        <div className="grid min-h-[720px] grid-cols-1 overflow-hidden rounded-lg border bg-white shadow-sm lg:h-[720px] lg:grid-cols-[320px_minmax(0,1fr)_320px] dark:border-gray-800 dark:bg-gray-900">
           <aside className="border-b bg-gray-50 lg:border-b-0 lg:border-r dark:border-gray-800 dark:bg-gray-900/40">
             <div className="border-b px-4 py-3 dark:border-gray-800">
-              <div className="flex items-center justify-between">
-                <h2 className="font-semibold">Conversations</h2>
+              <div className="mb-2 flex items-center justify-between">
+                <div className="flex gap-1 text-sm font-medium">
+                  <button
+                    onClick={() => setTab("conversations")}
+                    className={`rounded-md px-2 py-1 ${tab === "conversations" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}
+                  >
+                    Conversations
+                  </button>
+                  <button
+                    onClick={() => setTab("escalations")}
+                    className={`flex items-center gap-1 rounded-md px-2 py-1 ${tab === "escalations" ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}
+                  >
+                    Escalations
+                    {escalatedCount > 0 && (
+                      <span className="rounded-full bg-amber-500 px-1.5 text-xs text-white">{escalatedCount}</span>
+                    )}
+                  </button>
+                </div>
                 <button onClick={() => void loadConversations()} className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">Refresh</button>
               </div>
             </div>
             <div className="max-h-[668px] overflow-y-auto">
               {loading ? (
                 <p className="p-4 text-sm text-gray-500 dark:text-gray-400">Loading...</p>
-              ) : conversations.length === 0 ? (
-                <p className="p-4 text-sm text-gray-500 dark:text-gray-400">No conversations yet.</p>
+              ) : visibleConversations.length === 0 ? (
+                <p className="p-4 text-sm text-gray-500 dark:text-gray-400">
+                  {tab === "escalations" ? "No escalations." : "No conversations yet."}
+                </p>
               ) : (
-                conversations.map((conversation) => (
+                visibleConversations.map((conversation) => (
                   <button
                     key={conversation.id}
                     onClick={() => setSelectedPhone(conversation.phone_e164)}
@@ -215,10 +286,20 @@ export default function ConversationsPage() {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <p className="truncate font-medium">{conversation.display_name || conversation.phone_e164}</p>
-                      <span className={`rounded-full px-2 py-0.5 text-xs ${conversation.handling_mode === "manual" ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"}`}>
-                        {conversation.handling_mode.toUpperCase()}
-                      </span>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {conversation.escalation_status === "pending" && (
+                          <span className={`rounded-full px-2 py-0.5 text-xs ${conversation.escalation_priority === "urgent" ? "bg-red-500 text-white" : "bg-amber-500 text-white"}`}>
+                            {conversation.escalation_priority === "urgent" ? "URGENT" : "ESCALATED"}
+                          </span>
+                        )}
+                        <span className={`rounded-full px-2 py-0.5 text-xs ${conversation.handling_mode === "manual" ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"}`}>
+                          {conversation.handling_mode.toUpperCase()}
+                        </span>
+                      </div>
                     </div>
+                    {conversation.escalation_status === "pending" && conversation.escalation_category && (
+                      <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">#{conversation.escalation_category}</p>
+                    )}
                     <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">{conversation.last_message?.body || "No message body"}</p>
                     <div className="mt-2 flex items-center justify-between text-xs text-gray-400 dark:text-gray-500">
                       <span>{formatDate(conversation.last_message_at)}</span>
@@ -239,8 +320,24 @@ export default function ConversationsPage() {
                   <div>
                     <h2 className="text-lg font-semibold">{selected.display_name || selected.phone_e164}</h2>
                     <p className="text-sm text-gray-500 dark:text-gray-400">{selected.phone_e164}{selected.email ? ` · ${selected.email}` : ""}</p>
+                    {selected.escalation_status === "pending" && (
+                      <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+                        Escalated{selected.escalation_category ? ` · #${selected.escalation_category}` : ""}{selected.escalation_priority === "urgent" ? " · URGENT" : ""}
+                        {selected.escalation_reason ? ` — ${selected.escalation_reason}` : ""}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-3">
+                    {selected.escalation_status === "pending" && (
+                      <button
+                        type="button"
+                        onClick={() => void resolveEscalation()}
+                        disabled={savingEscalation}
+                        className="rounded-md bg-amber-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+                      >
+                        {savingEscalation ? "Saving…" : "De-escalate"}
+                      </button>
+                    )}
                     <span className={`text-sm font-medium ${!isManual ? "text-blue-600 dark:text-blue-400" : "text-gray-400 dark:text-gray-500"}`}>Agent</span>
                     <button
                       type="button"
@@ -261,11 +358,11 @@ export default function ConversationsPage() {
               )}
             </div>
 
-            <div className="flex-1 space-y-3 overflow-y-auto bg-gray-50 p-5 dark:bg-gray-950/40">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-gray-50 p-5 dark:bg-gray-950/40">
               {selected?.messages.map((message) => (
                 <div key={message.id} className={`flex ${message.direction === "outbound" ? "justify-end" : "justify-start"}`}>
                   <div className={`max-w-[78%] rounded-lg border px-4 py-3 shadow-sm ${message.direction === "outbound" ? "bg-blue-600 text-white dark:bg-blue-700" : "bg-white text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"}`}>
-                    <p className="whitespace-pre-wrap text-sm leading-6">{message.body || `[${message.message_type || "message"}]`}</p>
+                    <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.body || `[${message.message_type || "message"}]`}</p>
                     <p className={`mt-2 text-xs ${message.direction === "outbound" ? "text-blue-100" : "text-gray-400 dark:text-gray-500"}`}>{formatDate(message.created_at)}</p>
                   </div>
                 </div>

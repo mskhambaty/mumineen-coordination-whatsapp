@@ -113,17 +113,17 @@ export default function AnalyticsPage() {
   return (
     <>
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+        {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{error}</div>}
 
-        <div className="mb-5 flex flex-col gap-3 rounded-lg border bg-white p-4 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+        <div className="mb-5 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 p-4 shadow-sm lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h2 className="text-lg font-semibold">Task and WhatsApp Health</h2>
-            <p className="text-sm text-gray-500">Task counts follow the selected department. WhatsApp metrics show the last 30 days.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Task counts follow the selected department. WhatsApp metrics show the last 30 days.</p>
           </div>
           <select
             value={departmentId}
             onChange={(event) => setDepartmentId(event.target.value)}
-            className="rounded-md border px-3 py-2 text-sm"
+            className="rounded-md border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
           >
             <option value="all">All departments</option>
             {data?.departments.map((department) => (
@@ -133,7 +133,7 @@ export default function AnalyticsPage() {
         </div>
 
         {loading || !data ? (
-          <div className="rounded-lg border bg-white p-10 text-center text-gray-500 shadow-sm">Loading analytics...</div>
+          <div className="rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 p-10 text-center text-gray-500 dark:text-gray-400 shadow-sm">Loading analytics...</div>
         ) : (
           <>
             <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -195,16 +195,16 @@ export default function AnalyticsPage() {
                     <div key={department.department_id}>
                       <div className="mb-1 flex items-center justify-between gap-3 text-sm">
                         <span className="truncate font-medium">{department.department_name}</span>
-                        <span className="text-gray-500">{department.total}</span>
+                        <span className="text-gray-500 dark:text-gray-400">{department.total}</span>
                       </div>
-                      <div className="h-2 rounded-full bg-gray-100">
+                      <div className="h-2 rounded-full bg-gray-100 dark:bg-gray-700">
                         <div
                           className="h-2 rounded-full bg-blue-600"
                           style={{ width: `${Math.max(4, (department.total / maxDepartmentTotal) * 100)}%` }}
                         />
                       </div>
                       {(department.blocked > 0 || department.overdue > 0) && (
-                        <p className="mt-1 text-xs text-gray-500">{department.blocked} blocked · {department.overdue} overdue</p>
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{department.blocked} blocked · {department.overdue} overdue</p>
                       )}
                     </div>
                   ))}
@@ -228,7 +228,7 @@ export default function AnalyticsPage() {
                     const total = day.inbound + day.outbound;
                     return (
                       <div key={day.date} className="flex min-w-0 flex-1 flex-col items-center gap-1">
-                        <div className="flex h-44 w-full items-end rounded-sm bg-gray-100">
+                        <div className="flex h-44 w-full items-end rounded-sm bg-gray-100 dark:bg-gray-700">
                           <div
                             className="w-full rounded-sm bg-green-500"
                             title={`${day.date}: ${total} messages`}
@@ -245,37 +245,37 @@ export default function AnalyticsPage() {
                 {data.conversations.top_tools.length > 0 ? (
                   <BarRows rows={data.conversations.top_tools.map((tool) => ({ label: tool.name, value: tool.count, color: "bg-slate-600" }))} />
                 ) : (
-                  <p className="text-sm text-gray-500">No tool calls in the last 30 days.</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">No tool calls in the last 30 days.</p>
                 )}
               </Panel>
             </section>
 
-            <section className="mt-6 rounded-lg border bg-white shadow-sm">
-              <div className="border-b px-5 py-4">
+            <section className="mt-6 rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 shadow-sm">
+              <div className="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
                 <h2 className="text-lg font-semibold">Overdue Tasks</h2>
               </div>
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
+                  <thead className="bg-gray-50 dark:bg-gray-800/60">
                     <tr>
-                      <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500">Task</th>
-                      <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500">Department</th>
-                      <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500">Priority</th>
-                      <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500">Due</th>
+                      <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Task</th>
+                      <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Department</th>
+                      <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Priority</th>
+                      <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Due</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-200">
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
                     {data.tasks.overdue_list.map((task) => (
                       <tr key={task.id}>
                         <td className="px-5 py-4 text-sm font-medium">{task.title}</td>
-                        <td className="px-5 py-4 text-sm text-gray-600">{task.department_name}</td>
-                        <td className="px-5 py-4 text-sm capitalize text-gray-600">{task.priority}</td>
-                        <td className="px-5 py-4 text-sm text-gray-600">{task.due_date}</td>
+                        <td className="px-5 py-4 text-sm text-gray-600 dark:text-gray-300">{task.department_name}</td>
+                        <td className="px-5 py-4 text-sm capitalize text-gray-600 dark:text-gray-300">{task.priority}</td>
+                        <td className="px-5 py-4 text-sm text-gray-600 dark:text-gray-300">{task.due_date}</td>
                       </tr>
                     ))}
                     {data.tasks.overdue_list.length === 0 && (
                       <tr>
-                        <td className="px-5 py-8 text-center text-sm text-gray-500" colSpan={4}>No overdue tasks.</td>
+                        <td className="px-5 py-8 text-center text-sm text-gray-500 dark:text-gray-400" colSpan={4}>No overdue tasks.</td>
                       </tr>
                     )}
                   </tbody>
@@ -309,8 +309,8 @@ function Metric({
   };
 
   return (
-    <div className={`rounded-lg border bg-white shadow-sm ${compact ? "p-4" : "p-5"}`}>
-      <p className="text-sm text-gray-500">{label}</p>
+    <div className={`rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 shadow-sm ${compact ? "p-4" : "p-5"}`}>
+      <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
       <p className={`mt-2 font-bold ${compact ? "text-2xl" : "text-3xl"} ${tones[tone]}`}>{value}</p>
     </div>
   );
@@ -318,7 +318,7 @@ function Metric({
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border bg-white p-5 shadow-sm">
+    <div className="rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 p-5 shadow-sm">
       <h2 className="mb-4 text-lg font-semibold">{title}</h2>
       {children}
     </div>
@@ -334,9 +334,9 @@ function BarRows({ rows }: { rows: Array<{ label: string; value: number; color: 
         <div key={row.label}>
           <div className="mb-1 flex items-center justify-between gap-3 text-sm">
             <span className="truncate font-medium">{row.label}</span>
-            <span className="text-gray-500">{row.value}</span>
+            <span className="text-gray-500 dark:text-gray-400">{row.value}</span>
           </div>
-          <div className="h-2 rounded-full bg-gray-100">
+          <div className="h-2 rounded-full bg-gray-100 dark:bg-gray-700">
             <div
               className={`h-2 rounded-full ${row.color}`}
               style={{ width: `${Math.max(row.value === 0 ? 0 : 4, (row.value / max) * 100)}%` }}

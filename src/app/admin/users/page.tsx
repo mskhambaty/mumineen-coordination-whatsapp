@@ -378,7 +378,7 @@ export default function UsersPage() {
   }
 
   if (loading) {
-    return <div className="flex items-center justify-center py-20"><p className="text-gray-500">Loading...</p></div>;
+    return <div className="flex items-center justify-center py-20"><p className="text-gray-500 dark:text-gray-400">Loading...</p></div>;
   }
 
   return (
@@ -394,7 +394,7 @@ export default function UsersPage() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         {error && (
-          <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
             {error}
           </div>
         )}
@@ -402,23 +402,23 @@ export default function UsersPage() {
         {/* Add User Modal */}
         {showAddUser && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="bg-white dark:bg-gray-900 rounded-lg p-6 w-full max-w-md">
               <h3 className="text-lg font-semibold mb-4">Add User</h3>
               <form onSubmit={addUser} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Display Name *</label>
-                  <input type="text" required value={newUser.display_name} onChange={(e) => setNewUser({ ...newUser, display_name: e.target.value })} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Display Name *</label>
+                  <input type="text" required value={newUser.display_name} onChange={(e) => setNewUser({ ...newUser, display_name: e.target.value })} className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Phone (E.164) *</label>
-                  <input type="text" required value={newUser.phone_e164} onChange={(e) => setNewUser({ ...newUser, phone_e164: e.target.value })} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="+1234567890" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Phone (E.164) *</label>
+                  <input type="text" required value={newUser.phone_e164} onChange={(e) => setNewUser({ ...newUser, phone_e164: e.target.value })} className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md" placeholder="+1234567890" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Email</label>
-                  <input type="email" value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
+                  <input type="email" value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Account Role</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Account Role</label>
                   <select
                     value={newUser.role}
                     onChange={(e) => {
@@ -429,7 +429,7 @@ export default function UsersPage() {
                         global_role: role === "admin" ? "leadership_admin" : newUser.global_role,
                       });
                     }}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md"
                   >
                     {USER_ROLE_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>{option.label}</option>
@@ -438,8 +438,8 @@ export default function UsersPage() {
                 </div>
                 {selectedDepartment && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Department Role in {selectedDepartment.name}</label>
-                    <select value={newUserDeptRole} onChange={(e) => setNewUserDeptRole(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Department Role in {selectedDepartment.name}</label>
+                    <select value={newUserDeptRole} onChange={(e) => setNewUserDeptRole(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md">
                       {DEPT_ROLE_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
                       ))}
@@ -447,7 +447,7 @@ export default function UsersPage() {
                   </div>
                 )}
                 <div className="flex justify-end space-x-3">
-                  <button type="button" onClick={() => setShowAddUser(false)} className="px-4 py-2 text-gray-600">Cancel</button>
+                  <button type="button" onClick={() => setShowAddUser(false)} className="px-4 py-2 text-gray-600 dark:text-gray-300">Cancel</button>
                   <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Add</button>
                 </div>
               </form>
@@ -457,41 +457,41 @@ export default function UsersPage() {
 
         {editingUser && editForm && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-lg">
+            <div className="bg-white dark:bg-gray-900 rounded-lg p-6 w-full max-w-lg">
               <h3 className="text-lg font-semibold mb-4">Edit User</h3>
               <form onSubmit={saveUser} className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-2">
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Display Name
                     <input
                       type="text"
                       value={editForm.display_name}
                       onChange={(event) => setEditForm({ ...editForm, display_name: event.target.value })}
-                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md"
                     />
                   </label>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Phone (E.164)
                     <input
                       type="text"
                       required
                       value={editForm.phone_e164}
                       onChange={(event) => setEditForm({ ...editForm, phone_e164: event.target.value })}
-                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md"
                     />
                   </label>
                 </div>
-                <label className="block text-sm font-medium text-gray-700">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Email
                   <input
                     type="email"
                     value={editForm.email}
                     onChange={(event) => setEditForm({ ...editForm, email: event.target.value })}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md"
                   />
                 </label>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Account Role
                     <select
                       value={editForm.role}
@@ -503,19 +503,19 @@ export default function UsersPage() {
                           global_role: role === "admin" ? "leadership_admin" : editForm.global_role,
                         });
                       }}
-                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md"
                     >
                       {USER_ROLE_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
                       ))}
                     </select>
                   </label>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Status
                     <select
                       value={editForm.status}
                       onChange={(event) => setEditForm({ ...editForm, status: event.target.value })}
-                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md"
                     >
                       {STATUS_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
@@ -530,7 +530,7 @@ export default function UsersPage() {
                       setEditingUser(null);
                       setEditForm(null);
                     }}
-                    className="px-4 py-2 text-gray-600"
+                    className="px-4 py-2 text-gray-600 dark:text-gray-300"
                   >
                     Cancel
                   </button>
@@ -548,19 +548,19 @@ export default function UsersPage() {
         )}
 
         {selectedDepartment && (
-          <div className="mb-6 rounded-lg border bg-white p-5 shadow-sm">
+          <div className="mb-6 rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 p-5 shadow-sm">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
               <div className="flex-1">
-                <h2 className="text-lg font-semibold text-gray-900">Add to {selectedDepartment.name}</h2>
-                <p className="text-sm text-gray-500">Choose an existing user or create a new user with this department already assigned.</p>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Add to {selectedDepartment.name}</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Choose an existing user or create a new user with this department already assigned.</p>
               </div>
               <form onSubmit={addExistingUser} className="grid flex-1 gap-3 md:grid-cols-[minmax(0,1fr)_140px_auto] md:items-end">
-                <label className="text-sm text-gray-700">
+                <label className="text-sm text-gray-700 dark:text-gray-300">
                   Existing User
                   <select
                     value={existingUserId}
                     onChange={(event) => setExistingUserId(event.target.value)}
-                    className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                    className="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm"
                   >
                     <option value="">Select user...</option>
                     {addableUsers.map((user) => (
@@ -570,12 +570,12 @@ export default function UsersPage() {
                     ))}
                   </select>
                 </label>
-                <label className="text-sm text-gray-700">
+                <label className="text-sm text-gray-700 dark:text-gray-300">
                   Role
                   <select
                     value={existingUserDeptRole}
                     onChange={(event) => setExistingUserDeptRole(event.target.value)}
-                    className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                    className="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm"
                   >
                     {DEPT_ROLE_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>{option.label}</option>
@@ -595,23 +595,23 @@ export default function UsersPage() {
         )}
 
         {/* Users Table */}
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden mb-8">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden mb-8">
           <div className="flex flex-col gap-3 border-b px-6 py-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">Users</h2>
-              <p className="text-sm text-gray-500">{filteredUsers.length} of {users.length} users shown</p>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Users</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{filteredUsers.length} of {users.length} users shown</p>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
-              <label className="flex flex-col gap-1 text-sm text-gray-700 md:min-w-72">
+              <label className="flex flex-col gap-1 text-sm text-gray-700 dark:text-gray-300 md:min-w-72">
                 Search
                 <input
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                   placeholder="Name, phone, email, role..."
-                  className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+                  className="rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm"
                 />
               </label>
-              <label className="flex flex-col gap-1 text-sm text-gray-700 md:min-w-72">
+              <label className="flex flex-col gap-1 text-sm text-gray-700 dark:text-gray-300 md:min-w-72">
                 Department
                 <select
                   value={selectedDepartmentId}
@@ -619,7 +619,7 @@ export default function UsersPage() {
                     setSelectedDepartmentId(event.target.value);
                     setExistingUserId("");
                   }}
-                  className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+                  className="rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm"
                 >
                   <option value="all">All departments</option>
                   {departments.map((department) => (
@@ -630,31 +630,31 @@ export default function UsersPage() {
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
+              <thead className="bg-gray-50 dark:bg-gray-800/60">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Display Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Phone</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Account Role</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Display Name</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Phone</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Email</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Account Role</th>
                   {selectedDepartment && (
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dept Role</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Dept Role</th>
                   )}
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
                 {filteredUsers.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-50">
+                  <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                     <td className="px-6 py-4 font-medium">{user.display_name ?? "—"}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600">{user.phone_e164}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600">{user.email ?? "—"}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{user.phone_e164}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{user.email ?? "—"}</td>
                     <td className="px-6 py-4">
                       <select
                         value={user.role}
                         onChange={(e) => updateUser(user.id, "role", e.target.value)}
-                        className="text-sm border rounded px-2 py-1"
+                        className="text-sm border border-gray-200 rounded px-2 py-1 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                       >
                         {USER_ROLE_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>{option.label}</option>
@@ -667,14 +667,14 @@ export default function UsersPage() {
                           <select
                             value={user.department_role ?? "member"}
                             onChange={(event) => void updateDepartmentRole(user, event.target.value)}
-                            className="text-sm border rounded px-2 py-1"
+                            className="text-sm border border-gray-200 rounded px-2 py-1 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                           >
                             {DEPT_ROLE_OPTIONS.map((option) => (
                               <option key={option.value} value={option.value}>{option.label}</option>
                             ))}
                           </select>
                         ) : (
-                          <span className="text-sm text-gray-400">Not assigned</span>
+                          <span className="text-sm text-gray-400 dark:text-gray-500 dark:text-gray-400">Not assigned</span>
                         )}
                       </td>
                     )}
@@ -682,7 +682,7 @@ export default function UsersPage() {
                       <select
                         value={user.status}
                         onChange={(e) => updateUser(user.id, "status", e.target.value)}
-                        className="text-sm border rounded px-2 py-1"
+                        className="text-sm border border-gray-200 rounded px-2 py-1 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                       >
                         {STATUS_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>{option.label}</option>
@@ -716,7 +716,7 @@ export default function UsersPage() {
                 ))}
                 {filteredUsers.length === 0 && (
                   <tr>
-                    <td colSpan={selectedDepartment ? 7 : 6} className="px-6 py-8 text-center text-sm text-gray-500">
+                    <td colSpan={selectedDepartment ? 7 : 6} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                       No users match the current filters.
                     </td>
                   </tr>
@@ -727,22 +727,22 @@ export default function UsersPage() {
         </div>
 
         {/* Permission Matrix */}
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden">
           <div className="px-6 py-4 border-b">
-            <h2 className="text-lg font-semibold text-gray-900">Permission Matrix</h2>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Permission Matrix</h2>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
+              <thead className="bg-gray-50 dark:bg-gray-800/60">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Member</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">PM</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">HOD</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Leadership / Admin</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Action</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Member</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">PM</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">HOD</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Leadership / Admin</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
                 {[
                   ["View assigned tasks", true, true, true, true],
                   ["View all tasks in assigned dept", false, true, true, true],
@@ -756,7 +756,7 @@ export default function UsersPage() {
                   ["Manage users & members", false, false, false, true],
                 ].map(([action, member, pm, hod, admin], i) => (
                   <tr key={i}>
-                    <td className="px-6 py-3 text-sm text-gray-700">{action as string}</td>
+                    <td className="px-6 py-3 text-sm text-gray-700 dark:text-gray-300">{action as string}</td>
                     <td className="px-6 py-3 text-center">{member ? "✅" : "❌"}</td>
                     <td className="px-6 py-3 text-center">{pm ? "✅" : "❌"}</td>
                     <td className="px-6 py-3 text-center">{hod ? "✅" : "❌"}</td>

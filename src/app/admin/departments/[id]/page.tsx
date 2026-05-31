@@ -16,7 +16,7 @@ type Task = {
 };
 
 const statusColors: Record<string, string> = {
-  open: "bg-gray-100 text-gray-700",
+  open: "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300",
   in_progress: "bg-blue-100 text-blue-700",
   blocked: "bg-red-100 text-red-700",
   complete: "bg-green-100 text-green-700",
@@ -109,7 +109,7 @@ export default function DepartmentDetailPage() {
   }
 
   if (loading) {
-    return <div className="flex items-center justify-center py-20"><p className="text-gray-500">Loading...</p></div>;
+    return <div className="flex items-center justify-center py-20"><p className="text-gray-500 dark:text-gray-400">Loading...</p></div>;
   }
 
   return (
@@ -128,49 +128,49 @@ export default function DepartmentDetailPage() {
         {/* New Task Modal */}
         {showNewTask && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="bg-white dark:bg-gray-900 rounded-lg p-6 w-full max-w-md">
               <h3 className="text-lg font-semibold mb-4">New Task</h3>
               <form onSubmit={createTask} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Title *</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Title *</label>
                   <input
                     type="text"
                     required
                     value={newTask.title}
                     onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Description</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
                   <textarea
                     value={newTask.description}
                     onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md"
                     rows={3}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Assign To</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Assign To</label>
                   <input
                     type="text"
                     value={newTask.assigned_to_alias}
                     onChange={(e) => setNewTask({ ...newTask, assigned_to_alias: e.target.value })}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md"
                     placeholder="Person's name"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Due Date</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Due Date</label>
                   <input
                     type="date"
                     value={newTask.due_date}
                     onChange={(e) => setNewTask({ ...newTask, due_date: e.target.value })}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md"
                   />
                 </div>
                 <div className="flex justify-end space-x-3">
-                  <button type="button" onClick={() => setShowNewTask(false)} className="px-4 py-2 text-gray-600 hover:text-gray-800">Cancel</button>
+                  <button type="button" onClick={() => setShowNewTask(false)} className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-800">Cancel</button>
                   <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Create</button>
                 </div>
               </form>
@@ -179,28 +179,28 @@ export default function DepartmentDetailPage() {
         )}
 
         {/* Tasks Table */}
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
+              <thead className="bg-gray-50 dark:bg-gray-800/60">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Title</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned To</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Due Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Source</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Updated</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Title</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Assigned To</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Due Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Source</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Updated</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
                 {tasks.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-gray-500">No tasks yet</td>
+                    <td colSpan={6} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">No tasks yet</td>
                   </tr>
                 ) : (
                   tasks.map((task) => (
-                    <tr key={task.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 font-medium text-gray-900">{task.title}</td>
+                    <tr key={task.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                      <td className="px-6 py-4 font-medium text-gray-900 dark:text-gray-100">{task.title}</td>
                       <td className="px-6 py-4">
                         <select
                           value={task.status}
@@ -213,10 +213,10 @@ export default function DepartmentDetailPage() {
                           <option value="complete">Complete</option>
                         </select>
                       </td>
-                      <td className="px-6 py-4 text-gray-600">{task.assignee?.display_name ?? "—"}</td>
-                      <td className="px-6 py-4 text-gray-600">{task.due_date ?? "—"}</td>
-                      <td className="px-6 py-4 text-gray-500 text-sm">{task.source}</td>
-                      <td className="px-6 py-4 text-gray-500 text-sm">{new Date(task.updated_at).toLocaleDateString()}</td>
+                      <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{task.assignee?.display_name ?? "—"}</td>
+                      <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{task.due_date ?? "—"}</td>
+                      <td className="px-6 py-4 text-gray-500 dark:text-gray-400 text-sm">{task.source}</td>
+                      <td className="px-6 py-4 text-gray-500 dark:text-gray-400 text-sm">{new Date(task.updated_at).toLocaleDateString()}</td>
                     </tr>
                   ))
                 )}

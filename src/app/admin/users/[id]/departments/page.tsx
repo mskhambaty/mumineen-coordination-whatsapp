@@ -93,7 +93,7 @@ export default function UserDepartmentsPage() {
   }
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center"><p className="text-gray-500">Loading...</p></div>;
+    return <div className="min-h-screen flex items-center justify-center"><p className="text-gray-500 dark:text-gray-400">Loading...</p></div>;
   }
 
   return (
@@ -103,7 +103,7 @@ export default function UserDepartmentsPage() {
           <div className="flex justify-between h-16 items-center">
             <div className="flex items-center space-x-4">
               <Link href="/admin/users" className="text-blue-600 hover:underline">← Users</Link>
-              <h1 className="text-xl font-bold text-gray-900">{userName} — Departments</h1>
+              <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">{userName} — Departments</h1>
             </div>
           </div>
         </div>
@@ -111,29 +111,29 @@ export default function UserDepartmentsPage() {
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Current Memberships */}
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden mb-8">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden mb-8">
           <div className="px-6 py-4 border-b">
             <h2 className="text-lg font-semibold">Current Memberships</h2>
           </div>
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
+            <thead className="bg-gray-50 dark:bg-gray-800/60">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Department</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Role</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200">
+            <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
               {memberships.length === 0 ? (
-                <tr><td colSpan={4} className="px-6 py-4 text-center text-gray-500">No department memberships</td></tr>
+                <tr><td colSpan={4} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">No department memberships</td></tr>
               ) : (
                 memberships.map((m) => (
                   <tr key={m.id}>
                     <td className="px-6 py-4">{m.department_name}</td>
                     <td className="px-6 py-4 text-sm">{m.dept_role.toUpperCase()}</td>
                     <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded text-xs ${m.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"}`}>
+                      <span className={`px-2 py-1 rounded text-xs ${m.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300"}`}>
                         {m.is_active ? "Active" : "Inactive"}
                       </span>
                     </td>
@@ -152,12 +152,12 @@ export default function UserDepartmentsPage() {
         </div>
 
         {/* Add Membership */}
-        <div className="bg-white rounded-lg shadow-sm border p-6">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
           <h3 className="text-lg font-semibold mb-4">Add Membership</h3>
           <form onSubmit={addMembership} className="flex space-x-4 items-end">
             <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700">Department</label>
-              <select value={newDept} onChange={(e) => setNewDept(e.target.value)} required className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Department</label>
+              <select value={newDept} onChange={(e) => setNewDept(e.target.value)} required className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md">
                 <option value="">Select...</option>
                 {departments.map((d) => (
                   <option key={d.id} value={d.id}>{d.name}</option>
@@ -165,8 +165,8 @@ export default function UserDepartmentsPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Role</label>
-              <select value={newRole} onChange={(e) => setNewRole(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Role</label>
+              <select value={newRole} onChange={(e) => setNewRole(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md">
                 <option value="member">Member</option>
                 <option value="pm">PM</option>
                 <option value="hod">HOD</option>

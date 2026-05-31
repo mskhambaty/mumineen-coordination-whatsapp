@@ -58,7 +58,7 @@ const statuses: { id: TaskStatus; label: string }[] = [
 const priorityClasses: Record<TaskPriority, string> = {
   high: "bg-red-100 text-red-700 border-red-200",
   medium: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  low: "bg-gray-100 text-gray-700 border-gray-200",
+  low: "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-200",
 };
 
 const emptyForm: TaskForm = {
@@ -227,7 +227,7 @@ export default function KanbanPage() {
   return (
     <>
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div className="mb-5 flex flex-col gap-3 rounded-lg border bg-white p-4 shadow-sm lg:flex-row lg:items-center">
+        <div className="mb-5 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 p-4 shadow-sm lg:flex-row lg:items-center">
           <select value={departmentId} onChange={(event) => setDepartmentId(event.target.value)} className="rounded-md border px-3 py-2 text-sm">
             <option value="all">All departments</option>
             {departments.map((department) => (
@@ -251,45 +251,45 @@ export default function KanbanPage() {
             <option value="task">Tasks only</option>
             <option value="issue">Issues only</option>
           </select>
-          <label className="flex items-center gap-2 text-sm text-gray-700">
+          <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
             <input type="checkbox" checked={!includeComplete} onChange={(event) => setIncludeComplete(!event.target.checked)} />
             Show only open
           </label>
-          <div className="lg:ml-auto text-sm text-gray-500">{totalOpen} active tasks</div>
+          <div className="lg:ml-auto text-sm text-gray-500 dark:text-gray-400">{totalOpen} active tasks</div>
         </div>
 
         {loading ? (
-          <div className="py-16 text-center text-gray-500">Loading board...</div>
+          <div className="py-16 text-center text-gray-500 dark:text-gray-400">Loading board...</div>
         ) : (
           <div className="grid gap-4 lg:grid-cols-4">
             {statuses.map((column) => (
-              <section key={column.id} className="min-h-[28rem] rounded-lg border bg-white">
+              <section key={column.id} className="min-h-[28rem] rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
                 <div className="flex items-center justify-between border-b px-4 py-3">
                   <h2 className="font-semibold">{column.label}</h2>
-                  <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">{board[column.id].length}</span>
+                  <span className="rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-1 text-xs text-gray-600 dark:text-gray-300">{board[column.id].length}</span>
                 </div>
                 <div className="space-y-3 p-3">
                   {board[column.id].map((task) => (
                     <article key={task.id} className="rounded-md border bg-white p-3 shadow-sm">
                       <div className="flex items-start justify-between gap-2">
-                        <button onClick={() => openEditTask(task)} className="text-left font-medium text-gray-900 hover:text-blue-700">
+                        <button onClick={() => openEditTask(task)} className="text-left font-medium text-gray-900 dark:text-gray-100 hover:text-blue-700">
                           {task.title}
                         </button>
                         <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${priorityClasses[task.priority]}`}>
                           {task.priority}
                         </span>
                       </div>
-                      {task.description && <p className="mt-2 line-clamp-2 text-sm text-gray-600">{task.description}</p>}
-                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-500">
-                        <span className="rounded bg-gray-100 px-2 py-1">{task.departments?.name ?? "Department"}</span>
-                        <span className="rounded bg-gray-100 px-2 py-1">{task.source}</span>
+                      {task.description && <p className="mt-2 line-clamp-2 text-sm text-gray-600 dark:text-gray-300">{task.description}</p>}
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-500 dark:text-gray-400">
+                        <span className="rounded bg-gray-100 dark:bg-gray-700 px-2 py-1">{task.departments?.name ?? "Department"}</span>
+                        <span className="rounded bg-gray-100 dark:bg-gray-700 px-2 py-1">{task.source}</span>
                         {task.item_type === "issue" && (
                           <span className="rounded bg-orange-100 px-2 py-1 text-orange-700 font-medium">Issue</span>
                         )}
                       </div>
-                      <div className="mt-3 text-sm text-gray-600">
+                      <div className="mt-3 text-sm text-gray-600 dark:text-gray-300">
                         <div>{task.assignee?.display_name ?? "Unassigned"}</div>
-                        <div className={isOverdue(task) ? "font-medium text-red-600" : "text-gray-500"}>
+                        <div className={isOverdue(task) ? "font-medium text-red-600" : "text-gray-500 dark:text-gray-400"}>
                           {task.due_date ? `Due ${task.due_date}` : "No due date"}
                         </div>
                       </div>
@@ -297,10 +297,10 @@ export default function KanbanPage() {
                         <select value={task.status} onChange={(event) => updateTask(task, { status: event.target.value as TaskStatus })} className="min-w-0 flex-1 rounded-md border px-2 py-1 text-xs">
                           {statuses.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}
                         </select>
-                        <button onClick={() => archiveTask(task)} className="rounded-md border px-2 py-1 text-xs text-gray-600 hover:border-green-200 hover:text-green-600">
+                        <button onClick={() => archiveTask(task)} className="rounded-md border px-2 py-1 text-xs text-gray-600 dark:text-gray-300 hover:border-green-200 hover:text-green-600">
                           Close
                         </button>
-                        <button onClick={() => deleteTask(task)} className="rounded-md border px-2 py-1 text-xs text-gray-600 hover:border-red-200 hover:text-red-600">
+                        <button onClick={() => deleteTask(task)} className="rounded-md border px-2 py-1 text-xs text-gray-600 dark:text-gray-300 hover:border-red-200 hover:text-red-600">
                           Delete
                         </button>
                       </div>
@@ -327,7 +327,7 @@ export default function KanbanPage() {
           <form onSubmit={saveTask} className="w-full max-w-xl rounded-lg bg-white p-6 shadow-xl dark:bg-gray-900">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold">{form.id ? "Edit" : "New"} {form.item_type === "issue" ? "Issue" : "Task"}</h3>
-              <button type="button" onClick={() => setForm(null)} className="text-gray-500 hover:text-gray-800">Close</button>
+              <button type="button" onClick={() => setForm(null)} className="text-gray-500 dark:text-gray-400 hover:text-gray-800">Close</button>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="sm:col-span-2 text-sm font-medium">
@@ -379,7 +379,7 @@ export default function KanbanPage() {
               </label>
             </div>
             <div className="mt-6 flex justify-end gap-3">
-              <button type="button" onClick={() => setForm(null)} className="rounded-md px-4 py-2 text-gray-600 hover:text-gray-900">Cancel</button>
+              <button type="button" onClick={() => setForm(null)} className="rounded-md px-4 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100">Cancel</button>
               <button type="submit" disabled={saving} className="rounded-md bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50">
                 {saving ? "Saving..." : "Save"}
               </button>
