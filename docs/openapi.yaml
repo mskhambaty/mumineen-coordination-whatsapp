@@ -433,6 +433,30 @@ paths:
         "200": { description: Deleted. }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /admin/profile:
+    put:
+      tags: [users]
+      summary: Update the signed-in user's own display name and/or password.
+      description: Changing the password requires the correct current password. Identified by the user id in the body.
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string, format: uuid }
+                display_name: { type: string }
+                current_password: { type: string }
+                new_password: { type: string, minLength: 8 }
+      responses:
+        "200": { description: Updated profile. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { description: Unauthorized or current password incorrect. }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /admin/scrape:
     post:
       tags: [conversations]

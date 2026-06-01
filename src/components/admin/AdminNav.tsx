@@ -8,7 +8,8 @@ import { useEffect, useRef, useState } from "react";
 //  admin  = admin/leadership only
 //  inbox  = admin/leadership or escalation support members
 //  manage = admin/leadership or department PM/HOD
-type Access = "admin" | "inbox" | "manage";
+//  any    = any signed-in user
+type Access = "admin" | "inbox" | "manage" | "any";
 
 type NavLink = { href: string; label: string; access: Access; exact?: boolean };
 
@@ -43,6 +44,7 @@ const standaloneLinks: NavLink[] = [
 
 const trailingLinks: NavLink[] = [
   { href: "/admin/users", label: "Users", access: "admin" },
+  { href: "/admin/profile", label: "Profile", access: "any" },
 ];
 
 export default function AdminNav() {
@@ -76,6 +78,7 @@ export default function AdminNav() {
   });
 
   function canSee(itemAccess: Access) {
+    if (itemAccess === "any") return true;
     if (itemAccess === "admin") return access.isAdmin;
     if (itemAccess === "inbox") return access.isAdmin || access.isSupport;
     return access.isAdmin || access.isManager; // manage

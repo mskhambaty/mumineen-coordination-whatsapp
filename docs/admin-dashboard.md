@@ -82,6 +82,11 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - Add new membership (department + role selector)
 - Deactivate existing memberships
 
+### Profile (`/admin/profile`)
+- Available to **any signed-in user** (Profile link in the nav).
+- Edit own **display name**; email is read-only (it's the login identity).
+- **Change password** — requires the correct current password; new password ≥ 8 chars. Backed by `PUT /api/admin/profile` (scrypt-hashed).
+
 ## Authentication
 
 The dashboard uses a simple token-based auth:
