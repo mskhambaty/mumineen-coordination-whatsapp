@@ -20,20 +20,20 @@ type DropdownGroup = {
 
 const dropdownGroups: DropdownGroup[] = [
   {
-    label: "WhatsApp",
+    label: "External",
     links: [
       { href: "/admin/conversations", label: "Inbox", access: "inbox" },
       { href: "/admin/prompt", label: "AI Prompt Management", access: "admin" },
       { href: "/admin/escalation", label: "Escalation/Support", access: "admin" },
+      { href: "/admin/knowledge", label: "FAQ & Guides", access: "manage" },
     ],
   },
   {
-    label: "Management",
+    label: "Internal",
     links: [
       { href: "/admin/milestones", label: "Milestones", access: "manage" },
       { href: "/admin/tasks", label: "Task Management", access: "manage" },
       { href: "/admin/upload", label: "Upload Transcripts", access: "manage" },
-      { href: "/admin/knowledge", label: "FAQ & Guides", access: "manage" },
     ],
   },
 ];
