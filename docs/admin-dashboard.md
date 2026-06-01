@@ -84,7 +84,7 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 
 ### Profile (`/admin/profile`)
 - Available to **any signed-in user** (Profile link in the nav).
-- Edit own **display name**; email is read-only (it's the login identity).
+- Edit own **display name**; email is read-only for non-admins (it's the login identity). **Admins/leadership can change their own email** (validated and checked for uniqueness).
 - **Change password** — requires the correct current password; new password ≥ 8 chars. Backed by `PUT /api/admin/profile` (scrypt-hashed).
 
 ## Authentication

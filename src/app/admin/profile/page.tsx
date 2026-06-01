@@ -11,12 +11,25 @@ type StoredUser = {
   global_role?: string | null;
 };
 
+function readStoredUser(): StoredUser | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem("admin_user");
+    return raw ? (JSON.parse(raw) as StoredUser) : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function ProfilePage() {
   const router = useRouter();
-  const [user, setUser] = useState<StoredUser | null>(null);
-  const [displayName, setDisplayName] = useState("");
+  const [user, setUser] = useState<StoredUser | null>(() => readStoredUser());
+  const [displayName, setDisplayName] = useState(() => readStoredUser()?.display_name ?? "");
+  const [email, setEmail] = useState(() => readStoredUser()?.email ?? "");
   const [savingName, setSavingName] = useState(false);
   const [nameMsg, setNameMsg] = useState<string | null>(null);
+
+  const isAdmin = user?.global_role === "leadership_admin" || user?.role === "admin";
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -28,15 +41,9 @@ export default function ProfilePage() {
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    if (!localStorage.getItem("admin_token")) {
       router.push("/admin/login");
-      return;
     }
-    const raw = localStorage.getItem("admin_user");
-    const parsed = raw ? (JSON.parse(raw) as StoredUser) : null;
-    setUser(parsed);
-    setDisplayName(parsed?.display_name ?? "");
   }, [router]);
 
   function apiFetch(path: string, init?: RequestInit) {
@@ -53,14 +60,17 @@ export default function ProfilePage() {
     setNameMsg(null);
     setError(null);
     try {
+      const payload: Record<string, unknown> = { id: user.id, display_name: displayName };
+      if (isAdmin) payload.email = email;
       const res = await apiFetch("/api/admin/profile", {
         method: "PUT",
-        body: JSON.stringify({ id: user.id, display_name: displayName }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Failed to update profile");
-      const next = { ...user, display_name: data.display_name };
+      const next = { ...user, display_name: data.display_name, email: data.email };
       setUser(next);
+      setEmail(data.email ?? "");
       localStorage.setItem("admin_user", JSON.stringify(next));
       setNameMsg("Saved");
     } catch (err) {
@@ -130,8 +140,20 @@ export default function ProfilePage() {
             <input value={displayName} onChange={(e) => { setDisplayName(e.target.value); setNameMsg(null); }} className={inputClass} />
           </label>
           <label className="block text-sm text-gray-700 dark:text-gray-300">
-            Email <span className="text-gray-400">(used to sign in — contact an admin to change)</span>
-            <input value={user?.email ?? ""} disabled className={`${inputClass} cursor-not-allowed opacity-70`} />
+            Email{" "}
+            <span className="text-gray-400">
+              {isAdmin ? "(used to sign in)" : "(used to sign in — contact an admin to change)"}
+            </span>
+            {isAdmin ? (
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => { setEmail(e.target.value); setNameMsg(null); }}
+                className={inputClass}
+              />
+            ) : (
+              <input value={user?.email ?? ""} disabled className={`${inputClass} cursor-not-allowed opacity-70`} />
+            )}
           </label>
           <div className="text-sm text-gray-700 dark:text-gray-300">
             Role

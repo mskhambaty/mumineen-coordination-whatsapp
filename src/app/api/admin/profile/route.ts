@@ -10,9 +10,12 @@ export const runtime = "nodejs";
 type ProfileBody = {
   id?: unknown;
   display_name?: unknown;
+  email?: unknown;
   current_password?: unknown;
   new_password?: unknown;
 };
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // PUT: a signed-in user updates their own display name and/or password.
 // Changing the password requires the correct current password.
@@ -28,13 +31,14 @@ export async function PUT(req: NextRequest) {
   }
 
   const displayName = typeof body.display_name === "string" ? body.display_name.trim() : undefined;
+  const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : undefined;
   const currentPassword = typeof body.current_password === "string" ? body.current_password : "";
   const newPassword = typeof body.new_password === "string" ? body.new_password : "";
 
   const supabase = getSupabaseAdmin();
   const { data: user, error: lookupError } = await supabase
     .from("whatsapp_users")
-    .select("id, display_name, email, password_hash")
+    .select("id, display_name, email, password_hash, role, global_role")
     .eq("id", id)
     .maybeSingle();
 
@@ -49,6 +53,27 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Display name can't be empty" }, { status: 400 });
     }
     updates.display_name = displayName;
+  }
+
+  // Email is the login identity, so only admins/leadership may change their own.
+  if (email !== undefined && email !== (user.email ?? "").toLowerCase()) {
+    const isAdmin = user.role === "admin" || user.global_role === "leadership_admin";
+    if (!isAdmin) {
+      return NextResponse.json({ error: "Only an admin can change the email" }, { status: 403 });
+    }
+    if (!EMAIL_RE.test(email)) {
+      return NextResponse.json({ error: "Enter a valid email address" }, { status: 400 });
+    }
+    const { data: taken } = await supabase
+      .from("whatsapp_users")
+      .select("id")
+      .ilike("email", email)
+      .neq("id", id)
+      .maybeSingle();
+    if (taken) {
+      return NextResponse.json({ error: "That email is already in use" }, { status: 409 });
+    }
+    updates.email = email;
   }
 
   if (newPassword) {
