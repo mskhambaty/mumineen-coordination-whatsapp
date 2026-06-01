@@ -19,7 +19,9 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await getSupabaseAdmin()
     .from("knowledge_documents")
-    .select("id, title, filename, file_type, status, chunk_count, error, created_at, department:departments(name)")
+    .select(
+      "id, title, filename, file_type, status, chunk_count, error, created_at, department:departments(name), uploader:whatsapp_users!knowledge_documents_uploaded_by_fkey(display_name)",
+    )
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -53,11 +55,14 @@ export async function POST(req: NextRequest) {
   const departmentId = typeof departmentIdRaw === "string" && departmentIdRaw ? departmentIdRaw : null;
   const titleRaw = form?.get("title");
   const title = (typeof titleRaw === "string" && titleRaw.trim()) || file.name;
+  const uploadedByRaw = form?.get("uploaded_by");
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const uploadedBy = typeof uploadedByRaw === "string" && UUID_RE.test(uploadedByRaw) ? uploadedByRaw : null;
 
   const supabase = getSupabaseAdmin();
   const { data: doc, error: insertError } = await supabase
     .from("knowledge_documents")
-    .insert({ department_id: departmentId, title, filename: file.name, file_type: type, status: "processing" })
+    .insert({ department_id: departmentId, title, filename: file.name, file_type: type, status: "processing", uploaded_by: uploadedBy })
     .select("id")
     .single();
 

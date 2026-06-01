@@ -17,6 +17,7 @@ type KnowledgeDoc = {
   error: string | null;
   created_at: string;
   department: { name: string } | null;
+  uploader: { display_name: string | null } | null;
 };
 
 const STATUS_CLASSES: Record<KnowledgeDoc["status"], string> = {
@@ -84,6 +85,13 @@ export default function KnowledgePage() {
       body.append("file", file);
       if (departmentId) body.append("department_id", departmentId);
       if (title.trim()) body.append("title", title.trim());
+      try {
+        const userRaw = localStorage.getItem("admin_user");
+        const uid = userRaw ? (JSON.parse(userRaw) as { id?: string }).id : undefined;
+        if (uid) body.append("uploaded_by", uid);
+      } catch {
+        // no stored user id; upload without attribution
+      }
 
       const res = await fetch("/api/knowledge", {
         method: "POST",
@@ -201,15 +209,16 @@ export default function KnowledgePage() {
                 <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Department</th>
                 <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Status</th>
                 <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Chunks</th>
+                <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Uploaded by</th>
                 <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Uploaded</th>
                 <th className="px-5 py-3" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
               {loading ? (
-                <tr><td colSpan={7} className="px-5 py-8 text-center text-sm text-gray-500 dark:text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={8} className="px-5 py-8 text-center text-sm text-gray-500 dark:text-gray-400">Loading...</td></tr>
               ) : documents.length === 0 ? (
-                <tr><td colSpan={7} className="px-5 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No documents yet. Upload one above.</td></tr>
+                <tr><td colSpan={8} className="px-5 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No documents yet. Upload one above.</td></tr>
               ) : (
                 documents.map((doc) => (
                   <tr key={doc.id}>
@@ -223,6 +232,9 @@ export default function KnowledgePage() {
                       )}
                     </td>
                     <td className="px-5 py-4 text-sm text-gray-600 dark:text-gray-300">{doc.chunk_count}</td>
+                    <td className="px-5 py-4 text-sm text-gray-600 dark:text-gray-300">
+                      {doc.uploader?.display_name ?? (doc.file_type === "faq" ? "Learned from chat" : "—")}
+                    </td>
                     <td className="px-5 py-4 text-sm text-gray-500 dark:text-gray-400">{formatDate(doc.created_at)}</td>
                     <td className="px-5 py-4 text-right">
                       <button

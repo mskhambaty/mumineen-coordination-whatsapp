@@ -51,7 +51,7 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 ### FAQ & Guides (`/admin/knowledge`)
 - Upload customer-facing facts, FAQs, and guides as **CSV, Excel (.xlsx/.xls), Word (.docx), or PDF** (≤ 15 MB)
 - Extracted text is chunked, embedded, and indexed into `site_content` (`page_url = knowledge://<id>`), so the WhatsApp agent answers from it via `get_site_content_faq` — same vector store as the scraped site/hotel sheet
-- Document list shows status (processing/indexed/failed), chunk count, department, and a delete action (removes the document and its vectors)
+- Document list shows status (processing/indexed/failed), chunk count, department, **who uploaded it**, and a delete action (removes the document and its vectors). Entries created from approved conversation suggestions show "Learned from chat".
 - Access: **admin/leadership and department PM/HOD** (`POST/GET /api/knowledge`, `DELETE /api/knowledge/[id]`). Scanned/image-only PDFs can't be read.
 
 ### Prompt — Learn from Conversations (`/admin/prompt`)
