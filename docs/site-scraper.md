@@ -31,10 +31,14 @@ At query time, the agent retrieves the most relevant chunks and injects them int
 
 ## RAG Retrieval (`retrieveSiteContext`)
 
-1. Embed the user's message with `AI_EMBEDDING_MODEL` from `src/lib/ai/model.ts`.
+1. Prefix the query with a short **event-context anchor** (`EVENT_CONTEXT`), then embed it with
+   `AI_EMBEDDING_MODEL` from `src/lib/ai/model.ts`. The anchor is what lets terse questions
+   (e.g. just "accommodation") retrieve as well as fully-phrased ones — without it, one-word
+   queries embed too far from the event-specific chunks to clear the floor.
 2. Call `match_site_content` Supabase RPC with:
-   - `match_threshold: 0.75` (cosine similarity)
-   - `match_count: 3` (top-K results)
+   - `match_threshold: 0.42` (cosine similarity — modest, since `text-embedding-3-small`
+     similarities run lower in absolute terms; too high drops valid matches)
+   - `match_count: 5` (top-K results)
 3. Format results as `[Page Title]\nContent` blocks separated by `---`.
 4. Inject into the agent system prompt under `## Current Site Information`.
 
