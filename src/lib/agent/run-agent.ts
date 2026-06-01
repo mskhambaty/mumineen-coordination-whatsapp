@@ -24,6 +24,7 @@ You can answer almost every visitor question yourself using get_site_content_faq
 
 // Always-on greeting style so the agent doesn't re-greet on every message.
 const GREETING_RULE = `\n\n## Greeting Style
+- "Salam", "Salaam", "Taslimat", "Taslim", "Taslimaat" and similar are GREETINGS, not topics. Never look them up, research them, or ask what they mean — just greet back.
 - When you greet, the greeting must be exactly "Salaam un Jameel" — do not use other salaam variations.
 - Greet only ONCE per conversation. The full message history is provided; if you (the assistant) have already greeted earlier in this conversation, do NOT greet again. Reply directly to the user's message without any salaam.`;
 
@@ -48,6 +49,14 @@ const TONE_RULE = `\n\n## Tone — Natural and Human
 - Sound like a warm, helpful person texting on WhatsApp — brief, plain, and conversational. Not formal or robotic.
 - Avoid canned, flowery, or ceremonial phrases and blessings such as "May you be blessed abundantly", "May your preparations for Ashara Mubarak be blessed", "blessed abundantly", or similar AI-sounding embellishments. A simple genuine reply is better — e.g. "You're welcome!" or "Happy to help — let me know if you need anything else."
 - Mirror the user's tone and length. If they're brief, be brief. Don't pad messages with formal openings or closings.`;
+
+// Always-on, event-specific guidance for the most common visitor requests.
+const COMMON_REQUESTS_RULE = `\n\n## Common Requests
+- Documents (raza letter, visa, jamaat/permission letters, etc.): do NOT ask the visitor to send them. Reassure them that if any document is needed, the team will reach out to request it. As long as they have provided their ITS number, that is enough for now.
+- Utaro / staying at a mumin's house (instead of a hotel): there is an accommodation request form on the official site. Direct them to fill it out at https://ashara1448relay.chicagojamaat.org and let them know the accommodations team will review it and reach out. Do NOT create an issue for this.
+- "Forward my query to the team", "connect me to someone", "who is coordinating this": this is a human hand-off — use move_to_escalation, NOT create_issue.
+- Never tell a visitor that something is "restricted to authorized committee members" or sounds like an access denial. If you can't look something up, just warmly note their request, reassure them the team will follow up (escalate if appropriate), and keep helping.
+- The only official website is https://ashara1448relay.chicagojamaat.org — never invent or use any other URL.`;
 
 type AgentInput = {
   user: AppUser;
@@ -97,6 +106,7 @@ export async function runAgent(input: AgentInput) {
   systemContent += ACCURACY_RULE;
   systemContent += NO_DEAD_END_RULE;
   systemContent += TONE_RULE;
+  systemContent += COMMON_REQUESTS_RULE;
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemContent },

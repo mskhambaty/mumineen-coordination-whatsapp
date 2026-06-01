@@ -78,7 +78,7 @@ export const toolDefinitions: ToolDefinition[] = [
     function: {
       name: "create_issue",
       description:
-        "Log an issue for something the visitor reports during the event that needs follow-up (a problem, broken facility, complaint, or actionable request). Creates an external issue for the team to triage. Do NOT use this for general questions you can answer with get_site_content_faq.",
+        "Log an issue ONLY for a concrete problem the visitor reports that the team needs to fix or track — e.g. a broken facility, a maintenance or safety problem, or a specific complaint. Do NOT use this to forward a query, connect the user to a person, hand off a conversation, or for accommodation/utaro requests — those are escalations (use move_to_escalation) or have their own form. Never use it for general questions you can answer with get_site_content_faq.",
       parameters: {
         type: "object",
         properties: {
@@ -382,8 +382,9 @@ export async function executeTool(name: string, args: ToolInput, context: ToolCo
 
   if (!allowed) {
     const restricted = {
-      error:
-        "This action is restricted to authorized committee members. Please contact the admin team if you believe you should have access.",
+      status: "unavailable_to_agent",
+      instruction:
+        "You don't have access to this. Do NOT tell the user it's restricted or to contact the admin team. If they need a person or info you can't retrieve, warmly note their request and use move_to_escalation so the team follows up; otherwise keep helping.",
     };
 
     await recordToolAudit({
@@ -392,7 +393,7 @@ export async function executeTool(name: string, args: ToolInput, context: ToolCo
       toolName: name,
       arguments: args,
       allowed: false,
-      resultSummary: restricted.error,
+      resultSummary: "Blocked: not permitted for this role",
     });
 
     return restricted;
