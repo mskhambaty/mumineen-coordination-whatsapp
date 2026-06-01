@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { canAccessInbox } from "@/lib/admin/access";
 
@@ -66,6 +66,8 @@ export default function ConversationsPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
@@ -252,19 +254,28 @@ export default function ConversationsPage() {
 
   async function sendReply(event: React.FormEvent) {
     event.preventDefault();
-    if (!selected || !reply.trim()) return;
+    if (!selected || (!reply.trim() && !attachment)) return;
     setSending(true);
     setError(null);
     try {
-      const res = await apiFetch(`/api/admin/conversations/${encodeURIComponent(selected.phone_e164)}/messages`, {
-        method: "POST",
-        body: JSON.stringify({ body: reply }),
-      });
+      const path = `/api/admin/conversations/${encodeURIComponent(selected.phone_e164)}/messages`;
+      let res: Response;
+      if (attachment) {
+        // Image attachment goes as multipart; let the browser set the boundary header.
+        const form = new FormData();
+        form.append("image", attachment);
+        if (reply.trim()) form.append("caption", reply.trim());
+        res = await fetch(path, { method: "POST", headers: { "x-admin-key": adminKey }, body: form });
+      } else {
+        res = await apiFetch(path, { method: "POST", body: JSON.stringify({ body: reply }) });
+      }
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data.error ?? "Failed to send reply");
       }
       setReply("");
+      setAttachment(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
       await loadConversations();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send reply");
@@ -448,18 +459,46 @@ export default function ConversationsPage() {
                 <p className="text-sm font-medium">Manual WhatsApp Reply</p>
                 {selected?.handling_mode !== "manual" && <p className="text-xs text-amber-700 dark:text-amber-400">Switch to Manual before replying.</p>}
               </div>
+              {attachment && (
+                <div className="mb-2 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">
+                  <span className="truncate">📎 {attachment.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => { setAttachment(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+                    className="ml-auto shrink-0 text-blue-600 hover:text-red-600 dark:text-blue-400 dark:hover:text-red-400"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
               <div className="flex gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(event) => setAttachment(event.target.files?.[0] ?? null)}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={!selected || selected.handling_mode !== "manual" || sending}
+                  title="Attach an image"
+                  className="shrink-0 rounded-md border px-3 text-lg text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                >
+                  📎
+                </button>
                 <textarea
                   value={reply}
                   onChange={(event) => setReply(event.target.value)}
                   rows={2}
                   disabled={!selected || selected.handling_mode !== "manual" || sending}
-                  placeholder="Type a WhatsApp reply"
+                  placeholder={attachment ? "Add a caption (optional)" : "Type a WhatsApp reply"}
                   className="min-h-[56px] flex-1 resize-none rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500 dark:disabled:bg-gray-800/50"
                 />
                 <button
                   type="submit"
-                  disabled={!selected || selected.handling_mode !== "manual" || !reply.trim() || sending}
+                  disabled={!selected || selected.handling_mode !== "manual" || (!reply.trim() && !attachment) || sending}
                   className="w-24 rounded-md bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300 dark:disabled:bg-gray-700"
                 >
                   {sending ? "Sending" : "Send"}

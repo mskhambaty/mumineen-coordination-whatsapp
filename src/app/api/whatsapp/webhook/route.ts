@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { runAgent } from "@/lib/agent/run-agent";
+import { describeIncomingImage } from "@/lib/agent/vision";
 import { optionalEnv } from "@/lib/env";
-import { sendWhatsAppText, verifyMetaSignature } from "@/lib/meta/whatsapp";
+import { fetchWhatsAppMedia, sendWhatsAppText, verifyMetaSignature } from "@/lib/meta/whatsapp";
 import {
   getSupabaseAdmin,
   getOrCreateWhatsappUser,
@@ -98,10 +99,16 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
     return true;
   }
 
+  // For image messages, read the image into text so the agent can answer over it
+  // (screenshots of ITS pages, tickets, forms, etc.) using its normal tools/RAG.
+  const agentMessage = message.media
+    ? await buildImageAgentMessage(message.media, message.body)
+    : message.body;
+
   const reply = await runAgent({
     user,
     phoneE164: message.phoneE164,
-    message: message.body,
+    message: agentMessage,
   });
 
   const metaResponse = await sendWhatsAppText(message.phoneE164, reply);
@@ -120,6 +127,30 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
   });
 
   return true;
+}
+
+async function buildImageAgentMessage(
+  media: NonNullable<IncomingWhatsAppMessage["media"]>,
+  fallbackBody: string,
+): Promise<string> {
+  try {
+    const { buffer, mimeType } = await fetchWhatsAppMedia(media.id);
+    const description = await describeIncomingImage({
+      buffer,
+      mimeType: media.mimeType ?? mimeType,
+      caption: media.caption,
+    });
+    const lead = media.caption
+      ? `The visitor sent an image with the caption: "${media.caption}".`
+      : "The visitor sent an image (no caption).";
+    return `${lead}\n\n[Image contents, read by the system]: ${description}`.trim();
+  } catch (error) {
+    console.error("Failed to read inbound image", error);
+    return (
+      fallbackBody ||
+      "The visitor sent an image but it could not be read. Politely ask them to describe what they need, or to resend it."
+    );
+  }
 }
 
 function isAllowedBusinessPhone(message: IncomingWhatsAppMessage) {

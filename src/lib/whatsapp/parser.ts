@@ -6,6 +6,8 @@ export type IncomingWhatsAppMessage = {
   whatsappMessageId: string;
   body: string;
   messageType: string;
+  // Present for image messages: the Meta media id to download, plus any caption.
+  media?: { id: string; mimeType?: string; caption?: string };
   rawMessage: unknown;
 };
 
@@ -33,6 +35,11 @@ type WhatsAppMessage = {
     list_reply?: {
       title?: string;
     };
+  };
+  image?: {
+    id?: string;
+    mime_type?: string;
+    caption?: string;
   };
 };
 
@@ -75,6 +82,10 @@ export function extractIncomingMessages(payload: unknown): IncomingWhatsAppMessa
         }
 
         const contact = contacts.find((item) => item.wa_id === message.from);
+        const media =
+          message.type === "image" && message.image?.id
+            ? { id: message.image.id, mimeType: message.image.mime_type, caption: message.image.caption?.trim() }
+            : undefined;
 
         return [
           {
@@ -87,6 +98,7 @@ export function extractIncomingMessages(payload: unknown): IncomingWhatsAppMessa
             whatsappMessageId: message.id,
             body: getMessageBody(message),
             messageType: message.type,
+            media,
             rawMessage: {
               metadata: metadata ?? null,
               message,
@@ -113,6 +125,10 @@ function getMessageBody(message: WhatsAppMessage) {
       message.interactive?.list_reply?.title?.trim() ??
       ""
     );
+  }
+
+  if (message.type === "image") {
+    return message.image?.caption?.trim() ?? "";
   }
 
   return "";

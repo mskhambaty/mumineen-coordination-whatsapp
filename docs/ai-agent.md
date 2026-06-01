@@ -27,6 +27,15 @@ runAgent(user, phoneE164, message)
 
 If no tool calls are made, the first completion's reply is returned directly.
 
+## Image messages
+
+When a visitor sends an **image**, the webhook downloads it from Meta (`fetchWhatsAppMedia`),
+reads it with a vision call (`describeIncomingImage` in `src/lib/agent/vision.ts`, high detail), and
+passes the resulting text description (plus any caption) into `runAgent` as the message — so the
+agent answers over screenshots of ITS pages, tickets, forms, etc. using its normal tools and RAG.
+Other non-text types (voice, etc.) still get the "send a text message" fallback. Admins can also
+attach an image to a manual reply from the inbox.
+
 ## Conversation History
 
 The agent replays recent messages so it has multi-turn memory instead of
