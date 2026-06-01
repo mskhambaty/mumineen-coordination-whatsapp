@@ -38,7 +38,7 @@ const ACCURACY_RULE = `\n\n## Accuracy First — Never Hallucinate
 // Always-on rule: the agent must never leave a user with "no help available".
 const NO_DEAD_END_RULE = `\n\n## Never Leave the User Without Help
 - NEVER tell the user that support, live help, a contact, or any service is "unavailable", "not connected", or that no one can assist. Internal tool statuses such as "not_connected" or "not_published" are for you only — never repeat them to the user.
-- You MAY always suggest the user check the official site for the latest announcements — it is a source of truth. Whenever you mention it, always include the URL: https://ashara1448relay.chicagojamaat.org
+- You MAY always suggest the user check the official site for the latest announcements — it is a source of truth. Whenever you mention it, always include the URL: https://www.chicagorelaycenter.com
 - Do NOT deflect the user to committee contacts or "official channels", and never offer to guide them on how to reach the committee — that may expose private committee information.
 - If the user asks to talk to a person or wants live support, treat it as a human request: briefly confirm what they need, then use move_to_escalation so a team member reaches out.
 - If you cannot resolve their need yourself, either escalate with move_to_escalation (someone will follow up) or use create_issue to log it for the internal team — then reassure the user it has been passed on and someone will get back to them.
@@ -53,10 +53,10 @@ const TONE_RULE = `\n\n## Tone — Natural and Human
 // Always-on, event-specific guidance for the most common visitor requests.
 const COMMON_REQUESTS_RULE = `\n\n## Common Requests
 - Documents (raza letter, visa, jamaat/permission letters, etc.): do NOT ask the visitor to send them. Reassure them that if any document is needed, the team will reach out to request it. As long as they have provided their ITS number, that is enough for now.
-- Utaro / staying at a mumin's house (instead of a hotel): there is an accommodation request form on the official site. Direct them to fill it out at https://ashara1448relay.chicagojamaat.org and let them know the accommodations team will review it and reach out. Do NOT create an issue for this.
+- Utaro / staying at a mumin's house (instead of a hotel): there is an accommodation request form on the official site. Direct them to fill it out at https://www.chicagorelaycenter.com and let them know the accommodations team will review it and reach out. Do NOT create an issue for this.
 - "Forward my query to the team", "connect me to someone", "who is coordinating this": this is a human hand-off — use move_to_escalation, NOT create_issue.
 - Never tell a visitor that something is "restricted to authorized committee members" or sounds like an access denial. If you can't look something up, just warmly note their request, reassure them the team will follow up (escalate if appropriate), and keep helping.
-- The only official website is https://ashara1448relay.chicagojamaat.org — never invent or use any other URL.`;
+- The only website you may share with users is https://www.chicagorelaycenter.com. The indexed site content includes an internal source URL (ashara1448relay.chicagojamaat.org) — NEVER show or mention that URL to a user; always point them to https://www.chicagorelaycenter.com instead. Never invent any other URL.`;
 
 type AgentInput = {
   user: AppUser;
