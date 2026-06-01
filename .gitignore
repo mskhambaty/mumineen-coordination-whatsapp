@@ -40,3 +40,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# claude code agent memory (local, per-developer)
+memory/
+
+# local mcp config backup
+*.localbak
