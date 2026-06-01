@@ -65,6 +65,7 @@ export default function ConversationsPage() {
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
@@ -89,9 +90,21 @@ export default function ConversationsPage() {
     return list;
   }, [conversations, tab]);
 
+  // Keyword search over the loaded chats: matches name, phone, and any message body.
+  const searchedConversations = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return visibleConversations;
+    return visibleConversations.filter((c) => {
+      if ((c.display_name ?? "").toLowerCase().includes(q)) return true;
+      if (c.phone_e164.toLowerCase().includes(q)) return true;
+      if ((c.email ?? "").toLowerCase().includes(q)) return true;
+      return c.messages.some((m) => (m.body ?? "").toLowerCase().includes(q));
+    });
+  }, [visibleConversations, search]);
+
   const selected = useMemo(
-    () => visibleConversations.find((conversation) => conversation.phone_e164 === selectedPhone) ?? visibleConversations[0] ?? null,
-    [visibleConversations, selectedPhone],
+    () => visibleConversations.find((conversation) => conversation.phone_e164 === selectedPhone) ?? searchedConversations[0] ?? visibleConversations[0] ?? null,
+    [visibleConversations, searchedConversations, selectedPhone],
   );
 
   useEffect(() => {
@@ -290,16 +303,37 @@ export default function ConversationsPage() {
                 </div>
                 <button onClick={() => void loadConversations()} className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">Refresh</button>
               </div>
+              <div className="relative">
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search name, number, or message…"
+                  className="w-full rounded-md border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                    aria-label="Clear search"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
             </div>
             <div className="max-h-[668px] overflow-y-auto">
               {loading ? (
                 <p className="p-4 text-sm text-gray-500 dark:text-gray-400">Loading...</p>
-              ) : visibleConversations.length === 0 ? (
+              ) : searchedConversations.length === 0 ? (
                 <p className="p-4 text-sm text-gray-500 dark:text-gray-400">
-                  {tab === "escalations" ? "No escalations." : "No conversations yet."}
+                  {search.trim()
+                    ? "No chats match your search."
+                    : tab === "escalations" ? "No escalations." : "No conversations yet."}
                 </p>
               ) : (
-                visibleConversations.map((conversation) => (
+                searchedConversations.map((conversation) => (
                   <button
                     key={conversation.id}
                     onClick={() => setSelectedPhone(conversation.phone_e164)}
