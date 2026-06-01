@@ -25,10 +25,17 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: "status must be resolved, pending, or none" }, { status: 400 });
   }
 
+  // A manual escalation from the inbox also stamps when/by-what, so it surfaces
+  // like an AI escalation (reason left null — an admin can see the thread).
+  const updates: Record<string, unknown> =
+    status === "pending"
+      ? { escalation_status: "pending", escalated_at: new Date().toISOString(), escalation_source: "manual" }
+      : { escalation_status: status };
+
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("conversation_sessions")
-    .update({ escalation_status: status })
+    .update(updates)
     .eq("phone_e164", phone)
     .select("id, phone_e164, escalation_status")
     .maybeSingle();

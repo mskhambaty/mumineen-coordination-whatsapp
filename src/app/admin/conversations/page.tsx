@@ -208,26 +208,30 @@ export default function ConversationsPage() {
     }
   }
 
-  async function resolveEscalation() {
-    if (!selected || selected.escalation_status !== "pending") return;
+  async function setEscalation(status: "pending" | "resolved") {
+    if (!selected) return;
     setSavingEscalation(true);
     setError(null);
     try {
       const res = await apiFetch(`/api/admin/conversations/${encodeURIComponent(selected.phone_e164)}/escalation`, {
         method: "PUT",
-        body: JSON.stringify({ status: "resolved" }),
+        body: JSON.stringify({ status }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.error ?? "Failed to de-escalate");
+        throw new Error(data.error ?? "Failed to update escalation");
       }
+      const phone = selected.phone_e164;
       setConversations((items) =>
         items.map((item) =>
-          item.phone_e164 === selected.phone_e164 ? { ...item, escalation_status: "resolved" } : item,
+          item.phone_e164 === phone ? { ...item, escalation_status: status } : item,
         ),
       );
+      // Keep the thread in view: escalated threads live in the Escalations tab.
+      setSelectedPhone(phone);
+      setTab(status === "pending" ? "escalations" : "conversations");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to de-escalate");
+      setError(err instanceof Error ? err.message : "Failed to update escalation");
     } finally {
       setSavingEscalation(false);
     }
@@ -348,17 +352,27 @@ export default function ConversationsPage() {
                       </p>
                     )}
                   </div>
-                  <div className="flex items-center gap-3">
-                    {selected.escalation_status === "pending" && (
+                  <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
+                    {selected.escalation_status === "pending" ? (
                       <button
                         type="button"
-                        onClick={() => void resolveEscalation()}
+                        onClick={() => void setEscalation("resolved")}
                         disabled={savingEscalation}
-                        className="rounded-md bg-amber-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+                        className="whitespace-nowrap rounded-md bg-amber-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
                       >
                         {savingEscalation ? "Saving…" : "De-escalate"}
                       </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void setEscalation("pending")}
+                        disabled={savingEscalation}
+                        className="whitespace-nowrap rounded-md border border-amber-500 px-3 py-1.5 text-sm font-medium text-amber-600 hover:bg-amber-50 disabled:opacity-50 dark:text-amber-400 dark:hover:bg-amber-900/20"
+                      >
+                        {savingEscalation ? "Saving…" : "Escalate"}
+                      </button>
                     )}
+                    <div className="flex items-center gap-2">
                     <span className={`text-sm font-medium ${!isManual ? "text-blue-600 dark:text-blue-400" : "text-gray-400 dark:text-gray-500"}`}>Agent</span>
                     <button
                       type="button"
@@ -372,6 +386,7 @@ export default function ConversationsPage() {
                       <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${isManual ? "translate-x-8" : "translate-x-1"}`} />
                     </button>
                     <span className={`text-sm font-medium ${isManual ? "text-amber-600 dark:text-amber-400" : "text-gray-400 dark:text-gray-500"}`}>Manual</span>
+                    </div>
                   </div>
                 </div>
               ) : (

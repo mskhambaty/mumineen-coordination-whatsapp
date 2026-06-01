@@ -15,8 +15,10 @@ export const runtime = "nodejs";
 // AI can't hand off on a "hi" -> "talk to someone" exchange. Emergencies bypass.
 const MIN_INBOUND_FOR_ESCALATION = 3;
 
+// Only a concrete safety/emergency situation bypasses the "evaluate first" gate —
+// NOT a user merely saying "urgent", "emergency", or "I need help".
 const EMERGENCY_PATTERN =
-  /\b(lost child|missing child|lost (my )?(passport|wallet|child)|child is (lost|missing)|medical|ambulance|emergency|urgent help|accident|injur|police|security threat|fire)\b/i;
+  /\b(lost child|missing child|child is (lost|missing)|lost (my )?(passport|wallet)|passport (lost|stolen|missing)|medical|ambulance|hospital|accident|injur|unconscious|bleeding|police|fire|security threat)\b/i;
 
 type EscalationBody = {
   reason?: unknown;
@@ -35,8 +37,9 @@ export async function POST(req: NextRequest) {
   const reason = typeof body.reason === "string" ? body.reason.trim() : "";
   const category = typeof body.category === "string" ? body.category : "other";
   const source = body.source === "rule" || body.source === "manual" ? body.source : "ai";
-  const isEmergency = body.priority === "urgent" || EMERGENCY_PATTERN.test(reason);
-  const priority = isEmergency ? "urgent" : "normal";
+  // The model's "urgent" label does NOT bypass the gate — only real emergency wording does.
+  const isEmergency = EMERGENCY_PATTERN.test(reason);
+  const priority = body.priority === "urgent" ? "urgent" : "normal";
 
   const supabase = getSupabaseAdmin();
 
