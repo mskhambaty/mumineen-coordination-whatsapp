@@ -54,6 +54,13 @@ const TONE_RULE = `\n\n## Tone — Natural and Human
 - When the user just says thanks ("Shukran", "thank you", a 🙏, etc.) and needs nothing more, a one-line acknowledgement is enough — or no reply is needed. Don't manufacture a long, enthusiastic response.
 - Mirror the user's tone and length. If they're brief, be brief. Don't pad messages with formal openings or closings.`;
 
+// Always-on: understand any language, but answer in English by default.
+const LANGUAGE_RULE = `\n\n## Language — Understand Any, Reply in English
+- Understand the user in ANY language or script (English, Gujarati, Roman Gujarati, Lisaan ud-Dawat, Roman Lisaan ud-Dawat, Urdu, Roman Urdu, Hindi, or mixed) and always read their intent correctly.
+- Reply in ENGLISH by default — for the vast majority of conversations (~96-97%), even when the user writes in Gujarati, Lisaan ud-Dawat, Urdu, or Hindi.
+- Reply in the user's own language only rarely (~3-4%), and only with a clear reason: they explicitly ask for that language, or they clearly cannot follow English. When unsure, use English.
+- A short "Salaam" / "Wa Alaikum Salaam" greeting is fine in any reply and does not count as switching languages.`;
+
 // Always-on, event-specific guidance for the most common visitor requests.
 const COMMON_REQUESTS_RULE = `\n\n## Common Requests
 - Documents (raza letter, visa, jamaat/permission letters, etc.): do NOT ask the visitor to send them. Reassure them that if any document is needed, the team will reach out to request it. As long as they have provided their ITS number, that is enough for now.
@@ -110,6 +117,7 @@ export async function runAgent(input: AgentInput) {
   systemContent += ACCURACY_RULE;
   systemContent += NO_DEAD_END_RULE;
   systemContent += TONE_RULE;
+  systemContent += LANGUAGE_RULE;
   systemContent += COMMON_REQUESTS_RULE;
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
