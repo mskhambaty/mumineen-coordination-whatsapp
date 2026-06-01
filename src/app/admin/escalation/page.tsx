@@ -66,7 +66,11 @@ export default function EscalationSupportPage() {
       if (!membersRes.ok) throw new Error(membersData.error ?? "Failed to load support team");
       const list = (membersData.members ?? []) as SupportMember[];
       setMembers(list);
-      setDrafts(Object.fromEntries(list.map((m) => [m.id, sortHours(m.hours ?? [])])));
+      // Postgres returns time as "HH:MM:SS"; the time picker needs "HH:MM".
+      setDrafts(Object.fromEntries(list.map((m) => [
+        m.id,
+        sortHours((m.hours ?? []).map((h) => ({ ...h, start_time: h.start_time.slice(0, 5), end_time: h.end_time.slice(0, 5) }))),
+      ])));
       if (usersRes.ok) setUsers((await usersRes.json()) as UserOption[]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load support team");

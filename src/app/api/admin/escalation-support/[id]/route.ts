@@ -41,17 +41,19 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
   const rows: { member_id: string; day_of_week: number; start_time: string; end_time: string }[] = [];
   for (const h of rawHours) {
     const day = Number(h.day_of_week);
-    const start = typeof h.start_time === "string" ? h.start_time : "";
-    const end = typeof h.end_time === "string" ? h.end_time : "";
+    // Postgres returns time as "HH:MM:SS"; the time picker sends "HH:MM". Normalize to HH:MM.
+    const start = typeof h.start_time === "string" ? h.start_time.slice(0, 5) : "";
+    const end = typeof h.end_time === "string" ? h.end_time.slice(0, 5) : "";
     if (!Number.isInteger(day) || day < 0 || day > 6) {
       return NextResponse.json({ error: "day_of_week must be 0-6" }, { status: 400 });
     }
     if (!TIME_RE.test(start) || !TIME_RE.test(end)) {
       return NextResponse.json({ error: "start_time and end_time must be HH:MM" }, { status: 400 });
     }
-    if (end <= start) {
-      return NextResponse.json({ error: "end_time must be after start_time" }, { status: 400 });
+    if (end === start) {
+      return NextResponse.json({ error: "Start and end time can't be the same." }, { status: 400 });
     }
+    // Note: end < start is allowed — it means an overnight range (e.g. 9 PM–6 AM).
     rows.push({ member_id: id, day_of_week: day, start_time: start, end_time: end });
   }
 

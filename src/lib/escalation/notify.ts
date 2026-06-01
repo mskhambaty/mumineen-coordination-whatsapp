@@ -27,9 +27,15 @@ function nowInOnCallTz(): { day: number; time: string } {
 }
 
 function isOnCall(hours: MemberRow["hours"], day: number, time: string): boolean {
-  return (hours ?? []).some(
-    (h) => h.day_of_week === day && h.start_time <= time && time < h.end_time,
-  );
+  return (hours ?? []).some((h) => {
+    if (h.day_of_week !== day) return false;
+    if (h.start_time <= h.end_time) {
+      // Same-day range (end "00:00" is treated as the literal start of day).
+      return h.start_time <= time && time < h.end_time;
+    }
+    // Overnight range (e.g. 21:00–06:00): on call from start to midnight, and after midnight to end.
+    return time >= h.start_time || time < h.end_time;
+  });
 }
 
 // Support members whose on-call schedule covers the current Chicago time, with an email.
