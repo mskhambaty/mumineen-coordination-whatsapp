@@ -21,6 +21,15 @@ const MAX_PAGES = 30;
 const MAX_CHUNK_CHARS = 1800;
 const MIN_CHUNK_CHARS = 40;
 
+// Placeholder/"coming soon" pages carry no real answers but match many queries and
+// say "being finalized", which poisons retrieval. Skip short chunks that are just that.
+const PLACEHOLDER_RE =
+  /coming soon|will be published|being finalis|being finaliz|site is being prepared|details will be (shared|published)/i;
+
+function isPlaceholderChunk(content: string): boolean {
+  return content.length < 400 && PLACEHOLDER_RE.test(content);
+}
+
 type ContentChunk = {
   page_url: string;
   page_title: string;
@@ -48,7 +57,7 @@ export async function scrapeSite() {
     }
 
     const $ = cheerio.load(html);
-    const pageChunks = extractContentChunks($, url);
+    const pageChunks = extractContentChunks($, url).filter((chunk) => !isPlaceholderChunk(chunk.content));
     siteChunkCount += pageChunks.length;
     chunks.push(...pageChunks);
   }

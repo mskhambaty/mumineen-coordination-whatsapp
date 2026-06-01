@@ -29,6 +29,11 @@ At query time, the agent retrieves the most relevant chunks and injects them int
 5. Mark all existing `site_content` rows as `is_current = false`.
 6. Insert new rows with `is_current = true`.
 
+**Placeholder filtering:** short "coming soon / being finalized / will be published" chunks are
+skipped during scraping (`isPlaceholderChunk` in `scrape-site.ts`). Such placeholder pages carry no
+real answers but match many queries and tell the agent things are "being finalized", which poisons
+retrieval — so they are never indexed even if the crawler discovers them.
+
 ## RAG Retrieval (`retrieveSiteContext`)
 
 1. Prefix the query with a short **event-context anchor** (`EVENT_CONTEXT`), then embed it with
