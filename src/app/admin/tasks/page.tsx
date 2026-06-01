@@ -105,6 +105,7 @@ function KanbanPage() {
   const [includeComplete, setIncludeComplete] = useState(false);
   const [showOverdueOnly, setShowOverdueOnly] = useState(false);
   const [itemType, setItemType] = useState(searchParams.get("item_type") ?? "all");
+  const [origin, setOrigin] = useState(searchParams.get("origin") ?? "all");
   const [form, setForm] = useState<TaskForm | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -125,7 +126,7 @@ function KanbanPage() {
   useEffect(() => {
     void loadBoard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [departmentId, milestoneId, priority, assigneeId, includeComplete, itemType]);
+  }, [departmentId, milestoneId, priority, assigneeId, includeComplete, itemType, origin]);
 
   const filteredBoard = useMemo((): Board => {
     if (!showOverdueOnly) return board;
@@ -180,6 +181,7 @@ function KanbanPage() {
     if (priority !== "all") params.set("priority", priority);
     if (assigneeId !== "all") params.set("assignee_id", assigneeId);
     if (itemType !== "all") params.set("item_type", itemType);
+    if (origin !== "all") params.set("origin", origin);
     if (includeComplete) params.set("include_complete", "true");
 
     try {
@@ -298,6 +300,11 @@ function KanbanPage() {
             <option value="all">All types</option>
             <option value="task">Tasks only</option>
             <option value="issue">Issues only</option>
+          </select>
+          <select value={origin} onChange={(event) => setOrigin(event.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
+            <option value="all">All origins</option>
+            <option value="external">External</option>
+            <option value="internal">Internal</option>
           </select>
           <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
             <input type="checkbox" checked={!includeComplete} onChange={(event) => setIncludeComplete(!event.target.checked)} />

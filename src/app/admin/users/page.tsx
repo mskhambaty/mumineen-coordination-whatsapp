@@ -21,6 +21,7 @@ type User = {
 type Department = {
   id: string;
   name: string;
+  description: string | null;
 };
 
 type UserForm = {
@@ -74,6 +75,9 @@ export default function UsersPage() {
   const [existingUserDeptRole, setExistingUserDeptRole] = useState("member");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [addingExisting, setAddingExisting] = useState(false);
+  const [deptDescriptionOverride, setDeptDescriptionOverride] = useState<{ deptId: string; text: string } | null>(null);
+  const [savingDescription, setSavingDescription] = useState(false);
+  const [descriptionSaved, setDescriptionSaved] = useState(false);
   const [currentUserId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const userRaw = window.localStorage.getItem("admin_user");
@@ -87,6 +91,9 @@ export default function UsersPage() {
   });
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
   const selectedDepartment = departments.find((department) => department.id === selectedDepartmentId) ?? null;
+  const deptDescription = deptDescriptionOverride?.deptId === selectedDepartmentId
+    ? deptDescriptionOverride.text
+    : selectedDepartment?.description ?? "";
   const usersInSelectedDepartment = new Set(users.map((user) => user.id));
   const addableUsers = allUsers.filter((user) => !usersInSelectedDepartment.has(user.id));
   const filteredUsers = useMemo(() => {
@@ -255,6 +262,34 @@ export default function UsersPage() {
       setError(err instanceof Error ? err.message : "Failed to add user to department");
     } finally {
       setAddingExisting(false);
+    }
+  }
+
+  async function saveDepartmentDescription() {
+    if (!selectedDepartment) return;
+    setSavingDescription(true);
+    setDescriptionSaved(false);
+    setError(null);
+    try {
+      const res = await fetch(`/api/departments/${selectedDepartment.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
+        body: JSON.stringify({ description: deptDescription }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(data.error ?? "Failed to save description");
+      }
+      const updated = await res.json() as { description: string | null };
+      setDepartments((items) =>
+        items.map((d) => d.id === selectedDepartment.id ? { ...d, description: updated.description } : d),
+      );
+      setDeptDescriptionOverride(null);
+      setDescriptionSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save description");
+    } finally {
+      setSavingDescription(false);
     }
   }
 
@@ -599,6 +634,33 @@ export default function UsersPage() {
                   {addingExisting ? "Adding..." : "Add"}
                 </button>
               </form>
+            </div>
+          </div>
+        )}
+
+        {selectedDepartment && (
+          <div className="mb-6 rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 p-5 shadow-sm">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{selectedDepartment.name} — Description</h2>
+            <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
+              This description is shown to the AI agent when routing escalations and issues to departments.
+            </p>
+            <textarea
+              value={deptDescription}
+              onChange={(e) => { setDeptDescriptionOverride({ deptId: selectedDepartmentId, text: e.target.value }); setDescriptionSaved(false); }}
+              rows={3}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+              placeholder="Describe what this department handles..."
+            />
+            <div className="mt-2 flex items-center justify-end gap-3">
+              {descriptionSaved && <span className="text-sm text-green-700 dark:text-green-400">Saved</span>}
+              <button
+                type="button"
+                onClick={() => void saveDepartmentDescription()}
+                disabled={savingDescription}
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {savingDescription ? "Saving..." : "Save Description"}
+              </button>
             </div>
           </div>
         )}

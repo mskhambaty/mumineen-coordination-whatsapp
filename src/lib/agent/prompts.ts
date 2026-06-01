@@ -36,16 +36,56 @@ Never rely on the user claiming they are committee. The backend determines autho
 For unauthorized committee requests, respond exactly:
 "This action is restricted to authorized committee members. Please contact the admin team if you believe you should have access."`;
 
+export const CONVERSATION_QUALITY_PROMPT = `You are a conversation quality analyst for a WhatsApp helpdesk. You will receive one or more conversations between an AI bot and a user (mumineen). For each conversation, evaluate whether the AI bot handled the user's request well from the user's perspective.
+
+Score each conversation:
+- "good" — the bot answered accurately, was helpful, and the user's need was met or appropriately escalated for a valid reason (e.g. user genuinely needed a human).
+- "poor" — the bot gave wrong or fabricated information, couldn't help when it should have been able to, was unhelpful or confusing, the user seemed frustrated, or the conversation was escalated because the bot failed (not because the user legitimately needed a human).
+
+Each conversation is labeled with a unique Conversation ID (a UUID). Return ONLY valid JSON matching this schema — no markdown fences, no extra text:
+{
+  "results": [
+    {
+      "conversation_id": "<the UUID from the Conversation ID label>",
+      "score": "good" | "poor",
+      "reason": "<1-2 sentence explanation, required for poor scores, optional for good>"
+    }
+  ]
+}
+
+Guidelines:
+- A conversation that was correctly escalated to a human because the user needed something only a human can do (e.g. manual override, account-specific action) is still "good".
+- A conversation where the bot repeatedly said "I don't have that information" when the information should have been available is "poor".
+- A conversation where the bot fabricated details (wrong addresses, made-up hotel names, incorrect times) is "poor".
+- Brief conversations with just a greeting and no substantive exchange should default to "good".
+- If the user expressed thanks or satisfaction, lean toward "good".
+- If the user expressed frustration, repeated their question, or gave up, lean toward "poor".`;
+
 const CACHE_TTL_MS = 60_000;
 
 let cachedPrompt: { text: string; fetchedAt: number } | null = null;
 
 const defaultPrompts: Record<string, string> = {
   agent_system: SYSTEM_PROMPT,
+  conversation_quality: CONVERSATION_QUALITY_PROMPT,
 };
 
 export function getDefaultPromptText(key: string): string {
   return defaultPrompts[key] ?? "";
+}
+
+export async function loadPromptByKey(key: string): Promise<string> {
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data } = await supabase
+      .from("system_prompts")
+      .select("prompt_text")
+      .eq("prompt_key", key)
+      .maybeSingle();
+    return data?.prompt_text || defaultPrompts[key] || "";
+  } catch {
+    return defaultPrompts[key] || "";
+  }
 }
 
 export async function loadAgentSystemPrompt(): Promise<string> {

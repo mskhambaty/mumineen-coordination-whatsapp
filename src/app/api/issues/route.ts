@@ -5,7 +5,7 @@ import { isTaskPriority } from "@/lib/tasks/types";
 
 export const runtime = "nodejs";
 
-type IssueBody = { title?: unknown; description?: unknown; priority?: unknown };
+type IssueBody = { title?: unknown; description?: unknown; priority?: unknown; department?: unknown };
 
 // External issue intake from the WhatsApp agent's create_issue tool. Creates an
 // untriaged (no department) issue linked to the reporting guest. Open to any caller
@@ -24,7 +24,20 @@ export async function POST(req: NextRequest) {
   const description = typeof body.description === "string" ? body.description.trim() || null : null;
   const priority = isTaskPriority(body.priority) ? body.priority : "medium";
 
+  const departmentName = typeof body.department === "string" ? body.department.trim() : "";
+
   const supabase = getSupabaseAdmin();
+
+  // Resolve department name to ID when provided.
+  let departmentId: string | null = null;
+  if (departmentName) {
+    const { data: dept } = await supabase
+      .from("departments")
+      .select("id")
+      .ilike("name", departmentName)
+      .maybeSingle();
+    departmentId = dept?.id ?? null;
+  }
 
   // Link the reporter if we have a user record for this phone.
   const { data: reporter } = await supabase
@@ -43,7 +56,7 @@ export async function POST(req: NextRequest) {
       source: "whatsapp_agent",
       status: "open",
       priority,
-      department_id: null,
+      department_id: departmentId,
       created_by: reporter?.id ?? null,
     })
     .select("id, title, status, priority")

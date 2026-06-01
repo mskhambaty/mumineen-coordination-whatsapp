@@ -67,6 +67,11 @@ export const toolDefinitions: ToolDefinition[] = [
             ],
             description: "Best-fit category for routing.",
           },
+          department: {
+            type: "string",
+            description:
+              "Name of the department that should handle this escalation. Pick the best match from the Available Departments list in your system prompt.",
+          },
         },
         required: ["reason", "priority", "category"],
         additionalProperties: false,
@@ -88,6 +93,11 @@ export const toolDefinitions: ToolDefinition[] = [
             type: "string",
             enum: ["low", "medium", "high"],
             description: "Defaults to medium; use high for safety or time-sensitive problems.",
+          },
+          department: {
+            type: "string",
+            description:
+              "Name of the department that should own this issue. Pick the best match from the Available Departments list in your system prompt.",
           },
         },
         required: ["title"],
@@ -513,6 +523,7 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
           reason: args.reason,
           priority: args.priority,
           category: args.category,
+          department: args.department,
           source: "ai",
         },
       });
@@ -524,6 +535,7 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
           title: args.title,
           description: args.description,
           priority: args.priority,
+          department: args.department,
         },
       });
     case "get_volunteer_assignment":

@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
     const caller = await resolveCallerFromRequest(req);
     const supabase = getSupabaseAdmin();
 
-    let query = supabase.from("departments").select("id, name, created_at").order("name");
+    let query = supabase.from("departments").select("id, name, description, created_at").order("name");
 
     // If not leadership_admin, only return their departments
     if (!caller.can_read_all) {

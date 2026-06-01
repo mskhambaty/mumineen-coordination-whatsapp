@@ -23,7 +23,7 @@ const dropdownGroups: DropdownGroup[] = [
     label: "WhatsApp",
     links: [
       { href: "/admin/conversations", label: "Inbox", access: "inbox" },
-      { href: "/admin/prompt", label: "Prompt", access: "admin" },
+      { href: "/admin/prompt", label: "AI Prompt Management", access: "admin" },
       { href: "/admin/escalation", label: "Escalation/Support", access: "admin" },
     ],
   },

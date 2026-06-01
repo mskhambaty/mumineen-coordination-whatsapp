@@ -69,6 +69,11 @@ export async function GET(req: NextRequest) {
       query = query.eq("item_type", itemType);
     }
 
+    const origin = req.nextUrl.searchParams.get("origin");
+    if (origin && origin !== "all") {
+      query = query.eq("origin", origin);
+    }
+
     if (!caller.can_read_all) {
       const deptIds = caller.departments.map((department) => department.department_id);
       if (deptIds.length === 0) {

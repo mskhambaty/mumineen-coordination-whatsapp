@@ -24,6 +24,7 @@ type EscalationBody = {
   reason?: unknown;
   priority?: unknown;
   category?: unknown;
+  department?: unknown;
   source?: unknown;
 };
 
@@ -41,7 +42,20 @@ export async function POST(req: NextRequest) {
   const isEmergency = EMERGENCY_PATTERN.test(reason);
   const priority = body.priority === "urgent" ? "urgent" : "normal";
 
+  const departmentName = typeof body.department === "string" ? body.department.trim() : "";
+
   const supabase = getSupabaseAdmin();
+
+  // Resolve department name to ID when provided.
+  let escalationDepartmentId: string | null = null;
+  if (departmentName) {
+    const { data: dept } = await supabase
+      .from("departments")
+      .select("id")
+      .ilike("name", departmentName)
+      .maybeSingle();
+    escalationDepartmentId = dept?.id ?? null;
+  }
 
   // Guardrail: non-emergencies need a few exchanges first (last-resort behaviour).
   if (!isEmergency) {
@@ -69,9 +83,10 @@ export async function POST(req: NextRequest) {
       escalation_category: category,
       escalated_at: new Date().toISOString(),
       escalation_source: source,
+      escalation_department_id: escalationDepartmentId,
     })
     .eq("phone_e164", phone)
-    .select("id, phone_e164, escalation_status, escalation_priority, escalation_category")
+    .select("id, phone_e164, escalation_status, escalation_priority, escalation_category, escalation_department_id")
     .maybeSingle();
 
   if (error) {

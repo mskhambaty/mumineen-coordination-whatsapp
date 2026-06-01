@@ -185,11 +185,21 @@ export default function PromptPage() {
   const [scraping, setScraping] = useState(false);
   const [scrapeResult, setScrapeResult] = useState<string | null>(null);
 
+  const [tab, setTab] = useState<"agent" | "quality">("agent");
+
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeMsg, setAnalyzeMsg] = useState<string | null>(null);
   const [lookbackDays, setLookbackDays] = useState(7);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  const [qualityPrompt, setQualityPrompt] = useState<PromptData | null>(null);
+  const [qualityEditText, setQualityEditText] = useState("");
+  const [qualitySaving, setQualitySaving] = useState(false);
+  const [qualitySaved, setQualitySaved] = useState(false);
+  const [cronLogs, setCronLogs] = useState<Array<{ id: string; started_at: string; completed_at: string | null; status: string; metadata: Record<string, unknown>; error_message: string | null }>>([]);
+  const [runningQualityCron, setRunningQualityCron] = useState(false);
+  const [qualityCronMsg, setQualityCronMsg] = useState<string | null>(null);
 
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
@@ -222,9 +232,26 @@ export default function PromptPage() {
         setTools(data.tools);
       }
 
-      await loadSuggestions();
+      await Promise.all([loadSuggestions(), loadQualityPrompt(), loadCronLogs()]);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadQualityPrompt() {
+    const res = await apiFetch("/api/admin/prompts/conversation_quality");
+    if (res.ok) {
+      const data = (await res.json()) as PromptData;
+      setQualityPrompt(data);
+      setQualityEditText(data.prompt_text);
+    }
+  }
+
+  async function loadCronLogs() {
+    const res = await apiFetch("/api/admin/cron-logs?job_key=conversation_quality&limit=20");
+    if (res.ok) {
+      const data = (await res.json()) as { logs: typeof cronLogs };
+      setCronLogs(data.logs ?? []);
     }
   }
 
@@ -359,6 +386,49 @@ export default function PromptPage() {
     }
   }
 
+  async function saveQualityPrompt() {
+    setQualitySaving(true);
+    setQualitySaved(false);
+    try {
+      const res = await apiFetch("/api/admin/prompts/conversation_quality", {
+        method: "PUT",
+        body: JSON.stringify({ prompt_text: qualityEditText }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { prompt_text: string; updated_at: string };
+        setQualityPrompt((prev) => prev ? { ...prev, prompt_text: data.prompt_text, is_default: false, updated_at: data.updated_at } : prev);
+        setQualitySaved(true);
+      }
+    } finally {
+      setQualitySaving(false);
+    }
+  }
+
+  function resetQualityToDefault() {
+    if (!qualityPrompt) return;
+    setQualityEditText(qualityPrompt.default_text);
+    setQualitySaved(false);
+  }
+
+  async function runQualityCron() {
+    setRunningQualityCron(true);
+    setQualityCronMsg(null);
+    try {
+      const res = await apiFetch("/api/cron/conversation-quality", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Cron failed");
+      setQualityCronMsg(
+        `Analyzed ${data.analyzed ?? 0} conversations · ${data.good ?? 0} good · ${data.poor ?? 0} poor` +
+          (data.skipped ? ` · ${data.skipped} already up to date` : ""),
+      );
+      await loadCronLogs();
+    } catch (err) {
+      setQualityCronMsg(err instanceof Error ? err.message : "Cron failed");
+    } finally {
+      setRunningQualityCron(false);
+    }
+  }
+
   const externalTools = tools.filter((tool) => tool.audience === "external");
   const internalTools = tools.filter((tool) => tool.audience === "internal");
   const inactiveTools = tools.filter((tool) => tool.availability !== "active");
@@ -369,6 +439,22 @@ export default function PromptPage() {
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mb-6 flex gap-2 text-sm font-medium">
+        <button
+          onClick={() => setTab("agent")}
+          className={`rounded-md px-4 py-2 ${tab === "agent" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"}`}
+        >
+          Agent System Prompt
+        </button>
+        <button
+          onClick={() => setTab("quality")}
+          className={`rounded-md px-4 py-2 ${tab === "quality" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"}`}
+        >
+          Conversation Quality Analysis
+        </button>
+      </div>
+
+      {tab === "agent" && (<>
       <section className="rounded-lg border bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
         <div className="mb-4 flex items-center justify-between">
           <div>
@@ -572,6 +658,130 @@ export default function PromptPage() {
           onToggleTool={toggleTool}
         />
       </section>
+      </>)}
+
+      {tab === "quality" && (<>
+      <section className="rounded-lg border bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Conversation Quality Prompt</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              This prompt is used by the hourly cron job to evaluate whether the AI bot handled each conversation well.
+            </p>
+          </div>
+          <span className={`rounded-full px-3 py-1 text-xs font-medium ${
+            qualityPrompt?.is_default
+              ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
+              : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+          }`}>
+            {qualityPrompt?.is_default ? "Default" : "Customized"}
+          </span>
+        </div>
+
+        <textarea
+          value={qualityEditText}
+          onChange={(e) => { setQualityEditText(e.target.value); setQualitySaved(false); }}
+          rows={16}
+          className="w-full rounded-md border px-4 py-3 font-mono text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+        />
+        <div className="mt-3 flex items-center justify-between">
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            {qualityEditText.length} / 10000 characters
+            {qualityPrompt?.updated_at && !qualityPrompt.is_default && (
+              <> &middot; Last updated: {new Date(qualityPrompt.updated_at).toLocaleString()}</>
+            )}
+          </span>
+          <div className="flex items-center gap-3">
+            {qualitySaved && <span className="text-sm text-green-700 dark:text-green-400">Saved</span>}
+            {!qualityPrompt?.is_default && (
+              <button
+                type="button"
+                onClick={resetQualityToDefault}
+                className="rounded-md border px-4 py-2 text-sm text-gray-600 hover:text-gray-900 dark:border-gray-700 dark:text-gray-300"
+              >
+                Reset to Default
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={saveQualityPrompt}
+              disabled={qualitySaving || qualityEditText.length > 10000}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {qualitySaving ? "Saving..." : "Save Prompt"}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-8 rounded-lg border bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Quality Analysis Cron</h2>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Runs hourly to evaluate updated conversations. You can also trigger it manually.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void runQualityCron()}
+            disabled={runningQualityCron}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {runningQualityCron ? "Running..." : "Run Now"}
+          </button>
+        </div>
+
+        {qualityCronMsg && (
+          <p className="mt-3 text-sm font-medium text-blue-700 dark:text-blue-400">{qualityCronMsg}</p>
+        )}
+
+        <div className="mt-5 overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800 text-sm">
+            <thead className="bg-gray-50 dark:bg-gray-800/60">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Started</th>
+                <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Status</th>
+                <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Analyzed</th>
+                <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Good</th>
+                <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Poor</th>
+                <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Error</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
+              {cronLogs.map((log) => {
+                const meta = log.metadata as Record<string, number>;
+                return (
+                  <tr key={log.id}>
+                    <td className="px-4 py-2 text-gray-700 dark:text-gray-300">{new Date(log.started_at).toLocaleString()}</td>
+                    <td className="px-4 py-2">
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        log.status === "success" ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
+                          : log.status === "failure" ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                          : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                      }`}>
+                        {log.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-gray-700 dark:text-gray-300">{meta.conversations_analyzed ?? "—"}</td>
+                    <td className="px-4 py-2 text-green-700 dark:text-green-400">{meta.good ?? "—"}</td>
+                    <td className="px-4 py-2 text-red-700 dark:text-red-400">{meta.poor ?? "—"}</td>
+                    <td className="px-4 py-2 text-gray-500 dark:text-gray-400">{log.error_message ?? "—"}</td>
+                  </tr>
+                );
+              })}
+              {cronLogs.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                    No cron runs yet. Click &quot;Run Now&quot; to trigger the first analysis.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      </>)}
     </main>
   );
 }

@@ -7,6 +7,8 @@ import { isAdminOrLeadership } from "@/lib/admin/access";
 
 type Department = { id: string; name: string };
 
+type QualityDay = { date: string; good: number; poor: number };
+
 type AnalyticsData = {
   departments: Department[];
   tasks: {
@@ -37,6 +39,7 @@ type AnalyticsData = {
       blocked: number;
       resolved: number;
       by_status: Record<string, number>;
+      by_department: Array<{ department_name: string; count: number }>;
     };
   };
   conversations: {
@@ -51,6 +54,16 @@ type AnalyticsData = {
     blocked_tool_calls: number;
     messages_by_day: Array<{ date: string; inbound: number; outbound: number }>;
     top_tools: Array<{ name: string; count: number }>;
+    escalation_count: number;
+    quality_summary: { good: number; poor: number; unscored: number };
+    quality_by_day: QualityDay[];
+    external_user_messages: number;
+    internal_user_messages: number;
+  };
+  milestones: {
+    total: number;
+    by_status: Record<string, number>;
+    by_department: Array<{ department_name: string; total: number; complete: number }>;
   };
 };
 
@@ -60,6 +73,7 @@ export default function AnalyticsPage() {
   const [departmentId, setDepartmentId] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"external" | "internal">("external");
 
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
@@ -101,14 +115,23 @@ export default function AnalyticsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, departmentId]);
 
-  const maxDepartmentTotal = useMemo(
-    () => Math.max(1, ...(data?.tasks.by_department.map((department) => department.total) ?? [1])),
-    [data],
-  );
   const maxDailyMessages = useMemo(
     () => Math.max(1, ...(data?.conversations.messages_by_day.map((day) => day.inbound + day.outbound) ?? [1])),
     [data],
   );
+
+  const maxDepartmentTotal = useMemo(
+    () => Math.max(1, ...(data?.tasks.by_department.map((d) => d.total) ?? [1])),
+    [data],
+  );
+
+  const qualityPercent = useMemo(() => {
+    if (!data) return null;
+    const { good, poor } = data.conversations.quality_summary;
+    const total = good + poor;
+    if (total === 0) return null;
+    return Math.round((good / total) * 100);
+  }, [data]);
 
   return (
     <>
@@ -116,9 +139,19 @@ export default function AnalyticsPage() {
         {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{error}</div>}
 
         <div className="mb-5 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 p-4 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">Task and WhatsApp Health</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Task counts follow the selected department. WhatsApp metrics show the last 30 days.</p>
+          <div className="flex gap-2 text-sm font-medium">
+            <button
+              onClick={() => setTab("external")}
+              className={`rounded-md px-4 py-2 ${tab === "external" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"}`}
+            >
+              External Communication
+            </button>
+            <button
+              onClick={() => setTab("internal")}
+              className={`rounded-md px-4 py-2 ${tab === "internal" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"}`}
+            >
+              Internal Project Management
+            </button>
           </div>
           <select
             value={departmentId}
@@ -134,13 +167,100 @@ export default function AnalyticsPage() {
 
         {loading || !data ? (
           <div className="rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 p-10 text-center text-gray-500 dark:text-gray-400 shadow-sm">Loading analytics...</div>
+        ) : tab === "external" ? (
+          <>
+            <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <Metric label="WhatsApp Threads" value={data.conversations.active_conversations} tone="green" />
+              <Metric label="Messages (30d)" value={data.conversations.total_messages} tone="blue" />
+              <Metric label="Escalations" value={data.conversations.escalation_count} tone="amber" />
+              <Metric label="Issue Tickets" value={data.tasks.issues.total} tone="red" />
+            </section>
+
+            <section className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <Metric label="AI Mode" value={data.conversations.ai_conversations} tone="blue" />
+              <Metric label="Manual Mode" value={data.conversations.manual_conversations} tone="amber" />
+              <Metric label="External Messages" value={data.conversations.external_user_messages} tone="green" />
+              <Metric label="Internal Messages" value={data.conversations.internal_user_messages} tone="gray" />
+            </section>
+
+            {qualityPercent !== null && (
+              <section className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <Metric label="Success Score" value={qualityPercent} tone={qualityPercent >= 70 ? "green" : "red"} suffix="%" />
+                <Metric label="Good Conversations" value={data.conversations.quality_summary.good} tone="green" />
+                <Metric label="Needs Improvement" value={data.conversations.quality_summary.poor} tone="red" />
+                <Metric label="Not Yet Scored" value={data.conversations.quality_summary.unscored} tone="gray" />
+              </section>
+            )}
+
+            <section className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <Panel title="Messages by Day">
+                <div className="flex h-52 items-end gap-1">
+                  {data.conversations.messages_by_day.map((day) => {
+                    const total = day.inbound + day.outbound;
+                    return (
+                      <div key={day.date} className="flex min-w-0 flex-1 flex-col items-center gap-1">
+                        <div className="flex h-44 w-full items-end rounded-sm bg-gray-100 dark:bg-gray-700">
+                          <div
+                            className="w-full rounded-sm bg-green-500"
+                            title={`${day.date}: ${total} messages`}
+                            style={{ height: `${Math.max(total === 0 ? 0 : 5, (total / maxDailyMessages) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Panel>
+
+              <Panel title="Top Tool Calls">
+                {data.conversations.top_tools.length > 0 ? (
+                  <BarRows rows={data.conversations.top_tools.map((tool) => ({ label: tool.name, value: tool.count, color: "bg-slate-600" }))} />
+                ) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">No tool calls in the last 30 days.</p>
+                )}
+              </Panel>
+            </section>
+
+            {data.tasks.issues.by_department && data.tasks.issues.by_department.length > 0 && (
+              <section className="mt-6">
+                <Panel title="Issues by Department">
+                  <BarRows rows={data.tasks.issues.by_department.map((d) => ({ label: d.department_name, value: d.count, color: "bg-orange-500" }))} />
+                </Panel>
+              </section>
+            )}
+
+            {data.conversations.quality_by_day.length > 0 && (
+              <section className="mt-6">
+                <Panel title="Quality Score Trend">
+                  <div className="flex h-40 items-end gap-1">
+                    {data.conversations.quality_by_day.map((day) => {
+                      const total = day.good + day.poor;
+                      const pct = total > 0 ? Math.round((day.good / total) * 100) : 0;
+                      return (
+                        <div key={day.date} className="flex min-w-0 flex-1 flex-col items-center gap-1">
+                          <div className="flex h-32 w-full items-end rounded-sm bg-gray-100 dark:bg-gray-700">
+                            <div
+                              className={`w-full rounded-sm ${pct >= 70 ? "bg-green-500" : pct >= 40 ? "bg-amber-500" : "bg-red-500"}`}
+                              title={`${day.date}: ${pct}% good (${day.good}/${total})`}
+                              style={{ height: `${Math.max(total === 0 ? 0 : 10, pct)}%` }}
+                            />
+                          </div>
+                          <span className="text-[10px] text-gray-400">{pct}%</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Panel>
+              </section>
+            )}
+          </>
         ) : (
           <>
             <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
               <Metric label="Active Tasks" value={data.tasks.active} tone="blue" />
               <Metric label="Blocked Tasks" value={data.tasks.blocked} tone="red" />
               <Metric label="Overdue Tasks" value={data.tasks.overdue} tone="amber" />
-              <Metric label="WhatsApp Threads" value={data.conversations.active_conversations} tone="green" />
+              <Metric label="Total Milestones" value={data.milestones?.total ?? 0} tone="green" />
             </section>
 
             {data.tasks.issues && (
@@ -186,6 +306,19 @@ export default function AnalyticsPage() {
                   />
                 </Panel>
               )}
+
+              {data.milestones && data.milestones.total > 0 && (
+                <Panel title="Milestones by Status">
+                  <BarRows
+                    rows={[
+                      { label: "Open", value: data.milestones.by_status.open ?? 0, color: "bg-blue-500" },
+                      { label: "In Progress", value: data.milestones.by_status.in_progress ?? 0, color: "bg-indigo-500" },
+                      { label: "Blocked", value: data.milestones.by_status.blocked ?? 0, color: "bg-red-500" },
+                      { label: "Complete", value: data.milestones.by_status.complete ?? 0, color: "bg-green-500" },
+                    ]}
+                  />
+                </Panel>
+              )}
             </section>
 
             <section className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
@@ -211,43 +344,26 @@ export default function AnalyticsPage() {
                 </div>
               </Panel>
 
-              <Panel title="WhatsApp Conversation Modes">
-                <div className="grid grid-cols-2 gap-3">
-                  <Metric label="AI Mode" value={data.conversations.ai_conversations} tone="blue" compact />
-                  <Metric label="Manual Mode" value={data.conversations.manual_conversations} tone="amber" compact />
-                  <Metric label="Inbound" value={data.conversations.inbound_messages} tone="green" compact />
-                  <Metric label="Outbound" value={data.conversations.outbound_messages} tone="gray" compact />
-                </div>
-              </Panel>
-            </section>
-
-            <section className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <Panel title="Messages by Day">
-                <div className="flex h-52 items-end gap-1">
-                  {data.conversations.messages_by_day.map((day) => {
-                    const total = day.inbound + day.outbound;
-                    return (
-                      <div key={day.date} className="flex min-w-0 flex-1 flex-col items-center gap-1">
-                        <div className="flex h-44 w-full items-end rounded-sm bg-gray-100 dark:bg-gray-700">
+              {data.milestones && data.milestones.by_department.length > 0 && (
+                <Panel title="Milestones by Department">
+                  <div className="space-y-3">
+                    {data.milestones.by_department.map((dept) => (
+                      <div key={dept.department_name}>
+                        <div className="mb-1 flex items-center justify-between gap-3 text-sm">
+                          <span className="truncate font-medium">{dept.department_name}</span>
+                          <span className="text-gray-500 dark:text-gray-400">{dept.complete}/{dept.total}</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-gray-100 dark:bg-gray-700">
                           <div
-                            className="w-full rounded-sm bg-green-500"
-                            title={`${day.date}: ${total} messages`}
-                            style={{ height: `${Math.max(total === 0 ? 0 : 5, (total / maxDailyMessages) * 100)}%` }}
+                            className="h-2 rounded-full bg-green-500"
+                            style={{ width: `${dept.total > 0 ? Math.max(4, (dept.complete / dept.total) * 100) : 0}%` }}
                           />
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </Panel>
-
-              <Panel title="Top Tool Calls">
-                {data.conversations.top_tools.length > 0 ? (
-                  <BarRows rows={data.conversations.top_tools.map((tool) => ({ label: tool.name, value: tool.count, color: "bg-slate-600" }))} />
-                ) : (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">No tool calls in the last 30 days.</p>
-                )}
-              </Panel>
+                    ))}
+                  </div>
+                </Panel>
+              )}
             </section>
 
             <section className="mt-6 rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 shadow-sm">
@@ -294,11 +410,13 @@ function Metric({
   value,
   tone,
   compact = false,
+  suffix,
 }: {
   label: string;
   value: number;
   tone: "blue" | "red" | "amber" | "green" | "gray";
   compact?: boolean;
+  suffix?: string;
 }) {
   const tones = {
     blue: "text-blue-700",
@@ -311,7 +429,7 @@ function Metric({
   return (
     <div className={`rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 shadow-sm ${compact ? "p-4" : "p-5"}`}>
       <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
-      <p className={`mt-2 font-bold ${compact ? "text-2xl" : "text-3xl"} ${tones[tone]}`}>{value}</p>
+      <p className={`mt-2 font-bold ${compact ? "text-2xl" : "text-3xl"} ${tones[tone]}`}>{value}{suffix ?? ""}</p>
     </div>
   );
 }

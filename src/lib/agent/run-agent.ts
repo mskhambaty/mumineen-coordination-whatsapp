@@ -6,7 +6,7 @@ import { AGENT_TEMPERATURE, AI_MODEL, getAIClient, MAX_AGENT_TOKENS } from "@/li
 import { resolveCallerFromPhone, type CallerContext } from "@/lib/api/auth";
 import type { AppUser } from "@/lib/permissions";
 import { retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
-import { getRecentMessages } from "@/lib/supabase/server";
+import { getRecentMessages, getSupabaseAdmin } from "@/lib/supabase/server";
 
 export { SYSTEM_PROMPT };
 
@@ -75,6 +75,33 @@ const COMMON_REQUESTS_RULE = `\n\n## Common Requests
 - Never tell a visitor that something is "restricted to authorized committee members" or sounds like an access denial. If you can't look something up, just warmly note their request, reassure them the team will follow up (escalate if appropriate), and keep helping.
 - The only website you may share with users is https://www.chicagorelaycenter.com. The indexed site content includes an internal source URL (ashara1448relay.chicagojamaat.org) — NEVER show or mention that URL to a user; always point them to https://www.chicagorelaycenter.com instead. Never invent any other URL.`;
 
+const DEPT_CACHE_TTL_MS = 5 * 60_000;
+let cachedDepartments: { list: Array<{ name: string; description: string | null }>; fetchedAt: number } | null = null;
+
+async function loadDepartmentsForPrompt(): Promise<string> {
+  if (cachedDepartments && Date.now() - cachedDepartments.fetchedAt < DEPT_CACHE_TTL_MS) {
+    return formatDepartmentList(cachedDepartments.list);
+  }
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data } = await supabase
+      .from("departments")
+      .select("name, description")
+      .order("name");
+    const list = (data ?? []) as Array<{ name: string; description: string | null }>;
+    cachedDepartments = { list, fetchedAt: Date.now() };
+    return formatDepartmentList(list);
+  } catch {
+    return "";
+  }
+}
+
+function formatDepartmentList(depts: Array<{ name: string; description: string | null }>): string {
+  if (depts.length === 0) return "";
+  const lines = depts.map((d) => `- ${d.name}${d.description ? `: ${d.description}` : ""}`);
+  return `\n\n## Available Departments\nWhen escalating (move_to_escalation) or creating issues (create_issue), always assign to the most appropriate department from this list:\n${lines.join("\n")}`;
+}
+
 type AgentInput = {
   user: AppUser;
   phoneE164: string;
@@ -95,7 +122,7 @@ export async function runAgent(input: AgentInput) {
     ? Promise.resolve(input.callerContext)
     : resolveCallerFromPhone(input.phoneE164).catch(() => undefined);
 
-  const [callerContext, siteContext, history, systemPromptText] = await Promise.all([
+  const [callerContext, siteContext, history, systemPromptText, departmentSection] = await Promise.all([
     callerPromise,
     retrieveSiteContext(input.message).catch((err) => {
       console.error("Failed to retrieve site context, continuing without it:", err);
@@ -103,6 +130,7 @@ export async function runAgent(input: AgentInput) {
     }),
     getRecentMessages(input.phoneE164, HISTORY_MESSAGE_LIMIT).catch(() => []),
     loadAgentSystemPrompt(),
+    loadDepartmentsForPrompt(),
   ]);
 
   let systemContent = systemPromptText;
@@ -116,6 +144,10 @@ export async function runAgent(input: AgentInput) {
   if (callerContext) {
     const deptNames = callerContext.departments.map((d) => `${d.department_name} (${d.dept_role})`).join(", ");
     systemContent += `\nDepartments: ${deptNames || "none"}\nCan read all: ${callerContext.can_read_all}\nCan write all: ${callerContext.can_write_all}`;
+  }
+
+  if (departmentSection) {
+    systemContent += departmentSection;
   }
 
   systemContent += ESCALATION_POLICY;

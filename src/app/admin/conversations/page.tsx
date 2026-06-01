@@ -46,6 +46,9 @@ type Conversation = {
   unread_inbound_count: number;
   messages: Message[];
   tool_calls: ToolCall[];
+  quality_score: "good" | "poor" | null;
+  quality_reason: string | null;
+  quality_analyzed_at: string | null;
 };
 
 export default function ConversationsPage() {
@@ -66,6 +69,7 @@ export default function ConversationsPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [qualityFilter, setQualityFilter] = useState<"all" | "poor">("all");
   const [attachment, setAttachment] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -94,15 +98,19 @@ export default function ConversationsPage() {
 
   // Keyword search over the loaded chats: matches name, phone, and any message body.
   const searchedConversations = useMemo(() => {
+    let list = visibleConversations;
+    if (qualityFilter === "poor") {
+      list = list.filter((c) => c.quality_score === "poor");
+    }
     const q = search.trim().toLowerCase();
-    if (!q) return visibleConversations;
-    return visibleConversations.filter((c) => {
+    if (!q) return list;
+    return list.filter((c) => {
       if ((c.display_name ?? "").toLowerCase().includes(q)) return true;
       if (c.phone_e164.toLowerCase().includes(q)) return true;
       if ((c.email ?? "").toLowerCase().includes(q)) return true;
       return c.messages.some((m) => (m.body ?? "").toLowerCase().includes(q));
     });
-  }, [visibleConversations, search]);
+  }, [visibleConversations, search, qualityFilter]);
 
   const selected = useMemo(
     () => visibleConversations.find((conversation) => conversation.phone_e164 === selectedPhone) ?? searchedConversations[0] ?? visibleConversations[0] ?? null,
@@ -333,6 +341,14 @@ export default function ConversationsPage() {
                   </button>
                 )}
               </div>
+              <label className="mt-2 flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                <input
+                  type="checkbox"
+                  checked={qualityFilter === "poor"}
+                  onChange={(e) => setQualityFilter(e.target.checked ? "poor" : "all")}
+                />
+                Show only needs-review
+              </label>
             </div>
             <div className="max-h-[668px] overflow-y-auto">
               {loading ? (
@@ -355,13 +371,20 @@ export default function ConversationsPage() {
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <p className="truncate font-medium">{conversation.display_name || conversation.phone_e164}</p>
+                      <div className="flex min-w-0 items-center gap-2">
+                        {conversation.quality_score === "good" && <span title="Good conversation" className="text-green-600 dark:text-green-400">&#x1F44D;</span>}
+                        {conversation.quality_score === "poor" && <span title="Needs review" className="text-red-600 dark:text-red-400">&#x1F44E;</span>}
+                        <p className="truncate font-medium">{conversation.display_name || conversation.phone_e164}</p>
+                      </div>
                       <div className="flex shrink-0 items-center gap-1">
                         {conversation.escalation_status === "pending" && (
                           <span className={`rounded-full px-2 py-0.5 text-xs ${conversation.escalation_priority === "urgent" ? "bg-red-500 text-white" : "bg-amber-500 text-white"}`}>
                             {conversation.escalation_priority === "urgent" ? "URGENT" : "ESCALATED"}
                           </span>
                         )}
+                        <span className={`rounded-full px-2 py-0.5 text-xs ${conversation.role === "committee" || conversation.role === "admin" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" : "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"}`}>
+                          {conversation.role === "committee" || conversation.role === "admin" ? "Member" : "External"}
+                        </span>
                         <span className={`rounded-full px-2 py-0.5 text-xs ${conversation.handling_mode === "manual" ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"}`}>
                           {conversation.handling_mode.toUpperCase()}
                         </span>
@@ -508,6 +531,25 @@ export default function ConversationsPage() {
           </section>
 
           <aside className="border-t bg-white lg:border-l lg:border-t-0 dark:border-gray-800 dark:bg-gray-900">
+            {selected?.quality_score && (
+              <div className="border-b px-4 py-3 dark:border-gray-800">
+                <h2 className="font-semibold">Conversation Quality</h2>
+                <div className="mt-2 flex items-center gap-2">
+                  <span className={`text-lg ${selected.quality_score === "good" ? "text-green-600" : "text-red-600"}`}>
+                    {selected.quality_score === "good" ? "\u{1F44D}" : "\u{1F44E}"}
+                  </span>
+                  <span className={`text-sm font-medium ${selected.quality_score === "good" ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>
+                    {selected.quality_score === "good" ? "Good" : "Needs Improvement"}
+                  </span>
+                </div>
+                {selected.quality_reason && (
+                  <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{selected.quality_reason}</p>
+                )}
+                {selected.quality_analyzed_at && (
+                  <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">Analyzed {formatDate(selected.quality_analyzed_at)}</p>
+                )}
+              </div>
+            )}
             <div className="border-b px-4 py-3 dark:border-gray-800">
               <h2 className="font-semibold">Tool Calls</h2>
               <p className="text-xs text-gray-500 dark:text-gray-400">Agent actions for this thread</p>

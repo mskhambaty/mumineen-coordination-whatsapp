@@ -27,6 +27,15 @@ type SessionRow = {
   handling_mode: "ai" | "manual" | null;
   last_message_at: string | null;
   created_at: string | null;
+  escalation_status?: string | null;
+  quality_score?: "good" | "poor" | null;
+  quality_analyzed_at?: string | null;
+};
+
+type MilestoneRow = {
+  id: string;
+  status: string;
+  department_id: string;
 };
 
 type MessageRow = {
@@ -76,10 +85,10 @@ export async function GET(req: NextRequest) {
     );
     const scopedTasks = (tasks ?? []) as TaskRow[];
 
-    const [{ data: sessions }, { data: messages }, { data: toolCalls }] = await Promise.all([
+    const [{ data: sessions }, { data: messages }, { data: toolCalls }, { data: milestoneRows }] = await Promise.all([
       supabase
         .from("conversation_sessions")
-        .select("id, phone_e164, handling_mode, last_message_at, created_at")
+        .select("id, phone_e164, handling_mode, last_message_at, created_at, escalation_status, quality_score, quality_analyzed_at")
         .gte("last_message_at", thirtyDaysAgo.toISOString()),
       supabase
         .from("messages")
@@ -89,17 +98,31 @@ export async function GET(req: NextRequest) {
         .from("tool_audit_logs")
         .select("id, phone_e164, tool_name, allowed, created_at")
         .gte("created_at", thirtyDaysAgo.toISOString()),
+      supabase
+        .from("milestones")
+        .select("id, status, department_id"),
     ]);
+
+    const typedSessions = (sessions ?? []) as SessionRow[];
+
+    // Resolve which phones belong to committee/admin users for external vs internal split
+    const { data: knownUsers } = await supabase
+      .from("whatsapp_users")
+      .select("phone_e164, role")
+      .in("role", ["committee", "admin"]);
+    const memberPhones = new Set((knownUsers ?? []).map((u: { phone_e164: string }) => u.phone_e164));
 
     return NextResponse.json({
       departments: departments ?? [],
       tasks: buildTaskAnalytics(scopedTasks, departmentMap, today),
       conversations: buildConversationAnalytics(
-        (sessions ?? []) as SessionRow[],
+        typedSessions,
         (messages ?? []) as MessageRow[],
         (toolCalls ?? []) as ToolAuditRow[],
         thirtyDaysAgo,
+        memberPhones,
       ),
+      milestones: buildMilestoneAnalytics((milestoneRows ?? []) as MilestoneRow[], departmentMap),
     });
   } catch (err) {
     if (err instanceof ForbiddenError) {
@@ -171,9 +194,18 @@ function buildTaskAnalytics(tasks: TaskRow[], departmentMap: Map<string, string>
 
   const issues = tasks.filter((task) => task.item_type === "issue");
   const issuesByStatus = { open: 0, in_progress: 0, blocked: 0, complete: 0 };
+  const issuesByDept = new Map<string, { department_name: string; count: number }>();
   for (const issue of issues) {
     if (issue.status in issuesByStatus) {
       issuesByStatus[issue.status as keyof typeof issuesByStatus]++;
+    }
+    if (issue.department_id) {
+      const existing = issuesByDept.get(issue.department_id) ?? {
+        department_name: departmentMap.get(issue.department_id) ?? "Unknown",
+        count: 0,
+      };
+      existing.count++;
+      issuesByDept.set(issue.department_id, existing);
     }
   }
 
@@ -192,6 +224,7 @@ function buildTaskAnalytics(tasks: TaskRow[], departmentMap: Map<string, string>
       blocked: issuesByStatus.blocked,
       resolved: issuesByStatus.complete,
       by_status: issuesByStatus,
+      by_department: Array.from(issuesByDept.values()).sort((a, b) => b.count - a.count),
     },
   };
 }
@@ -201,6 +234,7 @@ function buildConversationAnalytics(
   messages: MessageRow[],
   toolCalls: ToolAuditRow[],
   since: Date,
+  memberPhones: Set<string>,
 ) {
   const inbound = messages.filter((message) => message.direction === "inbound").length;
   const outbound = messages.filter((message) => message.direction === "outbound").length;
@@ -209,6 +243,35 @@ function buildConversationAnalytics(
 
   for (const call of toolCalls) {
     topTools.set(call.tool_name, (topTools.get(call.tool_name) ?? 0) + 1);
+  }
+
+  const escalationCount = sessions.filter((s) => s.escalation_status === "pending").length;
+
+  let qualityGood = 0;
+  let qualityPoor = 0;
+  let qualityUnscored = 0;
+  const qualityByDay = new Map<string, { date: string; good: number; poor: number }>();
+  for (const session of sessions) {
+    if (session.quality_score === "good") qualityGood++;
+    else if (session.quality_score === "poor") qualityPoor++;
+    else qualityUnscored++;
+
+    if (session.quality_analyzed_at && session.quality_score) {
+      const day = new Date(session.quality_analyzed_at).toISOString().split("T")[0];
+      const bucket = qualityByDay.get(day) ?? { date: day, good: 0, poor: 0 };
+      if (session.quality_score === "good") bucket.good++;
+      else bucket.poor++;
+      qualityByDay.set(day, bucket);
+    }
+  }
+
+  let externalMessages = 0;
+  let internalMessages = 0;
+  for (const msg of messages) {
+    if (msg.direction === "inbound") {
+      if (memberPhones.has(msg.phone_e164)) internalMessages++;
+      else externalMessages++;
+    }
   }
 
   return {
@@ -226,6 +289,34 @@ function buildConversationAnalytics(
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 10),
+    escalation_count: escalationCount,
+    quality_summary: { good: qualityGood, poor: qualityPoor, unscored: qualityUnscored },
+    quality_by_day: Array.from(qualityByDay.values()).sort((a, b) => a.date.localeCompare(b.date)),
+    external_user_messages: externalMessages,
+    internal_user_messages: internalMessages,
+  };
+}
+
+function buildMilestoneAnalytics(milestones: MilestoneRow[], departmentMap: Map<string, string>) {
+  const byStatus: Record<string, number> = { open: 0, in_progress: 0, blocked: 0, complete: 0 };
+  const byDepartment = new Map<string, { department_name: string; total: number; complete: number }>();
+
+  for (const ms of milestones) {
+    if (ms.status in byStatus) byStatus[ms.status]++;
+    const existing = byDepartment.get(ms.department_id) ?? {
+      department_name: departmentMap.get(ms.department_id) ?? "Unknown",
+      total: 0,
+      complete: 0,
+    };
+    existing.total++;
+    if (ms.status === "complete") existing.complete++;
+    byDepartment.set(ms.department_id, existing);
+  }
+
+  return {
+    total: milestones.length,
+    by_status: byStatus,
+    by_department: Array.from(byDepartment.values()).sort((a, b) => b.total - a.total),
   };
 }
 
