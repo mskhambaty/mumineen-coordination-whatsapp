@@ -118,13 +118,36 @@ embedded, and stored in `site_content` with `page_url = 'knowledge://<id>'`, so 
 | `uploaded_by` | uuid | FK → `whatsapp_users.id` (nullable) |
 | `title` | text | Display title (defaults to filename) |
 | `filename` | text | Original filename (nullable) |
-| `file_type` | text | `csv` \| `excel` \| `word` \| `pdf` |
+| `file_type` | text | `csv` \| `excel` \| `word` \| `pdf` \| `faq` (`faq` = created from an approved conversation suggestion) |
 | `status` | text | `processing` \| `indexed` \| `failed` |
 | `chunk_count` | integer | Number of vectorized chunks |
 | `error` | text | Failure reason (nullable) |
 | `created_at` | timestamptz | Auto |
 
 Raw files are not stored — only the extracted/vectorized text (same approach as the hotel sheet).
+
+### `knowledge_suggestions`
+
+Review queue for the **Learn from Conversations** feature (Prompt page). The analyzer
+(`src/lib/knowledge/analyze-gaps.ts`) scans recent conversations for knowledge gaps and drafts
+Q&A candidates here as `pending`. An admin approves (→ creates a `knowledge_documents` row with
+`file_type = 'faq'` and indexes it) or rejects. Reusable by a future cron.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `question` | text | Drafted FAQ question |
+| `suggested_answer` | text | Drafted answer (PII-stripped) |
+| `category` | text | e.g. `hotels`, `transport` (nullable) |
+| `source_phone` | text | Conversation the gap came from (reviewer context, nullable) |
+| `source_excerpt` | text | Optional transcript snippet (nullable) |
+| `confidence` | numeric | Model confidence 0–1 (nullable) |
+| `status` | text | `pending` \| `approved` \| `rejected` |
+| `dedup_key` | text | Normalized question; unique among `pending` rows to avoid re-proposing |
+| `knowledge_document_id` | uuid | FK → `knowledge_documents.id` once approved (nullable) |
+| `reviewed_by` | text | Who approved/rejected (nullable) |
+| `reviewed_at` | timestamptz | When reviewed (nullable) |
+| `created_at` | timestamptz | Auto |
 
 ### `committee_permissions`
 

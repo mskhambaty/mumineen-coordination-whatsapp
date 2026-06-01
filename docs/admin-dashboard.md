@@ -54,6 +54,12 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - Document list shows status (processing/indexed/failed), chunk count, department, and a delete action (removes the document and its vectors)
 - Access: **admin/leadership and department PM/HOD** (`POST/GET /api/knowledge`, `DELETE /api/knowledge/[id]`). Scanned/image-only PDFs can't be read.
 
+### Prompt — Learn from Conversations (`/admin/prompt`)
+- Admin/leadership-only section on the Prompt page that turns recent conversations into new knowledge (a manual stand-in for a future nightly cron).
+- **Analyze conversations** button (with a lookback selector: 1–30 days) calls `POST /api/admin/knowledge/analyze`. It finds conversations with a **knowledge gap** — the agent's `get_site_content_faq` returned `no_indexed_match`, or a human sent a manual reply (`raw_payload.source = 'manual_admin'`) — and asks the model to draft reusable, PII-stripped Q&A FAQ entries from how each was actually answered.
+- Drafts are saved as **pending suggestions** (`knowledge_suggestions`), de-duplicated by a normalized question key against existing pending/approved entries. The gap-detection + drafting logic lives in `src/lib/knowledge/analyze-gaps.ts` so a cron can reuse it unchanged.
+- Each suggestion is **editable** (question + answer) and has **Approve** or **Reject** (`POST /api/admin/knowledge/suggestions/[id]`, list via `GET /api/admin/knowledge/suggestions`). Approve creates a `knowledge_documents` row (`file_type = 'faq'`) and indexes the Q&A into `site_content`, so the agent answers it next time and it appears in **FAQ & Guides** (deletable there). Nothing is published without a human approving it.
+
 ### Department Detail (`/admin/departments/[id]`)
 - Department name and task count
 - Tasks table with: Title, Status, Assigned To, Due Date, Source, Updated
