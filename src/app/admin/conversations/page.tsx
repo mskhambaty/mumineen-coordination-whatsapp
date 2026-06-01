@@ -327,7 +327,10 @@ export default function ConversationsPage() {
                     )}
                     <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">{conversation.last_message?.body || "No message body"}</p>
                     <div className="mt-2 flex items-center justify-between text-xs text-gray-400 dark:text-gray-500">
-                      <span>{formatDate(conversation.last_message_at)}</span>
+                      <div className="flex items-center gap-2">
+                        <span>{formatDate(conversation.last_message_at)}</span>
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600 dark:bg-gray-700 dark:text-gray-300">{conversation.messages.length} msg{conversation.messages.length !== 1 ? "s" : ""}</span>
+                      </div>
                       {conversation.unread_inbound_count > 0 && (
                         <span className="rounded-full bg-green-100 px-2 py-0.5 text-green-700 dark:bg-green-900/40 dark:text-green-300">{conversation.unread_inbound_count} new</span>
                       )}
