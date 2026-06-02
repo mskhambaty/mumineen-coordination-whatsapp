@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { runAgent } from "@/lib/agent/run-agent";
-import { describeIncomingImage } from "@/lib/agent/vision";
+import { answerImageQuestion } from "@/lib/agent/vision";
 import { optionalEnv } from "@/lib/env";
 import { fetchWhatsAppMedia, sendWhatsAppText, verifyMetaSignature } from "@/lib/meta/whatsapp";
 import {
@@ -104,22 +104,24 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
     return true;
   }
 
-  // For image messages, read the image into text so the agent can answer over it
-  // (screenshots of ITS pages, tickets, forms, etc.) using its normal tools/RAG.
-  const agentMessage = message.media
-    ? await buildImageAgentMessage(message.media, message.body)
-    : message.body;
+  // Images are handled in isolation: the vision model answers about THIS image only,
+  // and we send that answer directly — bypassing the text agent's history and site RAG
+  // so unrelated event context (e.g. hotels) can never bleed in and cause hallucinations.
+  if (message.media) {
+    await replyToImage(message, user.id);
+    return true;
+  }
 
   // Nothing to respond to — e.g. an "unsupported"/stray message type (WhatsApp sometimes
   // sends one alongside an image) or an empty payload. Stay silent instead of nagging.
-  if (!agentMessage.trim()) {
+  if (!message.body.trim()) {
     return true;
   }
 
   const reply = await runAgent({
     user,
     phoneE164: message.phoneE164,
-    message: agentMessage,
+    message: message.body,
   });
 
   // The agent can choose to stay silent on content-free closings ("thanks", "ok",
@@ -156,31 +158,34 @@ function isSilentReply(reply: string): boolean {
   return trimmed.replace(/[^a-z]/gi, "").toUpperCase() === "NOREPLY";
 }
 
-async function buildImageAgentMessage(
-  media: NonNullable<IncomingWhatsAppMessage["media"]>,
-  fallbackBody: string,
-): Promise<string> {
+// Download the image, ask the vision model about it (this image only), and send the
+// answer straight to the visitor. Fully isolated from the text agent / RAG / history.
+async function replyToImage(message: IncomingWhatsAppMessage, userId: string | undefined) {
+  const media = message.media;
+  if (!media) return;
+
+  let answer: string;
   try {
     const { buffer, mimeType } = await fetchWhatsAppMedia(media.id);
-    const description = await describeIncomingImage({
+    answer = await answerImageQuestion({
       buffer,
       mimeType: media.mimeType ?? mimeType,
-      caption: media.caption,
+      question: media.caption,
     });
-    if (!description) {
-      throw new Error("Vision returned an empty description");
-    }
-    const lead = media.caption
-      ? `The visitor sent an image with the caption: "${media.caption}".`
-      : "The visitor sent an image (no caption).";
-    return `${lead}\n\n[Image contents, read by the system]: ${description}`.trim();
+    if (!answer) throw new Error("Vision returned an empty answer");
   } catch (error) {
     console.error("Failed to read inbound image", error);
-    return (
-      fallbackBody ||
-      "The visitor sent an image but it could not be read. Politely ask them to describe what they need, or to resend it."
-    );
+    answer = "I had trouble reading that image — could you resend it, or tell me what you need help with?";
   }
+
+  const metaResponse = await sendWhatsAppText(message.phoneE164, answer);
+  await recordOutboundMessage({
+    phoneE164: message.phoneE164,
+    body: answer,
+    whatsappMessageId: metaResponse.messages?.[0]?.id,
+    rawPayload: metaResponse,
+  });
+  await touchConversationSession({ phoneE164: message.phoneE164, userId });
 }
 
 function isAllowedBusinessPhone(message: IncomingWhatsAppMessage) {

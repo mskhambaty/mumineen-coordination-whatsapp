@@ -28,10 +28,11 @@ You can answer almost every visitor question yourself using get_site_content_faq
 - After a successful escalation the system confirms to the user that the team has been notified, so keep your closing reply brief.`;
 
 // Always-on greeting style so the agent doesn't re-greet on every message.
-const GREETING_RULE = `\n\n## Greeting Style
-- "Salam", "Salaam", "Taslimat", "Taslim", "Taslimaat" and similar are GREETINGS, not topics. Never look them up, research them, or ask what they mean — just greet back.
-- When you greet, the greeting must be exactly "Salaam un Jameel" — do not use other salaam variations.
-- Greet only ONCE per conversation. The full message history is provided; if you (the assistant) have already greeted earlier in this conversation, do NOT greet again. Reply directly to the user's message without any salaam.`;
+const GREETING_RULE = `\n\n## Greeting Style — Greet Exactly Once
+- "Salam", "Salaam", "Taslimat", "Taslim", "Taslimaat" and similar are GREETINGS, not topics. Never look them up, research them, or ask what they mean.
+- You greet ONLY in your very first reply of the conversation, and the greeting is exactly "Salaam un Jameel" (you may add their name, e.g. "Salaam un Jameel, Mufaddal").
+- CRITICAL: Look at the message history. If you (the assistant) have ALREADY sent any message earlier in this conversation, you have already greeted — so do NOT greet again. Every later reply must begin DIRECTLY with the substance of your answer.
+- After your first reply, NEVER start a message with any greeting or salaam — no "Salaam", no "Salaam un Jameel", no "Wa Alaikum Salaam", no "Wa Alaikum us Salaam", nothing — even if the user says salaam again or introduces themselves. Just answer.`;
 
 // Always-on rule: authentic, sourced information only — never fabricate specifics.
 const ACCURACY_RULE = `\n\n## Accuracy First — Never Hallucinate
@@ -78,14 +79,6 @@ const COMMON_REQUESTS_RULE = `\n\n## Common Requests
 - "Forward my query to the team", "connect me to someone", "who is coordinating this": this is a human hand-off — use move_to_escalation, NOT create_issue.
 - Never tell a visitor that something is "restricted to authorized committee members" or sounds like an access denial. If you can't look something up, just warmly note their request, reassure them the team will follow up (escalate if appropriate), and keep helping.
 - The only website you may share with users is https://www.chicagorelaycenter.com. The indexed site content includes an internal source URL (ashara1448relay.chicagojamaat.org) — NEVER show or mention that URL to a user; always point them to https://www.chicagorelaycenter.com instead. Never invent any other URL.`;
-
-// Always-on: the agent CAN "see" images — the system reads them and injects the contents.
-const IMAGE_RULE = `\n\n## Images — You Can See Them
-- When a visitor sends a photo, the system reads the image for you and inserts what it shows as a line beginning "[Image contents, read by the system]:". Treat that line as an accurate description of the image the user actually sent.
-- Reply NATURALLY, as if you simply saw the image yourself. NEVER repeat, quote, or mention the words "[Image contents, read by the system]", and do NOT narrate it ("the image shows a screenshot of…", "the system read…"). Just answer what they asked, e.g. "That's the contact card — the WhatsApp number is +1 (630) 819-0250 and the site is chicagojamaat.org."
-- If the user asks what's in the image or to describe it, actually describe its contents — even if the image is unrelated to the event (e.g. a random object). Don't deflect with "let me know what you need"; tell them what you see, then offer to help further.
-- NEVER tell the user you "can't view images", "can't see images", or "am unable to view images", and don't ask them to describe or re-share it. You can see it through the system's reading — use it.
-- Only if the description is genuinely missing the specific detail they asked about, ask one short, specific follow-up — but never deny being able to see the image.`;
 
 // Always-on: read conversational flow like a human; know when to stop or stay silent.
 const CONVERSATION_FLOW_RULE = `\n\n## Conversation Flow — Read the Room, Know When to Stop
@@ -179,7 +172,6 @@ export async function runAgent(input: AgentInput) {
   systemContent += LANGUAGE_RULE;
   systemContent += COMMON_REQUESTS_RULE;
   systemContent += CONVERSATION_FLOW_RULE;
-  systemContent += IMAGE_RULE;
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemContent },

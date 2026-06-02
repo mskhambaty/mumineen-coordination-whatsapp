@@ -1,18 +1,25 @@
 import { AI_VISION_MODEL, getAIClient } from "@/lib/ai/model";
 
-// Read an image a visitor sent and turn it into a short text description the main
-// agent can reason over (it understands screenshots of ITS pages, tickets, forms, etc.).
-export async function describeIncomingImage(input: {
+// Answer a visitor's question about the image they sent — grounded ONLY on what is
+// visible in this one image. Deliberately isolated from conversation history and site
+// RAG so event context (e.g. hotels) can never bleed in and produce a hallucinated answer.
+export async function answerImageQuestion(input: {
   buffer: Buffer;
   mimeType: string;
-  caption?: string;
+  question?: string;
 }): Promise<string> {
   const client = getAIClient();
   const dataUrl = `data:${input.mimeType};base64,${input.buffer.toString("base64")}`;
+  const question = input.question?.trim();
 
-  const instruction =
-    "A visitor to an event support line sent this image over WhatsApp. Describe what it shows in 1-3 sentences so a support agent can help. If it contains readable text (e.g. an ITS page, ticket, booking, form, screenshot, or document), transcribe the key text and any IDs/dates/amounts exactly. Be factual; do not guess." +
-    (input.caption ? ` The visitor's caption was: "${input.caption}".` : "");
+  const instruction = question
+    ? `A visitor messaged a WhatsApp help line and sent this image, asking: "${question}". ` +
+      `Answer their question naturally and concisely, based ONLY on what is actually visible in THIS image. ` +
+      `Read out any relevant text, numbers, names, or IDs exactly as shown. If the image is unrelated to any event, still answer what it shows. ` +
+      `Do NOT mention being an AI, that an image was "read", or any "[Image contents]" labels. If you genuinely cannot tell what it is, say so briefly. ` +
+      `Never describe anything that is not visible in this specific image.`
+    : `A visitor sent this image with no caption. Briefly and naturally describe what it shows, reading out any key text or numbers exactly. ` +
+      `Base it ONLY on what is visible in THIS image. Do NOT mention being an AI or that an image was read.`;
 
   const res = await client.chat.completions.create({
     model: AI_VISION_MODEL,
