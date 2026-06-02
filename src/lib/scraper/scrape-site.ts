@@ -42,7 +42,10 @@ export async function scrapeSite() {
   const openai = getAIClient();
   const siteRoot = normalizeSiteRoot(optionalEnv("RELAY_SITE_ROOT") ?? DEFAULT_SITE_ROOT);
   const pageUrls = await discoverSitePages(siteRoot);
+  // The internal hotel Google sheet is now superseded by FAQ & Guides uploads, so it
+  // is OFF by default (it carried stale/far-hotel data). Re-enable with SCRAPE_HOTEL_SHEET=true.
   const hotelSheetUrl = optionalEnv("HOTEL_SHEET_CSV_URL") ?? DEFAULT_HOTEL_SHEET_CSV_URL;
+  const hotelSheetEnabled = optionalEnv("SCRAPE_HOTEL_SHEET") === "true";
   const chunks: ContentChunk[] = [];
   let siteChunkCount = 0;
 
@@ -62,7 +65,7 @@ export async function scrapeSite() {
     chunks.push(...pageChunks);
   }
 
-  const hotelChunks = await scrapeHotelSheet(hotelSheetUrl);
+  const hotelChunks = hotelSheetEnabled ? await scrapeHotelSheet(hotelSheetUrl) : [];
   chunks.push(...hotelChunks);
 
   if (chunks.length === 0) {
@@ -79,10 +82,13 @@ export async function scrapeSite() {
   }
 
   const uniqueChunks = Array.from(new Map(chunks.map((chunk) => [chunkKey(chunk), chunk])).values());
+  // Only scraped rows participate in stale-marking. NEVER touch FAQ & Guides uploads
+  // (page_url 'knowledge://...') — they aren't part of the scrape and were being wiped.
   const { data: existingRows, error: existingError } = await supabase
     .from("site_content")
     .select("id, page_url, section, content")
-    .eq("is_current", true);
+    .eq("is_current", true)
+    .not("page_url", "like", "knowledge://%");
 
   if (existingError) {
     console.error("Failed to load current site content:", existingError);
