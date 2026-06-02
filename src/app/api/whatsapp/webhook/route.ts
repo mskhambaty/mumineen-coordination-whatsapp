@@ -161,7 +161,8 @@ function isSilentReply(reply: string): boolean {
 }
 
 // Best-effort debug annotation on a stored message's raw_payload (never throws).
-async function annotateMessage(id: string, rawMessage: unknown, debug: Record<string, unknown>) {
+async function annotateMessage(id: string | null | undefined, rawMessage: unknown, debug: Record<string, unknown>) {
+  if (!id) return;
   try {
     const annotated = { ...(rawMessage as Record<string, unknown>), debug };
     await getSupabaseAdmin().from("messages").update({ raw_payload: annotated }).eq("id", id);
