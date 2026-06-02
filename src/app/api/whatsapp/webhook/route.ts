@@ -110,16 +110,14 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
   if (message.media) {
     const img = await buildImageAgentMessage(message.media, message.body);
     agentMessage = img.text;
-    // Persist any failure reason onto raw_payload so it's diagnosable via SQL. Best-effort
-    // only — a capture failure must never break the reply path.
-    if (img.error) {
-      try {
-        const annotated = { ...(message.rawMessage as Record<string, unknown>), vision_error: img.error };
-        await getSupabaseAdmin().from("messages").update({ raw_payload: annotated }).eq("id", inbound.id);
-      } catch (captureErr) {
-        console.error("Failed to persist vision_error", captureErr);
-      }
-    }
+    await annotateMessage(inbound.id, message.rawMessage, {
+      image_processed: true,
+      image_text: img.text.slice(0, 400),
+      vision_error: img.error ?? null,
+    });
+  } else if (message.messageType === "image") {
+    // An image arrived but media wasn't extracted — record that so it's diagnosable.
+    await annotateMessage(inbound.id, message.rawMessage, { image_processed: false, media_missing: true });
   }
 
   const reply = await runAgent({
@@ -160,6 +158,16 @@ function isSilentReply(reply: string): boolean {
   const trimmed = reply.trim();
   if (!trimmed) return true;
   return trimmed.replace(/[^a-z]/gi, "").toUpperCase() === "NOREPLY";
+}
+
+// Best-effort debug annotation on a stored message's raw_payload (never throws).
+async function annotateMessage(id: string, rawMessage: unknown, debug: Record<string, unknown>) {
+  try {
+    const annotated = { ...(rawMessage as Record<string, unknown>), debug };
+    await getSupabaseAdmin().from("messages").update({ raw_payload: annotated }).eq("id", id);
+  } catch (err) {
+    console.error("Failed to annotate message", err);
+  }
 }
 
 async function buildImageAgentMessage(
