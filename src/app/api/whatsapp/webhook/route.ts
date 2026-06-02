@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 
 import { runAgent } from "@/lib/agent/run-agent";
 import { answerImageQuestion } from "@/lib/agent/vision";
@@ -11,6 +12,7 @@ import {
   recordOutboundMessage,
   touchConversationSession,
 } from "@/lib/supabase/server";
+import { insertPendingMessage, runCoalescedInbound } from "@/lib/whatsapp/coalesce";
 import { extractIncomingMessages, type IncomingWhatsAppMessage } from "@/lib/whatsapp/parser";
 
 export const runtime = "nodejs";
@@ -89,7 +91,6 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
     userId: user.id,
   });
 
-  // A reaction (e.g. 👍) isn't a question — record it for the inbox but never reply.
   if (message.messageType === "reaction") {
     return true;
   }
@@ -104,62 +105,69 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
     return true;
   }
 
-  // Images are handled in isolation: the vision model answers about THIS image only,
-  // and we send that answer directly — bypassing the text agent's history and site RAG
-  // so unrelated event context (e.g. hotels) can never bleed in and cause hallucinations.
   if (message.media) {
     await replyToImage(message, user.id);
     return true;
   }
 
-  // Nothing to respond to — e.g. an "unsupported"/stray message type (WhatsApp sometimes
-  // sends one alongside an image) or an empty payload. Stay silent instead of nagging.
   if (!message.body.trim()) {
     return true;
   }
 
-  const reply = await runAgent({
-    user,
+  // Queue the text message for coalesced processing instead of responding immediately.
+  const lockKey = message.phoneE164;
+
+  await insertPendingMessage({
+    lockKey,
     phoneE164: message.phoneE164,
-    message: message.body,
+    messageId: message.whatsappMessageId,
+    body: message.body,
+    inboundMsgId: inbound.id,
   });
 
-  // The agent can choose to stay silent on content-free closings ("thanks", "ok",
-  // a dua already acknowledged, etc.) by returning the no-reply sentinel. Strip the
-  // token first so it can never leak into an actual message; if nothing remains, stay silent.
-  const cleaned = reply.replace(/\[\[\s*no[_\s]?reply\s*\]\]/gi, "").trim();
-  if (isSilentReply(cleaned)) {
-    return true;
-  }
+  after(() =>
+    runCoalescedInbound<string>({
+      lockKey,
+      process: async (combinedText) => {
+        return runAgent({
+          user,
+          phoneE164: message.phoneE164,
+          message: combinedText,
+        });
+      },
+      send: async (reply) => {
+        const cleaned = reply.replace(/\[\[\s*no[_\s]?reply\s*\]\]/gi, "").trim();
+        if (isSilentReply(cleaned)) {
+          return;
+        }
 
-  const metaResponse = await sendWhatsAppText(message.phoneE164, cleaned);
-  const outboundId = metaResponse.messages?.[0]?.id;
+        const metaResponse = await sendWhatsAppText(message.phoneE164, cleaned);
+        const outboundId = metaResponse.messages?.[0]?.id;
 
-  await recordOutboundMessage({
-    phoneE164: message.phoneE164,
-    body: cleaned,
-    whatsappMessageId: outboundId,
-    rawPayload: metaResponse,
-  });
+        await recordOutboundMessage({
+          phoneE164: message.phoneE164,
+          body: cleaned,
+          whatsappMessageId: outboundId,
+          rawPayload: metaResponse,
+        });
 
-  await touchConversationSession({
-    phoneE164: message.phoneE164,
-    userId: user.id,
-  });
+        await touchConversationSession({
+          phoneE164: message.phoneE164,
+          userId: user.id,
+        });
+      },
+    }),
+  );
 
   return true;
 }
 
-// True when the agent's reply means "send nothing" — empty, or the no-reply sentinel
-// in any reasonable shape the model might emit ("[[NO_REPLY]]", "NO_REPLY", etc.).
 function isSilentReply(reply: string): boolean {
   const trimmed = reply.trim();
   if (!trimmed) return true;
   return trimmed.replace(/[^a-z]/gi, "").toUpperCase() === "NOREPLY";
 }
 
-// Download the image, ask the vision model about it (this image only), and send the
-// answer straight to the visitor. Fully isolated from the text agent / RAG / history.
 async function replyToImage(message: IncomingWhatsAppMessage, userId: string | undefined) {
   const media = message.media;
   if (!media) return;

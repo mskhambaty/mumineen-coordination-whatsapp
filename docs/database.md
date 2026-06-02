@@ -347,6 +347,35 @@ Scraped and embedded chunks from the official site (RAG source).
 Requires the `pgvector` extension (`vector` schema).  
 IVFFlat index on `embedding` for fast cosine similarity search.
 
+### `whatsapp_inbound_locks`
+
+Self-expiring lease lock for message coalescing. One row per active conversation (`phone_e164`). The runner that acquires the lock drains the pending queue; others return immediately. Expired leases are stolen by the next runner.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `lock_key` | text | PK — `phone_e164` value |
+| `owner_token` | uuid | Random token identifying the lock holder |
+| `acquired_at` | timestamptz | When the lock was acquired |
+| `expires_at` | timestamptz | Lease expiry (TTL = 180s) |
+
+### `whatsapp_pending_messages`
+
+Inbound message queue for coalescing. Messages are inserted by the webhook handler, claimed by the drain loop, and deleted after a successful reply.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK, auto-generated |
+| `lock_key` | text | Same as `phone_e164` |
+| `phone_e164` | text | Sender phone number |
+| `message_id` | text | Unique — WhatsApp message ID (dedup layer 2) |
+| `body` | text | Message text |
+| `inbound_msg_id` | uuid | FK to `messages.id` (audit link, nullable) |
+| `received_at` | timestamptz | Auto |
+| `claimed_at` | timestamptz | Set when a runner claims the row (nullable) |
+| `claimed_by` | uuid | The runner's `owner_token` (nullable) |
+
+Source: `supabase/migrations/20260602120000_whatsapp_coalescing.sql`
+
 ## Supabase RPC Function
 
 `match_site_content(query_embedding, match_threshold, match_count)` — vector similarity search.  
