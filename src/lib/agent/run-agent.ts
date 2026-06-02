@@ -83,6 +83,7 @@ const COMMON_REQUESTS_RULE = `\n\n## Common Requests
 const IMAGE_RULE = `\n\n## Images — You Can See Them
 - When a visitor sends a photo, the system reads the image for you and inserts what it shows as a line beginning "[Image contents, read by the system]:". Treat that line as an accurate description of the image the user actually sent.
 - Reply NATURALLY, as if you simply saw the image yourself. NEVER repeat, quote, or mention the words "[Image contents, read by the system]", and do NOT narrate it ("the image shows a screenshot of…", "the system read…"). Just answer what they asked, e.g. "That's the contact card — the WhatsApp number is +1 (630) 819-0250 and the site is chicagojamaat.org."
+- If the user asks what's in the image or to describe it, actually describe its contents — even if the image is unrelated to the event (e.g. a random object). Don't deflect with "let me know what you need"; tell them what you see, then offer to help further.
 - NEVER tell the user you "can't view images", "can't see images", or "am unable to view images", and don't ask them to describe or re-share it. You can see it through the system's reading — use it.
 - Only if the description is genuinely missing the specific detail they asked about, ask one short, specific follow-up — but never deny being able to see the image.`;
 

@@ -110,6 +110,12 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
     ? await buildImageAgentMessage(message.media, message.body)
     : message.body;
 
+  // Nothing to respond to — e.g. an "unsupported"/stray message type (WhatsApp sometimes
+  // sends one alongside an image) or an empty payload. Stay silent instead of nagging.
+  if (!agentMessage.trim()) {
+    return true;
+  }
+
   const reply = await runAgent({
     user,
     phoneE164: message.phoneE164,
