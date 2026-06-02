@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { canAccessInbox } from "@/lib/admin/access";
+import { canAccessInbox, isAdminOrLeadership } from "@/lib/admin/access";
+import QuickEditModal from "@/components/admin/QuickEditModal";
 
 type HandlingMode = "ai" | "manual";
 
@@ -72,6 +73,15 @@ export default function ConversationsPage() {
   const [qualityFilter, setQualityFilter] = useState<"all" | "poor">("all");
   const [attachment, setAttachment] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showQuickEdit, setShowQuickEdit] = useState(false);
+  const [canQuickEdit] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return isAdminOrLeadership(JSON.parse(window.localStorage.getItem("admin_user") ?? "null"));
+    } catch {
+      return false;
+    }
+  });
 
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
@@ -320,7 +330,12 @@ export default function ConversationsPage() {
                     )}
                   </button>
                 </div>
-                <button onClick={() => void loadConversations()} className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">Refresh</button>
+                <div className="flex items-center gap-3">
+                  {canQuickEdit && (
+                    <button onClick={() => setShowQuickEdit(true)} className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">Edit FAQ / Prompt</button>
+                  )}
+                  <button onClick={() => void loadConversations()} className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">Refresh</button>
+                </div>
               </div>
               <div className="relative">
                 <input
@@ -573,6 +588,7 @@ export default function ConversationsPage() {
           </aside>
         </div>
       </main>
+      {showQuickEdit && <QuickEditModal adminKey={adminKey} onClose={() => setShowQuickEdit(false)} />}
     </>
   );
 }
