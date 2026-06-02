@@ -5,6 +5,9 @@ import { requireEnv } from "@/lib/env";
 // Single source of truth for all LLM configuration.
 // All files that call OpenAI MUST import from here.
 export const AI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+// Reading images needs a vision-capable model. Kept separate from AI_MODEL so a
+// non-vision OPENAI_MODEL override can't silently break image understanding.
+export const AI_VISION_MODEL = process.env.OPENAI_VISION_MODEL ?? "gpt-4o-mini";
 export const AI_EMBEDDING_MODEL = "text-embedding-3-small";
 
 export const AGENT_TEMPERATURE = 0.2;

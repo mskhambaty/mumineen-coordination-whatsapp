@@ -1,4 +1,4 @@
-import { AI_MODEL, getAIClient } from "@/lib/ai/model";
+import { AI_VISION_MODEL, getAIClient } from "@/lib/ai/model";
 
 // Read an image a visitor sent and turn it into a short text description the main
 // agent can reason over (it understands screenshots of ITS pages, tickets, forms, etc.).
@@ -15,7 +15,7 @@ export async function describeIncomingImage(input: {
     (input.caption ? ` The visitor's caption was: "${input.caption}".` : "");
 
   const res = await client.chat.completions.create({
-    model: AI_MODEL,
+    model: AI_VISION_MODEL,
     messages: [
       {
         role: "user",
