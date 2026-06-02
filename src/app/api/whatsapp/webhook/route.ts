@@ -110,12 +110,15 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
   if (message.media) {
     const img = await buildImageAgentMessage(message.media, message.body);
     agentMessage = img.text;
-    // Persist any failure reason on the message row so it's diagnosable via SQL.
+    // Persist any failure reason onto raw_payload so it's diagnosable via SQL. Best-effort
+    // only — a capture failure must never break the reply path.
     if (img.error) {
-      await getSupabaseAdmin()
-        .from("messages")
-        .update({ payload: { vision_error: img.error } })
-        .eq("id", inbound.id);
+      try {
+        const annotated = { ...(message.rawMessage as Record<string, unknown>), vision_error: img.error };
+        await getSupabaseAdmin().from("messages").update({ raw_payload: annotated }).eq("id", inbound.id);
+      } catch (captureErr) {
+        console.error("Failed to persist vision_error", captureErr);
+      }
     }
   }
 
