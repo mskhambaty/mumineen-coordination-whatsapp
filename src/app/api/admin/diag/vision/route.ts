@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { requireAdminKey } from "@/lib/api/auth";
 import { describeIncomingImage } from "@/lib/agent/vision";
 import { AI_VISION_MODEL } from "@/lib/ai/model";
 import { fetchWhatsAppMedia } from "@/lib/meta/whatsapp";
@@ -10,11 +11,12 @@ export const maxDuration = 60;
 
 // Admin diagnostic: run the full image-reading pipeline for a stored image message
 // and report exactly which step fails (media download vs. vision call). Auth via the
-// admin key as a query param so it can be opened directly in a browser.
-//   GET /api/admin/diag/vision?key=ADMIN_API_KEY&messageId=<uuid>
+// x-admin-key header (dashboard button) or a `key` query param (open in a browser).
+//   GET /api/admin/diag/vision?messageId=<uuid>
 export async function GET(req: NextRequest) {
-  const key = req.nextUrl.searchParams.get("key");
-  if (!process.env.ADMIN_API_KEY || key !== process.env.ADMIN_API_KEY) {
+  const queryKey = req.nextUrl.searchParams.get("key");
+  const queryKeyOk = Boolean(process.env.ADMIN_API_KEY) && queryKey === process.env.ADMIN_API_KEY;
+  if (!queryKeyOk && !requireAdminKey(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
