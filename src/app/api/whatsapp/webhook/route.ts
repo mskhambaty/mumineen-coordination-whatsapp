@@ -106,9 +106,18 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
 
   // For image messages, read the image into text so the agent can answer over it
   // (screenshots of ITS pages, tickets, forms, etc.) using its normal tools/RAG.
-  const agentMessage = message.media
-    ? await buildImageAgentMessage(message.media, message.body)
-    : message.body;
+  let agentMessage = message.body;
+  if (message.media) {
+    const img = await buildImageAgentMessage(message.media, message.body);
+    agentMessage = img.text;
+    // Persist any failure reason on the message row so it's diagnosable via SQL.
+    if (img.error) {
+      await getSupabaseAdmin()
+        .from("messages")
+        .update({ payload: { vision_error: img.error } })
+        .eq("id", inbound.id);
+    }
+  }
 
   const reply = await runAgent({
     user,
@@ -153,7 +162,7 @@ function isSilentReply(reply: string): boolean {
 async function buildImageAgentMessage(
   media: NonNullable<IncomingWhatsAppMessage["media"]>,
   fallbackBody: string,
-): Promise<string> {
+): Promise<{ text: string; error?: string }> {
   try {
     const { buffer, mimeType } = await fetchWhatsAppMedia(media.id);
     const description = await describeIncomingImage({
@@ -161,16 +170,22 @@ async function buildImageAgentMessage(
       mimeType: media.mimeType ?? mimeType,
       caption: media.caption,
     });
+    if (!description) {
+      throw new Error("Vision returned an empty description");
+    }
     const lead = media.caption
       ? `The visitor sent an image with the caption: "${media.caption}".`
       : "The visitor sent an image (no caption).";
-    return `${lead}\n\n[Image contents, read by the system]: ${description}`.trim();
+    return { text: `${lead}\n\n[Image contents, read by the system]: ${description}`.trim() };
   } catch (error) {
-    console.error("Failed to read inbound image", error);
-    return (
-      fallbackBody ||
-      "The visitor sent an image but it could not be read. Politely ask them to describe what they need, or to resend it."
-    );
+    const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    console.error("Failed to read inbound image", reason);
+    return {
+      text:
+        fallbackBody ||
+        "The visitor sent an image but it could not be read. Politely ask them to describe what they need, or to resend it.",
+      error: reason,
+    };
   }
 }
 
