@@ -89,6 +89,11 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
     userId: user.id,
   });
 
+  // A reaction (e.g. 👍) isn't a question — record it for the inbox but never reply.
+  if (message.messageType === "reaction") {
+    return true;
+  }
+
   const { data: session } = await getSupabaseAdmin()
     .from("conversation_sessions")
     .select("handling_mode")

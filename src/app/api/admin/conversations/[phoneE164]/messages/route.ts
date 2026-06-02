@@ -76,10 +76,11 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
   let metaResponse;
   let storedBody = messageBody;
   let messageKind: "text" | "image" = "text";
+  let sentMediaId: string | null = null;
   if (imageFile) {
     const buffer = Buffer.from(await imageFile.arrayBuffer());
-    const mediaId = await uploadWhatsAppMedia(buffer, imageFile.type, imageFile.name || "image");
-    metaResponse = await sendWhatsAppImage(phone, mediaId, messageBody || undefined);
+    sentMediaId = await uploadWhatsAppMedia(buffer, imageFile.type, imageFile.name || "image");
+    metaResponse = await sendWhatsAppImage(phone, sentMediaId, messageBody || undefined);
     storedBody = messageBody || "[image]";
     messageKind = "image";
   } else {
@@ -94,6 +95,8 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
     rawPayload: {
       source: "manual_admin",
       kind: messageKind,
+      // Lets the inbox proxy/render the image we just sent.
+      ...(sentMediaId ? { media_id: sentMediaId } : {}),
       meta_response: metaResponse,
     },
   });

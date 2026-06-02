@@ -41,6 +41,10 @@ type WhatsAppMessage = {
     mime_type?: string;
     caption?: string;
   };
+  reaction?: {
+    emoji?: string;
+    message_id?: string;
+  };
 };
 
 type WhatsAppChange = {
@@ -129,6 +133,10 @@ function getMessageBody(message: WhatsAppMessage) {
 
   if (message.type === "image") {
     return message.image?.caption?.trim() ?? "";
+  }
+
+  if (message.type === "reaction") {
+    return message.reaction?.emoji?.trim() ?? "";
   }
 
   return "";

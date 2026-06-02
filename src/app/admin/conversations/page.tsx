@@ -469,7 +469,7 @@ export default function ConversationsPage() {
               {selected?.messages.map((message) => (
                 <div key={message.id} className={`flex ${message.direction === "outbound" ? "justify-end" : "justify-start"}`}>
                   <div className={`max-w-[78%] rounded-lg border px-4 py-3 shadow-sm ${message.direction === "outbound" ? "bg-blue-600 text-white dark:bg-blue-700" : "bg-white text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"}`}>
-                    <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.body || `[${message.message_type || "message"}]`}</p>
+                    <MessageContent message={message} adminKey={adminKey} />
                     <p className={`mt-2 text-xs ${message.direction === "outbound" ? "text-blue-100" : "text-gray-400 dark:text-gray-500"}`}>{formatDate(message.created_at)}</p>
                   </div>
                 </div>
@@ -574,6 +574,48 @@ export default function ConversationsPage() {
         </div>
       </main>
     </>
+  );
+}
+
+function isImageMessage(m: Message): boolean {
+  if (m.message_type === "image") return true;
+  const raw = m.raw_payload as { kind?: string } | null;
+  return raw?.kind === "image";
+}
+
+function reactionEmoji(m: Message): string | null {
+  if (m.message_type !== "reaction") return null;
+  if (m.body) return m.body;
+  const raw = m.raw_payload as { message?: { reaction?: { emoji?: string } } } | null;
+  return raw?.message?.reaction?.emoji ?? "👍";
+}
+
+// Renders a message bubble's content: a reaction emoji, an image (proxied from
+// Meta), or plain text.
+function MessageContent({ message, adminKey }: { message: Message; adminKey: string }) {
+  const emoji = reactionEmoji(message);
+  if (emoji) {
+    return <p className="text-sm">Reacted with {emoji}</p>;
+  }
+
+  if (isImageMessage(message)) {
+    const src = `/api/admin/conversations/media/${message.id}?key=${encodeURIComponent(adminKey)}`;
+    const caption = message.body && message.body !== "[image]" ? message.body : null;
+    return (
+      <div>
+        <a href={src} target="_blank" rel="noopener noreferrer">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt="Shared image" className="max-h-64 max-w-full rounded-md" />
+        </a>
+        {caption && <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6">{caption}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <p className="whitespace-pre-wrap break-words text-sm leading-6">
+      {message.body || `[${message.message_type || "message"}]`}
+    </p>
   );
 }
 
