@@ -139,7 +139,7 @@ export async function migrateLearnedFaqs(): Promise<{ migrated: number; departme
 }
 
 // Ask the model to assign each question to the best-fitting department name.
-async function classifyToDepartments(questions: string[], departmentNames: string[]): Promise<(string | null)[]> {
+export async function classifyToDepartments(questions: string[], departmentNames: string[]): Promise<(string | null)[]> {
   if (questions.length === 0) return [];
   const client = getAIClient();
   const res = await client.chat.completions.create({

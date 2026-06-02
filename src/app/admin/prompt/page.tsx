@@ -44,7 +44,11 @@ type Suggestion = {
   confidence: number | null;
   status: string;
   created_at: string;
+  department_id: string | null;
+  department: { name: string } | null;
 };
+
+type DeptOption = { id: string; name: string };
 
 function getStatusClasses(availability: ToolInfo["availability"]) {
   switch (availability) {
@@ -191,6 +195,7 @@ export default function PromptPage() {
   const [analyzeMsg, setAnalyzeMsg] = useState<string | null>(null);
   const [lookbackDays, setLookbackDays] = useState(7);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [departments, setDepartments] = useState<DeptOption[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const [qualityPrompt, setQualityPrompt] = useState<PromptData | null>(null);
@@ -256,10 +261,16 @@ export default function PromptPage() {
   }
 
   async function loadSuggestions() {
-    const res = await apiFetch("/api/admin/knowledge/suggestions?status=pending");
+    const [res, deptRes] = await Promise.all([
+      apiFetch("/api/admin/knowledge/suggestions?status=pending"),
+      apiFetch("/api/departments"),
+    ]);
     if (res.ok) {
       const data = (await res.json()) as { suggestions: Suggestion[] };
       setSuggestions(data.suggestions ?? []);
+    }
+    if (deptRes.ok) {
+      setDepartments((await deptRes.json()) as DeptOption[]);
     }
   }
 
@@ -347,7 +358,8 @@ export default function PromptPage() {
       if (!res.ok) throw new Error(data.error ?? "Analysis failed");
       setAnalyzeMsg(
         `Scanned ${data.scanned} conversation(s) · ${data.created} new suggestion(s)` +
-          (data.skippedDuplicates ? ` · ${data.skippedDuplicates} already known` : ""),
+          (data.skippedDuplicates ? ` · ${data.skippedDuplicates} already queued` : "") +
+          (data.skippedAlreadyAnswered ? ` · ${data.skippedAlreadyAnswered} already in a department FAQ` : ""),
       );
       await loadSuggestions();
     } catch (err) {
@@ -364,6 +376,10 @@ export default function PromptPage() {
   async function reviewSuggestion(id: string, action: "approve" | "reject") {
     const target = suggestions.find((s) => s.id === id);
     if (!target) return;
+    if (action === "approve" && !target.department_id) {
+      setAnalyzeMsg("Pick a department for that suggestion before approving.");
+      return;
+    }
     setBusyId(id);
     try {
       const res = await apiFetch(`/api/admin/knowledge/suggestions/${id}`, {
@@ -372,6 +388,7 @@ export default function PromptPage() {
           action,
           question: target.question,
           answer: target.suggested_answer,
+          department_id: target.department_id,
           reviewed_by: reviewerName(),
         }),
       });
@@ -589,6 +606,20 @@ export default function PromptPage() {
                   className="mt-1 block w-full rounded-md border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
                 />
 
+                <label className="mt-3 block text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  Department FAQ bucket
+                </label>
+                <select
+                  value={s.department_id ?? ""}
+                  onChange={(e) => editSuggestion(s.id, { department_id: e.target.value || null })}
+                  className="mt-1 block w-full max-w-xs rounded-md border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                >
+                  <option value="">Select a department…</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+
                 <div className="mt-3 flex items-center justify-end gap-3">
                   <button
                     type="button"
@@ -601,10 +632,11 @@ export default function PromptPage() {
                   <button
                     type="button"
                     onClick={() => void reviewSuggestion(s.id, "approve")}
-                    disabled={busyId === s.id || !s.question.trim() || !s.suggested_answer.trim()}
+                    disabled={busyId === s.id || !s.question.trim() || !s.suggested_answer.trim() || !s.department_id}
+                    title={!s.department_id ? "Pick a department first" : undefined}
                     className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
                   >
-                    {busyId === s.id ? "Saving..." : "Approve & add to knowledge"}
+                    {busyId === s.id ? "Saving..." : "Approve → department FAQ"}
                   </button>
                 </div>
               </div>

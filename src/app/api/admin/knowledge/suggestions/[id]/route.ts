@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdminKey } from "@/lib/api/auth";
-import { chunkText, indexKnowledgeChunks } from "@/lib/knowledge/index-content";
+import { saveFaqBucket } from "@/lib/knowledge/faq-buckets";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -12,6 +12,7 @@ type ActionBody = {
   question?: unknown;
   answer?: unknown;
   reviewed_by?: unknown;
+  department_id?: unknown;
 };
 
 // POST: approve (index into the knowledge base) or reject a suggestion.
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const { data: suggestion, error: lookupError } = await supabase
     .from("knowledge_suggestions")
-    .select("id, question, suggested_answer, status")
+    .select("id, question, suggested_answer, status, department_id")
     .eq("id", id)
     .maybeSingle();
 
@@ -51,40 +52,35 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ id, status: "rejected" });
   }
 
-  // Approve: index the (possibly edited) Q&A into the knowledge base.
+  // Approve: append the (possibly edited) Q&A into the assigned department's FAQ bucket.
   const question = (typeof body.question === "string" ? body.question : suggestion.question).trim();
   const answer = (typeof body.answer === "string" ? body.answer : suggestion.suggested_answer).trim();
   if (!question || !answer) {
     return NextResponse.json({ error: "Question and answer are required to approve" }, { status: 400 });
   }
 
-  const title = question.length > 120 ? `${question.slice(0, 117)}...` : question;
-  const content = `Q: ${question}\n\nA: ${answer}`;
-
-  const { data: doc, error: docError } = await supabase
-    .from("knowledge_documents")
-    .insert({
-      title,
-      filename: "Learned from conversations",
-      file_type: "faq",
-      status: "processing",
-    })
-    .select("id")
-    .single();
-
-  if (docError || !doc) {
-    return NextResponse.json({ error: docError?.message ?? "Failed to create knowledge entry" }, { status: 500 });
+  const departmentId =
+    (typeof body.department_id === "string" && body.department_id) || (suggestion.department_id as string | null);
+  if (!departmentId) {
+    return NextResponse.json({ error: "Assign a department before approving" }, { status: 400 });
   }
 
   try {
-    const chunkCount = await indexKnowledgeChunks(doc.id, title, chunkText(content));
-    await supabase.from("knowledge_documents").update({ status: "indexed", chunk_count: chunkCount }).eq("id", doc.id);
+    // Append this Q&A to the department's existing bucket content, then re-index the bucket.
+    const { data: bucket } = await supabase
+      .from("faq_buckets")
+      .select("content")
+      .eq("department_id", departmentId)
+      .maybeSingle();
+    const prior = ((bucket?.content as string) ?? "").trim();
+    const merged = [prior, `Q: ${question}\nA: ${answer}`].filter(Boolean).join("\n\n");
+    const { chunk_count } = await saveFaqBucket(departmentId, merged, reviewedBy);
 
     await supabase
       .from("knowledge_suggestions")
       .update({
         status: "approved",
-        knowledge_document_id: doc.id,
+        department_id: departmentId,
         question,
         suggested_answer: answer,
         reviewed_by: reviewedBy,
@@ -92,10 +88,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       })
       .eq("id", id);
 
-    return NextResponse.json({ id, status: "approved", knowledge_document_id: doc.id, chunk_count: chunkCount });
+    return NextResponse.json({ id, status: "approved", department_id: departmentId, chunk_count });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to index entry";
-    await supabase.from("knowledge_documents").update({ status: "failed", error: message.slice(0, 300) }).eq("id", doc.id);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Failed to index entry" }, { status: 500 });
   }
 }

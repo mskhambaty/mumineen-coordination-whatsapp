@@ -1,4 +1,5 @@
 import { AI_MODEL, getAIClient } from "@/lib/ai/model";
+import { classifyToDepartments } from "@/lib/knowledge/faq-buckets";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 // How far back to look and how much work to do in one run. Kept bounded so the
@@ -19,7 +20,8 @@ export type AnalyzeResult = {
   scanned: number; // conversations examined
   proposed: number; // raw suggestions from the model
   created: number; // new pending rows after dedup
-  skippedDuplicates: number;
+  skippedDuplicates: number; // already queued/approved
+  skippedAlreadyAnswered: number; // already covered in the department's FAQ bucket
 };
 
 type MessageRow = {
@@ -178,7 +180,8 @@ export async function analyzeConversationGaps(opts?: { lookbackDays?: number }):
     .in("status", ["pending", "approved"]);
   const seen = new Set((existing ?? []).map((r) => r.dedup_key as string));
 
-  const rows: Record<string, unknown>[] = [];
+  type Candidate = GapSuggestion & { phone: string; key: string };
+  const candidates: Candidate[] = [];
   let skippedDuplicates = 0;
   for (const { phone, suggestions } of perPhone) {
     for (const s of suggestions) {
@@ -188,24 +191,116 @@ export async function analyzeConversationGaps(opts?: { lookbackDays?: number }):
         continue;
       }
       seen.add(key);
-      rows.push({
-        question: s.question,
-        suggested_answer: s.answer,
-        category: s.category,
-        confidence: s.confidence,
-        source_phone: phone,
-        dedup_key: key,
-        status: "pending",
-      });
+      candidates.push({ ...s, phone, key });
     }
   }
 
+  if (candidates.length === 0) {
+    return { scanned: phones.length, proposed, created: 0, skippedDuplicates, skippedAlreadyAnswered: 0 };
+  }
+
+  // Assign each candidate to a department, then drop ones already covered by that
+  // department's FAQ bucket (duplicate / already-answered) so we only surface real gaps.
+  const { data: deptRows } = await supabase.from("departments").select("id, name").order("name");
+  const departments = (deptRows ?? []) as { id: string; name: string }[];
+  const deptByName = new Map(departments.map((d) => [d.name.toLowerCase(), d]));
+
+  const assignments = await classifyToDepartments(
+    candidates.map((c) => c.question),
+    departments.map((d) => d.name),
+  ).catch(() => candidates.map(() => null));
+
+  const withDept = candidates.map((c, i) => {
+    const dept = assignments[i] ? deptByName.get(assignments[i]!.toLowerCase()) : undefined;
+    return { ...c, departmentId: dept?.id ?? null, departmentName: dept?.name ?? null };
+  });
+
+  // Group by department and dedupe each group against that department's existing bucket.
+  const byDept = new Map<string, typeof withDept>();
+  for (const c of withDept) {
+    const k = c.departmentId ?? "__none__";
+    (byDept.get(k) ?? byDept.set(k, []).get(k)!).push(c);
+  }
+
+  let skippedAlreadyAnswered = 0;
+  const kept: typeof withDept = [];
+  for (const [deptId, group] of byDept) {
+    if (deptId === "__none__") {
+      kept.push(...group);
+      continue;
+    }
+    const { data: bucket } = await supabase
+      .from("faq_buckets")
+      .select("content")
+      .eq("department_id", deptId)
+      .maybeSingle();
+    const content = ((bucket?.content as string) ?? "").trim();
+    if (!content) {
+      kept.push(...group); // nothing to compare against yet
+      continue;
+    }
+    const keepFlags = await filterAgainstBucket(content, group.map((g) => ({ question: g.question, answer: g.answer })));
+    group.forEach((g, i) => {
+      if (keepFlags[i]) kept.push(g);
+      else skippedAlreadyAnswered++;
+    });
+  }
+
   let created = 0;
-  if (rows.length > 0) {
+  if (kept.length > 0) {
+    const rows = kept.map((c) => ({
+      question: c.question,
+      suggested_answer: c.answer,
+      category: c.category,
+      confidence: c.confidence,
+      source_phone: c.phone,
+      dedup_key: c.key,
+      department_id: c.departmentId,
+      status: "pending",
+    }));
     const { data, error } = await supabase.from("knowledge_suggestions").insert(rows).select("id");
     if (error) throw error;
     created = data?.length ?? 0;
   }
 
-  return { scanned: phones.length, proposed, created, skippedDuplicates };
+  return { scanned: phones.length, proposed, created, skippedDuplicates, skippedAlreadyAnswered };
+}
+
+// Ask the model which candidate Q&As are genuinely NEW vs. already covered (duplicate or
+// already-answered, even if worded differently) by the department's existing FAQ text.
+async function filterAgainstBucket(
+  bucketContent: string,
+  candidates: { question: string; answer: string }[],
+): Promise<boolean[]> {
+  if (candidates.length === 0) return [];
+  const client = getAIClient();
+  try {
+    const res = await client.chat.completions.create({
+      model: AI_MODEL,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You decide which candidate FAQ entries are genuinely NEW versus already covered by an existing FAQ. " +
+            "A candidate is NOT new if the existing FAQ already answers the same question (even if worded differently). " +
+            "Return JSON {\"new\":[<indices of genuinely new candidates>]}.",
+        },
+        {
+          role: "user",
+          content:
+            `EXISTING FAQ for this department:\n${bucketContent}\n\nCANDIDATES:\n` +
+            candidates.map((c, i) => `${i}. Q: ${c.question}\n   A: ${c.answer}`).join("\n"),
+        },
+      ],
+      temperature: 0,
+      max_tokens: 500,
+      response_format: { type: "json_object" },
+    });
+    const parsed = JSON.parse(res.choices[0]?.message?.content ?? "{}") as { new?: number[] };
+    const newSet = new Set(Array.isArray(parsed.new) ? parsed.new : []);
+    return candidates.map((_, i) => newSet.has(i));
+  } catch {
+    // On failure, keep everything rather than silently dropping real gaps.
+    return candidates.map(() => true);
+  }
 }

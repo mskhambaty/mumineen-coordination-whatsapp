@@ -144,7 +144,8 @@ Q&A candidates here as `pending`. An admin approves (→ creates a `knowledge_do
 | `confidence` | numeric | Model confidence 0–1 (nullable) |
 | `status` | text | `pending` \| `approved` \| `rejected` |
 | `dedup_key` | text | Normalized question; unique among `pending` rows to avoid re-proposing |
-| `knowledge_document_id` | uuid | FK → `knowledge_documents.id` once approved (nullable) |
+| `department_id` | uuid | FK → `departments.id` (nullable) — assigned by the analyzer; approval appends the Q&A to this department's `faq_buckets` entry |
+| `knowledge_document_id` | uuid | FK → `knowledge_documents.id` once approved (nullable; legacy — approvals now go to `faq_buckets`) |
 | `reviewed_by` | text | Who approved/rejected (nullable) |
 | `reviewed_at` | timestamptz | When reviewed (nullable) |
 | `created_at` | timestamptz | Auto |
