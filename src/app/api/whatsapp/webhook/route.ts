@@ -111,12 +111,20 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
     message: agentMessage,
   });
 
-  const metaResponse = await sendWhatsAppText(message.phoneE164, reply);
+  // The agent can choose to stay silent on content-free closings ("thanks", "ok",
+  // a dua already acknowledged, etc.) by returning the no-reply sentinel. Strip the
+  // token first so it can never leak into an actual message; if nothing remains, stay silent.
+  const cleaned = reply.replace(/\[\[\s*no[_\s]?reply\s*\]\]/gi, "").trim();
+  if (isSilentReply(cleaned)) {
+    return true;
+  }
+
+  const metaResponse = await sendWhatsAppText(message.phoneE164, cleaned);
   const outboundId = metaResponse.messages?.[0]?.id;
 
   await recordOutboundMessage({
     phoneE164: message.phoneE164,
-    body: reply,
+    body: cleaned,
     whatsappMessageId: outboundId,
     rawPayload: metaResponse,
   });
@@ -127,6 +135,14 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
   });
 
   return true;
+}
+
+// True when the agent's reply means "send nothing" — empty, or the no-reply sentinel
+// in any reasonable shape the model might emit ("[[NO_REPLY]]", "NO_REPLY", etc.).
+function isSilentReply(reply: string): boolean {
+  const trimmed = reply.trim();
+  if (!trimmed) return true;
+  return trimmed.replace(/[^a-z]/gi, "").toUpperCase() === "NOREPLY";
 }
 
 async function buildImageAgentMessage(

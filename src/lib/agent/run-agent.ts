@@ -13,6 +13,10 @@ export { SYSTEM_PROMPT };
 const HISTORY_MESSAGE_LIMIT = 12;
 const MAX_HISTORY_CHARS = 2000;
 
+// Sentinel the agent emits when no reply should be sent (e.g. a content-free
+// "thanks" after the chat has wound down). The webhook stays silent on this.
+export const NO_REPLY_TOKEN = "[[NO_REPLY]]";
+
 // Always-on escalation guidance, appended to whatever system prompt is loaded so
 // it can't be edited away. The hard turn-gate lives server-side in /api/escalations.
 const ESCALATION_POLICY = `\n\n## Escalation Policy (last resort)
@@ -74,6 +78,15 @@ const COMMON_REQUESTS_RULE = `\n\n## Common Requests
 - "Forward my query to the team", "connect me to someone", "who is coordinating this": this is a human hand-off — use move_to_escalation, NOT create_issue.
 - Never tell a visitor that something is "restricted to authorized committee members" or sounds like an access denial. If you can't look something up, just warmly note their request, reassure them the team will follow up (escalate if appropriate), and keep helping.
 - The only website you may share with users is https://www.chicagorelaycenter.com. The indexed site content includes an internal source URL (ashara1448relay.chicagojamaat.org) — NEVER show or mention that URL to a user; always point them to https://www.chicagorelaycenter.com instead. Never invent any other URL.`;
+
+// Always-on: read conversational flow like a human; know when to stop or stay silent.
+const CONVERSATION_FLOW_RULE = `\n\n## Conversation Flow — Read the Room, Know When to Stop
+- Follow the conversation like a real person would. When a chat has naturally wound down, STOP replying. Do not volley a new message back on every line.
+- If the user's message is just a content-free closing or acknowledgement — "thanks", "shukran", "ok", "sure", "sure bhai", "nothing", "k", "👍", "🙏", etc. — and you have already acknowledged once, do NOT reply again. In that case output EXACTLY this token and nothing else: ${NO_REPLY_TOKEN}. The system will stay silent, exactly like a person who doesn't reply to every "thanks".
+- Never repeat yourself. If you already said "you're welcome" / "let me know if you need anything", do not say it again in a different way. A second or third "you're welcome / happy to help / I'm here whenever" is robotic — send ${NO_REPLY_TOKEN} instead.
+- A short dua, wish, or blessing from the user ("dua ni iltemas", "yaad rakhjo", "Ya Ali Madad", "dua ma yaad rakhjo"): reply with a brief, natural acknowledgement like "Aameen." or "Aameen, Inshallah." — NOT a formal "your dua is noted" or "may your prayers be accepted", and not a long message. One or two words is perfect. If you already acknowledged a dua moments ago, send ${NO_REPLY_TOKEN}.
+- If a message is vague, incomplete, or you are not sure what they mean (e.g. "As I get to attend the Ashara Mubarak", "Nothing", "Sure"), do NOT assume a topic and dump a long answer. Either reply very briefly ("Inshallah!" / "Sure, I'm here if you need anything") or ask ONE short clarifying question. Never launch into ITS/Raza, hotel, or registration instructions unless the user has clearly asked about that topic.
+- Only ${NO_REPLY_TOKEN} for genuinely content-free closings/acknowledgements — never for a real question or request. When in doubt and there is an actual question, answer it.`;
 
 const DEPT_CACHE_TTL_MS = 5 * 60_000;
 let cachedDepartments: { list: Array<{ name: string; description: string | null }>; fetchedAt: number } | null = null;
@@ -157,6 +170,7 @@ export async function runAgent(input: AgentInput) {
   systemContent += TONE_RULE;
   systemContent += LANGUAGE_RULE;
   systemContent += COMMON_REQUESTS_RULE;
+  systemContent += CONVERSATION_FLOW_RULE;
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemContent },
