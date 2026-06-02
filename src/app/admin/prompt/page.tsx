@@ -185,9 +185,6 @@ export default function PromptPage() {
   const [scraping, setScraping] = useState(false);
   const [scrapeResult, setScrapeResult] = useState<string | null>(null);
 
-  const [visionTesting, setVisionTesting] = useState(false);
-  const [visionResult, setVisionResult] = useState<string | null>(null);
-
   const [tab, setTab] = useState<"agent" | "quality">("agent");
 
   const [analyzing, setAnalyzing] = useState(false);
@@ -310,20 +307,6 @@ export default function PromptPage() {
 
   function toggleTool(name: string) {
     setExpandedTool((prev) => (prev === name ? null : name));
-  }
-
-  async function runVisionTest() {
-    setVisionTesting(true);
-    setVisionResult(null);
-    try {
-      const res = await apiFetch("/api/admin/diag/vision");
-      const data = await res.json().catch(() => ({}));
-      setVisionResult(JSON.stringify(data, null, 2));
-    } catch (err) {
-      setVisionResult(err instanceof Error ? err.message : "Diagnostic failed");
-    } finally {
-      setVisionTesting(false);
-    }
   }
 
   async function runScrape() {
@@ -628,31 +611,6 @@ export default function PromptPage() {
             ))
           )}
         </div>
-      </section>
-
-      <section className="mt-8 rounded-lg border bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">Image Reading Diagnostic</h2>
-            <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
-              Runs the full image pipeline (download from WhatsApp → read with the vision model) on the
-              most recent image a visitor sent, and shows exactly what works or fails.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void runVisionTest()}
-            disabled={visionTesting}
-            className="shrink-0 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {visionTesting ? "Testing…" : "Test image reading"}
-          </button>
-        </div>
-        {visionResult && (
-          <pre className="mt-4 max-h-96 overflow-auto rounded-md border bg-gray-50 p-4 text-xs text-gray-800 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-200">
-            {visionResult}
-          </pre>
-        )}
       </section>
 
       <section className="mt-8 rounded-lg border bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">

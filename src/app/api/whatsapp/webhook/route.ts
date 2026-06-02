@@ -106,19 +106,9 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
 
   // For image messages, read the image into text so the agent can answer over it
   // (screenshots of ITS pages, tickets, forms, etc.) using its normal tools/RAG.
-  let agentMessage = message.body;
-  if (message.media) {
-    const img = await buildImageAgentMessage(message.media, message.body);
-    agentMessage = img.text;
-    await annotateMessage(inbound.id, message.rawMessage, {
-      image_processed: true,
-      image_text: img.text.slice(0, 400),
-      vision_error: img.error ?? null,
-    });
-  } else if (message.messageType === "image") {
-    // An image arrived but media wasn't extracted — record that so it's diagnosable.
-    await annotateMessage(inbound.id, message.rawMessage, { image_processed: false, media_missing: true });
-  }
+  const agentMessage = message.media
+    ? await buildImageAgentMessage(message.media, message.body)
+    : message.body;
 
   const reply = await runAgent({
     user,
@@ -160,21 +150,10 @@ function isSilentReply(reply: string): boolean {
   return trimmed.replace(/[^a-z]/gi, "").toUpperCase() === "NOREPLY";
 }
 
-// Best-effort debug annotation on a stored message's raw_payload (never throws).
-async function annotateMessage(id: string | null | undefined, rawMessage: unknown, debug: Record<string, unknown>) {
-  if (!id) return;
-  try {
-    const annotated = { ...(rawMessage as Record<string, unknown>), debug };
-    await getSupabaseAdmin().from("messages").update({ raw_payload: annotated }).eq("id", id);
-  } catch (err) {
-    console.error("Failed to annotate message", err);
-  }
-}
-
 async function buildImageAgentMessage(
   media: NonNullable<IncomingWhatsAppMessage["media"]>,
   fallbackBody: string,
-): Promise<{ text: string; error?: string }> {
+): Promise<string> {
   try {
     const { buffer, mimeType } = await fetchWhatsAppMedia(media.id);
     const description = await describeIncomingImage({
@@ -188,16 +167,13 @@ async function buildImageAgentMessage(
     const lead = media.caption
       ? `The visitor sent an image with the caption: "${media.caption}".`
       : "The visitor sent an image (no caption).";
-    return { text: `${lead}\n\n[Image contents, read by the system]: ${description}`.trim() };
+    return `${lead}\n\n[Image contents, read by the system]: ${description}`.trim();
   } catch (error) {
-    const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-    console.error("Failed to read inbound image", reason);
-    return {
-      text:
-        fallbackBody ||
-        "The visitor sent an image but it could not be read. Politely ask them to describe what they need, or to resend it.",
-      error: reason,
-    };
+    console.error("Failed to read inbound image", error);
+    return (
+      fallbackBody ||
+      "The visitor sent an image but it could not be read. Politely ask them to describe what they need, or to resend it."
+    );
   }
 }
 
