@@ -299,9 +299,9 @@ export default function ConversationsPage() {
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{error}</div>}
 
-        <div className="grid min-h-[720px] grid-cols-1 overflow-hidden rounded-lg border bg-white shadow-sm lg:h-[720px] lg:grid-cols-[320px_minmax(0,1fr)_320px] dark:border-gray-800 dark:bg-gray-900">
-          <aside className="border-b bg-gray-50 lg:border-b-0 lg:border-r dark:border-gray-800 dark:bg-gray-900/40">
-            <div className="border-b px-4 py-3 dark:border-gray-800">
+        <div className="grid min-h-[600px] grid-cols-1 overflow-hidden rounded-lg border bg-white shadow-sm lg:h-[calc(100vh-7rem)] lg:min-h-[520px] lg:grid-cols-[320px_minmax(0,1fr)_320px] dark:border-gray-800 dark:bg-gray-900">
+          <aside className="flex flex-col border-b bg-gray-50 lg:h-full lg:min-h-0 lg:border-b-0 lg:border-r dark:border-gray-800 dark:bg-gray-900/40">
+            <div className="shrink-0 border-b px-4 py-3 dark:border-gray-800">
               <div className="mb-2 flex items-center justify-between">
                 <div className="flex gap-1 text-sm font-medium">
                   <button
@@ -350,7 +350,7 @@ export default function ConversationsPage() {
                 Show only needs-review
               </label>
             </div>
-            <div className="max-h-[668px] overflow-y-auto">
+            <div className="max-h-[60vh] flex-1 overflow-y-auto lg:max-h-none lg:min-h-0">
               {loading ? (
                 <p className="p-4 text-sm text-gray-500 dark:text-gray-400">Loading...</p>
               ) : searchedConversations.length === 0 ? (
@@ -409,8 +409,8 @@ export default function ConversationsPage() {
             </div>
           </aside>
 
-          <section className="flex min-h-[720px] flex-col">
-            <div className="border-b px-5 py-4 dark:border-gray-800">
+          <section className="flex min-h-[600px] flex-col lg:h-full lg:min-h-0">
+            <div className="shrink-0 border-b px-5 py-4 dark:border-gray-800">
               {selected ? (
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
@@ -477,7 +477,7 @@ export default function ConversationsPage() {
               {selected && selected.messages.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">No messages stored for this conversation.</p>}
             </div>
 
-            <form onSubmit={sendReply} className="border-t bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+            <form onSubmit={sendReply} className="shrink-0 border-t bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
               <div className="mb-2 flex items-center justify-between">
                 <p className="text-sm font-medium">Manual WhatsApp Reply</p>
                 {selected?.handling_mode !== "manual" && <p className="text-xs text-amber-700 dark:text-amber-400">Switch to Manual before replying.</p>}
@@ -530,9 +530,9 @@ export default function ConversationsPage() {
             </form>
           </section>
 
-          <aside className="border-t bg-white lg:border-l lg:border-t-0 dark:border-gray-800 dark:bg-gray-900">
+          <aside className="flex flex-col border-t bg-white lg:h-full lg:min-h-0 lg:border-l lg:border-t-0 dark:border-gray-800 dark:bg-gray-900">
             {selected?.quality_score && (
-              <div className="border-b px-4 py-3 dark:border-gray-800">
+              <div className="shrink-0 border-b px-4 py-3 dark:border-gray-800">
                 <h2 className="font-semibold">Conversation Quality</h2>
                 <div className="mt-2 flex items-center gap-2">
                   <span className={`text-lg ${selected.quality_score === "good" ? "text-green-600" : "text-red-600"}`}>
@@ -550,11 +550,11 @@ export default function ConversationsPage() {
                 )}
               </div>
             )}
-            <div className="border-b px-4 py-3 dark:border-gray-800">
+            <div className="shrink-0 border-b px-4 py-3 dark:border-gray-800">
               <h2 className="font-semibold">Tool Calls</h2>
               <p className="text-xs text-gray-500 dark:text-gray-400">Agent actions for this thread</p>
             </div>
-            <div className="max-h-[668px] space-y-3 overflow-y-auto p-4">
+            <div className="max-h-[60vh] flex-1 space-y-3 overflow-y-auto p-4 lg:max-h-none lg:min-h-0">
               {selected?.tool_calls.map((call) => (
                 <div key={call.id} className="rounded-lg border bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
                   <div className="flex items-center justify-between gap-2">
