@@ -4,8 +4,18 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { canManageKnowledge } from "@/lib/admin/access";
+import FaqBucketEditor from "@/components/admin/FaqBucketEditor";
 
 type Department = { id: string; name: string };
+
+type FaqBucket = {
+  department_id: string;
+  department_name: string;
+  content: string;
+  chunk_count: number;
+  entry_count: number;
+  updated_at: string | null;
+};
 
 type KnowledgeDoc = {
   id: string;
@@ -38,7 +48,14 @@ export default function KnowledgePage() {
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [buckets, setBuckets] = useState<FaqBucket[]>([]);
+  const [editing, setEditing] = useState<FaqBucket | null>(null);
+  const [migrating, setMigrating] = useState(false);
+  const [migrateMsg, setMigrateMsg] = useState<string | null>(null);
+
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
+
+  const learnedFaqCount = documents.filter((d) => d.file_type === "faq").length;
 
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
@@ -60,14 +77,16 @@ export default function KnowledgePage() {
     setLoading(true);
     setError(null);
     try {
-      const [docsRes, deptRes] = await Promise.all([
+      const [docsRes, deptRes, bucketsRes] = await Promise.all([
         fetch("/api/knowledge", { headers: { "x-admin-key": adminKey } }),
         fetch("/api/departments", { headers: { "x-admin-key": adminKey } }),
+        fetch("/api/admin/faq-buckets", { headers: { "x-admin-key": adminKey } }),
       ]);
       const docsData = await docsRes.json().catch(() => ({}));
       if (!docsRes.ok) throw new Error(docsData.error ?? "Failed to load documents");
       setDocuments((docsData.documents ?? []) as KnowledgeDoc[]);
       if (deptRes.ok) setDepartments((await deptRes.json()) as Department[]);
+      if (bucketsRes.ok) setBuckets(((await bucketsRes.json()).buckets ?? []) as FaqBucket[]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load documents");
     } finally {
@@ -75,15 +94,40 @@ export default function KnowledgePage() {
     }
   }
 
+  async function migrateLearned() {
+    setMigrating(true);
+    setMigrateMsg(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/faq-buckets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
+        body: JSON.stringify({ action: "migrate" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Could not sort FAQs");
+      setMigrateMsg(`Sorted ${data.migrated ?? 0} FAQ(s) into ${data.departments ?? 0} department bucket(s).`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not sort FAQs");
+    } finally {
+      setMigrating(false);
+    }
+  }
+
   async function upload(event: React.FormEvent) {
     event.preventDefault();
     if (!file) return;
+    if (!departmentId) {
+      setError("Please select a department for this document.");
+      return;
+    }
     setUploading(true);
     setError(null);
     try {
       const body = new FormData();
       body.append("file", file);
-      if (departmentId) body.append("department_id", departmentId);
+      body.append("department_id", departmentId);
       if (title.trim()) body.append("title", title.trim());
       try {
         const userRaw = localStorage.getItem("admin_user");
@@ -162,13 +206,14 @@ export default function KnowledgePage() {
             />
           </label>
           <label className="text-sm text-gray-700 dark:text-gray-300">
-            Department (optional)
+            Department <span className="text-red-500">*</span>
             <select
               value={departmentId}
               onChange={(event) => setDepartmentId(event.target.value)}
+              required
               className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
             >
-              <option value="">No department</option>
+              <option value="">Select a department…</option>
               {departments.map((department) => (
                 <option key={department.id} value={department.id}>{department.name}</option>
               ))}
@@ -185,7 +230,7 @@ export default function KnowledgePage() {
           />
           <button
             type="submit"
-            disabled={!file || uploading}
+            disabled={!file || !departmentId || uploading}
             className="shrink-0 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300 dark:disabled:bg-gray-700"
           >
             {uploading ? "Indexing..." : "Upload & Index"}
@@ -252,6 +297,57 @@ export default function KnowledgePage() {
           </table>
         </div>
       </div>
+
+      <section className="mt-8 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">FAQ by Department</h2>
+            <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
+              Organized, editable Q&amp;A per department. Click a department to view and edit its FAQ; saving re-indexes it for the agent.
+            </p>
+          </div>
+          {learnedFaqCount > 0 && (
+            <div className="flex shrink-0 flex-col items-end gap-1">
+              <button
+                type="button"
+                onClick={() => void migrateLearned()}
+                disabled={migrating}
+                className="rounded-md border border-blue-500 px-3 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50 dark:text-blue-400 dark:hover:bg-blue-900/20"
+              >
+                {migrating ? "Sorting…" : `Sort ${learnedFaqCount} learned FAQ(s) into departments`}
+              </button>
+            </div>
+          )}
+        </div>
+        {migrateMsg && <p className="mt-2 text-sm font-medium text-green-700 dark:text-green-400">{migrateMsg}</p>}
+
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {buckets.map((bucket) => (
+            <button
+              key={bucket.department_id}
+              type="button"
+              onClick={() => setEditing(bucket)}
+              className="flex flex-col items-start rounded-lg border border-gray-200 bg-gray-50 p-3 text-left transition hover:border-blue-400 hover:bg-blue-50 dark:border-gray-700 dark:bg-gray-800/60 dark:hover:border-blue-500 dark:hover:bg-blue-900/20"
+            >
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{bucket.department_name}</span>
+              <span className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {bucket.entry_count > 0 ? `${bucket.entry_count} FAQ${bucket.entry_count !== 1 ? "s" : ""}` : "Empty — add FAQs"}
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {editing && (
+        <FaqBucketEditor
+          departmentId={editing.department_id}
+          departmentName={editing.department_name}
+          initialContent={editing.content}
+          adminKey={adminKey}
+          onClose={() => setEditing(null)}
+          onSaved={() => void load()}
+        />
+      )}
     </main>
   );
 }

@@ -149,6 +149,22 @@ Q&A candidates here as `pending`. An admin approves (→ creates a `knowledge_do
 | `reviewed_at` | timestamptz | When reviewed (nullable) |
 | `created_at` | timestamptz | Auto |
 
+### `faq_buckets`
+
+One editable FAQ document per department (the **FAQ by Department** feature). Saving a bucket
+chunks + embeds its `content` into `site_content` with `page_url = 'faqbucket://<department_id>'`,
+so the agent retrieves it while it stays organized and editable per department.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `department_id` | uuid | FK → `departments.id` (unique; one bucket per department) |
+| `content` | text | Editable Q&A text (entries separated by blank lines) |
+| `chunk_count` | integer | Vectorized chunks from the last save |
+| `updated_by` | text | Who last saved (nullable) |
+| `updated_at` | timestamptz | Auto |
+| `created_at` | timestamptz | Auto |
+
 ### `committee_permissions`
 
 Fine-grained permission keys per user (reserved for future use).

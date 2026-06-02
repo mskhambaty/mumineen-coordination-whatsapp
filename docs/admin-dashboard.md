@@ -54,6 +54,8 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - Extracted text is chunked, embedded, and indexed into `site_content` (`page_url = knowledge://<id>`), so the WhatsApp agent answers from it via `get_site_content_faq` — same vector store as the scraped site/hotel sheet
 - Document list shows status (processing/indexed/failed), chunk count, department, **who uploaded it**, and a delete action (removes the document and its vectors). Entries created from approved conversation suggestions show "Learned from chat".
 - Access: **admin/leadership and department PM/HOD** (`POST/GET /api/knowledge`, `DELETE /api/knowledge/[id]`). Scanned/image-only PDFs can't be read.
+- **Department is required** when uploading a document.
+- **FAQ by Department** — below the document list, a button per department opens an editable notepad ([FaqBucketEditor](../src/components/admin/FaqBucketEditor.tsx)) holding that department's Q&A. Saving re-indexes the bucket into `site_content` (`page_url = faqbucket://<department_id>`) via `PUT /api/admin/faq-buckets/[departmentId]`; list via `GET /api/admin/faq-buckets`. Buckets live in the `faq_buckets` table (one editable doc per department). A **Sort learned FAQs into departments** button (`POST /api/admin/faq-buckets {action:"migrate"}`) classifies the loose "Learned from chat" entries into department buckets and removes the loose docs.
 
 ### Prompt — Learn from Conversations (`/admin/prompt`)
 - Admin/leadership-only section on the Prompt page that turns recent conversations into new knowledge (a manual stand-in for a future nightly cron).

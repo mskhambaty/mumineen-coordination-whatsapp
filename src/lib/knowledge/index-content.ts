@@ -45,13 +45,21 @@ export function chunkText(text: string, maxChars = MAX_CHUNK_CHARS): string[] {
   return chunks;
 }
 
-// Embed chunks and insert them into site_content for this document.
-export async function indexKnowledgeChunks(docId: string, title: string, chunks: string[]): Promise<number> {
+// FAQ bucket chunks live in site_content under this page_url so they're retrievable
+// like any other knowledge, and replaceable per department.
+export function faqBucketPageUrl(departmentId: string): string {
+  return `faqbucket://${departmentId}`;
+}
+
+// Embed chunks and (re)insert them into site_content under a given page_url + title.
+// Any existing chunks for that page_url are removed first, so this fully replaces them.
+export async function indexChunksForPage(pageUrl: string, title: string, chunks: string[]): Promise<number> {
+  const supabase = getSupabaseAdmin();
+  await supabase.from("site_content").delete().eq("page_url", pageUrl);
+
   if (chunks.length === 0) return 0;
 
   const openai = getAIClient();
-  const supabase = getSupabaseAdmin();
-
   const embeddings: number[][] = [];
   for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
     const batch = chunks.slice(i, i + EMBED_BATCH);
@@ -60,7 +68,7 @@ export async function indexKnowledgeChunks(docId: string, title: string, chunks:
   }
 
   const rows = chunks.map((content, i) => ({
-    page_url: knowledgePageUrl(docId),
+    page_url: pageUrl,
     page_title: title,
     section: `chunk_${i + 1}`,
     content,
@@ -72,6 +80,16 @@ export async function indexKnowledgeChunks(docId: string, title: string, chunks:
   const { error } = await supabase.from("site_content").insert(rows);
   if (error) throw error;
   return rows.length;
+}
+
+// Embed chunks and insert them into site_content for an uploaded document.
+export async function indexKnowledgeChunks(docId: string, title: string, chunks: string[]): Promise<number> {
+  return indexChunksForPage(knowledgePageUrl(docId), title, chunks);
+}
+
+// Re-index a department's FAQ bucket: replaces its chunks with the current content.
+export async function indexFaqBucket(departmentId: string, departmentName: string, content: string): Promise<number> {
+  return indexChunksForPage(faqBucketPageUrl(departmentId), `${departmentName} FAQ`, chunkText(content));
 }
 
 // Remove a document's vectorized chunks from site_content.
