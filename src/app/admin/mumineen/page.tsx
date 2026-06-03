@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessMumineen } from "@/lib/admin/access";
 
 type Stats = { mumineen: number; adults: number; families: number; registered_families: number };
 
@@ -44,8 +44,8 @@ export default function MumineenPage() {
       return;
     }
     const raw = localStorage.getItem("admin_user");
-    const user = raw ? JSON.parse(raw) as { role?: string; global_role?: string } : null;
-    if (!isAdminOrLeadership(user)) {
+    const user = raw ? JSON.parse(raw) as { role?: string; global_role?: string; is_it?: boolean } : null;
+    if (!canAccessMumineen(user)) {
       router.push("/admin/conversations");
       return;
     }

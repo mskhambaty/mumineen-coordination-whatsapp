@@ -5,11 +5,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 // access controls who sees a link, matching each page's gate:
-//  admin  = admin/leadership only
-//  inbox  = admin/leadership or escalation support members
-//  manage = admin/leadership or department PM/HOD
-//  any    = any signed-in user
-type Access = "admin" | "inbox" | "manage" | "any";
+//  admin    = admin/leadership only
+//  inbox    = admin/leadership or escalation support members
+//  manage   = admin/leadership or department PM/HOD
+//  mumineen = admin/leadership or IT department members
+//  any      = any signed-in user
+type Access = "admin" | "inbox" | "manage" | "mumineen" | "any";
 
 type NavLink = { href: string; label: string; access: Access; exact?: boolean };
 
@@ -43,7 +44,7 @@ const standaloneLinks: NavLink[] = [
 ];
 
 const trailingLinks: NavLink[] = [
-  { href: "/admin/mumineen", label: "Mumineen", access: "admin" },
+  { href: "/admin/mumineen", label: "Mumineen", access: "mumineen" },
   { href: "/admin/users", label: "Users", access: "admin" },
   { href: "/admin/ollama-test", label: "Ollama Test", access: "admin" },
   { href: "/admin/profile", label: "Profile", access: "any" },
@@ -63,16 +64,17 @@ export default function AdminNav() {
 
   // Role flags from the signed-in user, used to show only accessible links.
   const [access] = useState(() => {
-    const empty = { isAdmin: false, isSupport: false, isManager: false };
+    const empty = { isAdmin: false, isSupport: false, isManager: false, isIt: false };
     if (typeof window === "undefined") return empty;
     try {
       const user = JSON.parse(window.localStorage.getItem("admin_user") ?? "null") as
-        | { role?: string; global_role?: string; is_support?: boolean; is_manager?: boolean }
+        | { role?: string; global_role?: string; is_support?: boolean; is_manager?: boolean; is_it?: boolean }
         | null;
       return {
         isAdmin: user?.role === "admin" || user?.global_role === "leadership_admin",
         isSupport: user?.is_support === true,
         isManager: user?.is_manager === true,
+        isIt: user?.is_it === true,
       };
     } catch {
       return empty;
@@ -83,6 +85,7 @@ export default function AdminNav() {
     if (itemAccess === "any") return true;
     if (itemAccess === "admin") return access.isAdmin;
     if (itemAccess === "inbox") return access.isAdmin || access.isSupport;
+    if (itemAccess === "mumineen") return access.isAdmin || access.isIt;
     return access.isAdmin || access.isManager; // manage
   }
 

@@ -130,7 +130,8 @@ export default function RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
-  const [sameFlight, setSameFlight] = useState(false);
+  // ITS of non-head members whose flight details mirror the head's.
+  const [sameAsHead, setSameAsHead] = useState<Set<string>>(new Set());
 
   const FLIGHT_KEYS: (keyof Member)[] = ["arrival_at", "arrival_flight_no", "departure_at", "departure_flight_no"];
   const copyFlight = (from: Member, to: Member): Member => ({
@@ -168,18 +169,23 @@ export default function RegisterPage() {
   function setMember(its: string, patch: Partial<Member>) {
     setMembers((prev) => {
       const next = prev.map((m) => (m.its === its ? { ...m, ...patch } : m));
-      // When "same flight for all" is on, edits to the first member mirror to everyone.
-      if (sameFlight && prev[0]?.its === its && FLIGHT_KEYS.some((k) => k in patch)) {
-        return next.map((m, i) => (i === 0 ? m : copyFlight(next[0], m)));
+      // Edits to the head's flight mirror to every member currently linked to the head.
+      if (prev[0]?.its === its && FLIGHT_KEYS.some((k) => k in patch)) {
+        return next.map((m, i) => (i === 0 || !sameAsHead.has(m.its) ? m : copyFlight(next[0], m)));
       }
       return next;
     });
   }
 
-  function toggleSameFlight(checked: boolean) {
-    setSameFlight(checked);
+  function toggleSameAsHead(its: string, checked: boolean) {
+    setSameAsHead((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(its);
+      else next.delete(its);
+      return next;
+    });
     if (checked) {
-      setMembers((prev) => (prev.length ? prev.map((m, i) => (i === 0 ? m : copyFlight(prev[0], m))) : prev));
+      setMembers((prev) => (prev.length ? prev.map((m) => (m.its === its ? copyFlight(prev[0], m) : m)) : prev));
     }
   }
 
@@ -289,32 +295,31 @@ export default function RegisterPage() {
                       </label>
                     </div>
 
-                    {idx === 0 || !sameFlight ? (
-                      <>
-                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                          <label className={labelClass}>Arrival (date & time)
-                            <input type="datetime-local" value={m.arrival_at ?? ""} onChange={(e) => setMember(m.its, { arrival_at: e.target.value })} className={inputClass} />
-                          </label>
-                          <label className={labelClass}>Arrival flight #
-                            <input value={m.arrival_flight_no ?? ""} onChange={(e) => setMember(m.its, { arrival_flight_no: e.target.value })} className={inputClass} />
-                          </label>
-                          <label className={labelClass}>Departure (date & time)
-                            <input type="datetime-local" value={m.departure_at ?? ""} onChange={(e) => setMember(m.its, { departure_at: e.target.value })} className={inputClass} />
-                          </label>
-                          <label className={labelClass}>Departure flight #
-                            <input value={m.departure_flight_no ?? ""} onChange={(e) => setMember(m.its, { departure_flight_no: e.target.value })} className={inputClass} />
-                          </label>
-                        </div>
-                        {idx === 0 && members.length > 1 && (
-                          <label className="mt-3 flex items-center gap-2 text-sm text-emerald-950/80">
-                            <input type="checkbox" className="accent-amber-500" checked={sameFlight} onChange={(e) => toggleSameFlight(e.target.checked)} />
-                            Same flight details for everyone in the family
-                          </label>
-                        )}
-                      </>
+                    {idx > 0 && (
+                      <label className="mt-3 flex items-center gap-2 text-sm text-emerald-950/80">
+                        <input type="checkbox" className="accent-amber-500" checked={sameAsHead.has(m.its)} onChange={(e) => toggleSameAsHead(m.its, e.target.checked)} />
+                        Same flight details as {members[0].full_name || "head of family"}
+                      </label>
+                    )}
+
+                    {idx === 0 || !sameAsHead.has(m.its) ? (
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <label className={labelClass}>Arrival (date & time)
+                          <input type="datetime-local" value={m.arrival_at ?? ""} onChange={(e) => setMember(m.its, { arrival_at: e.target.value })} className={inputClass} />
+                        </label>
+                        <label className={labelClass}>Arrival flight #
+                          <input value={m.arrival_flight_no ?? ""} onChange={(e) => setMember(m.its, { arrival_flight_no: e.target.value })} className={inputClass} />
+                        </label>
+                        <label className={labelClass}>Departure (date & time)
+                          <input type="datetime-local" value={m.departure_at ?? ""} onChange={(e) => setMember(m.its, { departure_at: e.target.value })} className={inputClass} />
+                        </label>
+                        <label className={labelClass}>Departure flight #
+                          <input value={m.departure_flight_no ?? ""} onChange={(e) => setMember(m.its, { departure_flight_no: e.target.value })} className={inputClass} />
+                        </label>
+                      </div>
                     ) : (
-                      <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                        Using {members[0].full_name || "the first member"}&apos;s flight details. Uncheck &quot;same flight&quot; above to set this separately.
+                      <p className="mt-2 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                        Using {members[0].full_name || "the head of family"}&apos;s flight details.
                       </p>
                     )}
 

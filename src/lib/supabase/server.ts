@@ -165,6 +165,21 @@ export async function isDepartmentManager(userId: string): Promise<boolean> {
   return Boolean(data);
 }
 
+// True if the user is an active member of the IT department (any dept_role).
+export async function isItMember(userId: string): Promise<boolean> {
+  if (!userId) return false;
+  const { data, error } = await getSupabaseAdmin()
+    .from("department_members")
+    .select("id, departments!inner(name)")
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .eq("departments.name", "IT")
+    .limit(1)
+    .maybeSingle();
+  if (error) return false;
+  return Boolean(data);
+}
+
 // True if the user is on the escalation/support team (membership = the role).
 export async function isEscalationSupportMember(userId: string): Promise<boolean> {
   if (!userId) return false;

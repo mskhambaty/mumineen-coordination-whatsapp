@@ -3,10 +3,16 @@ export type PortalUser = {
   global_role?: string | null;
   is_support?: boolean | null;
   is_manager?: boolean | null;
+  is_it?: boolean | null;
 };
 
 export function isAdminOrLeadership(user: PortalUser | null | undefined) {
   return user?.role === "admin" || user?.global_role === "leadership_admin";
+}
+
+// Who may open the Mumineen roster page: admins/leadership plus IT department members.
+export function canAccessMumineen(user: PortalUser | null | undefined) {
+  return isAdminOrLeadership(user) || user?.is_it === true;
 }
 
 // Who may open the Lead Inbox: admins/leadership plus on-call support members.
