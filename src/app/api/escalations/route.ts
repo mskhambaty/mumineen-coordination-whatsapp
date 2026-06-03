@@ -112,6 +112,7 @@ export async function POST(req: NextRequest) {
       priority,
       category,
       conversationUrl: `${appBaseUrl()}/admin/conversations?phone=${encodeURIComponent(phone)}&tab=escalations`,
+      departmentId: escalationDepartmentId,
     });
   } catch (err) {
     console.error("Escalation notification failed:", err);

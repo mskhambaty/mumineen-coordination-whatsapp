@@ -38,24 +38,32 @@ function isOnCall(hours: MemberRow["hours"], day: number, time: string): boolean
   });
 }
 
-// Support members whose on-call schedule covers the current Chicago time, with an email.
-export async function getOnCallSupportMembers(): Promise<OnCallMember[]> {
-  const { data, error } = await getSupabaseAdmin()
+// On-call escalation members, scoped to a department.
+//  - departmentId set   → only that department's escalation members (strict; no fallback).
+//  - departmentId null  → ALL escalation members (used when no department was determined).
+// Deduped by email (a user can cover multiple departments).
+export async function getOnCallSupportMembers(departmentId?: string | null): Promise<OnCallMember[]> {
+  let query = getSupabaseAdmin()
     .from("escalation_support_members")
     .select("user:whatsapp_users(display_name, email), hours:escalation_oncall_hours(day_of_week, start_time, end_time)");
 
+  if (departmentId) {
+    query = query.eq("department_id", departmentId);
+  }
+
+  const { data, error } = await query;
   if (error || !data) return [];
 
   const { day, time } = nowInOnCallTz();
-  const members: OnCallMember[] = [];
+  const byEmail = new Map<string, OnCallMember>();
   for (const row of data as unknown as MemberRow[]) {
     const email = row.user?.email?.trim();
-    if (!email) continue;
+    if (!email || byEmail.has(email)) continue;
     if (isOnCall(row.hours, day, time)) {
-      members.push({ name: row.user?.display_name || "Support", email });
+      byEmail.set(email, { name: row.user?.display_name || "Support", email });
     }
   }
-  return members;
+  return [...byEmail.values()];
 }
 
 export type EscalationNotice = {
@@ -65,12 +73,13 @@ export type EscalationNotice = {
   priority: "normal" | "urgent";
   category: string;
   conversationUrl: string;
+  departmentId?: string | null;
 };
 
-// Email every currently on-call support member. Fire-and-forget per recipient;
-// failures are logged, never thrown, so they can't break the agent reply.
+// Email the on-call escalation members for the notice's department (or everyone on-call if
+// no department). Fire-and-forget per recipient; failures are logged, never thrown.
 export async function notifyOnCallSupport(notice: EscalationNotice): Promise<number> {
-  const members = await getOnCallSupportMembers();
+  const members = await getOnCallSupportMembers(notice.departmentId ?? null);
   await Promise.all(
     members.map((member) =>
       sendEscalationEmail(member.email, {

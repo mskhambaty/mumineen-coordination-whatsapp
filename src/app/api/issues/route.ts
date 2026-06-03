@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { AI_EMBEDDING_MODEL, getAIClient } from "@/lib/ai/model";
+import { notifyOnCallSupport } from "@/lib/escalation/notify";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { isTaskPriority } from "@/lib/tasks/types";
 
 export const runtime = "nodejs";
+
+function appBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return "http://localhost:3000";
+}
 
 // Two issues count as the same if their title+description embeddings are this close.
 const DUPLICATE_SIMILARITY = 0.88;
@@ -121,6 +128,27 @@ export async function POST(req: NextRequest) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Notify the department's on-call escalation members (everyone on-call if no department).
+  // Best-effort — a notification failure must never break issue creation.
+  try {
+    const { data: guest } = await supabase
+      .from("whatsapp_users")
+      .select("display_name")
+      .eq("phone_e164", phone)
+      .maybeSingle();
+    await notifyOnCallSupport({
+      guestName: guest?.display_name || phone,
+      guestPhone: phone,
+      reason: `New issue: ${title}${description ? ` — ${description}` : ""}`,
+      priority: priority === "high" ? "urgent" : "normal",
+      category: departmentName || "issue",
+      conversationUrl: `${appBaseUrl()}/admin/conversations?phone=${encodeURIComponent(phone)}`,
+      departmentId,
+    });
+  } catch (err) {
+    console.error("Issue notification failed:", err);
   }
 
   return NextResponse.json({ status: "created", issue }, { status: 201 });
