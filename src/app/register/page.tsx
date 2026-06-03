@@ -130,8 +130,12 @@ export default function RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [errorField, setErrorField] = useState<string | null>(null);
   // ITS of non-head members whose flight details mirror the head's.
   const [sameAsHead, setSameAsHead] = useState<Set<string>>(new Set());
+
+  const fieldClass = (id: string) =>
+    errorField === id ? `${inputClass} border-red-400 ring-2 ring-red-300` : inputClass;
 
   const FLIGHT_KEYS: (keyof Member)[] = ["arrival_at", "arrival_flight_no", "departure_at", "departure_flight_no"];
   const copyFlight = (from: Member, to: Member): Member => ({
@@ -190,13 +194,14 @@ export default function RegisterPage() {
   }
 
   // Only the head-of-family's WhatsApp number and email are required; everything else can be
-  // added or updated later. Mirrored server-side. Returns the first problem, or null.
-  function validate(): string | null {
+  // added or updated later. Mirrored server-side. Returns the first problem + the field to focus.
+  function validate(): { message: string; fieldId: string } | null {
     const head = members[0];
-    if (!head) return "No family members found.";
+    if (!head) return { message: "No family members found.", fieldId: "" };
     const who = head.full_name || head.its;
-    if (!head.whatsapp_e164?.trim()) return `Enter a WhatsApp number for ${who}.`;
-    if (!head.email?.trim() || !/^\S+@\S+\.\S+$/.test(head.email.trim())) return `Enter a valid email for ${who}.`;
+    if (!head.whatsapp_e164?.trim()) return { message: `Enter a WhatsApp number for ${who}.`, fieldId: `reg-${head.its}-whatsapp` };
+    if (!head.email?.trim() || !/^\S+@\S+\.\S+$/.test(head.email.trim()))
+      return { message: `Enter a valid email for ${who}.`, fieldId: `reg-${head.its}-email` };
     return null;
   }
 
@@ -205,10 +210,14 @@ export default function RegisterPage() {
     if (!family) return;
     const problem = validate();
     if (problem) {
-      setError(problem);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      setError(problem.message);
+      setErrorField(problem.fieldId);
+      const el = document.getElementById(problem.fieldId);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      el?.focus({ preventScroll: true });
       return;
     }
+    setErrorField(null);
     setSubmitting(true);
     setError(null);
     try {
@@ -304,11 +313,11 @@ export default function RegisterPage() {
                       </span>
                     </p>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      <label className={labelClass}>WhatsApp number
-                        <input value={m.whatsapp_e164 ?? ""} onChange={(e) => setMember(m.its, { whatsapp_e164: e.target.value })} placeholder="+1..." className={inputClass} />
+                      <label className={labelClass}>WhatsApp number{idx === 0 && <span className="text-red-500"> *</span>}
+                        <input id={`reg-${m.its}-whatsapp`} value={m.whatsapp_e164 ?? ""} onChange={(e) => { setMember(m.its, { whatsapp_e164: e.target.value }); if (errorField === `reg-${m.its}-whatsapp`) setErrorField(null); }} placeholder="+1..." className={fieldClass(`reg-${m.its}-whatsapp`)} />
                       </label>
-                      <label className={labelClass}>Email
-                        <input type="email" value={m.email ?? ""} onChange={(e) => setMember(m.its, { email: e.target.value })} className={inputClass} />
+                      <label className={labelClass}>Email{idx === 0 && <span className="text-red-500"> *</span>}
+                        <input id={`reg-${m.its}-email`} type="email" value={m.email ?? ""} onChange={(e) => { setMember(m.its, { email: e.target.value }); if (errorField === `reg-${m.its}-email`) setErrorField(null); }} className={fieldClass(`reg-${m.its}-email`)} />
                       </label>
                     </div>
 
@@ -439,7 +448,12 @@ export default function RegisterPage() {
               )}
             </section>
 
-            <div className="flex justify-center pb-4">
+            <div className="flex flex-col items-center gap-3 pb-4">
+              {error && (
+                <p className="w-full rounded-lg border border-red-300/40 bg-red-50 px-4 py-3 text-center text-sm text-red-700">
+                  {error}
+                </p>
+              )}
               <button type="submit" disabled={submitting} className={`${goldBtn} w-full sm:w-auto sm:px-12`}>
                 {submitting ? "Submitting…" : "Submit registration"}
               </button>
