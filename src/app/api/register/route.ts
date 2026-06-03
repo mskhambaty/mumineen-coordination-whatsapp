@@ -76,6 +76,19 @@ const oneOf = (v: unknown, allowed: string[]) => {
   return s && allowed.includes(s) ? s : null;
 };
 
+// Only a WhatsApp number + valid email are required (the head provides them in the form).
+// Everything else is optional and editable later. Mirrors the form. Returns first problem or null.
+function validateSubmission(members: MemberInput[]): string | null {
+  const present = members.filter((m) => str(m.its));
+  if (present.length === 0) return "No family members were submitted.";
+  const hasContact = present.some((m) => {
+    const email = str(m.email);
+    return Boolean(str(m.whatsapp_e164)) && Boolean(email) && /^\S+@\S+\.\S+$/.test(email as string);
+  });
+  if (!hasContact) return "A WhatsApp number and a valid email are required.";
+  return null;
+}
+
 // POST /api/register — idempotent submit. Updates roster members' collected columns and the
 // family's accommodation/transport, refreshes phone links, and marks the family submitted.
 // Re-submission by another family member merges into the same rows (keyed by ITS / HOF ITS).
@@ -86,6 +99,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing HOF ITS." }, { status: 400 });
   }
   const members = Array.isArray(body.members) ? (body.members as MemberInput[]) : [];
+
+  // Require at least a contact (WhatsApp + email); the rest is optional and editable later.
+  const incomplete = validateSubmission(members);
+  if (incomplete) {
+    return NextResponse.json({ error: incomplete }, { status: 400 });
+  }
 
   const supabase = getSupabaseAdmin();
   const { data: family } = await supabase.from("families").select("id").eq("hof_its", hofIts).eq("roster_active", true).maybeSingle();

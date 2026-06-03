@@ -189,9 +189,26 @@ export default function RegisterPage() {
     }
   }
 
+  // Only the head-of-family's WhatsApp number and email are required; everything else can be
+  // added or updated later. Mirrored server-side. Returns the first problem, or null.
+  function validate(): string | null {
+    const head = members[0];
+    if (!head) return "No family members found.";
+    const who = head.full_name || head.its;
+    if (!head.whatsapp_e164?.trim()) return `Enter a WhatsApp number for ${who}.`;
+    if (!head.email?.trim() || !/^\S+@\S+\.\S+$/.test(head.email.trim())) return `Enter a valid email for ${who}.`;
+    return null;
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!family) return;
+    const problem = validate();
+    if (problem) {
+      setError(problem);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -275,7 +292,7 @@ export default function RegisterPage() {
             <section className={cardClass}>
               <h2 className={sectionHeading}>Family members</h2>
               <p className="mt-1 text-sm text-emerald-950/60">
-                Fill contact, travel, and rahat details for each traveling member.
+                A WhatsApp number and email are required for the head of family. Everything else can be added or updated later.
               </p>
               <div className="mt-4 space-y-5">
                 {members.map((m, idx) => (
