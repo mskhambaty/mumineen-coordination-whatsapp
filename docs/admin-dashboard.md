@@ -42,10 +42,11 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - Restricted to `role = 'admin'` or `global_role = 'leadership_admin'`
 
 ### Escalation/Support (`/admin/escalation`)
-- Admin/leadership-only management of the support team (see [escalation.md](./escalation.md))
-- Add an existing user as a support member (membership = the `escalation/support` role, granting Lead Inbox access)
-- Per-member **on-call hours** editor: weekly recurring time ranges (multiple per day), evaluated in America/Chicago — only on-call members are alerted about escalations
-- Backed by `GET/POST /api/admin/escalation-support` and `DELETE/PUT /api/admin/escalation-support/[id]`
+- Admin/leadership-only management of escalation members, **scoped per department** (see [escalation.md](./escalation.md))
+- Add an existing user as an escalation member **for a specific department** (membership grants Lead Inbox access). The same user can be added to multiple departments.
+- Per-member **on-call hours** editor: weekly recurring time ranges (multiple per day), evaluated in America/Chicago
+- **Routing:** when a chat or issue is escalated, the agent classifies its department (`escalation_department_id` / the issue's `department_id`); notifications go to **that department's on-call members only** (strict — no one is emailed if none are on-call). If no department is determined, **everyone on-call** is notified. One conversation can escalate multiple times over its life; each routes independently.
+- Backed by `GET/POST /api/admin/escalation-support` (POST requires `department_id`) and `DELETE/PUT /api/admin/escalation-support/[id]`. Members live in `escalation_support_members` (now keyed by `(user_id, department_id)`).
 
 ### Analytics (`/admin/analytics`)
 - Leadership/admin-only KPIs over a rolling 30-day window, served by `GET /api/admin/analytics`
@@ -85,7 +86,7 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 
 ### Users (`/admin/users`)
 - Table of all users with inline editing for global_role and status
-- "Add User" button with modal form
+- "Add User" button with modal form — includes an inline **Department + role** picker so a department membership is assigned at creation (defaults to the currently filtered department)
 - Permission matrix reference table (always visible)
 - Link to department memberships for each user
 

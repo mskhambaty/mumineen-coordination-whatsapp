@@ -86,7 +86,8 @@ Membership in this table **is** the `escalation/support` role (see [escalation.m
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | uuid | PK |
-| `user_id` | uuid | Unique FK → `whatsapp_users.id` (cascade delete) |
+| `user_id` | uuid | FK → `whatsapp_users.id` (cascade delete) |
+| `department_id` | uuid | FK → `departments.id` (nullable). The member is an escalation contact for this department; NULL = legacy/global (only used for the "no department determined" case). Unique on `(user_id, department_id)`. |
 | `created_at` | timestamptz | Auto |
 
 ### `escalation_oncall_hours`

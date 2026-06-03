@@ -67,6 +67,7 @@ export default function UsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [showAddUser, setShowAddUser] = useState(false);
   const [newUser, setNewUser] = useState({ display_name: "", phone_e164: "", email: "", role: "committee", global_role: "member" });
+  const [newUserDeptId, setNewUserDeptId] = useState("");
   const [newUserDeptRole, setNewUserDeptRole] = useState("member");
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editForm, setEditForm] = useState<UserForm | null>(null);
@@ -214,22 +215,26 @@ export default function UsersPage() {
         throw new Error(data.error ?? "Failed to add user");
       }
       const created = await res.json() as User;
-      let createdForList = created;
+      let membership: DepartmentMembership | null = null;
 
-      if (selectedDepartmentId !== "all") {
-        const membership = await addMembership(created.id, selectedDepartmentId, newUserDeptRole);
-        createdForList = {
-          ...created,
-          department_membership_id: membership.id,
-          department_role: membership.dept_role,
-        };
+      if (newUserDeptId) {
+        membership = await addMembership(created.id, newUserDeptId, newUserDeptRole);
       }
 
       setShowAddUser(false);
       setNewUser({ display_name: "", phone_e164: "", email: "", role: "committee", global_role: "member" });
+      setNewUserDeptId("");
       setNewUserDeptRole("member");
       setAllUsers((items) => [...items, created].sort(sortUsers));
-      setUsers((items) => [...items, createdForList].sort(sortUsers));
+
+      // Add to the current filtered list only if it belongs in this view.
+      const matchesView = selectedDepartmentId === "all" || (membership !== null && newUserDeptId === selectedDepartmentId);
+      if (matchesView) {
+        const forList = membership && newUserDeptId === selectedDepartmentId
+          ? { ...created, department_membership_id: membership.id, department_role: membership.dept_role }
+          : created;
+        setUsers((items) => [...items, forList].sort(sortUsers));
+      }
     } catch (err) {
       console.error("Failed to add user:", err);
       setError(err instanceof Error ? err.message : "Failed to add user");
@@ -429,7 +434,10 @@ export default function UsersPage() {
     <>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 flex justify-end">
         <button
-          onClick={() => setShowAddUser(true)}
+          onClick={() => {
+            setNewUserDeptId(selectedDepartmentId !== "all" ? selectedDepartmentId : "");
+            setShowAddUser(true);
+          }}
           className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700"
         >
           Add User
@@ -480,16 +488,26 @@ export default function UsersPage() {
                     ))}
                   </select>
                 </div>
-                {selectedDepartment && (
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Department Role in {selectedDepartment.name}</label>
-                    <select value={newUserDeptRole} onChange={(e) => setNewUserDeptRole(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Department</label>
+                    <select value={newUserDeptId} onChange={(e) => setNewUserDeptId(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md">
+                      <option value="">No department</option>
+                      {departments.map((d) => (
+                        <option key={d.id} value={d.id}>{d.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Department Role</label>
+                    <select value={newUserDeptRole} onChange={(e) => setNewUserDeptRole(e.target.value)} disabled={!newUserDeptId} className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md disabled:opacity-50">
                       {DEPT_ROLE_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
                       ))}
                     </select>
                   </div>
-                )}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Assign a department now so it isn&apos;t missed. You can add more departments later from the user&apos;s Departments page.</p>
                 <div className="flex justify-end space-x-3">
                   <button type="button" onClick={() => setShowAddUser(false)} className="px-4 py-2 text-gray-600 dark:text-gray-300">Cancel</button>
                   <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Add</button>
