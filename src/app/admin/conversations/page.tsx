@@ -380,25 +380,19 @@ export default function ConversationsPage() {
                         : "border-l-transparent hover:bg-gray-100 dark:hover:bg-gray-800/60"
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex min-w-0 items-center gap-2">
-                        {conversation.quality_score === "good" && <span title="Good conversation" className="text-green-600 dark:text-green-400">&#x1F44D;</span>}
-                        {conversation.quality_score === "poor" && <span title="Needs review" className="text-red-600 dark:text-red-400">&#x1F44E;</span>}
-                        <p className="truncate font-medium">{conversation.display_name || conversation.phone_e164}</p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        {conversation.escalation_status === "pending" && (
-                          <span className={`rounded-full px-2 py-0.5 text-xs ${conversation.escalation_priority === "urgent" ? "bg-red-500 text-white" : "bg-amber-500 text-white"}`}>
-                            {conversation.escalation_priority === "urgent" ? "URGENT" : "ESCALATED"}
-                          </span>
-                        )}
-                        <span className={`rounded-full px-2 py-0.5 text-xs ${conversation.role === "committee" || conversation.role === "admin" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" : "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"}`}>
-                          {conversation.role === "committee" || conversation.role === "admin" ? "Member" : "External"}
+                    <p className="font-medium break-words">{conversation.display_name || conversation.phone_e164}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      {conversation.escalation_status === "pending" && (
+                        <span className={`rounded-full px-2 py-0.5 text-xs ${conversation.escalation_priority === "urgent" ? "bg-red-500 text-white" : "bg-amber-500 text-white"}`}>
+                          {conversation.escalation_priority === "urgent" ? "URGENT" : "ESCALATED"}
                         </span>
-                        <span className={`rounded-full px-2 py-0.5 text-xs ${conversation.handling_mode === "manual" ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"}`}>
-                          {conversation.handling_mode.toUpperCase()}
-                        </span>
-                      </div>
+                      )}
+                      <span className={`rounded-full px-2 py-0.5 text-xs ${conversation.role === "committee" || conversation.role === "admin" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" : "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"}`}>
+                        {conversation.role === "committee" || conversation.role === "admin" ? "Member" : "External"}
+                      </span>
+                      <span className={`rounded-full px-2 py-0.5 text-xs ${conversation.handling_mode === "manual" ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"}`}>
+                        {conversation.handling_mode.toUpperCase()}
+                      </span>
                     </div>
                     {conversation.escalation_status === "pending" && conversation.escalation_category && (
                       <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">#{conversation.escalation_category}</p>
