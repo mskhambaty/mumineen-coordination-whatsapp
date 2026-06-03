@@ -45,6 +45,7 @@ const standaloneLinks: NavLink[] = [
 const trailingLinks: NavLink[] = [
   { href: "/admin/mumineen", label: "Mumineen", access: "admin" },
   { href: "/admin/users", label: "Users", access: "admin" },
+  { href: "/admin/ollama-test", label: "Ollama Test", access: "admin" },
   { href: "/admin/profile", label: "Profile", access: "any" },
 ];
 
