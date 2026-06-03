@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Load the same system prompt used by the live agent
-  const systemPrompt = await loadAgentSystemPrompt("agent_system");
+  const systemPrompt = await loadAgentSystemPrompt();
 
   const fullMessages: ChatMessage[] = [
     { role: "system", content: systemPrompt },
