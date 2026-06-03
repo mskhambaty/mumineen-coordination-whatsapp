@@ -14,6 +14,8 @@ export default function MumineenPage() {
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [gate, setGate] = useState<boolean | null>(null);
+  const [gateBusy, setGateBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
@@ -30,12 +32,37 @@ export default function MumineenPage() {
       return;
     }
     void loadStats();
+    void loadGate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   async function loadStats() {
     const res = await fetch("/api/admin/mumineen", { headers: { "x-admin-key": adminKey } });
     if (res.ok) setStats((await res.json()) as Stats);
+  }
+
+  async function loadGate() {
+    const res = await fetch("/api/admin/registration-gate", { headers: { "x-admin-key": adminKey } });
+    if (res.ok) setGate(Boolean((await res.json()).enabled));
+  }
+
+  async function toggleGate(next: boolean) {
+    setGateBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/registration-gate", {
+        method: "POST",
+        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
+        body: JSON.stringify({ enabled: next }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to update gate");
+      setGate(Boolean(data.enabled));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update gate");
+    } finally {
+      setGateBusy(false);
+    }
   }
 
   async function runImport(event: React.FormEvent) {
@@ -89,6 +116,50 @@ export default function MumineenPage() {
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{c.label}</p>
           </div>
         ))}
+      </div>
+
+      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold">WhatsApp registration gate</h2>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              When ON, unregistered numbers get a nudge to register instead of an agent reply. Committee,
+              admin and support numbers always bypass it.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={gate === true}
+            disabled={gate === null || gateBusy}
+            onClick={() => toggleGate(!gate)}
+            className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
+              gate ? "bg-green-600" : "bg-gray-300 dark:bg-gray-700"
+            }`}
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                gate ? "translate-x-6" : "translate-x-1"
+              }`}
+            />
+          </button>
+        </div>
+        <p className="mt-3 text-sm font-medium">
+          Status:{" "}
+          {gate === null ? (
+            <span className="text-gray-400">loading…</span>
+          ) : gate ? (
+            <span className="text-green-700 dark:text-green-400">ON — unregistered numbers are gated</span>
+          ) : (
+            <span className="text-gray-600 dark:text-gray-300">OFF — everyone reaches the agent</span>
+          )}
+        </p>
+        {gate && (
+          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+            Heads up: roster members who haven&apos;t submitted the registration form count as
+            unregistered and will be nudged. Only turn this on once families have started registering.
+          </div>
+        )}
       </div>
 
       <form onSubmit={runImport} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">

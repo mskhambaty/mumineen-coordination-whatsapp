@@ -1,11 +1,20 @@
 import { optionalEnv } from "@/lib/env";
+import { getSetting, setSetting } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
+export const REGISTRATION_GATE_KEY = "registration_gate_enabled";
+
 // The registration gate is OFF until explicitly enabled — turning it on before the roster is
-// imported and families have registered would block everyone. Flip REGISTRATION_GATE_ENABLED=true
-// once registration data is in place.
-export function isRegistrationGateEnabled(): boolean {
+// imported and families have registered would block everyone. The admin UI toggles it live via
+// app_settings; if no row exists yet we fall back to the REGISTRATION_GATE_ENABLED env default.
+export async function isRegistrationGateEnabled(): Promise<boolean> {
+  const stored = await getSetting(REGISTRATION_GATE_KEY);
+  if (stored !== null) return stored === "true";
   return optionalEnv("REGISTRATION_GATE_ENABLED") === "true";
+}
+
+export async function setRegistrationGateEnabled(enabled: boolean, updatedBy?: string): Promise<void> {
+  await setSetting(REGISTRATION_GATE_KEY, enabled ? "true" : "false", updatedBy);
 }
 
 export type RegistrationStatus = {

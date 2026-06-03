@@ -109,7 +109,7 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
 
   // Registration gate (off by default): unregistered, non-internal users get a nudge to
   // register instead of agent service. Internal users (committee/admin/support) bypass.
-  if (isRegistrationGateEnabled()) {
+  if (await isRegistrationGateEnabled()) {
     const { registered } = await getRegistrationStatus(message.phoneE164);
     if (!registered) {
       const internal = await resolveCallerFromPhone(message.phoneE164).then(() => true).catch(() => false);
