@@ -12,18 +12,23 @@ type OnCallHour = { id?: string; day_of_week: number; start_time: string; end_ti
 type SupportMember = {
   id: string;
   created_at: string;
+  department_id: string | null;
+  department: { name: string } | null;
   user: { id: string; display_name: string | null; email: string | null; phone_e164: string } | null;
   hours: OnCallHour[];
 };
 
 type UserOption = { id: string; display_name: string | null; phone_e164: string; email: string | null };
+type Department = { id: string; name: string };
 
 export default function EscalationSupportPage() {
   const router = useRouter();
   const [members, setMembers] = useState<SupportMember[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [drafts, setDrafts] = useState<Record<string, OnCallHour[]>>({});
   const [selectedUserId, setSelectedUserId] = useState("");
+  const [selectedDeptId, setSelectedDeptId] = useState("");
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -58,9 +63,10 @@ export default function EscalationSupportPage() {
     setLoading(true);
     setError(null);
     try {
-      const [membersRes, usersRes] = await Promise.all([
+      const [membersRes, usersRes, deptRes] = await Promise.all([
         apiFetch("/api/admin/escalation-support"),
         apiFetch("/api/admin/users"),
+        apiFetch("/api/departments"),
       ]);
       const membersData = await membersRes.json().catch(() => ({}));
       if (!membersRes.ok) throw new Error(membersData.error ?? "Failed to load support team");
@@ -72,6 +78,7 @@ export default function EscalationSupportPage() {
         sortHours((m.hours ?? []).map((h) => ({ ...h, start_time: h.start_time.slice(0, 5), end_time: h.end_time.slice(0, 5) }))),
       ])));
       if (usersRes.ok) setUsers((await usersRes.json()) as UserOption[]);
+      if (deptRes.ok) setDepartments((await deptRes.json()) as Department[]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load support team");
     } finally {
@@ -80,17 +87,18 @@ export default function EscalationSupportPage() {
   }
 
   async function addMember() {
-    if (!selectedUserId) return;
+    if (!selectedUserId || !selectedDeptId) return;
     setAdding(true);
     setError(null);
     try {
       const res = await apiFetch("/api/admin/escalation-support", {
         method: "POST",
-        body: JSON.stringify({ user_id: selectedUserId }),
+        body: JSON.stringify({ user_id: selectedUserId, department_id: selectedDeptId }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Failed to add member");
       setSelectedUserId("");
+      setSelectedDeptId("");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add member");
@@ -150,16 +158,19 @@ export default function EscalationSupportPage() {
     setDraft(memberId, (drafts[memberId] ?? []).filter((_, i) => i !== index));
   }
 
-  const memberUserIds = new Set(members.map((m) => m.user?.id));
-  // Only users with an email can be added — escalations are delivered by email.
-  const addableUsers = users.filter((u) => !memberUserIds.has(u.id) && Boolean(u.email && u.email.trim()));
+  // Only users with an email can be added — escalations are delivered by email. A user can
+  // be an escalation member for multiple departments, so don't exclude existing members.
+  const addableUsers = users.filter((u) => Boolean(u.email && u.email.trim()));
+  const sortedMembers = [...members].sort((a, b) =>
+    (a.department?.name ?? "~").localeCompare(b.department?.name ?? "~"),
+  );
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
       <div className="mb-5">
         <h1 className="text-xl font-bold">Escalation/Support</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Members of this team are alerted about escalations while on call (America/Chicago). Membership grants Lead Inbox access.
+          Escalation members are alerted <strong>per department</strong> while on call (America/Chicago): when a chat or issue is escalated, the agent routes it to its department and only that department&apos;s on-call members are notified. Membership grants Lead Inbox access.
         </p>
       </div>
 
@@ -170,7 +181,7 @@ export default function EscalationSupportPage() {
       )}
 
       <div className="mb-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-        <h2 className="text-lg font-semibold">Add Support Member</h2>
+        <h2 className="text-lg font-semibold">Add Escalation Member</h2>
         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
           <label className="flex-1 text-sm text-gray-700 dark:text-gray-300">
             Existing User
@@ -186,34 +197,52 @@ export default function EscalationSupportPage() {
                 </option>
               ))}
             </select>
-            <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">
-              Only users with an email are listed — escalations are delivered by email.
-            </span>
+          </label>
+          <label className="flex-1 text-sm text-gray-700 dark:text-gray-300">
+            Department <span className="text-red-500">*</span>
+            <select
+              value={selectedDeptId}
+              onChange={(event) => setSelectedDeptId(event.target.value)}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+            >
+              <option value="">Select department...</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
           </label>
           <button
             type="button"
             onClick={() => void addMember()}
-            disabled={!selectedUserId || adding}
+            disabled={!selectedUserId || !selectedDeptId || adding}
             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300 dark:disabled:bg-gray-700"
           >
             {adding ? "Adding..." : "Add"}
           </button>
         </div>
+        <span className="mt-2 block text-xs text-gray-500 dark:text-gray-400">
+          Only users with an email are listed — escalations are delivered by email. Add the same user to multiple departments if they cover more than one.
+        </span>
       </div>
 
       {loading ? (
         <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
       ) : members.length === 0 ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">No support members yet. Add one above.</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">No escalation members yet. Add one above.</p>
       ) : (
         <div className="space-y-4">
-          {members.map((member) => {
+          {sortedMembers.map((member) => {
             const hours = drafts[member.id] ?? [];
             return (
               <div key={member.id} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="font-semibold">{member.user?.display_name || member.user?.phone_e164 || "Unknown user"}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold">{member.user?.display_name || member.user?.phone_e164 || "Unknown user"}</p>
+                      <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                        {member.department?.name ?? "All departments (fallback)"}
+                      </span>
+                    </div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
                       {member.user?.phone_e164}{member.user?.email ? ` · ${member.user.email}` : ""}
                     </p>
