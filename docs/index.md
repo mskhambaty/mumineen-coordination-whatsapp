@@ -15,6 +15,7 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 | [architecture.md](./architecture.md) | Full system overview: request flow, layers, external services |
 | [whatsapp-webhook.md](./whatsapp-webhook.md) | Meta webhook setup, inbound/outbound flow, deduplication |
 | [ai-agent.md](./ai-agent.md) | OpenAI agent loop, system prompt, tool-calling, model config |
+| [ollama-ab-testing.md](./ollama-ab-testing.md) | Ollama cloud A/B testing page for model comparison |
 | [permissions.md](./permissions.md) | User roles (`visitor`, `committee`, `admin`), tool access matrix |
 | [database.md](./database.md) | Supabase schema: all tables, RLS policies, migrations |
 | [site-scraper.md](./site-scraper.md) | Daily site scrape, embedding pipeline, RAG retrieval |
@@ -33,6 +34,8 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 src/app/api/whatsapp/webhook/route.ts    — Meta webhook handler (GET + POST)
 src/app/api/cron/scrape/route.ts         — Daily scrape cron endpoint
 src/app/api/cron/daily-digest/route.ts   — Daily task digest email cron endpoint
+src/app/api/ollama/models/route.ts       — Ollama model list proxy
+src/app/api/ollama/chat/route.ts         — Ollama A/B chat completion endpoint
 src/app/api/auth/forgot-password/route.ts — Password reset email endpoint
 src/lib/agent/run-agent.ts               — AI agent orchestration
 src/lib/ai/model.ts                      — Central OpenAI model/client configuration

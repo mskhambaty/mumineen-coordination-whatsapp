@@ -29,6 +29,7 @@ All env var lookups go through `src/lib/env.ts`, which supports mixed-case alias
 | `META_APP_SECRET` | `Meta_app_secret` | (unset) | If set, validates `X-Hub-Signature-256` on webhook POSTs. Strongly recommended in production. |
 | `META_GRAPH_API_VERSION` | `Meta_graph_api_version` | `v23.0` | Meta Graph API version used for sending messages. |
 | `OPENAI_MODEL` | `OpenAI_model` | `gpt-4o-mini` | Override the centralized chat completion model in `src/lib/ai/model.ts`. |
+| `OLLAMA_BASE_URL` | — | `https://api.ollama.com/v1` | Ollama cloud OpenAI-compatible base URL (used by A/B test page). |
 
 ## Local Development
 
