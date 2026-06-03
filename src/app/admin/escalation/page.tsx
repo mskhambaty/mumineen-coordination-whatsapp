@@ -29,6 +29,7 @@ export default function EscalationSupportPage() {
   const [drafts, setDrafts] = useState<Record<string, OnCallHour[]>>({});
   const [selectedUserId, setSelectedUserId] = useState("");
   const [selectedDeptId, setSelectedDeptId] = useState("");
+  const [filterDeptId, setFilterDeptId] = useState("all");
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -91,9 +92,11 @@ export default function EscalationSupportPage() {
     setAdding(true);
     setError(null);
     try {
+      // "general" = no specific department (all-departments fallback).
+      const departmentId = selectedDeptId === "general" ? null : selectedDeptId;
       const res = await apiFetch("/api/admin/escalation-support", {
         method: "POST",
-        body: JSON.stringify({ user_id: selectedUserId, department_id: selectedDeptId }),
+        body: JSON.stringify({ user_id: selectedUserId, department_id: departmentId }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Failed to add member");
@@ -164,6 +167,13 @@ export default function EscalationSupportPage() {
   const sortedMembers = [...members].sort((a, b) =>
     (a.department?.name ?? "~").localeCompare(b.department?.name ?? "~"),
   );
+  const visibleMembers = sortedMembers.filter((m) => {
+    if (filterDeptId === "all") return true;
+    if (filterDeptId === "general") return !m.department_id;
+    return m.department_id === filterDeptId;
+  });
+  // Departments that actually have at least one escalation member, for the filter dropdown.
+  const departmentsWithMembers = departments.filter((d) => members.some((m) => m.department_id === d.id));
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
@@ -206,6 +216,7 @@ export default function EscalationSupportPage() {
               className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
             >
               <option value="">Select department...</option>
+              <option value="general">General — all departments (fallback)</option>
               {departments.map((d) => (
                 <option key={d.id} value={d.id}>{d.name}</option>
               ))}
@@ -225,13 +236,32 @@ export default function EscalationSupportPage() {
         </span>
       </div>
 
+      {!loading && members.length > 0 && (
+        <div className="mb-4 flex items-center gap-2">
+          <label className="text-sm text-gray-600 dark:text-gray-400">Show</label>
+          <select
+            value={filterDeptId}
+            onChange={(event) => setFilterDeptId(event.target.value)}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+          >
+            <option value="all">All members ({members.length})</option>
+            <option value="general">General — all departments (fallback)</option>
+            {departmentsWithMembers.map((d) => (
+              <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {loading ? (
         <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
       ) : members.length === 0 ? (
         <p className="text-sm text-gray-500 dark:text-gray-400">No escalation members yet. Add one above.</p>
+      ) : visibleMembers.length === 0 ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400">No escalation members in this filter.</p>
       ) : (
         <div className="space-y-4">
-          {sortedMembers.map((member) => {
+          {visibleMembers.map((member) => {
             const hours = drafts[member.id] ?? [];
             return (
               <div key={member.id} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">

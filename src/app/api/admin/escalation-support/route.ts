@@ -32,12 +32,10 @@ export async function POST(req: NextRequest) {
 
   const body = (await req.json().catch(() => ({}))) as { user_id?: unknown; department_id?: unknown };
   const userId = typeof body.user_id === "string" ? body.user_id : "";
+  // null department_id = general "all departments" fallback (notified for unclassified escalations).
   const departmentId = typeof body.department_id === "string" && body.department_id ? body.department_id : null;
   if (!userId) {
     return NextResponse.json({ error: "user_id is required" }, { status: 400 });
-  }
-  if (!departmentId) {
-    return NextResponse.json({ error: "department_id is required" }, { status: 400 });
   }
 
   const supabase = getSupabaseAdmin();
