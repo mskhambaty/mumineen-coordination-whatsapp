@@ -8,7 +8,7 @@ import { loadAgentSystemPrompt } from "@/lib/agent/prompts";
 export const runtime = "nodejs";
 
 // Ollama cloud exposes an OpenAI-compatible endpoint.
-const OLLAMA_BASE_URL = "https://api.ollama.com/v1";
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "https://api.ollama.com/v1";
 
 type ChatMessage = {
   role: "system" | "user" | "assistant";
