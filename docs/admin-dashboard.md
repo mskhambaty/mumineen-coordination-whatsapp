@@ -18,6 +18,8 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - Table of all departments with task status columns
 - Each department links to its detail page
 
+> External issues/tasks (created by the WhatsApp agent) store the originating chat's phone in `tasks.source_phone` and show a **View chat ↗** link that deep-links to the inbox (`/admin/conversations?phone=…`). Issue creation is **de-duplicated**: `POST /api/issues` compares the new title+description embedding against recent open issues from the same chat and returns the existing one (`status: "duplicate"`) instead of creating a near-duplicate.
+
 ### Kanban Board (`/admin/kanban`)
 - Columns: To Do, In Progress, Blocked, Done
 - Filter by department, priority, assignee, and open-only/complete visibility

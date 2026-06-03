@@ -36,6 +36,7 @@ type Task = {
   milestone_id?: string | null;
   item_type?: string;
   origin?: string | null;
+  source_phone?: string | null;
   created_at: string;
   updated_at: string;
   departments?: { name: string } | null;
@@ -349,6 +350,15 @@ function KanbanPage() {
                           <span className={`rounded px-2 py-1 font-medium ${task.origin === "external" ? "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300" : "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300"}`}>
                             {task.origin === "external" ? "External" : "Internal"}
                           </span>
+                        )}
+                        {task.source_phone && (
+                          <a
+                            href={`/admin/conversations?phone=${encodeURIComponent(task.source_phone)}`}
+                            className="rounded bg-blue-100 px-2 py-1 font-medium text-blue-700 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:hover:bg-blue-900/60"
+                            title="Open the WhatsApp conversation this came from"
+                          >
+                            View chat ↗
+                          </a>
                         )}
                       </div>
                       <div className="mt-3 text-sm text-gray-600 dark:text-gray-300">

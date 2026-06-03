@@ -1,11 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { AI_EMBEDDING_MODEL, getAIClient } from "@/lib/ai/model";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { isTaskPriority } from "@/lib/tasks/types";
 
 export const runtime = "nodejs";
 
+// Two issues count as the same if their title+description embeddings are this close.
+const DUPLICATE_SIMILARITY = 0.88;
+
 type IssueBody = { title?: unknown; description?: unknown; priority?: unknown; department?: unknown };
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
+}
 
 // External issue intake from the WhatsApp agent's create_issue tool. Creates an
 // untriaged (no department) issue linked to the reporting guest. Open to any caller
@@ -46,6 +62,46 @@ export async function POST(req: NextRequest) {
     .eq("phone_e164", phone)
     .maybeSingle();
 
+  // Dedupe: the agent sometimes logs the same problem twice (worded differently). If a
+  // similar OPEN issue from this same chat already exists, return it instead of creating another.
+  const newText = `${title}\n${description ?? ""}`.trim();
+  const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: recent } = await supabase
+    .from("tasks")
+    .select("id, title, description, status, priority")
+    .eq("item_type", "issue")
+    .eq("source_phone", phone)
+    .neq("status", "complete")
+    .gte("created_at", since)
+    .limit(10);
+
+  if (recent && recent.length > 0) {
+    try {
+      const openai = getAIClient();
+      const texts = [newText, ...recent.map((r) => `${r.title}\n${r.description ?? ""}`.trim())];
+      const emb = await openai.embeddings.create({ model: AI_EMBEDDING_MODEL, input: texts });
+      const [query, ...rest] = emb.data.map((d) => d.embedding);
+      let bestIdx = -1;
+      let best = 0;
+      rest.forEach((vec, i) => {
+        const sim = cosineSimilarity(query, vec);
+        if (sim > best) {
+          best = sim;
+          bestIdx = i;
+        }
+      });
+      if (bestIdx >= 0 && best >= DUPLICATE_SIMILARITY) {
+        const match = recent[bestIdx];
+        return NextResponse.json(
+          { status: "duplicate", issue: { id: match.id, title: match.title, status: match.status, priority: match.priority } },
+          { status: 200 },
+        );
+      }
+    } catch (err) {
+      console.error("Issue dedupe check failed; creating issue anyway", err);
+    }
+  }
+
   const { data: issue, error } = await supabase
     .from("tasks")
     .insert({
@@ -58,6 +114,7 @@ export async function POST(req: NextRequest) {
       priority,
       department_id: departmentId,
       created_by: reporter?.id ?? null,
+      source_phone: phone,
     })
     .select("id, title, status, priority")
     .single();

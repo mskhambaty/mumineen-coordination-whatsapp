@@ -23,7 +23,7 @@ type CreateTaskBody = {
 };
 
 const taskSelect =
-  "id, title, description, status, priority, archived, assigned_to, created_by, source, due_date, department_id, item_type, origin, milestone_id, created_at, updated_at, departments(name), assignee:whatsapp_users!tasks_assigned_to_fkey(display_name)";
+  "id, title, description, status, priority, archived, assigned_to, created_by, source, due_date, department_id, item_type, origin, source_phone, milestone_id, created_at, updated_at, departments(name), assignee:whatsapp_users!tasks_assigned_to_fkey(display_name)";
 
 type TaskRow = {
   priority?: string | null;
@@ -190,6 +190,9 @@ export async function POST(req: NextRequest) {
 
     const itemType = typeof body.item_type === "string" && (body.item_type === "task" || body.item_type === "issue") ? body.item_type : "task";
     const milestoneIdInput = typeof body.milestone_id === "string" ? body.milestone_id : null;
+    // When the agent creates a task from a WhatsApp chat, record the source phone so the
+    // admin UI can link to the conversation.
+    const sourcePhone = req.headers.get("x-whatsapp-from");
 
     const { data: task, error: insertErr } = await supabase
       .from("tasks")
@@ -204,6 +207,8 @@ export async function POST(req: NextRequest) {
         priority,
         item_type: itemType,
         milestone_id: milestoneIdInput,
+        origin: sourcePhone ? "external" : undefined,
+        source_phone: sourcePhone,
       })
       .select("id, title, status, priority, item_type, milestone_id, department_id, assigned_to, created_at")
       .single();
