@@ -28,6 +28,37 @@ export async function DELETE(req: NextRequest, { params }: RouteContext) {
   return NextResponse.json({ ok: true });
 }
 
+// PATCH: reassign a member to a different department (or null = general fallback).
+// Keeps their on-call hours intact.
+export async function PATCH(req: NextRequest, { params }: RouteContext) {
+  if (!requireAdminKey(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+  const body = (await req.json().catch(() => ({}))) as { department_id?: unknown };
+  const departmentId = typeof body.department_id === "string" && body.department_id ? body.department_id : null;
+
+  const { data, error } = await getSupabaseAdmin()
+    .from("escalation_support_members")
+    .update({ department_id: departmentId })
+    .eq("id", id)
+    .select("id, department_id")
+    .maybeSingle();
+
+  if (error) {
+    if (error.code === "23505") {
+      return NextResponse.json({ error: "This user is already an escalation member for that department" }, { status: 409 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  if (!data) {
+    return NextResponse.json({ error: "Support member not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ ok: true, department_id: data.department_id });
+}
+
 // PUT: replace a member's on-call hours with the provided weekly ranges.
 export async function PUT(req: NextRequest, { params }: RouteContext) {
   if (!requireAdminKey(req)) {

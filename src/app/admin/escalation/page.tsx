@@ -30,6 +30,7 @@ export default function EscalationSupportPage() {
   const [selectedUserId, setSelectedUserId] = useState("");
   const [selectedDeptId, setSelectedDeptId] = useState("");
   const [filterDeptId, setFilterDeptId] = useState("all");
+  const [expandedHours, setExpandedHours] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -107,6 +108,30 @@ export default function EscalationSupportPage() {
       setError(err instanceof Error ? err.message : "Failed to add member");
     } finally {
       setAdding(false);
+    }
+  }
+
+  function toggleHours(id: string) {
+    setExpandedHours((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function changeDepartment(member: SupportMember, value: string) {
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/admin/escalation-support/${member.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ department_id: value === "general" ? null : value }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to change department");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to change department");
     }
   }
 
@@ -269,9 +294,17 @@ export default function EscalationSupportPage() {
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-semibold">{member.user?.display_name || member.user?.phone_e164 || "Unknown user"}</p>
-                      <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                        {member.department?.name ?? "All departments (fallback)"}
-                      </span>
+                      <select
+                        value={member.department_id ?? "general"}
+                        onChange={(event) => void changeDepartment(member, event.target.value)}
+                        title="Change which department this member covers"
+                        className="rounded-md border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                      >
+                        <option value="general">General — all departments (fallback)</option>
+                        {departments.map((d) => (
+                          <option key={d.id} value={d.id}>{d.name}</option>
+                        ))}
+                      </select>
                     </div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
                       {member.user?.phone_e164}{member.user?.email ? ` · ${member.user.email}` : ""}
@@ -287,7 +320,22 @@ export default function EscalationSupportPage() {
                 </div>
 
                 <div className="mt-4">
-                  <p className="mb-2 text-sm font-medium">On-call hours (America/Chicago)</p>
+                  <button
+                    type="button"
+                    onClick={() => toggleHours(member.id)}
+                    className="flex w-full items-center justify-between text-left text-sm font-medium"
+                  >
+                    <span>
+                      On-call hours (America/Chicago)
+                      <span className="ml-2 font-normal text-gray-500 dark:text-gray-400">
+                        {hours.length === 0 ? "· not on call" : `· ${hours.length} range${hours.length !== 1 ? "s" : ""}`}
+                      </span>
+                    </span>
+                    <span className="text-gray-400">{expandedHours.has(member.id) ? "▲" : "▼"}</span>
+                  </button>
+                </div>
+                {expandedHours.has(member.id) && (
+                <div className="mt-3">
                   {hours.length === 0 ? (
                     <p className="text-sm text-gray-500 dark:text-gray-400">Not on call — no hours set.</p>
                   ) : (
@@ -345,6 +393,7 @@ export default function EscalationSupportPage() {
                     </button>
                   </div>
                 </div>
+                )}
               </div>
             );
           })}
