@@ -3,6 +3,8 @@ import { after } from "next/server";
 
 import { runAgent } from "@/lib/agent/run-agent";
 import { answerImageQuestion } from "@/lib/agent/vision";
+import { resolveCallerFromPhone } from "@/lib/api/auth";
+import { getRegistrationStatus, isRegistrationGateEnabled } from "@/lib/mumineen/registration";
 import { optionalEnv } from "@/lib/env";
 import { fetchWhatsAppMedia, sendWhatsAppText, verifyMetaSignature } from "@/lib/meta/whatsapp";
 import {
@@ -105,6 +107,19 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
     return true;
   }
 
+  // Registration gate (off by default): unregistered, non-internal users get a nudge to
+  // register instead of agent service. Internal users (committee/admin/support) bypass.
+  if (isRegistrationGateEnabled()) {
+    const { registered } = await getRegistrationStatus(message.phoneE164);
+    if (!registered) {
+      const internal = await resolveCallerFromPhone(message.phoneE164).then(() => true).catch(() => false);
+      if (!internal) {
+        await sendRegistrationNudge(message.phoneE164, user.id);
+        return true;
+      }
+    }
+  }
+
   if (message.media) {
     await replyToImage(message, user.id);
     return true;
@@ -166,6 +181,27 @@ function isSilentReply(reply: string): boolean {
   const trimmed = reply.trim();
   if (!trimmed) return true;
   return trimmed.replace(/[^a-z]/gi, "").toUpperCase() === "NOREPLY";
+}
+
+function appBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return "http://localhost:3000";
+}
+
+// Tell an unregistered visitor to register, and record it. Best-effort.
+async function sendRegistrationNudge(phone: string, userId: string | undefined) {
+  const reply =
+    "Salaam. This number isn't registered for Ashara Mubaraka 1448H (Chicago) yet, so I can't assist over chat. " +
+    `Please complete your family's registration here: ${appBaseUrl()}/register — then message us again and we'll be glad to help.`;
+  const metaResponse = await sendWhatsAppText(phone, reply);
+  await recordOutboundMessage({
+    phoneE164: phone,
+    body: reply,
+    whatsappMessageId: metaResponse.messages?.[0]?.id,
+    rawPayload: { source: "registration_gate", meta_response: metaResponse },
+  });
+  await touchConversationSession({ phoneE164: phone, userId });
 }
 
 async function replyToImage(message: IncomingWhatsAppMessage, userId: string | undefined) {
