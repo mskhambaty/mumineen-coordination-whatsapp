@@ -36,8 +36,9 @@ export async function importMumineenRoster(buffer: Buffer): Promise<RosterImport
   const wb = XLSX.read(buffer, { type: "buffer" });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const raw = XLSX.utils.sheet_to_json<Row>(ws, { defval: null });
-  // Drop banner/empty rows — real rows always have a Mumin Id.
-  const rows = raw.filter((r) => r["Mumin Id"] != null);
+  // Real data rows always have BOTH a Mumin Id and a Hof Id. This drops the banner row
+  // (no Mumin Id) and the "Count Distinct" footer total (a Mumin Id count but no Hof Id).
+  const rows = raw.filter((r) => r["Mumin Id"] != null && text(r["Hof Id"]) != null);
   if (rows.length === 0) {
     throw new Error("No mumineen rows found. The sheet must have 'Mumin Id' and 'Hof Id' columns.");
   }
@@ -70,13 +71,13 @@ export async function importMumineenRoster(buffer: Buffer): Promise<RosterImport
   const muminRows: Row[] = [];
   for (const r of rows) {
     const its = text(r["Mumin Id"]);
-    if (!its) continue;
     const hof = text(r["Hof Id"]);
+    if (!its || !hof) continue;
     muminRows.push({
       its,
       hof_its: hof,
-      family_id: hof ? familyIdByHof.get(hof) ?? null : null,
-      is_head: hof != null && its === hof,
+      family_id: familyIdByHof.get(hof) ?? null,
+      is_head: its === hof,
       roster_active: true,
       full_name: text(r["Fullname"]),
       gender: genderOf(r["Gender"]),
