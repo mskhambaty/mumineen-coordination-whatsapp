@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 type Member = {
   its: string;
@@ -26,6 +26,9 @@ type Family = {
   acc_type: string | null;
   hotel_name: string | null;
   hotel_address: string | null;
+  hotel_lat: number | null;
+  hotel_lon: number | null;
+  open_to_utaro: boolean;
   utaro_host_name: string | null;
   utaro_host_its: string | null;
   utaro_host_address: string | null;
@@ -45,6 +48,79 @@ const sectionHeading = "font-serif text-xl font-semibold text-emerald-950";
 const goldBtn =
   "rounded-full bg-amber-400 px-6 py-3 text-sm font-semibold text-emerald-950 shadow-md transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-60";
 
+type AddrPick = { address: string; lat: number | null; lon: number | null };
+type PhotonFeature = {
+  properties?: { name?: string; street?: string; housenumber?: string; city?: string; state?: string; postcode?: string; country?: string };
+  geometry?: { coordinates?: number[] };
+};
+
+// Free OpenStreetMap-based address autocomplete (Photon). No API key required.
+function AddressAutocomplete({ value, onPick }: { value: string; onPick: (p: AddrPick) => void }) {
+  const [suggestions, setSuggestions] = useState<{ label: string; lat: number; lon: number }[]>([]);
+  const [open, setOpen] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handle(v: string) {
+    onPick({ address: v, lat: null, lon: null }); // typing invalidates the pinned coords
+    if (timer.current) clearTimeout(timer.current);
+    if (v.trim().length < 3) {
+      setSuggestions([]);
+      setOpen(false);
+      return;
+    }
+    timer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(v)}&limit=5`);
+        const data = (await res.json()) as { features?: PhotonFeature[] };
+        const feats = (data.features ?? [])
+          .map((f) => {
+            const p = f.properties ?? {};
+            const line = [p.housenumber, p.street].filter(Boolean).join(" ");
+            const parts = [p.name, line, p.city, p.state, p.postcode, p.country].filter(Boolean);
+            const coords = f.geometry?.coordinates;
+            return { label: parts.join(", "), lat: coords?.[1] ?? NaN, lon: coords?.[0] ?? NaN };
+          })
+          .filter((s) => s.label && Number.isFinite(s.lat) && Number.isFinite(s.lon));
+        setSuggestions(feats);
+        setOpen(true);
+      } catch {
+        setSuggestions([]);
+      }
+    }, 350);
+  }
+
+  return (
+    <div className="relative">
+      <input
+        value={value}
+        onChange={(e) => handle(e.target.value)}
+        onFocus={() => suggestions.length > 0 && setOpen(true)}
+        autoComplete="off"
+        placeholder="Start typing the hotel or address…"
+        className={inputClass}
+      />
+      {open && suggestions.length > 0 && (
+        <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-emerald-950/15 bg-white text-sm shadow-lg">
+          {suggestions.map((s, i) => (
+            <li key={`${s.lat}-${s.lon}-${i}`}>
+              <button
+                type="button"
+                onClick={() => {
+                  onPick({ address: s.label, lat: s.lat, lon: s.lon });
+                  setOpen(false);
+                }}
+                className="block w-full px-3 py-2 text-left text-gray-800 hover:bg-amber-50"
+              >
+                {s.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function RegisterPage() {
   const [hofInput, setHofInput] = useState("");
   const [family, setFamily] = useState<Family | null>(null);
@@ -54,6 +130,16 @@ export default function RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [sameFlight, setSameFlight] = useState(false);
+
+  const FLIGHT_KEYS: (keyof Member)[] = ["arrival_at", "arrival_flight_no", "departure_at", "departure_flight_no"];
+  const copyFlight = (from: Member, to: Member): Member => ({
+    ...to,
+    arrival_at: from.arrival_at,
+    arrival_flight_no: from.arrival_flight_no,
+    departure_at: from.departure_at,
+    departure_flight_no: from.departure_flight_no,
+  });
 
   async function findFamily(event: React.FormEvent) {
     event.preventDefault();
@@ -80,7 +166,21 @@ export default function RegisterPage() {
   }
 
   function setMember(its: string, patch: Partial<Member>) {
-    setMembers((prev) => prev.map((m) => (m.its === its ? { ...m, ...patch } : m)));
+    setMembers((prev) => {
+      const next = prev.map((m) => (m.its === its ? { ...m, ...patch } : m));
+      // When "same flight for all" is on, edits to the first member mirror to everyone.
+      if (sameFlight && prev[0]?.its === its && FLIGHT_KEYS.some((k) => k in patch)) {
+        return next.map((m, i) => (i === 0 ? m : copyFlight(next[0], m)));
+      }
+      return next;
+    });
+  }
+
+  function toggleSameFlight(checked: boolean) {
+    setSameFlight(checked);
+    if (checked) {
+      setMembers((prev) => (prev.length ? prev.map((m, i) => (i === 0 ? m : copyFlight(prev[0], m))) : prev));
+    }
   }
 
   async function submit(event: React.FormEvent) {
@@ -100,11 +200,11 @@ export default function RegisterPage() {
             acc_type: acc.acc_type,
             hotel_name: acc.hotel_name,
             hotel_address: acc.hotel_address,
-            utaro_host_name: acc.utaro_host_name,
+            hotel_lat: acc.hotel_lat,
+            hotel_lon: acc.hotel_lon,
+            open_to_utaro: acc.open_to_utaro,
             utaro_host_its: acc.utaro_host_its,
-            utaro_host_address: acc.utaro_host_address,
             utaro_host_whatsapp_e164: acc.utaro_host_whatsapp_e164,
-            utaro_host_email: acc.utaro_host_email,
           },
           transport: { transport_mode: acc.transport_mode, transport_detail: acc.transport_detail },
         }),
@@ -172,7 +272,7 @@ export default function RegisterPage() {
                 Fill contact, travel, and rahat details for each traveling member.
               </p>
               <div className="mt-4 space-y-5">
-                {members.map((m) => (
+                {members.map((m, idx) => (
                   <div key={m.its} className="rounded-xl border border-emerald-950/10 bg-white/70 p-4">
                     <p className="font-medium text-emerald-950">
                       {m.full_name || m.its}
@@ -187,19 +287,37 @@ export default function RegisterPage() {
                       <label className={labelClass}>Email
                         <input type="email" value={m.email ?? ""} onChange={(e) => setMember(m.its, { email: e.target.value })} className={inputClass} />
                       </label>
-                      <label className={labelClass}>Arrival (date & time)
-                        <input type="datetime-local" value={m.arrival_at ?? ""} onChange={(e) => setMember(m.its, { arrival_at: e.target.value })} className={inputClass} />
-                      </label>
-                      <label className={labelClass}>Arrival flight #
-                        <input value={m.arrival_flight_no ?? ""} onChange={(e) => setMember(m.its, { arrival_flight_no: e.target.value })} className={inputClass} />
-                      </label>
-                      <label className={labelClass}>Departure (date & time)
-                        <input type="datetime-local" value={m.departure_at ?? ""} onChange={(e) => setMember(m.its, { departure_at: e.target.value })} className={inputClass} />
-                      </label>
-                      <label className={labelClass}>Departure flight #
-                        <input value={m.departure_flight_no ?? ""} onChange={(e) => setMember(m.its, { departure_flight_no: e.target.value })} className={inputClass} />
-                      </label>
                     </div>
+
+                    {idx === 0 || !sameFlight ? (
+                      <>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <label className={labelClass}>Arrival (date & time)
+                            <input type="datetime-local" value={m.arrival_at ?? ""} onChange={(e) => setMember(m.its, { arrival_at: e.target.value })} className={inputClass} />
+                          </label>
+                          <label className={labelClass}>Arrival flight #
+                            <input value={m.arrival_flight_no ?? ""} onChange={(e) => setMember(m.its, { arrival_flight_no: e.target.value })} className={inputClass} />
+                          </label>
+                          <label className={labelClass}>Departure (date & time)
+                            <input type="datetime-local" value={m.departure_at ?? ""} onChange={(e) => setMember(m.its, { departure_at: e.target.value })} className={inputClass} />
+                          </label>
+                          <label className={labelClass}>Departure flight #
+                            <input value={m.departure_flight_no ?? ""} onChange={(e) => setMember(m.its, { departure_flight_no: e.target.value })} className={inputClass} />
+                          </label>
+                        </div>
+                        {idx === 0 && members.length > 1 && (
+                          <label className="mt-3 flex items-center gap-2 text-sm text-emerald-950/80">
+                            <input type="checkbox" className="accent-amber-500" checked={sameFlight} onChange={(e) => toggleSameFlight(e.target.checked)} />
+                            Same flight details for everyone in the family
+                          </label>
+                        )}
+                      </>
+                    ) : (
+                      <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                        Using {members[0].full_name || "the first member"}&apos;s flight details. Uncheck &quot;same flight&quot; above to set this separately.
+                      </p>
+                    )}
+
                     <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-emerald-950/80">
                       <label className="flex items-center gap-2">
                         <input type="checkbox" className="accent-amber-500" checked={m.rahat_seating} onChange={(e) => setMember(m.its, { rahat_seating: e.target.checked })} />
@@ -234,31 +352,47 @@ export default function RegisterPage() {
                 ))}
               </div>
               {acc.acc_type === "hotel" && (
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <label className={labelClass}>Hotel name
-                    <input value={acc.hotel_name ?? ""} onChange={(e) => setAcc((a) => ({ ...a, hotel_name: e.target.value }))} className={inputClass} />
-                  </label>
-                  <label className={labelClass}>Hotel address
-                    <input value={acc.hotel_address ?? ""} onChange={(e) => setAcc((a) => ({ ...a, hotel_address: e.target.value }))} className={inputClass} />
+                <div className="mt-3 space-y-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className={labelClass}>Hotel name
+                      <input value={acc.hotel_name ?? ""} onChange={(e) => setAcc((a) => ({ ...a, hotel_name: e.target.value }))} className={inputClass} />
+                    </label>
+                    <div>
+                      <span className={labelClass}>Hotel address</span>
+                      <AddressAutocomplete
+                        value={acc.hotel_address ?? ""}
+                        onPick={(p) => setAcc((a) => ({ ...a, hotel_address: p.address, hotel_lat: p.lat, hotel_lon: p.lon }))}
+                      />
+                    </div>
+                  </div>
+                  {acc.hotel_lat != null && acc.hotel_lon != null && (
+                    <div className="overflow-hidden rounded-lg border border-emerald-950/10">
+                      <iframe
+                        title="Hotel location"
+                        className="h-52 w-full"
+                        loading="lazy"
+                        src={`https://www.openstreetmap.org/export/embed.html?bbox=${acc.hotel_lon - 0.01}%2C${acc.hotel_lat - 0.01}%2C${acc.hotel_lon + 0.01}%2C${acc.hotel_lat + 0.01}&layer=mapnik&marker=${acc.hotel_lat}%2C${acc.hotel_lon}`}
+                      />
+                    </div>
+                  )}
+                  <label className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-sm text-emerald-950/80">
+                    <input type="checkbox" className="mt-0.5 accent-amber-500" checked={Boolean(acc.open_to_utaro)} onChange={(e) => setAcc((a) => ({ ...a, open_to_utaro: e.target.checked }))} />
+                    <span>
+                      I have a hotel booked, but I am open to Utaro if a host family can offer it.
+                      <span className="mt-1 block text-xs text-amber-800">
+                        Utaro is subject to availability. Mehmaan are advised to book a refundable hotel and not depend on Utaro completely.
+                      </span>
+                    </span>
                   </label>
                 </div>
               )}
               {acc.acc_type === "utaro" && (
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <label className={labelClass}>Host name
-                    <input value={acc.utaro_host_name ?? ""} onChange={(e) => setAcc((a) => ({ ...a, utaro_host_name: e.target.value }))} className={inputClass} />
-                  </label>
-                  <label className={labelClass}>Host ITS
+                  <label className={labelClass}>Host family ITS
                     <input value={acc.utaro_host_its ?? ""} onChange={(e) => setAcc((a) => ({ ...a, utaro_host_its: e.target.value }))} className={inputClass} />
                   </label>
-                  <label className={labelClass}>Host address
-                    <input value={acc.utaro_host_address ?? ""} onChange={(e) => setAcc((a) => ({ ...a, utaro_host_address: e.target.value }))} className={inputClass} />
-                  </label>
-                  <label className={labelClass}>Host WhatsApp
-                    <input value={acc.utaro_host_whatsapp_e164 ?? ""} onChange={(e) => setAcc((a) => ({ ...a, utaro_host_whatsapp_e164: e.target.value }))} className={inputClass} />
-                  </label>
-                  <label className={labelClass}>Host email
-                    <input value={acc.utaro_host_email ?? ""} onChange={(e) => setAcc((a) => ({ ...a, utaro_host_email: e.target.value }))} className={inputClass} />
+                  <label className={labelClass}>Host contact number
+                    <input value={acc.utaro_host_whatsapp_e164 ?? ""} onChange={(e) => setAcc((a) => ({ ...a, utaro_host_whatsapp_e164: e.target.value }))} placeholder="+1..." className={inputClass} />
                   </label>
                 </div>
               )}

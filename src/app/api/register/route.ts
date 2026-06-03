@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const supabase = getSupabaseAdmin();
   const { data: family } = await supabase
     .from("families")
-    .select("hof_its, registration_status, acc_type, hotel_name, hotel_address, utaro_host_name, utaro_host_its, utaro_host_address, utaro_host_whatsapp_e164, utaro_host_email, transport_mode, transport_detail")
+    .select("hof_its, registration_status, acc_type, hotel_name, hotel_address, hotel_lat, hotel_lon, open_to_utaro, utaro_host_name, utaro_host_its, utaro_host_address, utaro_host_whatsapp_e164, utaro_host_email, transport_mode, transport_detail")
     .eq("hof_its", hofIts)
     .eq("roster_active", true)
     .maybeSingle();
@@ -61,6 +61,10 @@ type RegisterBody = {
 
 const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
 const bool = (v: unknown) => v === true || v === "true";
+const num = (v: unknown) => {
+  const n = typeof v === "number" ? v : Number(str(v));
+  return Number.isFinite(n) ? n : null;
+};
 const ts = (v: unknown) => {
   const s = str(v);
   if (!s) return null;
@@ -136,6 +140,9 @@ export async function POST(req: NextRequest) {
       acc_type: oneOf(acc.acc_type, ["hotel", "utaro"]),
       hotel_name: str(acc.hotel_name),
       hotel_address: str(acc.hotel_address),
+      hotel_lat: num(acc.hotel_lat),
+      hotel_lon: num(acc.hotel_lon),
+      open_to_utaro: bool(acc.open_to_utaro),
       utaro_host_name: str(acc.utaro_host_name),
       utaro_host_its: str(acc.utaro_host_its),
       utaro_host_address: str(acc.utaro_host_address),

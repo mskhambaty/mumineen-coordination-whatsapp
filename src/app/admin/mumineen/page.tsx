@@ -7,6 +7,20 @@ import { isAdminOrLeadership } from "@/lib/admin/access";
 
 type Stats = { mumineen: number; adults: number; families: number; registered_families: number };
 
+type SearchResult = {
+  its: string;
+  full_name: string | null;
+  gender: string | null;
+  age: number | null;
+  jamaat: string | null;
+  city: string | null;
+  hof_its: string | null;
+  is_head: boolean;
+  whatsapp_e164: string | null;
+  email: string | null;
+  family: { registration_status: string | null } | null;
+};
+
 export default function MumineenPage() {
   const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
@@ -16,6 +30,10 @@ export default function MumineenPage() {
   const [error, setError] = useState<string | null>(null);
   const [gate, setGate] = useState<boolean | null>(null);
   const [gateBusy, setGateBusy] = useState(false);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SearchResult[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
@@ -88,6 +106,31 @@ export default function MumineenPage() {
     }
   }
 
+  function onQueryChange(value: string) {
+    setQuery(value);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    const term = value.trim();
+    if (term.length < 2) {
+      setResults(null);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    searchTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/admin/mumineen/search?q=${encodeURIComponent(term)}`, {
+          headers: { "x-admin-key": adminKey },
+        });
+        const data = await res.json().catch(() => ({}));
+        setResults(res.ok ? ((data.results as SearchResult[]) ?? []) : []);
+      } catch {
+        setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+  }
+
   const cards: { label: string; value: number | undefined }[] = [
     { label: "Mumineen", value: stats?.mumineen },
     { label: "Adults (RSVP targets)", value: stats?.adults },
@@ -116,6 +159,62 @@ export default function MumineenPage() {
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{c.label}</p>
           </div>
         ))}
+      </div>
+
+      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <h2 className="text-lg font-semibold">Lookup mumin</h2>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Search by ITS, name, WhatsApp number, or HOF ITS.</p>
+        <input
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          placeholder="Start typing a name or ITS…"
+          className="mt-3 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-950"
+        />
+        {searching && <p className="mt-2 text-xs text-gray-400">Searching…</p>}
+        {results && !searching && (
+          results.length === 0 ? (
+            <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">No matches.</p>
+          ) : (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="text-xs uppercase text-gray-400">
+                  <tr>
+                    <th className="px-2 py-1.5">Name</th>
+                    <th className="px-2 py-1.5">ITS</th>
+                    <th className="px-2 py-1.5">HOF</th>
+                    <th className="px-2 py-1.5">Age</th>
+                    <th className="px-2 py-1.5">City</th>
+                    <th className="px-2 py-1.5">WhatsApp</th>
+                    <th className="px-2 py-1.5">Reg.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map((r) => (
+                    <tr key={r.its} className="border-t border-gray-100 dark:border-gray-800">
+                      <td className="px-2 py-1.5 font-medium">
+                        {r.full_name ?? "—"}
+                        {r.is_head && <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">Head</span>}
+                      </td>
+                      <td className="px-2 py-1.5 font-mono text-xs">{r.its}</td>
+                      <td className="px-2 py-1.5 font-mono text-xs text-gray-500">{r.hof_its ?? "—"}</td>
+                      <td className="px-2 py-1.5">{r.age ?? "—"}</td>
+                      <td className="px-2 py-1.5">{r.city ?? "—"}</td>
+                      <td className="px-2 py-1.5">{r.whatsapp_e164 ?? "—"}</td>
+                      <td className="px-2 py-1.5">
+                        {r.family?.registration_status === "submitted" || r.family?.registration_status === "confirmed" ? (
+                          <span className="text-green-600 dark:text-green-400">{r.family.registration_status}</span>
+                        ) : (
+                          <span className="text-gray-400">{r.family?.registration_status ?? "—"}</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {results.length === 50 && <p className="mt-2 text-xs text-gray-400">Showing first 50 matches — refine your search.</p>}
+            </div>
+          )
+        )}
       </div>
 
       <div className="mb-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
