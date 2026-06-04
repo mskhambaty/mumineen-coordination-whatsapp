@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
 
   const { data: members } = await supabase
     .from("mumineen")
-    .select("its, full_name, gender, age, is_adult, is_head, whatsapp_e164, email, arrival_at, arrival_flight_no, departure_at, departure_flight_no, rahat_seating, wheelchair, special_needs")
+    .select("its, full_name, gender, age, is_adult, is_head, whatsapp_e164, email, arrival_at, arrival_flight_no, departure_at, departure_flight_no, airport, rahat_seating, wheelchair, special_needs")
     .eq("hof_its", hofIts)
     .eq("roster_active", true)
     .order("is_head", { ascending: false })
@@ -77,6 +77,7 @@ type MemberInput = {
   arrival_flight_no?: unknown;
   departure_at?: unknown;
   departure_flight_no?: unknown;
+  airport?: unknown;
   rahat_seating?: unknown;
   wheelchair?: unknown;
   special_needs?: unknown;
@@ -173,6 +174,7 @@ export async function POST(req: NextRequest) {
         arrival_flight_no: str(m.arrival_flight_no),
         departure_at: ts(m.departure_at),
         departure_flight_no: str(m.departure_flight_no),
+        airport: oneOf(m.airport, ["ORD", "MDW"]),
         rahat_seating: bool(m.rahat_seating),
         wheelchair: bool(m.rahat_seating) && bool(m.wheelchair),
         special_needs: str(m.special_needs),

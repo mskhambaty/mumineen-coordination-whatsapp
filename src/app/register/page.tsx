@@ -15,6 +15,7 @@ type Member = {
   arrival_flight_no: string | null;
   departure_at: string | null;
   departure_flight_no: string | null;
+  airport: string | null;
   rahat_seating: boolean;
   wheelchair: boolean;
   special_needs: string | null;
@@ -139,13 +140,14 @@ export default function RegisterPage() {
   const fieldClass = (id: string) =>
     errorField === id ? `${inputClass} border-red-400 ring-2 ring-red-300` : inputClass;
 
-  const FLIGHT_KEYS: (keyof Member)[] = ["arrival_at", "arrival_flight_no", "departure_at", "departure_flight_no"];
+  const FLIGHT_KEYS: (keyof Member)[] = ["arrival_at", "arrival_flight_no", "departure_at", "departure_flight_no", "airport"];
   const copyFlight = (from: Member, to: Member): Member => ({
     ...to,
     arrival_at: from.arrival_at,
     arrival_flight_no: from.arrival_flight_no,
     departure_at: from.departure_at,
     departure_flight_no: from.departure_flight_no,
+    airport: from.airport,
   });
 
   async function findFamily(event: React.FormEvent) {
@@ -342,6 +344,10 @@ export default function RegisterPage() {
             <button type="submit" disabled={loading || !hofInput.trim()} className={`${goldBtn} mt-5 w-full`}>
               {loading ? "Finding…" : "Find my family"}
             </button>
+            <p className="mt-5 border-t border-emerald-950/10 pt-4 text-center text-xs text-emerald-950/60">
+              Need help? Message our helpline on WhatsApp:{" "}
+              <a href="https://wa.me/16308190250" className="font-semibold text-emerald-800 underline">+1 630 819 0250</a>
+            </p>
           </form>
         ) : (
           <form onSubmit={submit} className="space-y-6">
@@ -349,7 +355,7 @@ export default function RegisterPage() {
             <section className={cardClass}>
               <h2 className={sectionHeading}>Family members</h2>
               <p className="mt-1 text-sm text-emerald-950/60">
-                This is a one-time submission. All fields are required for every member, except flight numbers and rahat.
+                This is a one-time submission.
               </p>
               <div className="mt-4 space-y-5">
                 {members.map((m, idx) => (
@@ -389,6 +395,13 @@ export default function RegisterPage() {
                         </label>
                         <label className={labelClass}>Departure flight #
                           <input value={m.departure_flight_no ?? ""} onChange={(e) => setMember(m.its, { departure_flight_no: e.target.value })} className={inputClass} />
+                        </label>
+                        <label className={labelClass}>Airport
+                          <select value={m.airport ?? ""} onChange={(e) => setMember(m.its, { airport: e.target.value })} className={inputClass}>
+                            <option value="">Select…</option>
+                            <option value="ORD">ORD — O&apos;Hare</option>
+                            <option value="MDW">MDW — Midway</option>
+                          </select>
                         </label>
                       </div>
                     ) : (
