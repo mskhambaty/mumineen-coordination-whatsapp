@@ -16,6 +16,7 @@ export const publicTools = new Set([
   "answer_religious_questions",
   "move_to_escalation",
   "create_issue",
+  "flag_knowledge_gap",
 ]);
 
 export const committeeTools = new Set([

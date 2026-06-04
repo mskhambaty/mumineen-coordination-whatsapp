@@ -2,7 +2,7 @@ import type OpenAI from "openai";
 
 import { canUseTool, canUseTaskToolForCaller, type AppUser } from "@/lib/permissions";
 import { retrieveReligiousContext, retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
-import { recordToolAudit } from "@/lib/supabase/server";
+import { getSupabaseAdmin, recordToolAudit } from "@/lib/supabase/server";
 import type { CallerContext } from "@/lib/api/auth";
 
 type ToolInput = Record<string, unknown>;
@@ -121,6 +121,30 @@ export const toolDefinitions: ToolDefinition[] = [
           },
         },
         required: ["title"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "flag_knowledge_gap",
+      description:
+        "Log a knowledge gap when you genuinely CANNOT answer a visitor's INFORMATIONAL question because the topic isn't covered in get_site_content_faq (or any source available to you) — so the team can publish the info. Call this IN ADDITION to telling the user the details aren't available yet. Do NOT use it for: questions you can already answer; concrete problems to fix (use create_issue); human hand-offs, accommodation/utaro, or visa requests (use move_to_escalation or the relevant form). One call per distinct topic.",
+      parameters: {
+        type: "object",
+        properties: {
+          topic: {
+            type: "string",
+            description:
+              "Short, reusable topic of the missing information (e.g. 'Markaz parking', 'Shuttle timings', 'Stroller policy') — not the verbatim question.",
+          },
+          question: {
+            type: "string",
+            description: "The visitor's actual question, briefly.",
+          },
+        },
+        required: ["topic"],
         additionalProperties: false,
       },
     },
@@ -461,6 +485,41 @@ export async function executeTool(name: string, args: ToolInput, context: ToolCo
   return result;
 }
 
+// Record a topic the agent couldn't answer. Repeat questions on the same topic aggregate onto
+// one open row (times_seen) so the team sees demand, not duplicates.
+async function flagKnowledgeGap(topic: string, question: string | null, phone: string) {
+  const normalized = topic.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!normalized) return { status: "skipped", reason: "empty topic" };
+  const supabase = getSupabaseAdmin();
+  const { data: existing } = await supabase
+    .from("knowledge_gaps")
+    .select("id, times_seen, sample_question")
+    .eq("normalized_topic", normalized)
+    .eq("status", "open")
+    .maybeSingle();
+
+  if (existing) {
+    const seen = (existing.times_seen ?? 1) + 1;
+    await supabase
+      .from("knowledge_gaps")
+      .update({
+        times_seen: seen,
+        last_seen_at: new Date().toISOString(),
+        last_phone_e164: phone,
+        sample_question: existing.sample_question ?? question,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existing.id);
+    return { status: "logged", topic, times_seen: seen };
+  }
+
+  const { error } = await supabase
+    .from("knowledge_gaps")
+    .insert({ topic: topic.trim(), normalized_topic: normalized, sample_question: question, last_phone_e164: phone });
+  if (error) return { status: "error", error: error.message };
+  return { status: "logged", topic, times_seen: 1 };
+}
+
 function isTaskTool(name: string): boolean {
   return [
     "get_my_tasks", "get_task_detail", "get_department_summary",
@@ -572,6 +631,8 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
           department: args.department,
         },
       });
+    case "flag_knowledge_gap":
+      return flagKnowledgeGap(String(args.topic ?? "").trim(), args.question != null ? String(args.question) : null, context.phoneE164);
     case "get_volunteer_assignment":
       return {
         status: "unavailable_to_agent",

@@ -108,6 +108,12 @@ const REGISTRATION_CHANGE_RULE = `\n\n## Registration Cancellations & Changes
 - If a user asks to cancel/withdraw their registration (or change submitted details — travel, accommodation, members, khidmat), warmly acknowledge, capture their ITS number and the reason if they offer it, then use move_to_escalation with category 'registration' (assign department 'Follow-up') so the team can verify their identity and action it. The team confirms cancellations and changes, not you.
 - Do not promise the change is done — say you've passed the request to the team and they'll confirm and follow up.`;
 
+// Always-on: capture topics we couldn't answer so the team can publish FAQs.
+const KNOWLEDGE_GAP_RULE = `\n\n## Flag Knowledge Gaps
+- Whenever you genuinely cannot answer a visitor's INFORMATIONAL question because the topic isn't in get_site_content_faq (or any source available to you), call flag_knowledge_gap with a short reusable topic and the visitor's question — in ADDITION to telling them the details aren't available yet.
+- This is silent record-keeping for the team; never mention it to the user. It is NOT a substitute for helping — still answer if you can, and use move_to_escalation/create_issue where those apply.
+- Do not flag greetings, thanks, chit-chat, or questions you were able to answer. One flag per distinct missing topic.`;
+
 const DEPT_CACHE_TTL_MS = 5 * 60_000;
 let cachedDepartments: { list: Array<{ name: string; description: string | null }>; fetchedAt: number } | null = null;
 
@@ -193,6 +199,7 @@ export async function runAgent(input: AgentInput) {
   systemContent += CONVERSATION_FLOW_RULE;
   systemContent += RELIGIOUS_GUIDANCE_RULE;
   systemContent += REGISTRATION_CHANGE_RULE;
+  systemContent += KNOWLEDGE_GAP_RULE;
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemContent },
