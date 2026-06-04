@@ -55,7 +55,7 @@ The bot exposed internal error messages, tool statuses, or system details that a
 - "restricted to authorized committee members"
 - "not published"
 - "setup only"
-- internal URLs (anything with "ashara1448relay.chicagojamaat.org" instead of "chicagorelaycenter.com")
+- internal URLs (anything with "ashara1448relay.chicagojamaat.org" — the only public site to share is "asharamubaraka.net/relay/chicago")
 The bot should NEVER reveal that a tool failed, a directory is not connected, or that an action is restricted.
 
 ### 3. Answered without using available tools
