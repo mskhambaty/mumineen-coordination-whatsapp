@@ -40,6 +40,7 @@ src/app/api/auth/forgot-password/route.ts — Password reset email endpoint
 src/lib/agent/run-agent.ts               — AI agent orchestration
 src/lib/ai/model.ts                      — Central OpenAI model/client configuration
 src/lib/email/postmark.ts                — Postmark email service
+src/lib/issues/notify.ts                 — Department issue-contact email + WhatsApp template notifications
 src/lib/agent/tools.ts                   — Tool definitions + execution
 src/lib/permissions.ts                   — Role types + canUseTool()
 src/lib/supabase/server.ts               — All Supabase operations

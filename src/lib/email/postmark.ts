@@ -1,4 +1,4 @@
-import { requireEnv } from "@/lib/env";
+import { optionalEnv, requireEnv } from "@/lib/env";
 
 const POSTMARK_API = "https://api.postmarkapp.com";
 
@@ -100,10 +100,11 @@ export async function sendAssignmentNotificationEmail(
   itemType: "milestone" | "task" | "issue",
   itemTitle: string,
   departmentName: string,
+  actionUrlOverride?: string,
 ) {
   const appUrl = requireEnv("NEXT_PUBLIC_APP_URL");
-  const templateAlias = process.env.POSTMARK_ASSIGNMENT_TEMPLATE ?? "assignment-notification";
-  const actionUrl = itemType === "milestone" ? `${appUrl}/admin/milestones` : `${appUrl}/admin/tasks`;
+  const templateAlias = optionalEnv("POSTMARK_ASSIGNMENT_TEMPLATE") ?? "assignment-notification";
+  const actionUrl = actionUrlOverride ?? (itemType === "milestone" ? `${appUrl}/admin/milestones` : `${appUrl}/admin/tasks`);
 
   return sendTemplateEmail({
     To: to,

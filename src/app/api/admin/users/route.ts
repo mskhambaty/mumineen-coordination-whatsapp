@@ -14,12 +14,12 @@ export async function GET(req: NextRequest) {
   const supabase = getSupabaseAdmin();
   const departmentId = req.nextUrl.searchParams.get("department_id");
 
-  let membershipByUserId = new Map<string, { id: string; dept_role: string }>();
+  let membershipByUserId = new Map<string, { id: string; dept_role: string; contact_for_issues: boolean }>();
   let userIds: string[] | null = null;
   if (departmentId && departmentId !== "all") {
     const { data: memberships, error: membershipError } = await supabase
       .from("department_members")
-      .select("id, user_id, dept_role")
+      .select("id, user_id, dept_role, contact_for_issues")
       .eq("department_id", departmentId)
       .eq("is_active", true);
 
@@ -30,7 +30,11 @@ export async function GET(req: NextRequest) {
     membershipByUserId = new Map(
       (memberships ?? []).map((membership) => [
         membership.user_id as string,
-        { id: membership.id as string, dept_role: membership.dept_role as string },
+        {
+          id: membership.id as string,
+          dept_role: membership.dept_role as string,
+          contact_for_issues: Boolean(membership.contact_for_issues),
+        },
       ]),
     );
     userIds = Array.from(membershipByUserId.keys());
@@ -61,6 +65,7 @@ export async function GET(req: NextRequest) {
       ...user,
       department_membership_id: membership?.id ?? null,
       department_role: membership?.dept_role ?? null,
+      contact_for_issues: membership?.contact_for_issues ?? false,
     };
   }));
 }

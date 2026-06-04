@@ -74,6 +74,12 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - Inline status dropdown for updating tasks
 - "New Task" button with modal form
 
+### Departments (`/admin/departments`)
+- Admin-only Internal page for department-oriented roster management.
+- Shows department tiles with create/remove department actions. Department removal is blocked when the department still has members, tasks, or milestones.
+- Selecting a department shows its description, active users, department role controls, remove-from-department action, and a per-membership **Contact for Issues** checkbox.
+- Users marked **Contact for Issues** receive the `assignment-notification` Postmark email and the approved Meta utility template `department_ticket_assigned` when a new issue is created for the department or an existing issue is assigned to it.
+
 ### Upload Transcript (`/admin/upload`)
 - Department selector and file upload (`.txt` only)
 - Locked fixed prompt preview plus editable department-specific prompt rules
@@ -87,6 +93,7 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 
 ### Users (`/admin/users`)
 - Table of all users with inline editing for global_role and status
+- Department filter narrows the list to users in that department only; department roster management now lives on `/admin/departments`.
 - "Add User" button with modal form — includes an inline **Department + role** picker so a department membership is assigned at creation (defaults to the currently filtered department)
 - Permission matrix reference table (always visible)
 - Link to department memberships for each user

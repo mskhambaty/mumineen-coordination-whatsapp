@@ -69,6 +69,11 @@ paths:
       tags: [users]
       summary: List portal users.
       security: [{ adminKey: [] }]
+      parameters:
+        - name: department_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: Optional department filter; returned users include membership metadata for that department.
       responses:
         "200":
           description: Users.
@@ -149,6 +154,7 @@ paths:
     put:
       tags: [users, departments]
       summary: Update or deactivate a department membership.
+      description: Supports department role, active status, and per-membership contact_for_issues notification flag.
       security: [{ adminKey: [] }]
       parameters:
         - { $ref: "#/components/parameters/Id" }
@@ -309,8 +315,10 @@ paths:
       tags: [tasks]
       summary: Log an external issue reported by a visitor (create_issue tool).
       description: >-
-        Creates a department-less `item_type='issue'`, `origin='external'` task linked
-        to the reporting guest. Identified by the x-whatsapp-from header.
+        Creates an `item_type='issue'`, `origin='external'` task linked to the
+        reporting guest. When a department is supplied, active department members
+        marked `contact_for_issues` receive assignment email and WhatsApp template
+        notifications. Identified by the x-whatsapp-from header.
       security: [{ whatsappPhone: [] }]
       requestBody:
         required: true
@@ -323,6 +331,7 @@ paths:
                 title: { type: string }
                 description: { type: string }
                 priority: { type: string, enum: [low, medium, high] }
+                department: { type: string }
       responses:
         "201": { description: Created issue. }
         "400": { $ref: "#/components/responses/BadRequest" }
@@ -541,6 +550,59 @@ paths:
                 items: { $ref: "#/components/schemas/Department" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [departments]
+      summary: Create a department.
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                description: { type: [string, "null"] }
+      responses:
+        "201": { description: Created department. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: Department already exists. }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /departments/{id}:
+    put:
+      tags: [departments]
+      summary: Update a department.
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description: { type: [string, "null"] }
+      responses:
+        "200": { description: Updated department. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    delete:
+      tags: [departments]
+      summary: Remove an unused department.
+      description: Blocked if the department has members, tasks, or milestones.
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { description: Deleted department. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: Department is still in use. }
+        "500": { $ref: "#/components/responses/ServerError" }
   /departments/{id}/tasks:
     get:
       tags: [departments, tasks]
@@ -654,6 +716,7 @@ paths:
     post:
       tags: [tasks]
       summary: Create a task.
+      description: Creating an issue with a department notifies active department members marked contact_for_issues.
       security: [{ whatsappPhone: [] }, { adminKey: [] }]
       requestBody:
         required: true
@@ -706,6 +769,7 @@ paths:
     put:
       tags: [tasks]
       summary: Update one task.
+      description: Moving an issue to a department notifies active department members marked contact_for_issues.
       security: [{ whatsappPhone: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
@@ -930,6 +994,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
+        description: { type: [string, "null"] }
         created_at: { type: string, format: date-time }
     User:
       type: object
@@ -946,6 +1011,9 @@ components:
           type: array
           items: { type: string }
         email_digest: { type: boolean }
+        department_membership_id: { type: [string, "null"], format: uuid }
+        department_role: { type: [string, "null"], enum: [hod, pm, member, null] }
+        contact_for_issues: { type: boolean }
     CallerContext:
       type: object
       required: [user_id, global_role, can_read_all, can_write_all, departments]
@@ -966,12 +1034,12 @@ components:
               dept_role: { type: string, enum: [hod, pm, member] }
     Task:
       type: object
-      required: [id, department_id, title, status, priority, source, archived, created_at, updated_at]
+      required: [id, title, status, priority, source, archived, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
-        department_id: { type: string, format: uuid }
         title: { type: string }
         description: { type: [string, "null"] }
+        department_id: { type: [string, "null"], format: uuid }
         status: { $ref: "#/components/schemas/TaskStatus" }
         priority: { $ref: "#/components/schemas/TaskPriority" }
         archived: { type: boolean }
@@ -1001,6 +1069,7 @@ components:
         description: { type: [string, "null"] }
         status: { $ref: "#/components/schemas/TaskStatus" }
         priority: { $ref: "#/components/schemas/TaskPriority" }
+        department_id: { type: [string, "null"], format: uuid }
         assigned_to: { type: [string, "null"], format: uuid }
         assigned_to_alias: { type: string }
         due_date: { type: [string, "null"], format: date }
@@ -1155,6 +1224,7 @@ components:
         department_id: { type: string, format: uuid }
         dept_role: { type: string, enum: [hod, pm, member] }
         is_active: { type: boolean }
+        contact_for_issues: { type: boolean }
     BulkCreateUsersRequest:
       type: object
       required: [members]

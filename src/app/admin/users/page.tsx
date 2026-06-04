@@ -59,7 +59,6 @@ const STATUS_OPTIONS = [
 export default function UsersPage() {
   const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
-  const [allUsers, setAllUsers] = useState<User[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -72,13 +71,7 @@ export default function UsersPage() {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editForm, setEditForm] = useState<UserForm | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
-  const [existingUserId, setExistingUserId] = useState("");
-  const [existingUserDeptRole, setExistingUserDeptRole] = useState("member");
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [addingExisting, setAddingExisting] = useState(false);
-  const [deptDescriptionOverride, setDeptDescriptionOverride] = useState<{ deptId: string; text: string } | null>(null);
-  const [savingDescription, setSavingDescription] = useState(false);
-  const [descriptionSaved, setDescriptionSaved] = useState(false);
   const [currentUserId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const userRaw = window.localStorage.getItem("admin_user");
@@ -91,12 +84,6 @@ export default function UsersPage() {
     }
   });
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
-  const selectedDepartment = departments.find((department) => department.id === selectedDepartmentId) ?? null;
-  const deptDescription = deptDescriptionOverride?.deptId === selectedDepartmentId
-    ? deptDescriptionOverride.text
-    : selectedDepartment?.description ?? "";
-  const usersInSelectedDepartment = new Set(users.map((user) => user.id));
-  const addableUsers = allUsers.filter((user) => !usersInSelectedDepartment.has(user.id));
   const filteredUsers = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return users;
@@ -135,18 +122,13 @@ export default function UsersPage() {
         const params = new URLSearchParams();
         if (selectedDepartmentId !== "all") params.set("department_id", selectedDepartmentId);
 
-        const [usersRes, departmentsRes, allUsersRes] = await Promise.all([
+        const [usersRes, departmentsRes] = await Promise.all([
           fetch(`/api/admin/users?${params.toString()}`, {
             headers: { "x-admin-key": adminKey },
           }),
           fetch("/api/departments", {
             headers: { "x-admin-key": adminKey },
           }),
-          selectedDepartmentId === "all"
-            ? Promise.resolve(null)
-            : fetch("/api/admin/users", {
-                headers: { "x-admin-key": adminKey },
-              }),
         ]);
 
         if (!usersRes.ok) {
@@ -155,12 +137,6 @@ export default function UsersPage() {
         }
         const fetchedUsers = await usersRes.json() as User[];
         setUsers(fetchedUsers);
-
-        if (selectedDepartmentId === "all") {
-          setAllUsers(fetchedUsers);
-        } else if (allUsersRes?.ok) {
-          setAllUsers(await allUsersRes.json() as User[]);
-        }
 
         if (departmentsRes.ok) {
           setDepartments(await departmentsRes.json() as Department[]);
@@ -192,7 +168,6 @@ export default function UsersPage() {
       }
       const updated = await res.json() as User;
       setUsers((items) => items.map((user) => user.id === id ? { ...user, ...updated } : user));
-      setAllUsers((items) => items.map((user) => user.id === id ? { ...user, ...updated } : user));
     } catch (err) {
       console.error("Failed to update user:", err);
       setError(err instanceof Error ? err.message : "Failed to update user");
@@ -225,7 +200,6 @@ export default function UsersPage() {
       setNewUser({ display_name: "", phone_e164: "", email: "", role: "committee", global_role: "member" });
       setNewUserDeptId("");
       setNewUserDeptRole("member");
-      setAllUsers((items) => [...items, created].sort(sortUsers));
 
       // Add to the current filtered list only if it belongs in this view.
       const matchesView = selectedDepartmentId === "all" || (membership !== null && newUserDeptId === selectedDepartmentId);
@@ -238,63 +212,6 @@ export default function UsersPage() {
     } catch (err) {
       console.error("Failed to add user:", err);
       setError(err instanceof Error ? err.message : "Failed to add user");
-    }
-  }
-
-  async function addExistingUser(e: React.FormEvent) {
-    e.preventDefault();
-    if (selectedDepartmentId === "all" || !existingUserId) return;
-
-    setAddingExisting(true);
-    setError(null);
-    try {
-      const membership = await addMembership(existingUserId, selectedDepartmentId, existingUserDeptRole);
-      const user = allUsers.find((item) => item.id === existingUserId);
-      if (user) {
-        setUsers((items) => [
-          ...items,
-          {
-            ...user,
-            department_membership_id: membership.id,
-            department_role: membership.dept_role,
-          },
-        ].sort(sortUsers));
-      }
-      setExistingUserId("");
-      setExistingUserDeptRole("member");
-    } catch (err) {
-      console.error("Failed to add existing user to department:", err);
-      setError(err instanceof Error ? err.message : "Failed to add user to department");
-    } finally {
-      setAddingExisting(false);
-    }
-  }
-
-  async function saveDepartmentDescription() {
-    if (!selectedDepartment) return;
-    setSavingDescription(true);
-    setDescriptionSaved(false);
-    setError(null);
-    try {
-      const res = await fetch(`/api/departments/${selectedDepartment.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
-        body: JSON.stringify({ description: deptDescription }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({})) as { error?: string };
-        throw new Error(data.error ?? "Failed to save description");
-      }
-      const updated = await res.json() as { description: string | null };
-      setDepartments((items) =>
-        items.map((d) => d.id === selectedDepartment.id ? { ...d, description: updated.description } : d),
-      );
-      setDeptDescriptionOverride(null);
-      setDescriptionSaved(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save description");
-    } finally {
-      setSavingDescription(false);
     }
   }
 
@@ -358,7 +275,6 @@ export default function UsersPage() {
 
       const updated = await res.json() as User;
       setUsers((items) => items.map((user) => user.id === updated.id ? { ...user, ...updated } : user));
-      setAllUsers((items) => items.map((user) => user.id === updated.id ? { ...user, ...updated } : user));
       setEditingUser(null);
       setEditForm(null);
     } catch (err) {
@@ -366,31 +282,6 @@ export default function UsersPage() {
       setError(err instanceof Error ? err.message : "Failed to save user");
     } finally {
       setSavingEdit(false);
-    }
-  }
-
-  async function updateDepartmentRole(user: User, deptRole: string) {
-    if (!selectedDepartment || !user.department_membership_id) return;
-
-    try {
-      const res = await fetch(`/api/admin/users/${user.id}/departments/${user.department_membership_id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": adminKey,
-        },
-        body: JSON.stringify({ dept_role: deptRole }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({})) as { error?: string };
-        throw new Error(data.error ?? "Failed to update department role");
-      }
-
-      setUsers((items) => items.map((item) => item.id === user.id ? { ...item, department_role: deptRole } : item));
-    } catch (err) {
-      console.error("Failed to update department role:", err);
-      setError(err instanceof Error ? err.message : "Failed to update department role");
     }
   }
 
@@ -417,7 +308,6 @@ export default function UsersPage() {
         throw new Error(data.error ?? "Failed to delete user");
       }
       setUsers((items) => items.filter((item) => item.id !== user.id));
-      setAllUsers((items) => items.filter((item) => item.id !== user.id));
     } catch (err) {
       console.error("Failed to delete user:", err);
       setError(err instanceof Error ? err.message : "Failed to delete user");
@@ -609,80 +499,6 @@ export default function UsersPage() {
           </div>
         )}
 
-        {selectedDepartment && (
-          <div className="mb-6 rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 p-5 shadow-sm">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
-              <div className="flex-1">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Add to {selectedDepartment.name}</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Choose an existing user or create a new user with this department already assigned.</p>
-              </div>
-              <form onSubmit={addExistingUser} className="grid flex-1 gap-3 md:grid-cols-[minmax(0,1fr)_140px_auto] md:items-end">
-                <label className="text-sm text-gray-700 dark:text-gray-300">
-                  Existing User
-                  <select
-                    value={existingUserId}
-                    onChange={(event) => setExistingUserId(event.target.value)}
-                    className="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm"
-                  >
-                    <option value="">Select user...</option>
-                    {addableUsers.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.display_name || user.phone_e164}{user.email ? ` (${user.email})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="text-sm text-gray-700 dark:text-gray-300">
-                  Role
-                  <select
-                    value={existingUserDeptRole}
-                    onChange={(event) => setExistingUserDeptRole(event.target.value)}
-                    className="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm"
-                  >
-                    {DEPT_ROLE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="submit"
-                  disabled={!existingUserId || addingExisting}
-                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
-                >
-                  {addingExisting ? "Adding..." : "Add"}
-                </button>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {selectedDepartment && (
-          <div className="mb-6 rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 p-5 shadow-sm">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{selectedDepartment.name} — Description</h2>
-            <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
-              This description is shown to the AI agent when routing escalations and issues to departments.
-            </p>
-            <textarea
-              value={deptDescription}
-              onChange={(e) => { setDeptDescriptionOverride({ deptId: selectedDepartmentId, text: e.target.value }); setDescriptionSaved(false); }}
-              rows={3}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-              placeholder="Describe what this department handles..."
-            />
-            <div className="mt-2 flex items-center justify-end gap-3">
-              {descriptionSaved && <span className="text-sm text-green-700 dark:text-green-400">Saved</span>}
-              <button
-                type="button"
-                onClick={() => void saveDepartmentDescription()}
-                disabled={savingDescription}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {savingDescription ? "Saving..." : "Save Description"}
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Users Table */}
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden mb-8">
           <div className="flex flex-col gap-3 border-b px-6 py-4 md:flex-row md:items-center md:justify-between">
@@ -704,10 +520,7 @@ export default function UsersPage() {
                 Department
                 <select
                   value={selectedDepartmentId}
-                  onChange={(event) => {
-                    setSelectedDepartmentId(event.target.value);
-                    setExistingUserId("");
-                  }}
+                  onChange={(event) => setSelectedDepartmentId(event.target.value)}
                   className="rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm"
                 >
                   <option value="all">All departments</option>
@@ -726,9 +539,6 @@ export default function UsersPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Phone</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Email</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Account Role</th>
-                  {selectedDepartment && (
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Dept Role</th>
-                  )}
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
                 </tr>
@@ -750,23 +560,6 @@ export default function UsersPage() {
                         ))}
                       </select>
                     </td>
-                    {selectedDepartment && (
-                      <td className="px-6 py-4">
-                        {user.department_membership_id ? (
-                          <select
-                            value={user.department_role ?? "member"}
-                            onChange={(event) => void updateDepartmentRole(user, event.target.value)}
-                            className="text-sm border border-gray-200 rounded px-2 py-1 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-                          >
-                            {DEPT_ROLE_OPTIONS.map((option) => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className="text-sm text-gray-400 dark:text-gray-500 dark:text-gray-400">Not assigned</span>
-                        )}
-                      </td>
-                    )}
                     <td className="px-6 py-4">
                       <select
                         value={user.status}
@@ -805,7 +598,7 @@ export default function UsersPage() {
                 ))}
                 {filteredUsers.length === 0 && (
                   <tr>
-                    <td colSpan={selectedDepartment ? 7 : 6} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                    <td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                       No users match the current filters.
                     </td>
                   </tr>

@@ -52,6 +52,9 @@ Task list routes accept `priority=low|medium|high|all`. By default archived task
 
 ### Department Routes
 - `GET /api/departments` — List departments
+- `POST /api/departments` — Create a department (admin only)
+- `PUT /api/departments/[id]` — Update department description (admin only)
+- `DELETE /api/departments/[id]` — Remove an unused department (admin only; blocked if members/tasks/milestones exist)
 - `GET /api/departments/[id]/tasks` — Tasks in a department
 - `GET /api/departments/[id]/summary` — Task counts by status
 - `GET /api/departments/summary/all` — All departments summary (leadership only)
@@ -72,7 +75,15 @@ Task list routes accept `priority=low|medium|high|all`. By default archived task
 - `GET/POST /api/admin/users` — List/create users
 - `GET/PUT /api/admin/users/[id]` — Get/update user
 - `GET/POST /api/admin/users/[id]/departments` — Manage memberships
-- `PUT /api/admin/users/[id]/departments/[membershipId]` — Update membership
+- `PUT /api/admin/users/[id]/departments/[membershipId]` — Update membership role/status and the per-department `contact_for_issues` flag
+
+### Issue Contact Notifications
+
+Each `department_members` row has `contact_for_issues` (default `false`). When an issue is created with a department, or an existing issue is moved to a department, active members of that department with `contact_for_issues = true` receive:
+- Postmark `assignment-notification` email
+- Meta WhatsApp utility template `department_ticket_assigned` with issue title, description, and portal link
+
+Notification failures are logged and do not block issue creation.
 
 ## Authentication
 
@@ -116,6 +127,7 @@ Available at `/admin`:
 - **Login** (`/admin/login`) — Email + password authentication
 - **Dashboard** (`/admin`) — Department overview with task counts
 - **Department Detail** (`/admin/departments/[id]`) — Tasks table with inline status updates
+- **Departments** (`/admin/departments`) — Department tiles, roster management, and issue-contact notification flags
 - **Kanban Board** (`/admin/kanban`) — Status-column task board with priority, assignee, department, due-date, filters, create/edit modal, and archive action
 - **Upload** (`/admin/upload`) — Transcript parsing and event review
 - **Users** (`/admin/users`) — User management with permission matrix

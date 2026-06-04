@@ -11,6 +11,7 @@ type Membership = {
   department_id: string;
   dept_role: string;
   is_active: boolean;
+  contact_for_issues: boolean;
   department_name: string;
 };
 
@@ -101,6 +102,25 @@ export default function UserDepartmentsPage() {
     }
   }
 
+  async function updateIssueContact(id: string, contactForIssues: boolean) {
+    try {
+      const res = await fetch(`/api/admin/users/${params.id}/departments/${id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_KEY ?? "",
+        },
+        body: JSON.stringify({ contact_for_issues: contactForIssues }),
+      });
+      if (!res.ok) return;
+      setMemberships((items) =>
+        items.map((item) => item.id === id ? { ...item, contact_for_issues: contactForIssues } : item),
+      );
+    } catch (err) {
+      console.error("Failed to update issue contact:", err);
+    }
+  }
+
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center"><p className="text-gray-500 dark:text-gray-400">Loading...</p></div>;
   }
@@ -129,18 +149,30 @@ export default function UserDepartmentsPage() {
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Department</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Role</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Contact for Issues</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
               {memberships.length === 0 ? (
-                <tr><td colSpan={4} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">No department memberships</td></tr>
+                <tr><td colSpan={5} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">No department memberships</td></tr>
               ) : (
                 memberships.map((m) => (
                   <tr key={m.id}>
                     <td className="px-6 py-4">{m.department_name}</td>
                     <td className="px-6 py-4 text-sm">{m.dept_role.toUpperCase()}</td>
+                    <td className="px-6 py-4">
+                      <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                        <input
+                          type="checkbox"
+                          checked={m.contact_for_issues}
+                          disabled={!m.is_active}
+                          onChange={(event) => void updateIssueContact(m.id, event.target.checked)}
+                        />
+                        Notify
+                      </label>
+                    </td>
                     <td className="px-6 py-4">
                       <span className={`px-2 py-1 rounded text-xs ${m.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300"}`}>
                         {m.is_active ? "Active" : "Inactive"}

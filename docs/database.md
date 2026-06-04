@@ -218,6 +218,7 @@ Many-to-many membership table for users across departments.
 | `user_id` | uuid | FK → `whatsapp_users.id` |
 | `dept_role` | text | `hod` \| `pm` \| `member` |
 | `is_active` | boolean | Membership visibility flag |
+| `contact_for_issues` | boolean | When true, this user is notified for new or newly assigned issues in this department |
 | `created_at` | timestamptz | Auto |
 
 Unique constraint: `(department_id, user_id)`

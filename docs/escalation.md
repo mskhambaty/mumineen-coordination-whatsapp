@@ -207,6 +207,10 @@ All notification sends are fire-and-forget (failures never block the agent reply
    `item_type='issue'`, `origin='external'`, department-less task linked to the reporting
    guest. `tasks.department_id` is now nullable (`20260531140000_tasks_department_nullable.sql`).
    The Kanban shows an **Issue** badge plus an **External**/**Internal** origin badge.
+   Department issue contacts are managed per `department_members` row with
+   `contact_for_issues`; matching members receive `assignment-notification` email and the
+   Meta utility template `department_ticket_assigned` when an issue is created for, or moved
+   to, their department.
 
 ## Build-time / config items
 - Confirm the issues table schema and Kanban external/internal rendering.

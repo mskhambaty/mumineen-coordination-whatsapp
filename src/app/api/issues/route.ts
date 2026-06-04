@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { AI_EMBEDDING_MODEL, getAIClient } from "@/lib/ai/model";
 import { notifyOnCallSupport } from "@/lib/escalation/notify";
+import { notifyDepartmentIssueContacts } from "@/lib/issues/notify";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { isTaskPriority } from "@/lib/tasks/types";
 
@@ -133,6 +134,13 @@ export async function POST(req: NextRequest) {
   // Notify the department's on-call escalation members (everyone on-call if no department).
   // Best-effort — a notification failure must never break issue creation.
   try {
+    await notifyDepartmentIssueContacts({
+      issueId: issue.id,
+      title,
+      description,
+      departmentId,
+    });
+
     const { data: guest } = await supabase
       .from("whatsapp_users")
       .select("display_name")

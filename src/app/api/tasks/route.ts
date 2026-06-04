@@ -4,6 +4,7 @@ import {
   resolveCallerFromRequest,
   ForbiddenError,
 } from "@/lib/api/auth";
+import { notifyDepartmentIssueContacts } from "@/lib/issues/notify";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { getElevatedDepartmentIds } from "@/lib/permissions";
 import { isTaskPriority, isTaskStatus, priorityWeight, type TaskPriority } from "@/lib/tasks/types";
@@ -215,6 +216,19 @@ export async function POST(req: NextRequest) {
 
     if (insertErr) {
       return NextResponse.json({ error: insertErr.message }, { status: 500 });
+    }
+
+    if (task.item_type === "issue") {
+      try {
+        await notifyDepartmentIssueContacts({
+          issueId: task.id,
+          title: task.title,
+          description,
+          departmentId: task.department_id,
+        });
+      } catch (err) {
+        console.error("Issue contact notification failed:", err);
+      }
     }
 
     return NextResponse.json(task, { status: 201 });

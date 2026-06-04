@@ -11,6 +11,7 @@ const envAliases: Record<string, string[]> = {
   HOTEL_SHEET_CSV_URL: ["HOTEL_SHEET_CSV_URL", "Hotel_sheet_csv_url"],
   POSTMARK_API_TOKEN: ["POSTMARK_API_TOKEN", "Postmark_api_token"],
   POSTMARK_FROM_EMAIL: ["POSTMARK_FROM_EMAIL", "Postmark_from_email"],
+  POSTMARK_ASSIGNMENT_TEMPLATE: ["POSTMARK_ASSIGNMENT_TEMPLATE", "Postmark_assignment_template"],
   POSTMARK_PASSWORD_RESET_TEMPLATE: ["POSTMARK_PASSWORD_RESET_TEMPLATE", "Postmark_password_reset_template"],
   POSTMARK_TASK_NOTIFICATION_TEMPLATE: ["POSTMARK_TASK_NOTIFICATION_TEMPLATE", "Postmark_task_notification_template"],
   SUPABASE_SERVICE_ROLE_KEY: ["SUPABASE_SERVICE_ROLE_KEY", "Supabase_service_role_key"],
@@ -19,6 +20,7 @@ const envAliases: Record<string, string[]> = {
   WHATSAPP_ALLOWED_PHONE_NUMBER_IDS: ["WHATSAPP_ALLOWED_PHONE_NUMBER_IDS", "Whatsapp_allowed_phone_number_ids"],
   WHATSAPP_DISPLAY_PHONE_NUMBER: ["WHATSAPP_DISPLAY_PHONE_NUMBER", "Whatsapp_display_phone_number"],
   WHATSAPP_PHONE_NUMBER_ID: ["WHATSAPP_PHONE_NUMBER_ID", "Whatsapp_phone_number_id"],
+  WHATSAPP_TEMPLATE_LANGUAGE: ["WHATSAPP_TEMPLATE_LANGUAGE", "Whatsapp_template_language"],
 };
 
 export function requireEnv(name: string): string {

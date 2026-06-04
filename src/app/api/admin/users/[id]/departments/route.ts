@@ -18,7 +18,7 @@ export async function GET(
 
   const { data, error } = await supabase
     .from("department_members")
-    .select("id, department_id, dept_role, is_active, departments(name)")
+    .select("id, department_id, dept_role, is_active, contact_for_issues, departments(name)")
     .eq("user_id", id);
 
   if (error) {
@@ -30,6 +30,7 @@ export async function GET(
     department_id: m.department_id,
     dept_role: m.dept_role,
     is_active: m.is_active,
+    contact_for_issues: Boolean(m.contact_for_issues),
     department_name: (m.departments as unknown as { name: string } | null)?.name ?? "",
   }));
 
@@ -72,7 +73,7 @@ export async function POST(
       .from("department_members")
       .update({ dept_role, is_active: true })
       .eq("id", existing.id)
-      .select("id, department_id, dept_role, is_active")
+      .select("id, department_id, dept_role, is_active, contact_for_issues")
       .single();
 
     if (error) {
@@ -90,7 +91,7 @@ export async function POST(
       dept_role,
       is_active: true,
     })
-    .select("id, department_id, dept_role, is_active")
+    .select("id, department_id, dept_role, is_active, contact_for_issues")
     .single();
 
   if (error) {

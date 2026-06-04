@@ -19,6 +19,7 @@ export async function PUT(
 
   const updates: Record<string, unknown> = {};
   if (body.is_active !== undefined) updates.is_active = body.is_active;
+  if (body.contact_for_issues !== undefined) updates.contact_for_issues = Boolean(body.contact_for_issues);
   if (body.dept_role) {
     if (!deptRoles.has(body.dept_role)) {
       return NextResponse.json({ error: "Invalid dept_role" }, { status: 400 });
@@ -30,7 +31,7 @@ export async function PUT(
     .from("department_members")
     .update(updates)
     .eq("id", membershipId)
-    .select("id, department_id, dept_role, is_active")
+    .select("id, department_id, dept_role, is_active, contact_for_issues")
     .single();
 
   if (error) {

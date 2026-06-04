@@ -6,6 +6,7 @@ import {
   ForbiddenError,
 } from "@/lib/api/auth";
 import { sendAssignmentNotificationEmail } from "@/lib/email/postmark";
+import { notifyDepartmentIssueContacts } from "@/lib/issues/notify";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { hasElevatedDeptRoleForDepartment } from "@/lib/permissions";
 import { isTaskPriority, isTaskStatus } from "@/lib/tasks/types";
@@ -13,6 +14,7 @@ import { isTaskPriority, isTaskStatus } from "@/lib/tasks/types";
 type UpdateTaskBody = {
   status?: unknown;
   priority?: unknown;
+  department_id?: unknown;
   title?: unknown;
   description?: unknown;
   due_date?: unknown;
@@ -77,7 +79,7 @@ export async function PUT(
     // Get existing task
     const { data: task, error: taskErr } = await supabase
       .from("tasks")
-      .select("id, department_id, assigned_to")
+      .select("id, title, description, department_id, assigned_to, item_type")
       .eq("id", id)
       .single();
 
@@ -107,6 +109,19 @@ export async function PUT(
       }
       updates.priority = body.priority;
     }
+    if (body.department_id !== undefined) {
+      if (body.department_id === null || body.department_id === "") {
+        updates.department_id = null;
+      } else if (typeof body.department_id === "string") {
+        const targetDept = caller.departments.find((d) => d.department_id === body.department_id);
+        const canManageTarget =
+          caller.can_write_all || targetDept?.dept_role === "pm" || targetDept?.dept_role === "hod";
+        if (!canManageTarget) {
+          return NextResponse.json({ error: "Insufficient permissions to move this item to that department" }, { status: 403 });
+        }
+        updates.department_id = body.department_id;
+      }
+    }
     if (typeof body.title === "string" && body.title.trim()) updates.title = body.title.trim();
     if (body.description !== undefined) updates.description = body.description;
     if (body.due_date !== undefined) updates.due_date = body.due_date;
@@ -128,7 +143,11 @@ export async function PUT(
       if (body.assigned_to === null || body.assigned_to === "") {
         updates.assigned_to = null; // unassign
       } else if (typeof body.assigned_to === "string") {
-        await guardAssigneeAccess(supabase, task.department_id, body.assigned_to, caller.can_write_all);
+        const targetDepartmentId = typeof updates.department_id === "string" ? updates.department_id : task.department_id;
+        if (!targetDepartmentId) {
+          return NextResponse.json({ error: "Assign a department before assigning a user" }, { status: 400 });
+        }
+        await guardAssigneeAccess(supabase, targetDepartmentId, body.assigned_to, caller.can_write_all);
         updates.assigned_to = body.assigned_to;
       }
     } else if (typeof body.assigned_to_alias === "string" && body.assigned_to_alias.trim()) {
@@ -141,7 +160,11 @@ export async function PUT(
         .contains("transcript_aliases", [body.assigned_to_alias.trim()])
         .maybeSingle();
       if (assignee) {
-        await guardAssigneeAccess(supabase, task.department_id, assignee.id as string, caller.can_write_all);
+        const targetDepartmentId = typeof updates.department_id === "string" ? updates.department_id : task.department_id;
+        if (!targetDepartmentId) {
+          return NextResponse.json({ error: "Assign a department before assigning a user" }, { status: 400 });
+        }
+        await guardAssigneeAccess(supabase, targetDepartmentId, assignee.id as string, caller.can_write_all);
         updates.assigned_to = assignee.id;
       }
     }
@@ -154,7 +177,7 @@ export async function PUT(
       .from("tasks")
       .update(updates)
       .eq("id", id)
-      .select("id, title, status, priority, item_type, archived, assigned_to, department_id, updated_at")
+      .select("id, title, description, status, priority, item_type, archived, assigned_to, department_id, updated_at")
       .single();
 
     if (updateErr) {
@@ -167,6 +190,29 @@ export async function PUT(
       if (assignee?.email) {
         const itemType = (updated.item_type === "issue" ? "issue" : "task") as "task" | "issue";
         void sendAssignmentNotificationEmail(assignee.email, assignee.display_name ?? "there", itemType, updated.title, dept?.name ?? "");
+      }
+    }
+
+    const departmentAssigned =
+      updated.item_type === "issue" &&
+      typeof updated.department_id === "string" &&
+      updates.department_id !== undefined &&
+      updates.department_id !== task.department_id;
+    const changedToIssueInDepartment =
+      updated.item_type === "issue" &&
+      task.item_type !== "issue" &&
+      typeof updated.department_id === "string";
+
+    if (departmentAssigned || changedToIssueInDepartment) {
+      try {
+        await notifyDepartmentIssueContacts({
+          issueId: updated.id,
+          title: updated.title,
+          description: updated.description,
+          departmentId: updated.department_id,
+        });
+      } catch (err) {
+        console.error("Issue contact notification failed:", err);
       }
     }
 

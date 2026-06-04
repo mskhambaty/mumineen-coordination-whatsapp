@@ -27,6 +27,7 @@ const dropdownGroups: DropdownGroup[] = [
       { href: "/admin/prompt", label: "AI Prompt Management", access: "admin" },
       { href: "/admin/escalation", label: "Escalation/Support", access: "admin" },
       { href: "/admin/knowledge", label: "FAQ & Guides", access: "manage" },
+      { href: "/admin/mumineen", label: "Mumineen", access: "mumineen" },
     ],
   },
   {
@@ -34,7 +35,15 @@ const dropdownGroups: DropdownGroup[] = [
     links: [
       { href: "/admin/milestones", label: "Milestones", access: "manage" },
       { href: "/admin/tasks", label: "Task Management", access: "manage" },
+      { href: "/admin/departments", label: "Departments", access: "admin" },
+      { href: "/admin/users", label: "Users", access: "admin" },
       { href: "/admin/upload", label: "Upload Transcripts", access: "manage" },
+    ],
+  },
+  {
+    label: "Admin Settings",
+    links: [
+      { href: "/admin/ollama-test", label: "Ollama Test", access: "admin" },
     ],
   },
 ];
@@ -44,9 +53,6 @@ const standaloneLinks: NavLink[] = [
 ];
 
 const trailingLinks: NavLink[] = [
-  { href: "/admin/mumineen", label: "Mumineen", access: "mumineen" },
-  { href: "/admin/users", label: "Users", access: "admin" },
-  { href: "/admin/ollama-test", label: "Ollama Test", access: "admin" },
   { href: "/admin/profile", label: "Profile", access: "any" },
 ];
 
