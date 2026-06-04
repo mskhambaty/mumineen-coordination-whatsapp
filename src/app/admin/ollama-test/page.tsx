@@ -11,6 +11,13 @@ type OllamaModel = {
   modified_at?: string;
 };
 
+type RawOllamaModel = {
+  id?: string;
+  name?: string;
+  model?: string;
+  modified_at?: string;
+};
+
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
@@ -68,7 +75,27 @@ export default function OllamaTestPage() {
         setModelsError(data.error ?? "Failed to fetch models");
         return;
       }
-      const modelList: OllamaModel[] = data.models ?? data.data ?? [];
+      // Supports OpenAI-compatible { data: [...] } and legacy { models: [...] } payloads.
+      const rawModels = Array.isArray(data.data)
+        ? data.data
+        : Array.isArray(data.models)
+          ? data.models
+          : [];
+      const modelList: OllamaModel[] = rawModels
+        .map((item: unknown) => {
+          if (!item || typeof item !== "object") return null;
+
+          const model = item as RawOllamaModel;
+          const identifier = model.model ?? model.id ?? model.name;
+          if (!identifier) return null;
+
+          return {
+            name: identifier,
+            model: identifier,
+            modified_at: model.modified_at,
+          };
+        })
+        .filter((model): model is OllamaModel => model !== null);
       setModels(modelList);
       if (modelList.length > 0 && !selectedModel) {
         setSelectedModel(modelList[0].model ?? modelList[0].name);
