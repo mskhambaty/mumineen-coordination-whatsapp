@@ -31,9 +31,11 @@ async function chunkUpsert(supabase: Supabase, table: string, rows: Row[], onCon
 }
 
 // Import the mumineen roster from the Excel. Idempotent: upserts families on hof_its and
-// mumineen on its, updating only import-owned columns (registration-collected columns and
-// whatsapp_user_id are never in the payload, so they're preserved). The finalize RPC sets
-// head linkage and soft-deactivates rows that fell out of the latest file.
+// mumineen on its, updating only import-owned columns (whatsapp_user_id and most
+// registration-collected columns are never in the payload, so they're preserved). Note:
+// whatsapp_e164 and email ARE import-owned here — a populated cell in a re-import will
+// overwrite a registration-provided value (blank cells stay blank-safe via ?? existing).
+// The finalize RPC sets head linkage and soft-deactivates rows missing from the latest file.
 export async function importMumineenRoster(buffer: Buffer): Promise<RosterImportResult> {
   const wb = XLSX.read(buffer, { type: "buffer" });
   const ws = wb.Sheets[wb.SheetNames[0]];
@@ -89,9 +91,11 @@ export async function importMumineenRoster(buffer: Buffer): Promise<RosterImport
     roster_flight_code: string | null;
     daily_trans: string | null;
     whatsapp_link_clicked: boolean | null;
+    whatsapp_e164: string | null;
+    email: string | null;
   };
   const EXISTING_COLS =
-    "its, full_name, gender, age, jamaat, idara, category, prefix, title, venue, city, local_mehman, roster_arrival_raw, roster_flight_code, daily_trans, whatsapp_link_clicked";
+    "its, full_name, gender, age, jamaat, idara, category, prefix, title, venue, city, local_mehman, roster_arrival_raw, roster_flight_code, daily_trans, whatsapp_link_clicked, whatsapp_e164, email";
   const itsList = rows.map((r) => text(r["Mumin Id"])).filter((v): v is string => v != null);
   const existingByIts = new Map<string, ExistingRow>();
   for (let i = 0; i < itsList.length; i += 1000) {
@@ -127,6 +131,8 @@ export async function importMumineenRoster(buffer: Buffer): Promise<RosterImport
       roster_flight_code: text(r["Flight Code"]) ?? ex?.roster_flight_code ?? null,
       daily_trans: text(r["Daily Trans"]) ?? ex?.daily_trans ?? null,
       whatsapp_link_clicked: yesNo(r["Whatsapp Link Clicked?"]) ?? ex?.whatsapp_link_clicked ?? null,
+      whatsapp_e164: text(r["whatsapp_e164"]) ?? ex?.whatsapp_e164 ?? null,
+      email: text(r["email"]) ?? ex?.email ?? null,
     });
   }
   await chunkUpsert(supabase, "mumineen", muminRows, "its");
