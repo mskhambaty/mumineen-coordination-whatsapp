@@ -11,7 +11,8 @@ We will serve the feed from this app instead, and build portal UI so designated 
 
 **Page contract** (from the static page's JS):
 - Fetched with a simple `GET` (`cache: 'no-store'`), so the response must send `Access-Control-Allow-Origin: *` (cross-origin page).
-- Schema: JSON array of `{ "date": "yyyy-mm-dd", "title": string, "body": string, "category": "general" | "accommodation" | "transport" }`.
+- Schema: JSON array of `{ "date": "yyyy-mm-dd", "title": string, "body": string, "category": string }`.
+- Categories are **type-based**: `urgent` | `schedule` | `travel` | `advisory` (lowercase in JSON). The currently-downloaded page version still shows the older general/accommodation/transport tabs; the page is being updated to the new category set alongside this feature.
 - The page sorts by `date` descending and HTML-escapes all fields client-side.
 - On fetch failure it renders baked-in fallback updates, so feed errors are non-fatal.
 - **One-time external change (manual, outside this repo):** the page's `UPDATES_ENDPOINT` constant must be repointed to `https://<this-app-domain>/api/relay-updates` and the page redeployed by its host.
@@ -19,7 +20,7 @@ We will serve the feed from this app instead, and build portal UI so designated 
 ## Decisions (made during brainstorming)
 
 1. **Plumbing:** repoint the static page's endpoint directly at this app (no proxy on the ASP.NET host, no file pushing).
-2. **Author roles:** category ↔ department mapping (see Permissions).
+2. **Author roles:** admin/leadership only (categories changed from department-aligned to type-based — `urgent`/`schedule`/`travel`/`advisory` — so the earlier department-mapping idea was dropped).
 3. **Lifecycle:** create + edit + unpublish. No hard delete.
 4. **Bot synergy:** published updates are auto-indexed into `site_content` so the WhatsApp agent answers from the same news.
 
@@ -33,7 +34,7 @@ New migration creating `relay_updates` (committed to `supabase/migrations/` **an
 | `date` | date not null | Display date shown on the page |
 | `title` | text not null | ≤ 200 chars (API-validated) |
 | `body` | text not null | ≤ 1000 chars (API-validated) |
-| `category` | text not null | `check (category in ('general','accommodation','transport'))` |
+| `category` | text not null | `check (category in ('urgent','schedule','travel','advisory'))` |
 | `published` | boolean not null default true | Unpublish = retract without losing history |
 | `created_by` | uuid FK → `whatsapp_users(id)` on delete set null | Attribution |
 | `created_at` / `updated_at` | timestamptz not null default now() | `updated_at` app-managed |
@@ -50,26 +51,14 @@ Index: `(published, date desc)`. RLS enabled, no policies (service-role only —
 
 ## Permissions
 
-New helper `canManageRelayCategory(caller, category)` (lives beside the existing permission helpers):
+Admin/leadership only, for **all four categories** — reuses the existing `isAdminOrLeadership()` check (`role = 'admin'` or `global_role = 'leadership_admin'`). No new permission helper or department mapping. Create, edit, and unpublish all use the same gate.
 
-- `role = 'admin'` or `global_role = 'leadership_admin'` → may post in **all three categories** (no restriction).
-- PM or HOD (`dept_role in ('pm','hod')`, `is_active`) of a department whose **lowercased name equals the category** (`Accommodation` → `accommodation`, `Transport` → `transport`) → that category only.
-- `general` has no matching department, so it is postable **only** by admin/leadership.
-- Edit/unpublish applies the same rule to the row's current category, and to the new category when it changes.
-
-| Who | general | accommodation | transport |
-|---|---|---|---|
-| `admin` / `leadership_admin` | ✅ | ✅ | ✅ |
-| PM/HOD of Accommodation dept | ❌ | ✅ | ❌ |
-| PM/HOD of Transport dept | ❌ | ❌ | ✅ |
-| Everyone else | ❌ | ❌ | ❌ |
-
-Auth follows the house portal convention: shared `x-admin-key` header + acting `user_id` in the request body; the server resolves role and department memberships from the DB. (Portal-wide per-user auth strength is an existing, separate concern — same class as ticket #58 — and is not expanded here.)
+Auth follows the house portal convention: shared `x-admin-key` header + acting `user_id` in the request body; the server resolves the role from the DB. (Portal-wide per-user auth strength is an existing, separate concern — same class as ticket #58 — and is not expanded here.)
 
 ## Admin API
 
-- `GET /api/admin/relay-updates` — all rows including unpublished, with creator display name. Requires admin key; visible to any caller who can manage at least one category.
-- `POST /api/admin/relay-updates` — create. Body: `{user_id, date, title, body, category, published?}`. Validates: category enum, `yyyy-mm-dd` date, title/body required and within length caps; then `canManageRelayCategory`.
+- `GET /api/admin/relay-updates` — all rows including unpublished, with creator display name. Requires admin key.
+- `POST /api/admin/relay-updates` — create. Body: `{user_id, date, title, body, category, published?}`. Validates: category enum (`urgent|schedule|travel|advisory`), `yyyy-mm-dd` date, title/body required and within length caps; then the admin/leadership check on `user_id`.
 - `PUT /api/admin/relay-updates/[id]` — edit any field and toggle `published`. Same validation + permission rule.
 - No `DELETE` route.
 
@@ -84,8 +73,8 @@ On create/edit/publish-toggle, re-index **all currently published updates** into
 New page `/admin/relay-updates`, added to `AdminNav` in the External group:
 
 - Table: date, title, category badge, published/unpublished badge, author, updated-at.
-- Create/Edit modal: date (defaults to today), title, body, category dropdown **limited to the caller's allowed categories**, published toggle.
-- Page access mirrors the API rule: admin/leadership plus PM/HOD of the mapped departments. Others don't see the nav item (and the API enforces server-side regardless).
+- Create/Edit modal: date (defaults to today), title, body, category dropdown (Urgent / Schedule / Travel / Advisory), published toggle.
+- Page access mirrors the API rule: admin/leadership only. Others don't see the nav item (and the API enforces server-side regardless).
 
 ## Error handling
 
@@ -96,7 +85,7 @@ New page `/admin/relay-updates`, added to `AdminNav` in the External group:
 ## Testing
 
 Vitest (in `src/lib/__tests__/`, mirroring existing tests):
-- `canManageRelayCategory` matrix: admin, leadership, PM/HOD of matching dept, PM/HOD of other dept, plain member, inactive membership, `general` restricted to admin/leadership.
+- Write validation: category enum, date format, title/body presence and length caps; non-admin/leadership caller rejected.
 - Feed serializer: row → page-schema object (date formatting, field passthrough, published filtering).
 
 ## Documentation updates (per contributing.md)
@@ -108,6 +97,7 @@ Vitest (in `src/lib/__tests__/`, mirroring existing tests):
 
 ## Out of scope
 
-- New categories beyond the three (the static page hardcodes its tabs; adding one is a coordinated page + app change).
+- New categories beyond the four (the static page hardcodes its tabs; adding one is a coordinated page + app change).
+- Delegating posting rights beyond admin/leadership (e.g. a publisher membership) — add later if demand appears.
 - Hard delete, scheduling/expiry of updates, images/rich text.
 - Changing the portal's shared-key auth model.
