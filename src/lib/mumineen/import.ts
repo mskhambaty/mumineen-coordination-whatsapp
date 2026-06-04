@@ -9,7 +9,9 @@ type Supabase = ReturnType<typeof getSupabaseAdmin>;
 
 const text = (v: unknown): string | null => (v == null ? null : String(v).trim() || null);
 const intOrNull = (v: unknown): number | null => {
-  const n = Number(v);
+  const s = text(v);
+  if (s == null) return null;
+  const n = Number(s);
   return Number.isFinite(n) ? Math.trunc(n) : null;
 };
 const genderOf = (v: unknown): "M" | "F" | null => {
@@ -67,33 +69,64 @@ export async function importMumineenRoster(buffer: Buffer): Promise<RosterImport
     for (const f of (data ?? []) as { id: string; hof_its: string }[]) familyIdByHof.set(f.hof_its, f.id);
   }
 
-  // 2. Upsert mumineen (import-owned columns only).
+  // 2. Upsert mumineen (import-owned columns only). Blank-safe: a missing cell in the new file
+  // keeps the previously stored value instead of nulling it, so a sparse re-import never wipes
+  // roster attributes. We load existing import-owned values and coalesce new ?? existing.
+  type ExistingRow = {
+    its: string;
+    full_name: string | null;
+    gender: string | null;
+    age: number | null;
+    jamaat: string | null;
+    idara: string | null;
+    category: string | null;
+    prefix: string | null;
+    title: string | null;
+    venue: string | null;
+    city: string | null;
+    local_mehman: string | null;
+    roster_arrival_raw: string | null;
+    roster_flight_code: string | null;
+    daily_trans: string | null;
+    whatsapp_link_clicked: boolean | null;
+  };
+  const EXISTING_COLS =
+    "its, full_name, gender, age, jamaat, idara, category, prefix, title, venue, city, local_mehman, roster_arrival_raw, roster_flight_code, daily_trans, whatsapp_link_clicked";
+  const itsList = rows.map((r) => text(r["Mumin Id"])).filter((v): v is string => v != null);
+  const existingByIts = new Map<string, ExistingRow>();
+  for (let i = 0; i < itsList.length; i += 1000) {
+    const { data, error } = await supabase.from("mumineen").select(EXISTING_COLS).in("its", itsList.slice(i, i + 1000));
+    if (error) throw new Error(`mumineen lookup failed: ${error.message}`);
+    for (const m of (data ?? []) as ExistingRow[]) existingByIts.set(m.its, m);
+  }
+
   const muminRows: Row[] = [];
   for (const r of rows) {
     const its = text(r["Mumin Id"]);
     const hof = text(r["Hof Id"]);
     if (!its || !hof) continue;
+    const ex = existingByIts.get(its);
     muminRows.push({
       its,
       hof_its: hof,
       family_id: familyIdByHof.get(hof) ?? null,
       is_head: its === hof,
       roster_active: true,
-      full_name: text(r["Fullname"]),
-      gender: genderOf(r["Gender"]),
-      age: intOrNull(r["Age"]),
-      jamaat: text(r["Jamaat"]),
-      idara: text(r["Idara"]),
-      category: text(r["Category"]),
-      prefix: text(r["Prefix"]),
-      title: text(r["Title"]),
-      venue: text(r["Venue (Waaz)"]),
-      city: text(r["City"]),
-      local_mehman: text(r["Local/Mehman"]),
-      roster_arrival_raw: text(r["Arr Place Date"]),
-      roster_flight_code: text(r["Flight Code"]),
-      daily_trans: text(r["Daily Trans"]),
-      whatsapp_link_clicked: yesNo(r["Whatsapp Link Clicked?"]),
+      full_name: text(r["Fullname"]) ?? ex?.full_name ?? null,
+      gender: genderOf(r["Gender"]) ?? ex?.gender ?? null,
+      age: intOrNull(r["Age"]) ?? ex?.age ?? null,
+      jamaat: text(r["Jamaat"]) ?? ex?.jamaat ?? null,
+      idara: text(r["Idara"]) ?? ex?.idara ?? null,
+      category: text(r["Category"]) ?? ex?.category ?? null,
+      prefix: text(r["Prefix"]) ?? ex?.prefix ?? null,
+      title: text(r["Title"]) ?? ex?.title ?? null,
+      venue: text(r["Venue (Waaz)"]) ?? ex?.venue ?? null,
+      city: text(r["City"]) ?? ex?.city ?? null,
+      local_mehman: text(r["Local/Mehman"]) ?? ex?.local_mehman ?? null,
+      roster_arrival_raw: text(r["Arr Place Date"]) ?? ex?.roster_arrival_raw ?? null,
+      roster_flight_code: text(r["Flight Code"]) ?? ex?.roster_flight_code ?? null,
+      daily_trans: text(r["Daily Trans"]) ?? ex?.daily_trans ?? null,
+      whatsapp_link_clicked: yesNo(r["Whatsapp Link Clicked?"]) ?? ex?.whatsapp_link_clicked ?? null,
     });
   }
   await chunkUpsert(supabase, "mumineen", muminRows, "its");
