@@ -19,10 +19,12 @@ export async function GET(req: NextRequest) {
   if (!requireAdminKey(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  // escalation_status defaults to 'none' on every session — real escalations are anything else.
   const { data, error } = await getSupabaseAdmin()
     .from("conversation_sessions")
     .select("escalation_category, escalation_priority, escalation_status, escalation_reason, escalated_at")
     .not("escalation_status", "is", null)
+    .neq("escalation_status", "none")
     .order("escalated_at", { ascending: false })
     .limit(2000);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
