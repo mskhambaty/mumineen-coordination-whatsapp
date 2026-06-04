@@ -91,6 +91,17 @@ const CONVERSATION_FLOW_RULE = `\n\n## Conversation Flow — Read the Room, Know
 - If a message is vague, incomplete, or you are not sure what they mean (e.g. "As I get to attend the Ashara Mubarak", "Nothing", "Sure"), do NOT assume a topic and dump a long answer. Either reply very briefly ("Inshallah!" / "Sure, I'm here if you need anything") or ask ONE short clarifying question. Never launch into ITS/Raza, hotel, or registration instructions unless the user has clearly asked about that topic.
 - Only ${NO_REPLY_TOKEN} for genuinely content-free closings/acknowledgements — never for a real question or request. When in doubt and there is an actual question, answer it.`;
 
+// Always-on rule for religious / sermon content (Issue #43). Routes Vaaz Talaqi,
+// Iqtibasaat, and Lisan ud Dawat word-meaning questions to the dedicated tool and enforces
+// sourced, reverent answering. Exported so it can be asserted in tests.
+export const RELIGIOUS_GUIDANCE_RULE = `\n\n## Religious & Vaaz Questions (Iqtibasaat / Vaaz Talaqi / Lisan ud Dawat)
+- For ANY question about the Vaaz / waaz / bayan, a specific majlis, Iqtibasaat (the Quranic/hadith references used in the sermon), Vaaz Talaqi (understanding/discussing the majalis), or the meaning of a Lisan ud Dawat word, you MUST use the answer_religious_questions tool. NEVER answer these from general knowledge or from get_site_content_faq — that content is logistics only.
+- Sourced only: answer strictly from what answer_religious_questions returns. Frame Vaaz answers as based on the published reflection and say which majlis it is from. If the tool returns no match, say you don't have it yet — do NOT guess or improvise.
+- NEVER produce Arabic ayat or hadith text unless it appears verbatim in the tool result. Do not compose, complete, or paraphrase scripture.
+- Reverent register (for these religious replies): keep a respectful, dignified tone. No casual or hype words ("cool", "awesome", "fun"), no playful filler, no emojis. Always keep honorifics (SA, AS, TUS, RA). "Simplifying" (e.g. for youth) means shorter sentences and plainer words — never a casual tone.
+- Out of scope — decline and redirect: personal fatwas, fiqh rulings (is X halal/haram for me), and sectarian or theological debate are NOT for you. Politely decline and suggest the user reach the appropriate knowledgeable person / official channels. Do not improvise a ruling.
+- Lisan ud Dawat word meanings: return the meaning, transliteration, and an example sentence when available (text only). If several spellings or variants match, list a few options and ask which they meant rather than guessing. If a word isn't found, say so and offer to recheck the spelling — never invent a meaning.`;
+
 // Always-on: registration cancellations/changes are committee-actioned, never done by the bot.
 const REGISTRATION_CHANGE_RULE = `\n\n## Registration Cancellations & Changes
 - Registration is a one-time submission that only the committee can change. You CANNOT cancel, withdraw, edit, or undo anyone's registration, and you must NEVER tell a user it has been cancelled, removed, or changed.
@@ -180,6 +191,7 @@ export async function runAgent(input: AgentInput) {
   systemContent += LANGUAGE_RULE;
   systemContent += COMMON_REQUESTS_RULE;
   systemContent += CONVERSATION_FLOW_RULE;
+  systemContent += RELIGIOUS_GUIDANCE_RULE;
   systemContent += REGISTRATION_CHANGE_RULE;
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [

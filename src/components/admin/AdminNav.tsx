@@ -33,7 +33,7 @@ const dropdownGroups: DropdownGroup[] = [
       { href: "/admin/conversations", label: "Inbox", access: "inbox" },
       { href: "/admin/prompt", label: "AI Prompt Management", access: "admin" },
       { href: "/admin/escalation", label: "Escalation/Support", access: "admin" },
-      { href: "/admin/knowledge", label: "FAQ & Guides", access: "manage" },
+      { href: "/admin/knowledge", label: "Vectorized Data for Agent", access: "manage" },
       { href: "/admin/mumineen", label: "Mumineen", access: "mumineen" },
     ],
   },

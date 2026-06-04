@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 
+import ContentBucketEditor from "@/components/admin/ContentBucketEditor";
 import FaqBucketEditor from "@/components/admin/FaqBucketEditor";
 
 type Bucket = { department_id: string; department_name: string; content: string };
+type Topic = { id: string; title: string; content: string };
 
 const PROMPTS = [
   { key: "agent_system", label: "Agent System Prompt" },
@@ -14,12 +16,17 @@ const PROMPTS = [
 // Quick-edit launcher used from the inbox: pick FAQ (a department bucket) or Prompt,
 // then edit it inline. Reuses FaqBucketEditor for the FAQ path.
 export default function QuickEditModal({ adminKey, onClose }: { adminKey: string; onClose: () => void }) {
-  const [mode, setMode] = useState<"choose" | "faq" | "prompt">("choose");
+  const [mode, setMode] = useState<"choose" | "faq" | "religious" | "prompt">("choose");
 
   // FAQ path
   const [buckets, setBuckets] = useState<Bucket[]>([]);
   const [bucketDeptId, setBucketDeptId] = useState("");
   const [openBucket, setOpenBucket] = useState<Bucket | null>(null);
+
+  // Religious content path
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [topicId, setTopicId] = useState("");
+  const [openTopic, setOpenTopic] = useState<Topic | null>(null);
 
   // Prompt path
   const [promptKey, setPromptKey] = useState("agent_system");
@@ -41,6 +48,15 @@ export default function QuickEditModal({ adminKey, onClose }: { adminKey: string
     void (async () => {
       const res = await api("/api/admin/faq-buckets");
       if (res.ok) setBuckets(((await res.json()).buckets ?? []) as Bucket[]);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode !== "religious") return;
+    void (async () => {
+      const res = await api("/api/admin/religious-topics");
+      if (res.ok) setTopics(((await res.json()).topics ?? []) as Topic[]);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
@@ -88,6 +104,20 @@ export default function QuickEditModal({ adminKey, onClose }: { adminKey: string
     );
   }
 
+  // Same for a religious topic block.
+  if (openTopic) {
+    return (
+      <ContentBucketEditor
+        title={openTopic.title}
+        subtitle="Religious content — keep a respectful, sourced tone. Separate entries with a blank line. Saving re-indexes this for the agent."
+        initialContent={openTopic.content}
+        endpoint={`/api/admin/religious-topics/${openTopic.id}`}
+        adminKey={adminKey}
+        onClose={() => { setOpenTopic(null); onClose(); }}
+      />
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={onClose}>
       <div
@@ -96,7 +126,13 @@ export default function QuickEditModal({ adminKey, onClose }: { adminKey: string
       >
         <div className="flex items-center justify-between border-b px-5 py-4 dark:border-gray-800">
           <h2 className="text-lg font-semibold">
-            {mode === "choose" ? "Quick edit" : mode === "faq" ? "Edit a department FAQ" : "Edit a prompt"}
+            {mode === "choose"
+              ? "Quick edit"
+              : mode === "faq"
+                ? "Edit a department FAQ"
+                : mode === "religious"
+                  ? "Edit religious content"
+                  : "Edit a prompt"}
           </h2>
           <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200" aria-label="Close">✕</button>
         </div>
@@ -107,7 +143,7 @@ export default function QuickEditModal({ adminKey, onClose }: { adminKey: string
           )}
 
           {mode === "choose" && (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <button
                 type="button"
                 onClick={() => setMode("faq")}
@@ -115,6 +151,14 @@ export default function QuickEditModal({ adminKey, onClose }: { adminKey: string
               >
                 <p className="font-medium">FAQ</p>
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Edit a department&apos;s FAQ answers.</p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("religious")}
+                className="rounded-lg border p-5 text-left hover:border-blue-400 hover:bg-blue-50 dark:border-gray-700 dark:hover:border-blue-500 dark:hover:bg-blue-900/20"
+              >
+                <p className="font-medium">Religious Content</p>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Edit a Vaaz / Iqtibasaat / Lisan topic block.</p>
               </button>
               <button
                 type="button"
@@ -149,6 +193,34 @@ export default function QuickEditModal({ adminKey, onClose }: { adminKey: string
                   type="button"
                   disabled={!bucketDeptId}
                   onClick={() => setOpenBucket(buckets.find((b) => b.department_id === bucketDeptId) ?? null)}
+                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Open editor
+                </button>
+              </div>
+            </div>
+          )}
+
+          {mode === "religious" && (
+            <div>
+              <label className="block text-sm text-gray-700 dark:text-gray-300">
+                Topic
+                <select
+                  value={topicId}
+                  onChange={(e) => setTopicId(e.target.value)}
+                  className="mt-1 block w-full rounded-md border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                >
+                  <option value="">Select a topic…</option>
+                  {topics.map((t) => (
+                    <option key={t.id} value={t.id}>{t.title}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  disabled={!topicId}
+                  onClick={() => setOpenTopic(topics.find((t) => t.id === topicId) ?? null)}
                   className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                 >
                   Open editor

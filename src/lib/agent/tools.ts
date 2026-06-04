@@ -1,7 +1,7 @@
 import type OpenAI from "openai";
 
 import { canUseTool, canUseTaskToolForCaller, type AppUser } from "@/lib/permissions";
-import { retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
+import { retrieveReligiousContext, retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
 import { recordToolAudit } from "@/lib/supabase/server";
 import type { CallerContext } from "@/lib/api/auth";
 
@@ -28,6 +28,26 @@ export const toolDefinitions: ToolDefinition[] = [
           query: {
             type: "string",
             description: "The visitor's question or topic to look up in the indexed site content.",
+          },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "answer_religious_questions",
+      description:
+        "Look up answers to religious / sermon questions about Ashara Mubarak — Vaaz Talaqi (understanding the daily majalis/waaz), Iqtibasaat (the Quranic/hadith references used in the bayan), and Lisan ud Dawat word meanings — from the indexed religious content. ALWAYS use this for any Vaaz, majlis, Iqtibas, or Lisan-word-meaning question. Never answer such questions from general knowledge or from get_site_content_faq.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "The religious / Vaaz / Iqtibas / Lisan-word question or topic to look up in the indexed religious content.",
           },
         },
         required: ["query"],
@@ -491,8 +511,13 @@ async function callInternalApi(path: string, options: {
   return res.json();
 }
 
-async function getPublicSiteInfo(query: string, fallbackMessage: string) {
-  const context = await retrieveSiteContext(query, 5);
+async function getIndexedInfo(
+  query: string,
+  fallbackMessage: string,
+  retrieve: (q: string, topK?: number) => Promise<string>,
+  source: string,
+) {
+  const context = await retrieve(query, 5);
 
   if (!context) {
     return {
@@ -503,7 +528,7 @@ async function getPublicSiteInfo(query: string, fallbackMessage: string) {
 
   return {
     status: "ok",
-    source: "indexed_site_content",
+    source,
     context,
   };
 }
@@ -511,9 +536,18 @@ async function getPublicSiteInfo(query: string, fallbackMessage: string) {
 async function runTool(name: string, args: ToolInput, context: ToolContext) {
   switch (name) {
     case "get_site_content_faq":
-      return getPublicSiteInfo(
+      return getIndexedInfo(
         String(args.query ?? "Ashara 1448 Chicago visitor information"),
         "I could not find an answer in the indexed site content yet.",
+        retrieveSiteContext,
+        "indexed_site_content",
+      );
+    case "answer_religious_questions":
+      return getIndexedInfo(
+        String(args.query ?? "Ashara majlis Vaaz Talaqi Iqtibasaat"),
+        "I could not find this in the indexed religious content yet.",
+        retrieveReligiousContext,
+        "indexed_religious_content",
       );
     case "move_to_escalation":
       return callInternalApi("/api/escalations", {

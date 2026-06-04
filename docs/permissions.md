@@ -43,6 +43,7 @@ Possible status values: `active` (default), `inactive`.
 | `get_directions` | ✅ | ✅ | ✅ |
 | `get_faq_answer` | ✅ | ✅ | ✅ |
 | `get_lost_found_info` | ✅ | ✅ | ✅ |
+| `answer_religious_questions` | ✅ | ✅ | ✅ |
 | `get_volunteer_assignment` | ❌ | ✅ | ✅ |
 | `lookup_committee_contact` | ❌ | ✅ | ✅ |
 | `update_volunteer_status` | ❌ | ✅ | ✅ |
