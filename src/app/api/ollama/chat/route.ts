@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import OpenAI from "openai";
+import { Ollama } from "ollama";
 
 import { AGENT_TEMPERATURE, AI_MODEL, getAIClient, MAX_AGENT_TOKENS } from "@/lib/ai/model";
 import { loadAgentSystemPrompt } from "@/lib/agent/prompts";
 
 export const runtime = "nodejs";
 
-// Ollama cloud exposes an OpenAI-compatible endpoint.
-const OLLAMA_BASE_URL = "https://api.ollama.com/v1";
+// Ollama cloud host for the official ollama client.
+const OLLAMA_BASE_URL = "https://api.ollama.com";
 
 type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -63,22 +63,26 @@ export async function POST(req: NextRequest) {
 
   // --- Ollama completion ---
   try {
-    const ollamaClient = new OpenAI({
-      apiKey: ollamaApiKey,
-      baseURL: OLLAMA_BASE_URL,
+    const ollamaClient = new Ollama({
+      host: OLLAMA_BASE_URL,
+      headers: {
+        Authorization: "Bearer " + ollamaApiKey,
+      },
     });
 
     const start = Date.now();
-    const ollamaResponse = await ollamaClient.chat.completions.create({
+    const ollamaResponse = await ollamaClient.chat({
       model: ollamaModel,
       messages: fullMessages,
-      temperature: AGENT_TEMPERATURE,
-      max_tokens: MAX_AGENT_TOKENS,
+      options: {
+        temperature: AGENT_TEMPERATURE,
+        num_predict: MAX_AGENT_TOKENS,
+      },
     });
     const latencyMs = Date.now() - start;
 
     results.ollama = {
-      content: ollamaResponse.choices[0]?.message?.content?.trim() ?? "",
+      content: ollamaResponse.message.content?.trim() ?? "",
       model: ollamaModel,
       latencyMs,
     };
