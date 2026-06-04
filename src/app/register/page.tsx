@@ -303,8 +303,10 @@ export default function RegisterPage() {
     if (!isLocal && acc.acc_type === "utaro" && !acc.utaro_host_name?.trim()) {
       return { message: "Enter the host's name.", fieldId: "reg-host-name" };
     }
-    if (!acc.transport_mode?.trim()) return { message: "Select how you will get to the relay center.", fieldId: "reg-transport-mode" };
-    if (acc.transport_mode === "other" && !acc.transport_detail?.trim()) return { message: "Enter your transport details.", fieldId: "reg-transport-detail" };
+    if (!isLocal) {
+      if (!acc.transport_mode?.trim()) return { message: "Select how you will get to the relay center.", fieldId: "reg-transport-mode" };
+      if (acc.transport_mode === "other" && !acc.transport_detail?.trim()) return { message: "Enter your transport details.", fieldId: "reg-transport-detail" };
+    }
     return null;
   }
 
@@ -654,7 +656,8 @@ export default function RegisterPage() {
             </section>
             )}
 
-            {/* Transport */}
+            {/* Transport (mehman only) */}
+            {!isLocal && (
             <section className={cardClass}>
               <h2 className={sectionHeading}>Transport</h2>
               <label className={`${labelClass} mt-3`}>How will you get to the relay center daily?<span className="text-red-500"> *</span>
@@ -672,6 +675,7 @@ export default function RegisterPage() {
                 </label>
               )}
             </section>
+            )}
 
             <div className="flex flex-col items-center gap-3 pb-4">
               {error && (

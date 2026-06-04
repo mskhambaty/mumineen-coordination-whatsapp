@@ -167,16 +167,17 @@ function validateSubmission(members: MemberInput[], acc: Record<string, unknown>
     }
     if (!str(m.special_needs)) return `Missing special needs for ${who}.`;
   }
-  // Travel + accommodation are mehman-only; locals provide neither.
+  // Travel, accommodation, and transport are mehman-only; locals provide none of them.
   if (!isLocal) {
     const accType = oneOf(acc.acc_type, ["hotel", "utaro"]);
     if (!accType) return "Accommodation type is required.";
     if (accType === "hotel" && (!str(acc.hotel_name) || !str(acc.hotel_address))) return "Hotel name and address are required.";
     if (accType === "utaro" && !str(acc.utaro_host_name)) return "Host name is required.";
+
+    const mode = oneOf(tr.transport_mode, ["rideshare", "rental", "commute_with_utaro", "other"]);
+    if (!mode) return "Transport mode is required.";
+    if (mode === "other" && !str(tr.transport_detail)) return "Transport details are required.";
   }
-  const mode = oneOf(tr.transport_mode, ["rideshare", "rental", "commute_with_utaro", "other"]);
-  if (!mode) return "Transport mode is required.";
-  if (mode === "other" && !str(tr.transport_detail)) return "Transport details are required.";
   return null;
 }
 
