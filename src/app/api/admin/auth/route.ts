@@ -50,10 +50,10 @@ export async function POST(req: NextRequest) {
     }
 
     const passwordHash = typeof user.password_hash === "string" ? user.password_hash : null;
-    const legacyPassword = optionalEnv("ADMIN_FALLBACK_PASSWORD") ?? "786110";
+    const legacyPassword = optionalEnv("ADMIN_FALLBACK_PASSWORD");
     const validPassword = passwordHash
       ? await verifyPassword(password, passwordHash)
-      : password === legacyPassword;
+      : Boolean(legacyPassword && password === legacyPassword);
 
     if (!validPassword) {
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });

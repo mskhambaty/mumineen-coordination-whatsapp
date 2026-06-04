@@ -48,6 +48,9 @@ type Family = {
 
 const toLocalInput = (iso: string | null) => (iso ? new Date(iso).toISOString().slice(0, 16) : "");
 
+// Internal Google Form local mumineen use to sign up for khidmat.
+const KHIDMAT_SIGNUP_URL = "https://docs.google.com/forms/d/e/1FAIpQLSf9UJuTKWKcij8hgJ3U2xt3km7eTvSKIb6CSEYVqau1LMBKrw/viewform?usp=send_form";
+
 const inputClass =
   "mt-1 block w-full rounded-lg border border-emerald-950/15 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-300/60";
 const labelClass = "block text-sm font-medium text-emerald-950/80";
@@ -191,6 +194,7 @@ export default function RegisterPage() {
   const [family, setFamily] = useState<Family | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [isLocal, setIsLocal] = useState(false);
   const [acc, setAcc] = useState<Partial<Family>>({});
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -248,12 +252,14 @@ export default function RegisterPage() {
         departure_at: toLocalInput(m.departure_at),
         wants_khidmat: null, // force an explicit Interested / Not interested choice
       }));
+      const local = Boolean(data.is_local);
+      setIsLocal(local);
       setFamily(data.family as Family);
       setAcc(data.family as Family);
       setDepartments((data.departments as Department[]) ?? []);
       setMembers(loaded);
-      // Default everyone (other than the head) to "same flight as head"; they can uncheck.
-      setSameAsHead(new Set(loaded.slice(1).map((m) => m.its)));
+      // Default everyone (other than the head) to "same flight as head"; they can uncheck. (Mehman only.)
+      setSameAsHead(local ? new Set() : new Set(loaded.slice(1).map((m) => m.its)));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not find your family");
     } finally {
@@ -284,17 +290,17 @@ export default function RegisterPage() {
       if (!m.whatsapp_e164?.trim()) return { message: `Enter a WhatsApp number for ${who}.`, fieldId: `reg-${m.its}-whatsapp` };
       if (!m.email?.trim() || !/^\S+@\S+\.\S+$/.test(m.email.trim()))
         return { message: `Enter a valid email for ${who}.`, fieldId: `reg-${m.its}-email` };
-      if (!m.arrival_at) return { message: `Enter arrival date & time for ${who}.`, fieldId: `reg-${m.its}-arrival` };
-      if (!m.departure_at) return { message: `Enter departure date & time for ${who}.`, fieldId: `reg-${m.its}-departure` };
+      if (!isLocal && !m.arrival_at) return { message: `Enter arrival date & time for ${who}.`, fieldId: `reg-${m.its}-arrival` };
+      if (!isLocal && !m.departure_at) return { message: `Enter departure date & time for ${who}.`, fieldId: `reg-${m.its}-departure` };
       if (m.rahat_seating && !m.special_needs?.trim()) return { message: `Describe the rahat / special need for ${who}.`, fieldId: `reg-${m.its}-special` };
-      if (m.wants_khidmat !== true && m.wants_khidmat !== false) return { message: `Select khidmat interest for ${who}.`, fieldId: `reg-${m.its}-khidmat` };
+      if (!isLocal && m.wants_khidmat !== true && m.wants_khidmat !== false) return { message: `Select khidmat interest for ${who}.`, fieldId: `reg-${m.its}-khidmat` };
     }
-    if (acc.acc_type !== "hotel" && acc.acc_type !== "utaro") return { message: "Select your accommodation type.", fieldId: "reg-acc-type" };
-    if (acc.acc_type === "hotel") {
+    if (!isLocal && acc.acc_type !== "hotel" && acc.acc_type !== "utaro") return { message: "Select your accommodation type.", fieldId: "reg-acc-type" };
+    if (!isLocal && acc.acc_type === "hotel") {
       if (!acc.hotel_name?.trim()) return { message: "Enter your hotel name.", fieldId: "reg-hotel-name" };
       if (!acc.hotel_address?.trim()) return { message: "Enter your hotel address.", fieldId: "reg-hotel-address" };
     }
-    if (acc.acc_type === "utaro" && !acc.utaro_host_name?.trim()) {
+    if (!isLocal && acc.acc_type === "utaro" && !acc.utaro_host_name?.trim()) {
       return { message: "Enter the host's name.", fieldId: "reg-host-name" };
     }
     if (!acc.transport_mode?.trim()) return { message: "Select how you will get to the relay center.", fieldId: "reg-transport-mode" };
@@ -463,6 +469,8 @@ export default function RegisterPage() {
                       </label>
                     </div>
 
+                    {!isLocal && (
+                      <>
                     {idx > 0 && (
                       <label className="mt-3 flex items-center gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2.5 text-sm font-medium text-emerald-900">
                         <input type="checkbox" className="h-4 w-4 accent-amber-500" checked={sameAsHead.has(m.its)} onChange={(e) => toggleSameAsHead(m.its, e.target.checked)} />
@@ -497,6 +505,8 @@ export default function RegisterPage() {
                         Using {members[0].full_name || "the head of family"}&apos;s flight details.
                       </p>
                     )}
+                      </>
+                    )}
 
                     <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-emerald-950/80">
                       <label className="flex items-center gap-2">
@@ -517,26 +527,35 @@ export default function RegisterPage() {
                     )}
 
                     <div id={`reg-${m.its}-khidmat`} className="mt-3 border-t border-emerald-950/10 pt-3">
-                      <p className={labelClass}>Khidmat<span className="text-red-500"> *</span></p>
-                      <div className="mt-2 flex gap-6 text-sm text-emerald-950/80">
-                        <label className="flex items-center gap-2">
-                          <input type="radio" name={`khidmat-${m.its}`} className="accent-amber-500" checked={m.wants_khidmat === true} onChange={() => { setMember(m.its, { wants_khidmat: true }); if (errorField === `reg-${m.its}-khidmat`) setErrorField(null); }} />
-                          Interested
-                        </label>
-                        <label className="flex items-center gap-2">
-                          <input type="radio" name={`khidmat-${m.its}`} className="accent-amber-500" checked={m.wants_khidmat === false} onChange={() => { setMember(m.its, { wants_khidmat: false, khidmat_department_ids: [] }); if (errorField === `reg-${m.its}-khidmat`) setErrorField(null); }} />
-                          Not interested
-                        </label>
-                      </div>
-                      {errorField === `reg-${m.its}-khidmat` && (
-                        <p className="mt-1 text-xs text-red-600">Please choose one.</p>
-                      )}
-                      {m.wants_khidmat === true && (
-                        <KhidmatPicker
-                          departments={departments}
-                          selected={m.khidmat_department_ids ?? []}
-                          onChange={(ids) => setMember(m.its, { khidmat_department_ids: ids })}
-                        />
+                      <p className={labelClass}>Khidmat{!isLocal && <span className="text-red-500"> *</span>}</p>
+                      {isLocal ? (
+                        <p className="mt-1 text-sm text-emerald-950/70">
+                          If you haven&apos;t already signed up for khidmat, you can{" "}
+                          <a href={KHIDMAT_SIGNUP_URL} target="_blank" rel="noopener noreferrer" className="font-semibold text-emerald-800 underline">sign up here</a>.
+                        </p>
+                      ) : (
+                        <>
+                          <div className="mt-2 flex gap-6 text-sm text-emerald-950/80">
+                            <label className="flex items-center gap-2">
+                              <input type="radio" name={`khidmat-${m.its}`} className="accent-amber-500" checked={m.wants_khidmat === true} onChange={() => { setMember(m.its, { wants_khidmat: true }); if (errorField === `reg-${m.its}-khidmat`) setErrorField(null); }} />
+                              Interested
+                            </label>
+                            <label className="flex items-center gap-2">
+                              <input type="radio" name={`khidmat-${m.its}`} className="accent-amber-500" checked={m.wants_khidmat === false} onChange={() => { setMember(m.its, { wants_khidmat: false, khidmat_department_ids: [] }); if (errorField === `reg-${m.its}-khidmat`) setErrorField(null); }} />
+                              Not interested
+                            </label>
+                          </div>
+                          {errorField === `reg-${m.its}-khidmat` && (
+                            <p className="mt-1 text-xs text-red-600">Please choose one.</p>
+                          )}
+                          {m.wants_khidmat === true && (
+                            <KhidmatPicker
+                              departments={departments}
+                              selected={m.khidmat_department_ids ?? []}
+                              onChange={(ids) => setMember(m.its, { khidmat_department_ids: ids })}
+                            />
+                          )}
+                        </>
                       )}
                     </div>
                       </>
@@ -546,7 +565,8 @@ export default function RegisterPage() {
               </div>
             </section>
 
-            {/* Accommodation */}
+            {/* Accommodation (mehman only) */}
+            {!isLocal && (
             <section className={cardClass}>
               <h2 className={sectionHeading}>Accommodation<span className="text-red-500"> *</span></h2>
               <div id="reg-acc-type" className="mt-3 flex flex-col gap-3 text-sm text-emerald-950/80 sm:flex-row sm:gap-6">
@@ -626,6 +646,7 @@ export default function RegisterPage() {
                 </div>
               )}
             </section>
+            )}
 
             {/* Transport */}
             <section className={cardClass}>

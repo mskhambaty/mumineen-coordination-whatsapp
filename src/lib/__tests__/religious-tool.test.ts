@@ -29,7 +29,7 @@ beforeEach(() => {
 
 describe("answer_religious_questions tool", () => {
   it("is registered as a tool definition", () => {
-    const names = toolDefinitions.map((t) => t.function.name);
+    const names = toolDefinitions.map((t) => (t.type === "function" ? t.function.name : ""));
     expect(names).toContain("answer_religious_questions");
   });
 

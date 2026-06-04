@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-// The models listing endpoint differs from the OpenAI-compatible chat endpoint
-// because Ollama serves its model registry from a separate domain.
-const OLLAMA_MODELS_URL = "https://ollama.com/api/models";
+// Ollama cloud exposes an OpenAI-compatible models endpoint.
+const OLLAMA_MODELS_URL = "https://api.ollama.com/v1/models";
 
 /**
  * GET /api/ollama/models

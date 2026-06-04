@@ -15,7 +15,8 @@ All env var lookups go through `src/lib/env.ts`, which supports mixed-case alias
 | `SUPABASE_SERVICE_ROLE_KEY` | `Supabase_service_role_key` | Supabase project → Settings → API (keep secret) |
 | `OPENAI_API_KEY` | `OpenAI_key`, `OPENAI_key` | platform.openai.com |
 | `CRON_SECRET` | — | Generate a strong random string; use in `Authorization: ****** |
-| `NEXT_PUBLIC_APP_URL` | `App_url`, `APP_URL` | Public app base URL, e.g. Vercel production URL |
+| `NEXT_PUBLIC_APP_URL` | `App_url`, `APP_URL` | Public app base URL, `https://www.chicagorelaycenter.com` |
+| `ADMIN_FALLBACK_PASSWORD` | `Admin_fallback_password` | Optional legacy login fallback for users without `password_hash`; set only in deployment secrets, never in repo |
 | `POSTMARK_API_TOKEN` | `Postmark_api_token` | Postmark server API token; rotate if exposed |
 | `POSTMARK_FROM_EMAIL` | `Postmark_from_email` | Verified Postmark sender address |
 | `POSTMARK_PASSWORD_RESET_TEMPLATE` | `Postmark_password_reset_template` | Postmark template alias for password reset |

@@ -19,6 +19,13 @@ type DropdownGroup = {
   links: NavLink[];
 };
 
+type NavAccess = {
+  isAdmin: boolean;
+  isSupport: boolean;
+  isManager: boolean;
+  isIt: boolean;
+};
+
 const dropdownGroups: DropdownGroup[] = [
   {
     label: "External",
@@ -56,6 +63,25 @@ const trailingLinks: NavLink[] = [
   { href: "/admin/profile", label: "Profile", access: "any" },
 ];
 
+function readNavAccess(): NavAccess {
+  const empty = { isAdmin: false, isSupport: false, isManager: false, isIt: false };
+  if (typeof window === "undefined") return empty;
+
+  try {
+    const user = JSON.parse(window.localStorage.getItem("admin_user") ?? "null") as
+      | { role?: string; global_role?: string; is_support?: boolean; is_manager?: boolean; is_it?: boolean }
+      | null;
+    return {
+      isAdmin: user?.role === "admin" || user?.global_role === "leadership_admin",
+      isSupport: user?.is_support === true,
+      isManager: user?.is_manager === true,
+      isIt: user?.is_it === true,
+    };
+  } catch {
+    return empty;
+  }
+}
+
 export default function AdminNav() {
   const pathname = usePathname();
   const router = useRouter();
@@ -69,23 +95,7 @@ export default function AdminNav() {
   const navRef = useRef<HTMLElement>(null);
 
   // Role flags from the signed-in user, used to show only accessible links.
-  const [access] = useState(() => {
-    const empty = { isAdmin: false, isSupport: false, isManager: false, isIt: false };
-    if (typeof window === "undefined") return empty;
-    try {
-      const user = JSON.parse(window.localStorage.getItem("admin_user") ?? "null") as
-        | { role?: string; global_role?: string; is_support?: boolean; is_manager?: boolean; is_it?: boolean }
-        | null;
-      return {
-        isAdmin: user?.role === "admin" || user?.global_role === "leadership_admin",
-        isSupport: user?.is_support === true,
-        isManager: user?.is_manager === true,
-        isIt: user?.is_it === true,
-      };
-    } catch {
-      return empty;
-    }
-  });
+  const [access, setAccess] = useState(readNavAccess);
 
   function canSee(itemAccess: Access) {
     if (itemAccess === "any") return true;
@@ -98,6 +108,21 @@ export default function AdminNav() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
+
+  useEffect(() => {
+    setAccess(readNavAccess());
+  }, [pathname]);
+
+  useEffect(() => {
+    function handleStorage(event: StorageEvent) {
+      if (event.key === "admin_user" || event.key === null) {
+        setAccess(readNavAccess());
+      }
+    }
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {

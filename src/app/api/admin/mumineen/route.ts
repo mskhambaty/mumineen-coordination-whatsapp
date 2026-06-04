@@ -12,11 +12,12 @@ export async function GET(req: NextRequest) {
   }
   const supabase = getSupabaseAdmin();
 
-  const [mumineen, adults, families, registeredFamilies] = await Promise.all([
+  const [mumineen, adults, families, registeredFamilies, cancelledFamilies] = await Promise.all([
     supabase.from("mumineen").select("id", { count: "exact", head: true }).eq("roster_active", true),
     supabase.from("mumineen").select("id", { count: "exact", head: true }).eq("roster_active", true).eq("is_adult", true),
     supabase.from("families").select("id", { count: "exact", head: true }).eq("roster_active", true),
     supabase.from("families").select("id", { count: "exact", head: true }).eq("roster_active", true).in("registration_status", ["submitted", "confirmed"]),
+    supabase.from("families").select("id", { count: "exact", head: true }).eq("roster_active", true).eq("registration_status", "cancelled"),
   ]);
 
   return NextResponse.json({
@@ -24,5 +25,6 @@ export async function GET(req: NextRequest) {
     adults: adults.count ?? 0,
     families: families.count ?? 0,
     registered_families: registeredFamilies.count ?? 0,
+    cancelled_families: cancelledFamilies.count ?? 0,
   });
 }

@@ -102,6 +102,12 @@ export const RELIGIOUS_GUIDANCE_RULE = `\n\n## Religious & Vaaz Questions (Iqtib
 - Out of scope — decline and redirect: personal fatwas, fiqh rulings (is X halal/haram for me), and sectarian or theological debate are NOT for you. Politely decline and suggest the user reach the appropriate knowledgeable person / official channels. Do not improvise a ruling.
 - Lisan ud Dawat word meanings: return the meaning, transliteration, and an example sentence when available (text only). If several spellings or variants match, list a few options and ask which they meant rather than guessing. If a word isn't found, say so and offer to recheck the spelling — never invent a meaning.`;
 
+// Always-on: registration cancellations/changes are committee-actioned, never done by the bot.
+const REGISTRATION_CHANGE_RULE = `\n\n## Registration Cancellations & Changes
+- Registration is a one-time submission that only the committee can change. You CANNOT cancel, withdraw, edit, or undo anyone's registration, and you must NEVER tell a user it has been cancelled, removed, or changed.
+- If a user asks to cancel/withdraw their registration (or change submitted details — travel, accommodation, members, khidmat), warmly acknowledge, capture their ITS number and the reason if they offer it, then use move_to_escalation with category 'registration' (assign department 'Follow-up') so the team can verify their identity and action it. The team confirms cancellations and changes, not you.
+- Do not promise the change is done — say you've passed the request to the team and they'll confirm and follow up.`;
+
 const DEPT_CACHE_TTL_MS = 5 * 60_000;
 let cachedDepartments: { list: Array<{ name: string; description: string | null }>; fetchedAt: number } | null = null;
 
@@ -186,6 +192,7 @@ export async function runAgent(input: AgentInput) {
   systemContent += COMMON_REQUESTS_RULE;
   systemContent += CONVERSATION_FLOW_RULE;
   systemContent += RELIGIOUS_GUIDANCE_RULE;
+  systemContent += REGISTRATION_CHANGE_RULE;
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemContent },
