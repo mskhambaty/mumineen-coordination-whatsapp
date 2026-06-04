@@ -2,10 +2,21 @@ import * as XLSX from "xlsx";
 
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
-export type RosterImportResult = { rows: number; families: number; mumineen: number };
+export type RosterImportResult = {
+  rows: number;
+  families: number;
+  mumineen: number;
+  // Column names auto-mapped from the sheet because they matched a mumineen DB column
+  // (i.e. not part of the explicit friendly-header map). Useful as import feedback.
+  autoColumns: string[];
+  // false when this was an additive import (a new batch sharing no ITS with existing
+  // records): the existing roster was preserved instead of soft-deactivating missing rows.
+  deactivatedMissing: boolean;
+};
 
 type Row = Record<string, unknown>;
 type Supabase = ReturnType<typeof getSupabaseAdmin>;
+type Parse = (v: unknown) => unknown;
 
 const text = (v: unknown): string | null => (v == null ? null : String(v).trim() || null);
 const intOrNull = (v: unknown): number | null => {
@@ -23,6 +34,65 @@ const yesNo = (v: unknown): boolean | null => {
   return s == null ? null : /^y(es)?$/i.test(s);
 };
 
+// Explicit map for columns whose Excel header differs from the DB column name, or that need
+// typed parsing. Identity columns (its/hof_its) and import-managed flags (family_id, is_head,
+// roster_active) are handled separately. Any other (non-protected) mumineen column is
+// auto-mapped at runtime when the sheet provides a header matching the column name exactly.
+const EXPLICIT_MAP: { header: string; col: string; parse: Parse }[] = [
+  { header: "Fullname", col: "full_name", parse: text },
+  { header: "Gender", col: "gender", parse: genderOf },
+  { header: "Age", col: "age", parse: intOrNull },
+  { header: "Jamaat", col: "jamaat", parse: text },
+  { header: "Idara", col: "idara", parse: text },
+  { header: "Category", col: "category", parse: text },
+  { header: "Prefix", col: "prefix", parse: text },
+  { header: "Title", col: "title", parse: text },
+  { header: "Venue (Waaz)", col: "venue", parse: text },
+  { header: "City", col: "city", parse: text },
+  { header: "Local/Mehman", col: "local_mehman", parse: text },
+  { header: "Arr Place Date", col: "roster_arrival_raw", parse: text },
+  { header: "Flight Code", col: "roster_flight_code", parse: text },
+  { header: "Daily Trans", col: "daily_trans", parse: text },
+  { header: "Whatsapp Link Clicked?", col: "whatsapp_link_clicked", parse: yesNo },
+];
+
+// Columns the importer must never write: structural/system identity and registration-collected
+// fields (filled in by mumineen themselves; a roster import must not clobber them). Everything
+// else on the table is eligible for auto-mapping. NOTE: whatsapp_e164 and email are deliberately
+// NOT protected — they are import-owned and auto-map from same-named sheet headers.
+const PROTECTED_COLUMNS = new Set([
+  "id",
+  "its",
+  "hof_its",
+  "family_id",
+  "is_head",
+  "whatsapp_user_id",
+  "roster_active",
+  "created_at",
+  "updated_at",
+  // registration-collected
+  "arrival_at",
+  "arrival_flight_no",
+  "departure_at",
+  "departure_flight_no",
+  "rahat_seating",
+  "wheelchair",
+  "special_needs",
+  "airport",
+  "not_attending",
+  "wants_khidmat",
+  "khidmat_department_ids",
+]);
+
+// Pick a parser for an auto-mapped column by its Postgres data type. Returns null for types
+// we won't risk auto-coercing (timestamps, arrays, uuid, json, …); such columns are skipped.
+function parserForType(dataType: string): Parse | null {
+  if (dataType === "boolean") return yesNo;
+  if (dataType === "integer" || dataType === "bigint" || dataType === "smallint") return intOrNull;
+  if (dataType === "text" || dataType === "character varying") return text;
+  return null;
+}
+
 async function chunkUpsert(supabase: Supabase, table: string, rows: Row[], onConflict: string, size = 500) {
   for (let i = 0; i < rows.length; i += size) {
     const { error } = await supabase.from(table).upsert(rows.slice(i, i + size), { onConflict });
@@ -31,11 +101,12 @@ async function chunkUpsert(supabase: Supabase, table: string, rows: Row[], onCon
 }
 
 // Import the mumineen roster from the Excel. Idempotent: upserts families on hof_its and
-// mumineen on its, updating only import-owned columns (whatsapp_user_id and most
-// registration-collected columns are never in the payload, so they're preserved). Note:
-// whatsapp_e164 and email ARE import-owned here — a populated cell in a re-import will
-// overwrite a registration-provided value (blank cells stay blank-safe via ?? existing).
-// The finalize RPC sets head linkage and soft-deactivates rows missing from the latest file.
+// mumineen on its, updating only import-owned columns (whatsapp_user_id and registration-
+// collected columns are never in the payload, so they're preserved). Column mapping is
+// data-driven: the explicit friendly-header map plus any sheet header matching a non-protected
+// mumineen column name (so new roster columns are picked up with no code change). Blank-safe: a
+// missing/blank cell keeps the previously stored value (new ?? existing). The finalize RPC sets
+// head linkage and, for non-additive imports, soft-deactivates rows missing from the file.
 export async function importMumineenRoster(buffer: Buffer): Promise<RosterImportResult> {
   const wb = XLSX.read(buffer, { type: "buffer" });
   const ws = wb.Sheets[wb.SheetNames[0]];
@@ -48,6 +119,32 @@ export async function importMumineenRoster(buffer: Buffer): Promise<RosterImport
   }
 
   const supabase = getSupabaseAdmin();
+
+  // Collect every header present across the sheet rows.
+  const headers = new Set<string>();
+  for (const r of rows) for (const k of Object.keys(r)) headers.add(k);
+
+  // Build the active column mapping: explicit headers present in the sheet, plus any sheet
+  // header that matches a non-protected mumineen column name (auto-mapped by data type).
+  const { data: colData, error: colErr } = await supabase.rpc("get_mumineen_columns");
+  if (colErr) throw new Error(`column introspection failed: ${colErr.message}`);
+  const dbCols = (colData ?? []) as { column_name: string; data_type: string }[];
+
+  const explicitCols = new Set(EXPLICIT_MAP.map((e) => e.col));
+  const mappings: { header: string; col: string; parse: Parse }[] = EXPLICIT_MAP.filter((e) =>
+    headers.has(e.header),
+  );
+  const autoColumns: string[] = [];
+  for (const c of dbCols) {
+    if (PROTECTED_COLUMNS.has(c.column_name)) continue;
+    if (explicitCols.has(c.column_name)) continue;
+    if (!headers.has(c.column_name)) continue; // sheet must provide a matching header
+    const parse = parserForType(c.data_type);
+    if (!parse) continue;
+    mappings.push({ header: c.column_name, col: c.column_name, parse });
+    autoColumns.push(c.column_name);
+  }
+  const targetCols = [...new Set(mappings.map((m) => m.col))];
 
   // Distinct families.
   const hofSet = new Set<string>();
@@ -71,78 +168,55 @@ export async function importMumineenRoster(buffer: Buffer): Promise<RosterImport
     for (const f of (data ?? []) as { id: string; hof_its: string }[]) familyIdByHof.set(f.hof_its, f.id);
   }
 
-  // 2. Upsert mumineen (import-owned columns only). Blank-safe: a missing cell in the new file
-  // keeps the previously stored value instead of nulling it, so a sparse re-import never wipes
-  // roster attributes. We load existing import-owned values and coalesce new ?? existing.
-  type ExistingRow = {
-    its: string;
-    full_name: string | null;
-    gender: string | null;
-    age: number | null;
-    jamaat: string | null;
-    idara: string | null;
-    category: string | null;
-    prefix: string | null;
-    title: string | null;
-    venue: string | null;
-    city: string | null;
-    local_mehman: string | null;
-    roster_arrival_raw: string | null;
-    roster_flight_code: string | null;
-    daily_trans: string | null;
-    whatsapp_link_clicked: boolean | null;
-    whatsapp_e164: string | null;
-    email: string | null;
-  };
-  const EXISTING_COLS =
-    "its, full_name, gender, age, jamaat, idara, category, prefix, title, venue, city, local_mehman, roster_arrival_raw, roster_flight_code, daily_trans, whatsapp_link_clicked, whatsapp_e164, email";
+  // 2. Load existing import-owned values (its + mapped target columns) so a blank cell in the
+  // new file keeps the previously stored value instead of nulling it (new ?? existing).
+  const selectCols = ["its", ...targetCols].join(", ");
   const itsList = rows.map((r) => text(r["Mumin Id"])).filter((v): v is string => v != null);
-  const existingByIts = new Map<string, ExistingRow>();
+  const existingByIts = new Map<string, Record<string, unknown>>();
   for (let i = 0; i < itsList.length; i += 1000) {
-    const { data, error } = await supabase.from("mumineen").select(EXISTING_COLS).in("its", itsList.slice(i, i + 1000));
+    const { data, error } = await supabase.from("mumineen").select(selectCols).in("its", itsList.slice(i, i + 1000));
     if (error) throw new Error(`mumineen lookup failed: ${error.message}`);
-    for (const m of (data ?? []) as ExistingRow[]) existingByIts.set(m.its, m);
+    for (const m of (data ?? []) as unknown as Record<string, unknown>[]) existingByIts.set(m.its as string, m);
   }
 
+  // 3. Upsert mumineen.
   const muminRows: Row[] = [];
   for (const r of rows) {
     const its = text(r["Mumin Id"]);
     const hof = text(r["Hof Id"]);
     if (!its || !hof) continue;
     const ex = existingByIts.get(its);
-    muminRows.push({
+    const row: Row = {
       its,
       hof_its: hof,
       family_id: familyIdByHof.get(hof) ?? null,
       is_head: its === hof,
       roster_active: true,
-      full_name: text(r["Fullname"]) ?? ex?.full_name ?? null,
-      gender: genderOf(r["Gender"]) ?? ex?.gender ?? null,
-      age: intOrNull(r["Age"]) ?? ex?.age ?? null,
-      jamaat: text(r["Jamaat"]) ?? ex?.jamaat ?? null,
-      idara: text(r["Idara"]) ?? ex?.idara ?? null,
-      category: text(r["Category"]) ?? ex?.category ?? null,
-      prefix: text(r["Prefix"]) ?? ex?.prefix ?? null,
-      title: text(r["Title"]) ?? ex?.title ?? null,
-      venue: text(r["Venue (Waaz)"]) ?? ex?.venue ?? null,
-      city: text(r["City"]) ?? ex?.city ?? null,
-      local_mehman: text(r["Local/Mehman"]) ?? ex?.local_mehman ?? null,
-      roster_arrival_raw: text(r["Arr Place Date"]) ?? ex?.roster_arrival_raw ?? null,
-      roster_flight_code: text(r["Flight Code"]) ?? ex?.roster_flight_code ?? null,
-      daily_trans: text(r["Daily Trans"]) ?? ex?.daily_trans ?? null,
-      whatsapp_link_clicked: yesNo(r["Whatsapp Link Clicked?"]) ?? ex?.whatsapp_link_clicked ?? null,
-      whatsapp_e164: text(r["whatsapp_e164"]) ?? ex?.whatsapp_e164 ?? null,
-      email: text(r["email"]) ?? ex?.email ?? null,
-    });
+    };
+    for (const m of mappings) {
+      row[m.col] = m.parse(r[m.header]) ?? (ex ? ex[m.col] : null) ?? null;
+    }
+    muminRows.push(row);
   }
   await chunkUpsert(supabase, "mumineen", muminRows, "its");
 
-  // 3. Finalize: head linkage + soft-deactivate rows missing from this file.
+  // 4. Additive-import detection: if none of the uploaded ITS already existed, this is a new
+  // batch — preserve the existing roster instead of soft-deactivating everyone missing from it.
+  const deactivateMissing = existingByIts.size > 0;
+
+  // 5. Finalize: head linkage + (when not additive) soft-deactivate rows missing from this file.
   const { error: finalizeError } = await supabase.rpc("finalize_mumineen_import", {
     p_its: muminRows.map((r) => r.its as string),
     p_hof: hofList,
+    p_deactivate_missing: deactivateMissing,
   });
   if (finalizeError) throw new Error(`finalize failed: ${finalizeError.message}`);
 
-  return { rows: rows.length, families: hofList.length, mumineen: muminRows.length };
+  return {
+    rows: rows.length,
+    families: hofList.length,
+    mumineen: muminRows.length,
+    autoColumns,
+    deactivatedMissing: deactivateMissing,
+  };
 }

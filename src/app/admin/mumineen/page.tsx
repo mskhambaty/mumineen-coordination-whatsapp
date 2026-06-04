@@ -400,7 +400,17 @@ export default function MumineenPage() {
       const res = await fetch("/api/admin/mumineen/import", { method: "POST", headers: { "x-admin-key": adminKey }, body });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Import failed");
-      setMessage(`Imported ${data.mumineen} mumineen across ${data.families} families (${data.rows} rows read).`);
+      const extras: string[] = [];
+      if (Array.isArray(data.autoColumns) && data.autoColumns.length > 0) {
+        extras.push(`auto-mapped: ${data.autoColumns.join(", ")}`);
+      }
+      if (data.deactivatedMissing === false) {
+        extras.push("additive import — existing roster preserved");
+      }
+      setMessage(
+        `Imported ${data.mumineen} mumineen across ${data.families} families (${data.rows} rows read)` +
+          (extras.length ? ` — ${extras.join("; ")}.` : "."),
+      );
       setFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       await loadStats();
