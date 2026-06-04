@@ -13,6 +13,7 @@ type SearchResult = {
   gender: string | null;
   age: number | null;
   jamaat: string | null;
+  category: string | null;
   city: string | null;
   hof_its: string | null;
   is_head: boolean;
@@ -163,7 +164,7 @@ export default function MumineenPage() {
 
       <div className="mb-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
         <h2 className="text-lg font-semibold">Lookup mumin</h2>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Search by ITS, name, WhatsApp number, or HOF ITS.</p>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Search by ITS, name, WhatsApp number, HOF ITS, jamaat, or category.</p>
         <input
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
@@ -183,6 +184,8 @@ export default function MumineenPage() {
                     <th className="px-2 py-1.5">ITS</th>
                     <th className="px-2 py-1.5">HOF</th>
                     <th className="px-2 py-1.5">Age</th>
+                    <th className="px-2 py-1.5">Jamaat</th>
+                    <th className="px-2 py-1.5">Category</th>
                     <th className="px-2 py-1.5">City</th>
                     <th className="px-2 py-1.5">WhatsApp</th>
                     <th className="px-2 py-1.5">Reg.</th>
@@ -198,6 +201,8 @@ export default function MumineenPage() {
                       <td className="px-2 py-1.5 font-mono text-xs">{r.its}</td>
                       <td className="px-2 py-1.5 font-mono text-xs text-gray-500">{r.hof_its ?? "—"}</td>
                       <td className="px-2 py-1.5">{r.age ?? "—"}</td>
+                      <td className="px-2 py-1.5">{r.jamaat ?? "—"}</td>
+                      <td className="px-2 py-1.5">{r.category ?? "—"}</td>
                       <td className="px-2 py-1.5">{r.city ?? "—"}</td>
                       <td className="px-2 py-1.5">{r.whatsapp_e164 ?? "—"}</td>
                       <td className="px-2 py-1.5">
