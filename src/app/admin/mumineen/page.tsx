@@ -1,11 +1,30 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import { canAccessMumineen } from "@/lib/admin/access";
 
 type Stats = { mumineen: number; adults: number; families: number; registered_families: number; cancelled_families: number };
+
+type FamilyDetail = {
+  registration_status: string | null;
+  submitted_at: string | null;
+  submitted_by_its: string | null;
+  acc_type: string | null;
+  hotel_name: string | null;
+  hotel_address: string | null;
+  open_to_utaro: boolean | null;
+  utaro_host_name: string | null;
+  utaro_host_its: string | null;
+  utaro_host_address: string | null;
+  utaro_host_whatsapp_e164: string | null;
+  utaro_host_email: string | null;
+  transport_mode: string | null;
+  transport_detail: string | null;
+  cancelled_at: string | null;
+  cancelled_reason: string | null;
+};
 
 type SearchResult = {
   its: string;
@@ -19,8 +38,62 @@ type SearchResult = {
   is_head: boolean;
   whatsapp_e164: string | null;
   email: string | null;
-  family: { registration_status: string | null } | null;
+  idara: string | null;
+  prefix: string | null;
+  title: string | null;
+  venue: string | null;
+  local_mehman: string | null;
+  is_adult: boolean | null;
+  arrival_at: string | null;
+  arrival_flight_no: string | null;
+  departure_at: string | null;
+  departure_flight_no: string | null;
+  airport: string | null;
+  daily_trans: string | null;
+  roster_arrival_raw: string | null;
+  roster_flight_code: string | null;
+  rahat_seating: boolean | null;
+  wheelchair: boolean | null;
+  special_needs: string | null;
+  wants_khidmat: boolean | null;
+  not_attending: boolean | null;
+  whatsapp_link_clicked: boolean | null;
+  updated_at: string | null;
+  family: FamilyDetail | null;
 };
+
+function fmtDateTime(v: string | null | undefined): string | null {
+  if (!v) return null;
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return v;
+  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+// A single label/value row. Renders nothing when the value is empty (null/undefined/"").
+function Field({ label, value }: { label: string; value: React.ReactNode }) {
+  const empty = value === null || value === undefined || value === "";
+  if (empty) return null;
+  return (
+    <div className="flex flex-col gap-0.5 sm:flex-row sm:gap-3">
+      <dt className="w-44 shrink-0 text-xs uppercase tracking-wide text-gray-400">{label}</dt>
+      <dd className="text-sm">{value}</dd>
+    </div>
+  );
+}
+
+// A titled group of fields. Renders nothing if no child Field produced output.
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const hasContent = React.Children.toArray(children).some(Boolean);
+  if (!hasContent) return null;
+  return (
+    <div className="border-t border-gray-100 py-3 first:border-t-0 first:pt-0 dark:border-gray-800">
+      <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-200">{title}</h3>
+      <dl className="space-y-1.5">{children}</dl>
+    </div>
+  );
+}
+
+const yesOrNull = (v: boolean | null | undefined) => (v ? "Yes" : null);
 
 export default function MumineenPage() {
   const router = useRouter();
@@ -34,6 +107,7 @@ export default function MumineenPage() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const [selected, setSelected] = useState<SearchResult | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
@@ -54,6 +128,15 @@ export default function MumineenPage() {
     void loadGate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelected(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected]);
 
   async function loadStats() {
     const res = await fetch("/api/admin/mumineen", { headers: { "x-admin-key": adminKey } });
@@ -219,7 +302,11 @@ export default function MumineenPage() {
                 </thead>
                 <tbody>
                   {results.map((r) => (
-                    <tr key={r.its} className="border-t border-gray-100 dark:border-gray-800">
+                    <tr
+                      key={r.its}
+                      onClick={() => setSelected(r)}
+                      className="cursor-pointer border-t border-gray-100 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
+                    >
                       <td className="px-2 py-1.5 font-medium">
                         {r.full_name ?? "—"}
                         {r.is_head && <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">Head</span>}
@@ -242,9 +329,9 @@ export default function MumineenPage() {
                       </td>
                       <td className="px-2 py-1.5">
                         {r.hof_its && (r.family?.registration_status === "submitted" || r.family?.registration_status === "confirmed") ? (
-                          <button type="button" onClick={() => registrationAction(r.hof_its!, "cancel")} className="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950">Cancel</button>
+                          <button type="button" onClick={(e) => { e.stopPropagation(); registrationAction(r.hof_its!, "cancel"); }} className="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950">Cancel</button>
                         ) : r.hof_its && r.family?.registration_status === "cancelled" ? (
-                          <button type="button" onClick={() => registrationAction(r.hof_its!, "reopen")} className="rounded border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800">Reopen</button>
+                          <button type="button" onClick={(e) => { e.stopPropagation(); registrationAction(r.hof_its!, "reopen"); }} className="rounded border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800">Reopen</button>
                         ) : (
                           <span className="text-gray-300 dark:text-gray-600">—</span>
                         )}
@@ -326,6 +413,105 @@ export default function MumineenPage() {
           Expects columns: Hof Id, Mumin Id, Fullname, Gender, Age, Jamaat, Idara, Category, Prefix, Title, Venue, City, Local/Mehman, Arr Place Date, Flight Code, Daily Trans, Whatsapp Link Clicked.
         </p>
       </form>
+
+      {selected && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-6"
+          onClick={() => setSelected(null)}
+        >
+          <div
+            className="my-4 w-full max-w-2xl rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-5 py-4 dark:border-gray-800">
+              <div>
+                <h2 className="text-lg font-semibold">
+                  {selected.full_name ?? "—"}
+                  {selected.is_head && (
+                    <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">Head</span>
+                  )}
+                </h2>
+                <p className="mt-0.5 font-mono text-xs text-gray-500">ITS {selected.its}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                aria-label="Close"
+                className="shrink-0 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+              >
+                <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path strokeLinecap="round" d="M5 5l10 10M15 5L5 15" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="px-5 py-3">
+              <Section title="Personal">
+                <Field label="Name" value={selected.full_name} />
+                <Field label="ITS" value={selected.its} />
+                <Field label="Prefix / Title" value={[selected.prefix, selected.title].filter(Boolean).join(" ") || null} />
+                <Field label="Gender" value={selected.gender} />
+                <Field label="Age" value={selected.age} />
+                <Field label="Adult" value={yesOrNull(selected.is_adult)} />
+                <Field label="Head of family" value={yesOrNull(selected.is_head)} />
+                <Field label="HOF ITS" value={selected.hof_its} />
+                <Field label="Jamaat" value={selected.jamaat} />
+                <Field label="Idara" value={selected.idara} />
+                <Field label="Category" value={selected.category} />
+                <Field label="Venue" value={selected.venue} />
+                <Field label="City" value={selected.city} />
+                <Field label="Local / Mehman" value={selected.local_mehman} />
+              </Section>
+
+              <Section title="Contact">
+                <Field label="WhatsApp" value={selected.whatsapp_e164} />
+                <Field label="Email" value={selected.email} />
+                <Field label="WhatsApp link clicked" value={yesOrNull(selected.whatsapp_link_clicked)} />
+              </Section>
+
+              <Section title="Travel">
+                <Field label="Arrival" value={fmtDateTime(selected.arrival_at)} />
+                <Field label="Arrival flight" value={selected.arrival_flight_no} />
+                <Field label="Departure" value={fmtDateTime(selected.departure_at)} />
+                <Field label="Departure flight" value={selected.departure_flight_no} />
+                <Field label="Airport" value={selected.airport} />
+                <Field label="Daily transport" value={selected.daily_trans} />
+                <Field label="Roster arrival (raw)" value={selected.roster_arrival_raw} />
+                <Field label="Roster flight code" value={selected.roster_flight_code} />
+              </Section>
+
+              <Section title="Needs / khidmat">
+                <Field label="Rahat seating" value={yesOrNull(selected.rahat_seating)} />
+                <Field label="Wheelchair" value={yesOrNull(selected.wheelchair)} />
+                <Field label="Special needs" value={selected.special_needs} />
+                <Field label="Wants khidmat" value={yesOrNull(selected.wants_khidmat)} />
+                <Field label="Not attending" value={yesOrNull(selected.not_attending)} />
+              </Section>
+
+              {selected.family && (
+                <Section title="Family registration">
+                  <Field label="Status" value={selected.family.registration_status} />
+                  <Field label="Submitted" value={fmtDateTime(selected.family.submitted_at)} />
+                  <Field label="Submitted by ITS" value={selected.family.submitted_by_its} />
+                  <Field label="Accommodation" value={selected.family.acc_type} />
+                  <Field label="Hotel name" value={selected.family.hotel_name} />
+                  <Field label="Hotel address" value={selected.family.hotel_address} />
+                  <Field label="Open to utaro" value={yesOrNull(selected.family.open_to_utaro)} />
+                  <Field label="Utaro host" value={selected.family.utaro_host_name} />
+                  <Field label="Utaro host ITS" value={selected.family.utaro_host_its} />
+                  <Field label="Utaro host address" value={selected.family.utaro_host_address} />
+                  <Field label="Utaro host WhatsApp" value={selected.family.utaro_host_whatsapp_e164} />
+                  <Field label="Utaro host email" value={selected.family.utaro_host_email} />
+                  <Field label="Transport mode" value={selected.family.transport_mode} />
+                  <Field label="Transport detail" value={selected.family.transport_detail} />
+                  <Field label="Cancelled" value={fmtDateTime(selected.family.cancelled_at)} />
+                  <Field label="Cancel reason" value={selected.family.cancelled_reason} />
+                </Section>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
