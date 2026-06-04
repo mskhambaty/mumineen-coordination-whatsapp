@@ -83,12 +83,13 @@ export default function OllamaTestPage() {
             model?: string;
             modified_at?: string;
           };
-          const identifier = model.model ?? model.name ?? model.id;
+          const identifier = model.model ?? model.id ?? model.name;
           if (!identifier) return null;
+          const displayName = model.name ?? identifier;
 
           return {
-            name: model.name ?? model.id ?? model.model ?? identifier,
-            model: model.model ?? model.id ?? model.name ?? identifier,
+            name: displayName,
+            model: identifier,
             modified_at: model.modified_at,
           };
         })
