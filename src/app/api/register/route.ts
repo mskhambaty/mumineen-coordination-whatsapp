@@ -107,16 +107,27 @@ const oneOf = (v: unknown, allowed: string[]) => {
   return s && allowed.includes(s) ? s : null;
 };
 
-// Only a WhatsApp number + valid email are required (the head provides them in the form).
-// Everything else is optional and editable later. Mirrors the form. Returns first problem or null.
-function validateSubmission(members: MemberInput[]): string | null {
+// One-time submission: everything is required except flight numbers and the rahat/same-flight
+// checkboxes. Mirrors the form. Returns the first problem, or null.
+function validateSubmission(members: MemberInput[], acc: Record<string, unknown>, tr: Record<string, unknown>): string | null {
   const present = members.filter((m) => str(m.its));
   if (present.length === 0) return "No family members were submitted.";
-  const hasContact = present.some((m) => {
+  for (const m of present) {
+    const who = str(m.its) ?? "a member";
+    if (!str(m.whatsapp_e164)) return `Missing WhatsApp number for ${who}.`;
     const email = str(m.email);
-    return Boolean(str(m.whatsapp_e164)) && Boolean(email) && /^\S+@\S+\.\S+$/.test(email as string);
-  });
-  if (!hasContact) return "A WhatsApp number and a valid email are required.";
+    if (!email || !/^\S+@\S+\.\S+$/.test(email)) return `Missing or invalid email for ${who}.`;
+    if (!ts(m.arrival_at)) return `Missing arrival date & time for ${who}.`;
+    if (!ts(m.departure_at)) return `Missing departure date & time for ${who}.`;
+    if (bool(m.rahat_seating) && !str(m.special_needs)) return `Missing rahat / special need detail for ${who}.`;
+  }
+  const accType = oneOf(acc.acc_type, ["hotel", "utaro"]);
+  if (!accType) return "Accommodation type is required.";
+  if (accType === "hotel" && (!str(acc.hotel_name) || !str(acc.hotel_address))) return "Hotel name and address are required.";
+  if (accType === "utaro" && !str(acc.utaro_host_name)) return "Host name is required.";
+  const mode = oneOf(tr.transport_mode, ["rideshare", "rental", "commute_with_utaro", "other"]);
+  if (!mode) return "Transport mode is required.";
+  if (mode === "other" && !str(tr.transport_detail)) return "Transport details are required.";
   return null;
 }
 
@@ -131,8 +142,8 @@ export async function POST(req: NextRequest) {
   }
   const members = Array.isArray(body.members) ? (body.members as MemberInput[]) : [];
 
-  // Require at least a contact (WhatsApp + email); the rest is optional and editable later.
-  const incomplete = validateSubmission(members);
+  // Everything required except flight numbers + the rahat/same-flight checkboxes (mirrors the form).
+  const incomplete = validateSubmission(members, body.accommodation ?? {}, body.transport ?? {});
   if (incomplete) {
     return NextResponse.json({ error: incomplete }, { status: 400 });
   }

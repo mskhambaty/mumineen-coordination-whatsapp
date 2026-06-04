@@ -48,20 +48,20 @@ const sectionHeading = "font-serif text-xl font-semibold text-emerald-950";
 const goldBtn =
   "rounded-full bg-amber-400 px-6 py-3 text-sm font-semibold text-emerald-950 shadow-md transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-60";
 
-type AddrPick = { address: string; lat: number | null; lon: number | null };
+type AddrPick = { address: string; name: string | null; lat: number | null; lon: number | null };
 type PhotonFeature = {
   properties?: { name?: string; street?: string; housenumber?: string; city?: string; state?: string; postcode?: string; country?: string };
   geometry?: { coordinates?: number[] };
 };
 
 // Free OpenStreetMap-based address autocomplete (Photon). No API key required.
-function AddressAutocomplete({ value, onPick }: { value: string; onPick: (p: AddrPick) => void }) {
-  const [suggestions, setSuggestions] = useState<{ label: string; lat: number; lon: number }[]>([]);
+function AddressAutocomplete({ value, onPick, id, invalid, className }: { value: string; onPick: (p: AddrPick) => void; id?: string; invalid?: boolean; className?: string }) {
+  const [suggestions, setSuggestions] = useState<{ label: string; name: string | null; lat: number; lon: number }[]>([]);
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function handle(v: string) {
-    onPick({ address: v, lat: null, lon: null }); // typing invalidates the pinned coords
+    onPick({ address: v, name: null, lat: null, lon: null }); // typing invalidates the pinned coords
     if (timer.current) clearTimeout(timer.current);
     if (v.trim().length < 3) {
       setSuggestions([]);
@@ -78,7 +78,7 @@ function AddressAutocomplete({ value, onPick }: { value: string; onPick: (p: Add
             const line = [p.housenumber, p.street].filter(Boolean).join(" ");
             const parts = [p.name, line, p.city, p.state, p.postcode, p.country].filter(Boolean);
             const coords = f.geometry?.coordinates;
-            return { label: parts.join(", "), lat: coords?.[1] ?? NaN, lon: coords?.[0] ?? NaN };
+            return { label: parts.join(", "), name: p.name ?? null, lat: coords?.[1] ?? NaN, lon: coords?.[0] ?? NaN };
           })
           .filter((s) => s.label && Number.isFinite(s.lat) && Number.isFinite(s.lon));
         setSuggestions(feats);
@@ -92,12 +92,13 @@ function AddressAutocomplete({ value, onPick }: { value: string; onPick: (p: Add
   return (
     <div className="relative">
       <input
+        id={id}
         value={value}
         onChange={(e) => handle(e.target.value)}
         onFocus={() => suggestions.length > 0 && setOpen(true)}
         autoComplete="off"
         placeholder="Start typing the hotel or address…"
-        className={inputClass}
+        className={`${className ?? inputClass}${invalid ? " border-red-400 ring-2 ring-red-300" : ""}`}
       />
       {open && suggestions.length > 0 && (
         <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-emerald-950/15 bg-white text-sm shadow-lg">
@@ -106,7 +107,7 @@ function AddressAutocomplete({ value, onPick }: { value: string; onPick: (p: Add
               <button
                 type="button"
                 onClick={() => {
-                  onPick({ address: s.label, lat: s.lat, lon: s.lon });
+                  onPick({ address: s.label, name: s.name, lat: s.lat, lon: s.lon });
                   setOpen(false);
                 }}
                 className="block w-full px-3 py-2 text-left text-gray-800 hover:bg-amber-50"
@@ -198,15 +199,29 @@ export default function RegisterPage() {
     }
   }
 
-  // Only the head-of-family's WhatsApp number and email are required; everything else can be
-  // added or updated later. Mirrored server-side. Returns the first problem + the field to focus.
+  // One-time submission: everything is required except flight numbers and the rahat/same-flight
+  // checkboxes. Mirrored server-side. Returns the first problem + the field to focus.
   function validate(): { message: string; fieldId: string } | null {
-    const head = members[0];
-    if (!head) return { message: "No family members found.", fieldId: "" };
-    const who = head.full_name || head.its;
-    if (!head.whatsapp_e164?.trim()) return { message: `Enter a WhatsApp number for ${who}.`, fieldId: `reg-${head.its}-whatsapp` };
-    if (!head.email?.trim() || !/^\S+@\S+\.\S+$/.test(head.email.trim()))
-      return { message: `Enter a valid email for ${who}.`, fieldId: `reg-${head.its}-email` };
+    if (members.length === 0) return { message: "No family members found.", fieldId: "" };
+    for (const m of members) {
+      const who = m.full_name || m.its;
+      if (!m.whatsapp_e164?.trim()) return { message: `Enter a WhatsApp number for ${who}.`, fieldId: `reg-${m.its}-whatsapp` };
+      if (!m.email?.trim() || !/^\S+@\S+\.\S+$/.test(m.email.trim()))
+        return { message: `Enter a valid email for ${who}.`, fieldId: `reg-${m.its}-email` };
+      if (!m.arrival_at) return { message: `Enter arrival date & time for ${who}.`, fieldId: `reg-${m.its}-arrival` };
+      if (!m.departure_at) return { message: `Enter departure date & time for ${who}.`, fieldId: `reg-${m.its}-departure` };
+      if (m.rahat_seating && !m.special_needs?.trim()) return { message: `Describe the rahat / special need for ${who}.`, fieldId: `reg-${m.its}-special` };
+    }
+    if (acc.acc_type !== "hotel" && acc.acc_type !== "utaro") return { message: "Select your accommodation type.", fieldId: "reg-acc-type" };
+    if (acc.acc_type === "hotel") {
+      if (!acc.hotel_name?.trim()) return { message: "Enter your hotel name.", fieldId: "reg-hotel-name" };
+      if (!acc.hotel_address?.trim()) return { message: "Enter your hotel address.", fieldId: "reg-hotel-address" };
+    }
+    if (acc.acc_type === "utaro" && !acc.utaro_host_name?.trim()) {
+      return { message: "Enter the host's name.", fieldId: "reg-host-name" };
+    }
+    if (!acc.transport_mode?.trim()) return { message: "Select how you will get to the relay center.", fieldId: "reg-transport-mode" };
+    if (acc.transport_mode === "other" && !acc.transport_detail?.trim()) return { message: "Enter your transport details.", fieldId: "reg-transport-detail" };
     return null;
   }
 
@@ -240,6 +255,7 @@ export default function RegisterPage() {
             hotel_lat: acc.hotel_lat,
             hotel_lon: acc.hotel_lon,
             open_to_utaro: acc.open_to_utaro,
+            utaro_host_name: acc.utaro_host_name,
             utaro_host_its: acc.utaro_host_its,
             utaro_host_whatsapp_e164: acc.utaro_host_whatsapp_e164,
           },
@@ -333,7 +349,7 @@ export default function RegisterPage() {
             <section className={cardClass}>
               <h2 className={sectionHeading}>Family members</h2>
               <p className="mt-1 text-sm text-emerald-950/60">
-                A WhatsApp number and email are required for the head of family. Everything else can be added or updated later.
+                This is a one-time submission. All fields are required for every member, except flight numbers and rahat.
               </p>
               <div className="mt-4 space-y-5">
                 {members.map((m, idx) => (
@@ -345,10 +361,10 @@ export default function RegisterPage() {
                       </span>
                     </p>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      <label className={labelClass}>WhatsApp number{idx === 0 && <span className="text-red-500"> *</span>}
+                      <label className={labelClass}>WhatsApp number<span className="text-red-500"> *</span>
                         <input id={`reg-${m.its}-whatsapp`} value={m.whatsapp_e164 ?? ""} onChange={(e) => { setMember(m.its, { whatsapp_e164: e.target.value }); if (errorField === `reg-${m.its}-whatsapp`) setErrorField(null); }} placeholder="+1..." className={fieldClass(`reg-${m.its}-whatsapp`)} />
                       </label>
-                      <label className={labelClass}>Email{idx === 0 && <span className="text-red-500"> *</span>}
+                      <label className={labelClass}>Email<span className="text-red-500"> *</span>
                         <input id={`reg-${m.its}-email`} type="email" value={m.email ?? ""} onChange={(e) => { setMember(m.its, { email: e.target.value }); if (errorField === `reg-${m.its}-email`) setErrorField(null); }} className={fieldClass(`reg-${m.its}-email`)} />
                       </label>
                     </div>
@@ -362,14 +378,14 @@ export default function RegisterPage() {
 
                     {idx === 0 || !sameAsHead.has(m.its) ? (
                       <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                        <label className={labelClass}>Arrival (date & time)
-                          <input type="datetime-local" value={m.arrival_at ?? ""} onChange={(e) => setMember(m.its, { arrival_at: e.target.value })} className={inputClass} />
+                        <label className={labelClass}>Arrival (date & time)<span className="text-red-500"> *</span>
+                          <input id={`reg-${m.its}-arrival`} type="datetime-local" value={m.arrival_at ?? ""} onChange={(e) => { setMember(m.its, { arrival_at: e.target.value }); if (errorField === `reg-${m.its}-arrival`) setErrorField(null); }} className={fieldClass(`reg-${m.its}-arrival`)} />
                         </label>
                         <label className={labelClass}>Arrival flight #
                           <input value={m.arrival_flight_no ?? ""} onChange={(e) => setMember(m.its, { arrival_flight_no: e.target.value })} className={inputClass} />
                         </label>
-                        <label className={labelClass}>Departure (date & time)
-                          <input type="datetime-local" value={m.departure_at ?? ""} onChange={(e) => setMember(m.its, { departure_at: e.target.value })} className={inputClass} />
+                        <label className={labelClass}>Departure (date & time)<span className="text-red-500"> *</span>
+                          <input id={`reg-${m.its}-departure`} type="datetime-local" value={m.departure_at ?? ""} onChange={(e) => { setMember(m.its, { departure_at: e.target.value }); if (errorField === `reg-${m.its}-departure`) setErrorField(null); }} className={fieldClass(`reg-${m.its}-departure`)} />
                         </label>
                         <label className={labelClass}>Departure flight #
                           <input value={m.departure_flight_no ?? ""} onChange={(e) => setMember(m.its, { departure_flight_no: e.target.value })} className={inputClass} />
@@ -394,8 +410,8 @@ export default function RegisterPage() {
                       )}
                     </div>
                     {m.rahat_seating && (
-                      <label className={`${labelClass} mt-2`}>Special needs
-                        <input value={m.special_needs ?? ""} onChange={(e) => setMember(m.its, { special_needs: e.target.value })} className={inputClass} />
+                      <label className={`${labelClass} mt-2`}>Special needs<span className="text-red-500"> *</span>
+                        <input id={`reg-${m.its}-special`} value={m.special_needs ?? ""} onChange={(e) => { setMember(m.its, { special_needs: e.target.value }); if (errorField === `reg-${m.its}-special`) setErrorField(null); }} className={fieldClass(`reg-${m.its}-special`)} />
                       </label>
                     )}
                   </div>
@@ -405,26 +421,39 @@ export default function RegisterPage() {
 
             {/* Accommodation */}
             <section className={cardClass}>
-              <h2 className={sectionHeading}>Accommodation</h2>
-              <div className="mt-3 flex gap-4 text-sm text-emerald-950/80">
+              <h2 className={sectionHeading}>Accommodation<span className="text-red-500"> *</span></h2>
+              <div id="reg-acc-type" className="mt-3 flex flex-col gap-3 text-sm text-emerald-950/80 sm:flex-row sm:gap-6">
                 {["hotel", "utaro"].map((t) => (
                   <label key={t} className="flex items-center gap-2">
-                    <input type="radio" name="acc_type" className="accent-amber-500" checked={acc.acc_type === t} onChange={() => setAcc((a) => ({ ...a, acc_type: t }))} />
-                    {t === "hotel" ? "Hotel" : "Utaro (host family)"}
+                    <input type="radio" name="acc_type" className="accent-amber-500" checked={acc.acc_type === t} onChange={() => { setAcc((a) => ({ ...a, acc_type: t })); if (errorField === "reg-acc-type") setErrorField(null); }} />
+                    {t === "hotel" ? "Hotel" : "Staying with friends and family"}
                   </label>
                 ))}
               </div>
               {acc.acc_type === "hotel" && (
                 <div className="mt-3 space-y-3">
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <label className={labelClass}>Hotel name
-                      <input value={acc.hotel_name ?? ""} onChange={(e) => setAcc((a) => ({ ...a, hotel_name: e.target.value }))} className={inputClass} />
+                    <label className={labelClass}>Hotel name<span className="text-red-500"> *</span>
+                      <input id="reg-hotel-name" value={acc.hotel_name ?? ""} onChange={(e) => { setAcc((a) => ({ ...a, hotel_name: e.target.value })); if (errorField === "reg-hotel-name") setErrorField(null); }} className={fieldClass("reg-hotel-name")} />
                     </label>
                     <div>
-                      <span className={labelClass}>Hotel address</span>
+                      <span className={labelClass}>Hotel address<span className="text-red-500"> *</span></span>
                       <AddressAutocomplete
+                        id="reg-hotel-address"
+                        invalid={errorField === "reg-hotel-address"}
+                        className={`${inputClass} mt-1`}
                         value={acc.hotel_address ?? ""}
-                        onPick={(p) => setAcc((a) => ({ ...a, hotel_address: p.address, hotel_lat: p.lat, hotel_lon: p.lon }))}
+                        onPick={(p) => {
+                          if (errorField === "reg-hotel-address") setErrorField(null);
+                          // Backfill the hotel name from the lookup when it's still empty.
+                          setAcc((a) => ({
+                            ...a,
+                            hotel_address: p.address,
+                            hotel_lat: p.lat,
+                            hotel_lon: p.lon,
+                            hotel_name: a.hotel_name?.trim() ? a.hotel_name : (p.name ?? a.hotel_name ?? null),
+                          }));
+                        }}
                       />
                     </div>
                   </div>
@@ -438,11 +467,11 @@ export default function RegisterPage() {
                       />
                     </div>
                   )}
-                  <label className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-sm text-emerald-950/80">
-                    <input type="checkbox" className="mt-0.5 accent-amber-500" checked={Boolean(acc.open_to_utaro)} onChange={(e) => setAcc((a) => ({ ...a, open_to_utaro: e.target.checked }))} />
+                  <label className="flex items-start gap-3 rounded-lg bg-amber-50 p-4 text-base font-medium text-emerald-950/90">
+                    <input type="checkbox" className="mt-1 h-5 w-5 accent-amber-500" checked={Boolean(acc.open_to_utaro)} onChange={(e) => setAcc((a) => ({ ...a, open_to_utaro: e.target.checked }))} />
                     <span>
                       I have a hotel booked, but I am open to Utaro if a host family can offer it.
-                      <span className="mt-1 block text-xs text-amber-800">
+                      <span className="mt-1.5 block text-sm font-normal text-amber-800">
                         Utaro is subject to availability. Mehmaan are advised to book a refundable hotel and not depend on Utaro completely.
                       </span>
                     </span>
@@ -451,7 +480,10 @@ export default function RegisterPage() {
               )}
               {acc.acc_type === "utaro" && (
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <label className={labelClass}>Host family ITS
+                  <label className={labelClass}>Host name<span className="text-red-500"> *</span>
+                    <input id="reg-host-name" value={acc.utaro_host_name ?? ""} onChange={(e) => { setAcc((a) => ({ ...a, utaro_host_name: e.target.value })); if (errorField === "reg-host-name") setErrorField(null); }} className={fieldClass("reg-host-name")} />
+                  </label>
+                  <label className={labelClass}>Host HOF ITS number
                     <input value={acc.utaro_host_its ?? ""} onChange={(e) => setAcc((a) => ({ ...a, utaro_host_its: e.target.value }))} className={inputClass} />
                   </label>
                   <label className={labelClass}>Host contact number
@@ -464,18 +496,18 @@ export default function RegisterPage() {
             {/* Transport */}
             <section className={cardClass}>
               <h2 className={sectionHeading}>Transport</h2>
-              <label className={`${labelClass} mt-3`}>How will you get around daily?
-                <select value={acc.transport_mode ?? ""} onChange={(e) => setAcc((a) => ({ ...a, transport_mode: e.target.value }))} className={inputClass}>
+              <label className={`${labelClass} mt-3`}>How will you get to the relay center daily?<span className="text-red-500"> *</span>
+                <select id="reg-transport-mode" value={acc.transport_mode ?? ""} onChange={(e) => { setAcc((a) => ({ ...a, transport_mode: e.target.value })); if (errorField === "reg-transport-mode") setErrorField(null); }} className={fieldClass("reg-transport-mode")}>
                   <option value="">Select…</option>
                   <option value="rideshare">Rideshare (Uber/Lyft)</option>
                   <option value="rental">Rental car</option>
-                  <option value="commute_with_utaro">Commute with utaro family</option>
+                  <option value="commute_with_utaro">Commute with friends and family</option>
                   <option value="other">Other</option>
                 </select>
               </label>
               {acc.transport_mode === "other" && (
-                <label className={`${labelClass} mt-2`}>Details
-                  <input value={acc.transport_detail ?? ""} onChange={(e) => setAcc((a) => ({ ...a, transport_detail: e.target.value }))} className={inputClass} />
+                <label className={`${labelClass} mt-2`}>Details<span className="text-red-500"> *</span>
+                  <input id="reg-transport-detail" value={acc.transport_detail ?? ""} onChange={(e) => { setAcc((a) => ({ ...a, transport_detail: e.target.value })); if (errorField === "reg-transport-detail") setErrorField(null); }} className={fieldClass("reg-transport-detail")} />
                 </label>
               )}
             </section>
