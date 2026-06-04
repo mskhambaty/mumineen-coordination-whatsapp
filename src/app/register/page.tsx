@@ -49,7 +49,7 @@ type Family = {
 const toLocalInput = (iso: string | null) => (iso ? new Date(iso).toISOString().slice(0, 16) : "");
 
 // Internal Google Form local mumineen use to sign up for khidmat.
-const KHIDMAT_SIGNUP_URL = "https://docs.google.com/forms/d/e/1FAIpQLSf9UJuTKWKcij8hgJ3U2xt3km7eTvSKIb6CSEYVqau1LMBKrw/viewform?usp=send_form";
+const KHIDMAT_SIGNUP_URL = "https://docs.google.com/forms/d/e/1FAIpQLSeM6KNofcUO4e6sXgw9fjHbqgenuT0LcygJ9X8QBZmVglKksQ/viewform?usp=send_form";
 
 const inputClass =
   "mt-1 block w-full rounded-lg border border-emerald-950/15 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-300/60";
