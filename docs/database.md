@@ -436,6 +436,25 @@ Inbound message queue for coalescing. Messages are inserted by the webhook handl
 
 Source: `supabase/migrations/20260602120000_whatsapp_coalescing.sql`
 
+### `relay_updates`
+
+Updates shown on the public relay-center page (and indexed for the WhatsApp agent). See [relay-updates.md](./relay-updates.md).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `date` | date | Display date on the page |
+| `title` | text | ≤ 200 chars (API-validated) |
+| `body` | text | ≤ 1000 chars (API-validated) |
+| `category` | text | `urgent` \| `schedule` \| `travel` \| `advisory` |
+| `link` | text | Optional CTA URL (http/https, ≤ 500 chars; nullable) |
+| `cta` | text | Optional CTA label (≤ 80 chars; requires `link`; nullable) |
+| `published` | boolean | Default `true`; unpublished rows are excluded from the feed and the vector index |
+| `created_by` | uuid | FK → `whatsapp_users.id` (nullable on delete) |
+| `created_at` / `updated_at` | timestamptz | `updated_at` app-managed |
+
+Index: `(published, date desc)`.
+
 ## Supabase RPC Function
 
 `match_site_content(query_embedding, match_threshold, match_count)` — vector similarity search.  

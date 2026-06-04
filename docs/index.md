@@ -26,6 +26,7 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 | [transcript-parser.md](./transcript-parser.md) | AI-powered WhatsApp transcript parsing service |
 | [admin-dashboard.md](./admin-dashboard.md) | Admin web dashboard: pages, auth, features |
 | [escalation.md](./escalation.md) | Escalation & site support: triggers, roles, on-call, notifications (design spec) |
+| [relay-updates.md](./relay-updates.md) | Public relay-page updates feed: endpoint, authoring UI, agent indexing |
 | [openapi.yaml](./openapi.yaml) | API-first contract for all `src/app/api/**` routes |
 
 ## Key File Locations
@@ -50,6 +51,7 @@ src/lib/scraper/scrape-site.ts           — Cheerio scraper + OpenAI embedding
 src/lib/scraper/retrieve-site-context.ts — RAG vector search
 src/lib/env.ts                           — Env var lookup with alias support
 supabase/migrations/                     — All database migrations
+src/app/api/relay-updates/route.ts       — Public relay updates JSON feed
 ```
 
 ## Quick Reference: Adding a New Feature

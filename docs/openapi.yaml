@@ -1006,6 +1006,93 @@ paths:
         "200": { description: Webhook processed. }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /relay-updates:
+    get:
+      tags: [conversations]
+      summary: Public relay-center updates feed (CORS, cached).
+      description: >-
+        Returns all published relay updates newest-first. Served with
+        `Access-Control-Allow-Origin: *` and `Cache-Control: public, s-maxage=60,
+        stale-while-revalidate=300`. No authentication required.
+      security: []
+      responses:
+        "200":
+          description: Published updates, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RelayUpdate" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/relay-updates:
+    get:
+      tags: [conversations]
+      summary: List all relay updates (published and unpublished).
+      security: [{ adminKey: [] }]
+      responses:
+        "200":
+          description: All relay updates, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RelayUpdate" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [conversations]
+      summary: Create a relay update and re-index published updates.
+      description: Admin/leadership only. On success, re-indexes all published updates into site_content under `updates://relay`.
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RelayUpdateWriteRequest" }
+      responses:
+        "201":
+          description: Created update.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, id]
+                properties:
+                  ok: { type: boolean }
+                  id: { type: string, format: uuid }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/relay-updates/{id}:
+    put:
+      tags: [conversations]
+      summary: Update a relay update and re-index published updates.
+      description: Admin/leadership only. On success, re-indexes all published updates into site_content under `updates://relay`.
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RelayUpdateWriteRequest" }
+      responses:
+        "200":
+          description: Updated update.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, id]
+                properties:
+                  ok: { type: boolean }
+                  id: { type: string, format: uuid }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
 components:
   securitySchemes:
     whatsappPhone:
@@ -1365,3 +1452,29 @@ components:
             properties:
               user_id: { type: string, format: uuid }
               message: { type: string }
+    RelayUpdate:
+      type: object
+      required: [id, date, title, body, category, published]
+      properties:
+        id: { type: string, format: uuid }
+        date: { type: string, format: date }
+        title: { type: string, maxLength: 200 }
+        body: { type: string, maxLength: 1000 }
+        category: { type: string, enum: [urgent, schedule, travel, advisory] }
+        link: { type: [string, "null"], maxLength: 500, description: Optional CTA URL (http/https). }
+        cta: { type: [string, "null"], maxLength: 80, description: Optional CTA label; requires link. }
+        published: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    RelayUpdateWriteRequest:
+      type: object
+      required: [user_id, date, title, body, category]
+      properties:
+        user_id: { type: string, format: uuid, description: Acting admin user id; server verifies admin/leadership role. }
+        date: { type: string, format: date }
+        title: { type: string, maxLength: 200 }
+        body: { type: string, maxLength: 1000 }
+        category: { type: string, enum: [urgent, schedule, travel, advisory] }
+        link: { type: string, maxLength: 500, description: Optional CTA URL (http/https). }
+        cta: { type: string, maxLength: 80, description: Optional CTA label; requires link. }
+        published: { type: boolean, default: true }
