@@ -11,6 +11,13 @@ type OllamaModel = {
   modified_at?: string;
 };
 
+type RawOllamaModel = {
+  id?: string;
+  name?: string;
+  model?: string;
+  modified_at?: string;
+};
+
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
@@ -77,15 +84,11 @@ export default function OllamaTestPage() {
         .map((item: unknown) => {
           if (!item || typeof item !== "object") return null;
 
-          const model = item as {
-            id?: string;
-            name?: string;
-            model?: string;
-            modified_at?: string;
-          };
+          const model = item as RawOllamaModel;
           const identifier = model.model ?? model.id ?? model.name;
           if (!identifier) return null;
-          const displayName = model.name ?? identifier;
+          const displayName = model.name ?? model.id ?? model.model;
+          if (!displayName) return null;
 
           return {
             name: displayName,
