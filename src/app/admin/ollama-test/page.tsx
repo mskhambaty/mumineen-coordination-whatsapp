@@ -29,6 +29,42 @@ type CompletionResult = {
   latencyMs: number;
 };
 
+type OllamaModelsResponse = {
+  models?: unknown;
+  data?: unknown;
+};
+
+function toOllamaModel(value: unknown): OllamaModel | null {
+  if (!value || typeof value !== "object") return null;
+
+  const record = value as Record<string, unknown>;
+  const name = typeof record.name === "string" ? record.name : "";
+  const model = typeof record.model === "string" ? record.model : undefined;
+  const id = typeof record.id === "string" ? record.id : undefined;
+  const modifiedAt = typeof record.modified_at === "string" ? record.modified_at : undefined;
+  const resolvedName = name || model || id;
+
+  if (!resolvedName) return null;
+
+  return {
+    name: resolvedName,
+    model: model ?? id,
+    modified_at: modifiedAt,
+  };
+}
+
+function parseOllamaModels(data: OllamaModelsResponse): OllamaModel[] {
+  const rawModels = Array.isArray(data.models)
+    ? data.models
+    : Array.isArray(data.data)
+      ? data.data
+      : [];
+
+  return rawModels
+    .map(toOllamaModel)
+    .filter((model: OllamaModel | null): model is OllamaModel => model !== null);
+}
+
 export default function OllamaTestPage() {
   const router = useRouter();
   const [ollamaApiKey, setOllamaApiKey] = useState("");
@@ -70,11 +106,12 @@ export default function OllamaTestPage() {
       const res = await fetch("/api/ollama/models", {
         headers: { "x-ollama-api-key": ollamaApiKey },
       });
-      const data = await res.json();
+      const data = (await res.json()) as OllamaModelsResponse & { error?: string };
       if (!res.ok) {
         setModelsError(data.error ?? "Failed to fetch models");
         return;
       }
+<<<<<<< Updated upstream
       // Supports OpenAI-compatible { data: [...] } and legacy { models: [...] } payloads.
       const rawModels = Array.isArray(data.data)
         ? data.data
@@ -96,6 +133,9 @@ export default function OllamaTestPage() {
           };
         })
         .filter((model): model is OllamaModel => model !== null);
+=======
+      const modelList = parseOllamaModels(data);
+>>>>>>> Stashed changes
       setModels(modelList);
       if (modelList.length > 0 && !selectedModel) {
         setSelectedModel(modelList[0].model ?? modelList[0].name);
