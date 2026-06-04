@@ -114,7 +114,8 @@ function AddressAutocomplete({ value, onPick, id, invalid, className }: { value:
             <li key={`${s.lat}-${s.lon}-${i}`}>
               <button
                 type="button"
-                onClick={() => {
+                onPointerDown={(e) => {
+                  e.preventDefault();
                   onPick({ address: s.label, name: s.name, lat: s.lat, lon: s.lon });
                   setOpen(false);
                 }}
@@ -170,7 +171,7 @@ function KhidmatPicker({ departments, selected, onChange }: { departments: Depar
                 <li key={d.id}>
                   <button
                     type="button"
-                    onClick={() => { onChange([...selected, d.id]); setQ(""); }}
+                    onPointerDown={(e) => { e.preventDefault(); onChange([...selected, d.id]); setQ(""); }}
                     className="block w-full px-3 py-2 text-left text-gray-800 hover:bg-amber-50"
                   >
                     {d.name}
