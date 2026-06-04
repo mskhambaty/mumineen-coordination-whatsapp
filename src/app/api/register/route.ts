@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
 
   const { data: members } = await supabase
     .from("mumineen")
-    .select("its, full_name, gender, age, is_adult, is_head, whatsapp_e164, email, arrival_at, arrival_flight_no, departure_at, departure_flight_no, airport, rahat_seating, wheelchair, special_needs")
+    .select("its, full_name, gender, age, is_adult, is_head, whatsapp_e164, email, arrival_at, arrival_flight_no, departure_at, departure_flight_no, airport, not_attending, rahat_seating, wheelchair, special_needs")
     .eq("hof_its", hofIts)
     .eq("roster_active", true)
     .order("is_head", { ascending: false })
@@ -78,6 +78,7 @@ type MemberInput = {
   departure_at?: unknown;
   departure_flight_no?: unknown;
   airport?: unknown;
+  not_attending?: unknown;
   rahat_seating?: unknown;
   wheelchair?: unknown;
   special_needs?: unknown;
@@ -114,6 +115,7 @@ function validateSubmission(members: MemberInput[], acc: Record<string, unknown>
   const present = members.filter((m) => str(m.its));
   if (present.length === 0) return "No family members were submitted.";
   for (const m of present) {
+    if (bool(m.not_attending)) continue; // not attending → their details aren't required
     const who = str(m.its) ?? "a member";
     if (!str(m.whatsapp_e164)) return `Missing WhatsApp number for ${who}.`;
     const email = str(m.email);
@@ -175,6 +177,7 @@ export async function POST(req: NextRequest) {
         departure_at: ts(m.departure_at),
         departure_flight_no: str(m.departure_flight_no),
         airport: oneOf(m.airport, ["ORD", "MDW"]),
+        not_attending: bool(m.not_attending),
         rahat_seating: bool(m.rahat_seating),
         wheelchair: bool(m.rahat_seating) && bool(m.wheelchair),
         special_needs: str(m.special_needs),

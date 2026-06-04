@@ -16,6 +16,7 @@ type Member = {
   departure_at: string | null;
   departure_flight_no: string | null;
   airport: string | null;
+  not_attending: boolean;
   rahat_seating: boolean;
   wheelchair: boolean;
   special_needs: string | null;
@@ -149,12 +150,14 @@ export default function RegisterPage() {
     airport: from.airport,
   });
 
+  const headAttending = Boolean(members[0]) && !members[0]?.not_attending;
+
   // Non-head members linked to the head inherit the head's flight (computed, not stored, so
-  // unchecking restores each member's own values). Used for both validation and submit.
+  // unchecking restores each member's own values). Suspended if the head isn't attending.
   function effectiveMembers(): Member[] {
     const head = members[0];
     if (!head) return members;
-    return members.map((m, i) => (i > 0 && sameAsHead.has(m.its) ? copyFlight(head, m) : m));
+    return members.map((m, i) => (i > 0 && headAttending && sameAsHead.has(m.its) ? copyFlight(head, m) : m));
   }
 
   async function findFamily(event: React.FormEvent) {
@@ -204,6 +207,7 @@ export default function RegisterPage() {
   function validate(): { message: string; fieldId: string } | null {
     if (members.length === 0) return { message: "No family members found.", fieldId: "" };
     for (const m of effectiveMembers()) {
+      if (m.not_attending) continue;
       const who = m.full_name || m.its;
       if (!m.whatsapp_e164?.trim()) return { message: `Enter a WhatsApp number for ${who}.`, fieldId: `reg-${m.its}-whatsapp` };
       if (!m.email?.trim() || !/^\S+@\S+\.\S+$/.test(m.email.trim()))
@@ -364,6 +368,12 @@ export default function RegisterPage() {
                         {m.is_head ? "Head · " : ""}{m.gender ?? ""}{m.age != null ? ` · ${m.age}y` : ""}{m.is_adult ? " · adult" : ""}
                       </span>
                     </p>
+                    <label className="mt-2 flex items-center gap-2.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">
+                      <input type="checkbox" className="h-4 w-4 accent-rose-500" checked={m.not_attending} onChange={(e) => { setMember(m.its, { not_attending: e.target.checked }); if (e.target.checked) setErrorField(null); }} />
+                      Will not be attending
+                    </label>
+                    {!m.not_attending && (
+                      <>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       <label className={labelClass}>WhatsApp number<span className="text-red-500"> *</span>
                         <input id={`reg-${m.its}-whatsapp`} value={m.whatsapp_e164 ?? ""} onChange={(e) => { setMember(m.its, { whatsapp_e164: e.target.value }); if (errorField === `reg-${m.its}-whatsapp`) setErrorField(null); }} placeholder="+1..." className={fieldClass(`reg-${m.its}-whatsapp`)} />
@@ -424,6 +434,8 @@ export default function RegisterPage() {
                       <label className={`${labelClass} mt-2`}>Special needs<span className="text-red-500"> *</span>
                         <input id={`reg-${m.its}-special`} value={m.special_needs ?? ""} onChange={(e) => { setMember(m.its, { special_needs: e.target.value }); if (errorField === `reg-${m.its}-special`) setErrorField(null); }} className={fieldClass(`reg-${m.its}-special`)} />
                       </label>
+                    )}
+                      </>
                     )}
                   </div>
                 ))}
