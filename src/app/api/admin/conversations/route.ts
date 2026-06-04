@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { countUnreadInbound, groupRowsByPhoneChronologically } from "@/lib/admin/conversations";
 import { requireAdminKey } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -89,13 +90,13 @@ export async function GET(req: NextRequest) {
         .from("messages")
         .select("id, phone_e164, direction, body, message_type, whatsapp_message_id, created_at, raw_payload")
         .in("phone_e164", phoneNumbers)
-        .order("created_at", { ascending: true })
+        .order("created_at", { ascending: false })
         .limit(selectedPhone ? 300 : 1000),
       supabase
         .from("tool_audit_logs")
         .select("id, phone_e164, tool_name, arguments, allowed, result_summary, created_at")
         .in("phone_e164", phoneNumbers)
-        .order("created_at", { ascending: true })
+        .order("created_at", { ascending: false })
         .limit(selectedPhone ? 200 : 500),
     ]);
 
@@ -106,8 +107,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: toolError.message }, { status: 500 });
   }
 
-  const messagesByPhone = groupByPhone((messages ?? []) as MessageRow[]);
-  const toolsByPhone = groupByPhone((toolCalls ?? []) as ToolAuditRow[]);
+  const messagesByPhone = groupRowsByPhoneChronologically((messages ?? []) as MessageRow[]);
+  const toolsByPhone = groupRowsByPhoneChronologically((toolCalls ?? []) as ToolAuditRow[]);
 
   const conversations = ((sessions ?? []) as SessionRow[]).map((session) => {
     const user = Array.isArray(session.user) ? session.user[0] : session.user;
@@ -143,25 +144,4 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json({ conversations });
-}
-
-function groupByPhone<T extends { phone_e164: string | null }>(rows: T[]) {
-  const grouped = new Map<string, T[]>();
-  for (const row of rows) {
-    if (!row.phone_e164) continue;
-    const existing = grouped.get(row.phone_e164) ?? [];
-    existing.push(row);
-    grouped.set(row.phone_e164, existing);
-  }
-  return grouped;
-}
-
-function countUnreadInbound(messages: MessageRow[]) {
-  let count = 0;
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index];
-    if (message.direction === "outbound") break;
-    if (message.direction === "inbound") count++;
-  }
-  return count;
 }

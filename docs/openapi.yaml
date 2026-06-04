@@ -166,6 +166,7 @@ paths:
     get:
       tags: [conversations]
       summary: List Lead Inbox conversations with messages and tool calls.
+      description: Returns recent conversations sorted by `last_message_at`; message and tool-call arrays are capped to latest activity and ordered chronologically within each conversation.
       security: [{ adminKey: [] }]
       parameters:
         - name: phone
