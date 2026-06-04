@@ -71,6 +71,10 @@ export default function UsersPage() {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editForm, setEditForm] = useState<UserForm | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [settingPassword, setSettingPassword] = useState(false);
+  const [passwordMsg, setPasswordMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [currentUserId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -248,6 +252,43 @@ export default function UsersPage() {
       global_role: user.global_role,
       status: user.status,
     });
+    setNewPassword("");
+    setShowNewPassword(false);
+    setPasswordMsg(null);
+  }
+
+  function closeEditUser() {
+    setEditingUser(null);
+    setEditForm(null);
+    setNewPassword("");
+    setShowNewPassword(false);
+    setPasswordMsg(null);
+  }
+
+  async function setUserPassword() {
+    if (!editingUser) return;
+    if (newPassword.length < 8) {
+      setPasswordMsg({ type: "err", text: "Password must be at least 8 characters." });
+      return;
+    }
+    setSettingPassword(true);
+    setPasswordMsg(null);
+    try {
+      const res = await fetch(`/api/admin/users/${editingUser.id}/password`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
+        body: JSON.stringify({ password: newPassword }),
+      });
+      const data = await res.json().catch(() => ({})) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Failed to set password");
+      setNewPassword("");
+      setShowNewPassword(false);
+      setPasswordMsg({ type: "ok", text: "Password updated." });
+    } catch (err) {
+      setPasswordMsg({ type: "err", text: err instanceof Error ? err.message : "Failed to set password" });
+    } finally {
+      setSettingPassword(false);
+    }
   }
 
   async function saveUser(e: React.FormEvent) {
@@ -280,8 +321,7 @@ export default function UsersPage() {
 
       const updated = await res.json() as User;
       setUsers((items) => items.map((user) => user.id === updated.id ? { ...user, ...updated } : user));
-      setEditingUser(null);
-      setEditForm(null);
+      closeEditUser();
     } catch (err) {
       console.error("Failed to save user:", err);
       setError(err instanceof Error ? err.message : "Failed to save user");
@@ -483,10 +523,7 @@ export default function UsersPage() {
                 <div className="flex justify-end space-x-3">
                   <button
                     type="button"
-                    onClick={() => {
-                      setEditingUser(null);
-                      setEditForm(null);
-                    }}
+                    onClick={closeEditUser}
                     className="px-4 py-2 text-gray-600 dark:text-gray-300"
                   >
                     Cancel
@@ -500,6 +537,46 @@ export default function UsersPage() {
                   </button>
                 </div>
               </form>
+
+              {/* Set / change portal password — separate from the profile form above. */}
+              <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-4">
+                <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Set Password</h4>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Set or override this user&apos;s portal password directly. They can sign in with it immediately. Minimum 8 characters.
+                </p>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-start">
+                  <div className="relative flex-1">
+                    <input
+                      type={showNewPassword ? "text" : "password"}
+                      value={newPassword}
+                      onChange={(event) => { setNewPassword(event.target.value); if (passwordMsg) setPasswordMsg(null); }}
+                      placeholder="New password"
+                      autoComplete="new-password"
+                      className="block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 pr-16 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword((v) => !v)}
+                      className="absolute inset-y-0 right-2 my-auto h-6 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                    >
+                      {showNewPassword ? "Hide" : "Show"}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void setUserPassword()}
+                    disabled={settingPassword || newPassword.length < 8}
+                    className="shrink-0 rounded-md bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-900 disabled:cursor-not-allowed disabled:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600"
+                  >
+                    {settingPassword ? "Setting..." : "Set Password"}
+                  </button>
+                </div>
+                {passwordMsg && (
+                  <p className={`mt-2 text-xs ${passwordMsg.type === "ok" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                    {passwordMsg.text}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         )}

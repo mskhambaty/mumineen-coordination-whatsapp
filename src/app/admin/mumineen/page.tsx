@@ -5,7 +5,7 @@ import React, { useEffect, useRef, useState } from "react";
 
 import { canAccessMumineen } from "@/lib/admin/access";
 
-type Stats = { mumineen: number; adults: number; families: number; registered_families: number; cancelled_families: number };
+type Stats = { mumineen: number; adults: number; families: number; registered_families: number; cancelled_families: number; mehmaan: number; local: number };
 
 type FamilyDetail = {
   registration_status: string | null;
@@ -472,6 +472,8 @@ export default function MumineenPage() {
 
   const cards: { label: string; value: number | undefined }[] = [
     { label: "Mumineen", value: stats?.mumineen },
+    { label: "Mehmaan", value: stats?.mehmaan },
+    { label: "Local", value: stats?.local },
     { label: "Adults (RSVP targets)", value: stats?.adults },
     { label: "Families", value: stats?.families },
     { label: "Registered families", value: stats?.registered_families },
