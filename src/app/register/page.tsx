@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
+import PhoneInput from "react-phone-number-input";
+import "react-phone-number-input/style.css";
 
 type Member = {
   its: string;
@@ -140,6 +142,13 @@ export default function RegisterPage() {
 
   const fieldClass = (id: string) =>
     errorField === id ? `${inputClass} border-red-400 ring-2 ring-red-300` : inputClass;
+
+  // The phone number input lives inside react-phone-number-input's flex row (flag + field),
+  // so it skips the block/margin utilities used elsewhere.
+  const phoneInputBase =
+    "w-full rounded-lg border border-emerald-950/15 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-300/60";
+  const phoneFieldClass = (id: string) =>
+    errorField === id ? `${phoneInputBase} border-red-400 ring-2 ring-red-300` : phoneInputBase;
 
   const copyFlight = (from: Member, to: Member): Member => ({
     ...to,
@@ -376,7 +385,14 @@ export default function RegisterPage() {
                       <>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       <label className={labelClass}>WhatsApp number<span className="text-red-500"> *</span>
-                        <input id={`reg-${m.its}-whatsapp`} value={m.whatsapp_e164 ?? ""} onChange={(e) => { setMember(m.its, { whatsapp_e164: e.target.value }); if (errorField === `reg-${m.its}-whatsapp`) setErrorField(null); }} placeholder="+1..." className={fieldClass(`reg-${m.its}-whatsapp`)} />
+                        <PhoneInput
+                          international
+                          defaultCountry="US"
+                          value={m.whatsapp_e164 || undefined}
+                          onChange={(v) => { setMember(m.its, { whatsapp_e164: v ?? "" }); if (errorField === `reg-${m.its}-whatsapp`) setErrorField(null); }}
+                          numberInputProps={{ id: `reg-${m.its}-whatsapp`, className: phoneFieldClass(`reg-${m.its}-whatsapp`) }}
+                          className="mt-1"
+                        />
                       </label>
                       <label className={labelClass}>Email<span className="text-red-500"> *</span>
                         <input id={`reg-${m.its}-email`} type="email" value={m.email ?? ""} onChange={(e) => { setMember(m.its, { email: e.target.value }); if (errorField === `reg-${m.its}-email`) setErrorField(null); }} className={fieldClass(`reg-${m.its}-email`)} />
@@ -510,7 +526,14 @@ export default function RegisterPage() {
                     <input value={acc.utaro_host_its ?? ""} onChange={(e) => setAcc((a) => ({ ...a, utaro_host_its: e.target.value }))} className={inputClass} />
                   </label>
                   <label className={labelClass}>Host contact number
-                    <input value={acc.utaro_host_whatsapp_e164 ?? ""} onChange={(e) => setAcc((a) => ({ ...a, utaro_host_whatsapp_e164: e.target.value }))} placeholder="+1..." className={inputClass} />
+                    <PhoneInput
+                      international
+                      defaultCountry="US"
+                      value={acc.utaro_host_whatsapp_e164 || undefined}
+                      onChange={(v) => setAcc((a) => ({ ...a, utaro_host_whatsapp_e164: v ?? "" }))}
+                      numberInputProps={{ className: phoneInputBase }}
+                      className="mt-1"
+                    />
                   </label>
                 </div>
               )}
