@@ -69,6 +69,7 @@ export default function ConversationsPage() {
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [search, setSearch] = useState("");
   const [qualityFilter, setQualityFilter] = useState<"all" | "poor">("all");
   const [attachment, setAttachment] = useState<File | null>(null);
@@ -319,6 +320,25 @@ export default function ConversationsPage() {
     }
   }
 
+  // Build a deep link to the open chat and copy it. The page already restores the thread
+  // (and tab) from ?phone=&tab=; recipients land on the same conversation after login.
+  async function shareChatLink() {
+    if (!selected) return;
+    const params = new URLSearchParams({
+      phone: selected.phone_e164,
+      tab: selected.escalation_status === "pending" ? "escalations" : "conversations",
+    });
+    const url = `${window.location.origin}/admin/conversations?${params.toString()}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      // Clipboard can be blocked (e.g. insecure context); surface the link to copy manually.
+      setError(`Copy this link: ${url}`);
+    }
+  }
+
   const isManual = selected?.handling_mode === "manual";
 
   return (
@@ -445,6 +465,14 @@ export default function ConversationsPage() {
                     )}
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
+                    <button
+                      type="button"
+                      onClick={() => void shareChatLink()}
+                      title="Copy a shareable link to this chat"
+                      className="whitespace-nowrap rounded-md border px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                    >
+                      {linkCopied ? "Link copied!" : "Share"}
+                    </button>
                     {selected.escalation_status === "pending" ? (
                       <button
                         type="button"
