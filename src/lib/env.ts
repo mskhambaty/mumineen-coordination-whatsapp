@@ -14,6 +14,7 @@ const envAliases: Record<string, string[]> = {
   POSTMARK_ASSIGNMENT_TEMPLATE: ["POSTMARK_ASSIGNMENT_TEMPLATE", "Postmark_assignment_template"],
   POSTMARK_PASSWORD_RESET_TEMPLATE: ["POSTMARK_PASSWORD_RESET_TEMPLATE", "Postmark_password_reset_template"],
   POSTMARK_TASK_NOTIFICATION_TEMPLATE: ["POSTMARK_TASK_NOTIFICATION_TEMPLATE", "Postmark_task_notification_template"],
+  POSTMARK_WELCOME_ADMIN_TEMPLATE: ["POSTMARK_WELCOME_ADMIN_TEMPLATE", "Postmark_welcome_admin_template"],
   SUPABASE_SERVICE_ROLE_KEY: ["SUPABASE_SERVICE_ROLE_KEY", "Supabase_service_role_key"],
   SUPABASE_URL: ["SUPABASE_URL", "Supabase_url", "Supabase_project_url"],
   WHATSAPP_ACCESS_TOKEN: ["WHATSAPP_ACCESS_TOKEN", "Whatsapp_access_token"],

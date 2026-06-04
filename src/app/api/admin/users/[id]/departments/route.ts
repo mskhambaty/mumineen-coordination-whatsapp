@@ -1,9 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { sendAdminWelcomeNotification, type WelcomeNotificationResult } from "@/lib/admin/onboarding";
 import { requireAdminKey } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 const deptRoles = new Set(["member", "pm", "hod"]);
+
+function failedWelcomeNotification(error: unknown): WelcomeNotificationResult {
+  const message = error instanceof Error ? error.message : "Welcome notification failed.";
+  return {
+    email: "failed",
+    whatsapp: "failed",
+    errors: [message],
+  };
+}
 
 export async function GET(
   req: NextRequest,
@@ -48,6 +58,7 @@ export async function POST(
   const { id } = await params;
   const body = await req.json();
   const { department_id, dept_role } = body;
+  const sendWelcome = body.send_welcome === true;
 
   if (!department_id || !dept_role) {
     return NextResponse.json({ error: "department_id and dept_role are required" }, { status: 400 });
@@ -80,7 +91,14 @@ export async function POST(
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json(data);
+    if (!sendWelcome) {
+      return NextResponse.json(data);
+    }
+
+    const welcomeNotification = await sendAdminWelcomeNotification({ userId: id, departmentId: department_id })
+      .catch(failedWelcomeNotification);
+
+    return NextResponse.json({ ...data, welcome_notification: welcomeNotification });
   }
 
   const { data, error } = await supabase
@@ -101,5 +119,12 @@ export async function POST(
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json(data, { status: 201 });
+  if (!sendWelcome) {
+    return NextResponse.json(data, { status: 201 });
+  }
+
+  const welcomeNotification = await sendAdminWelcomeNotification({ userId: id, departmentId: department_id })
+    .catch(failedWelcomeNotification);
+
+  return NextResponse.json({ ...data, welcome_notification: welcomeNotification }, { status: 201 });
 }

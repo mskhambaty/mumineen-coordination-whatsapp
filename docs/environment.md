@@ -19,7 +19,8 @@ All env var lookups go through `src/lib/env.ts`, which supports mixed-case alias
 | `ADMIN_FALLBACK_PASSWORD` | `Admin_fallback_password` | Optional legacy login fallback for users without `password_hash`; set only in deployment secrets, never in repo |
 | `POSTMARK_API_TOKEN` | `Postmark_api_token` | Postmark server API token; rotate if exposed |
 | `POSTMARK_FROM_EMAIL` | `Postmark_from_email` | Verified Postmark sender address |
-| `POSTMARK_PASSWORD_RESET_TEMPLATE` | `Postmark_password_reset_template` | Postmark template alias for password reset |
+| `POSTMARK_PASSWORD_RESET_TEMPLATE` | `Postmark_password_reset_template` | Postmark template alias for password reset (default `password-reset`) |
+| `POSTMARK_WELCOME_ADMIN_TEMPLATE` | `Postmark_welcome_admin_template` | Postmark template alias for new portal user welcome invites (default `welcome-admin-email`) |
 | `POSTMARK_TASK_NOTIFICATION_TEMPLATE` | `Postmark_task_notification_template` | Postmark template alias for task digest |
 | `POSTMARK_ASSIGNMENT_TEMPLATE` | `Postmark_assignment_template` | Postmark template alias for assignment and department issue-contact alerts (default `assignment-notification`) |
 | `POSTMARK_ESCALATION_REQUEST_TEMPLATE` | `Postmark_escalation_request_template` | Postmark template alias for escalation alerts (default `escalation-request`) |

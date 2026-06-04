@@ -193,7 +193,7 @@ export default function UsersPage() {
       let membership: DepartmentMembership | null = null;
 
       if (newUserDeptId) {
-        membership = await addMembership(created.id, newUserDeptId, newUserDeptRole);
+        membership = await addMembership(created.id, newUserDeptId, newUserDeptRole, true);
       }
 
       setShowAddUser(false);
@@ -215,14 +215,19 @@ export default function UsersPage() {
     }
   }
 
-  async function addMembership(userId: string, departmentId: string, deptRole: string): Promise<DepartmentMembership> {
+  async function addMembership(
+    userId: string,
+    departmentId: string,
+    deptRole: string,
+    sendWelcome = false,
+  ): Promise<DepartmentMembership> {
     const res = await fetch(`/api/admin/users/${userId}/departments`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-admin-key": adminKey,
       },
-      body: JSON.stringify({ department_id: departmentId, dept_role: deptRole }),
+      body: JSON.stringify({ department_id: departmentId, dept_role: deptRole, send_welcome: sendWelcome }),
     });
 
     if (!res.ok) {

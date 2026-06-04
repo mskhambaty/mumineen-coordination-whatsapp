@@ -9,9 +9,10 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 ### Login (`/admin/login`)
 - Production portal: `https://www.chicagorelaycenter.com/admin/login`
 - Email and password authentication
-- Forgot password link that calls `POST /api/auth/forgot-password`
+- Forgot password link that calls `POST /api/auth/forgot-password`; reset emails use Postmark template alias `password-reset`
+- Password setup/reset links open `/admin/reset-password`; after a successful password save, the page stores the returned portal session and routes into `/admin`
 - Legacy fallback password is read from `ADMIN_FALLBACK_PASSWORD` only and must not be committed to the repo
-- Only users with `role = 'admin'` or `global_role = 'leadership_admin'` can log in
+- Users with admin/leadership, escalation support, department PM/HOD, or IT access can log in
 - Primary admin: mskhambaty@gmail.com (Mufaddal Khambaty)
 
 ### Dashboard Home (`/admin`)
@@ -104,6 +105,8 @@ Two tabs, each feeding a **separate vector store** so logistics and religious an
 - Table of all users with inline editing for global_role and status
 - Department filter narrows the list to users in that department only; department roster management now lives on `/admin/departments`.
 - "Add User" button with modal form — includes an inline **Department + role** picker so a department membership is assigned at creation (defaults to the currently filtered department)
+- Creating a new user with a department sends onboarding through `POST /api/admin/users/{id}/departments` with `send_welcome: true`
+- Welcome email uses Postmark template alias `welcome-admin-email` with `member_name`, `department_name`, `set_password_url`, and `login_url`
 - Permission matrix reference table (always visible)
 - Link to department memberships for each user
 

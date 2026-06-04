@@ -53,9 +53,11 @@ export async function sendPasswordResetEmail(
   resetUrl: string,
   supportUrl: string,
 ) {
+  const templateAlias = optionalEnv("POSTMARK_PASSWORD_RESET_TEMPLATE") ?? "password-reset";
+
   return sendTemplateEmail({
     To: to,
-    TemplateAlias: requireEnv("POSTMARK_PASSWORD_RESET_TEMPLATE"),
+    TemplateAlias: templateAlias,
     TemplateModel: {
       name,
       product_name: "Anjuman e Saifee Chicago Portal",
@@ -63,6 +65,27 @@ export async function sendPasswordResetEmail(
       operating_system: "Unknown",
       browser_name: "Unknown",
       support_url: supportUrl,
+    },
+  });
+}
+
+export async function sendWelcomeAdminEmail(
+  to: string,
+  memberName: string,
+  departmentName: string,
+  setPasswordUrl: string,
+  loginUrl: string,
+) {
+  const templateAlias = optionalEnv("POSTMARK_WELCOME_ADMIN_TEMPLATE") ?? "welcome-admin-email";
+
+  return sendTemplateEmail({
+    To: to,
+    TemplateAlias: templateAlias,
+    TemplateModel: {
+      member_name: memberName,
+      department_name: departmentName,
+      set_password_url: setPasswordUrl,
+      login_url: loginUrl,
     },
   });
 }

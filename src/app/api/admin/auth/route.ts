@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
 import { verifyPassword } from "@/lib/admin/passwords";
+import { buildPortalSessionUser, createPortalSessionToken } from "@/lib/admin/session";
 import { optionalEnv } from "@/lib/env";
-import { getSupabaseAdmin, isDepartmentManager, isEscalationSupportMember, isItMember } from "@/lib/supabase/server";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export async function POST(req: NextRequest) {
   try {
@@ -40,12 +40,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 401 });
     }
 
-    const isSupport = await isEscalationSupportMember(user.id);
-    const isManager =
-      user.global_role === "pm" || user.global_role === "hod" || (await isDepartmentManager(user.id));
-    const isIt = await isItMember(user.id);
+    const sessionUser = await buildPortalSessionUser({
+      id: user.id,
+      display_name: user.display_name,
+      email: user.email,
+      role: user.role,
+      global_role: user.global_role,
+    });
 
-    if (!isAdminOrLeadership(user) && !isSupport && !isManager && !isIt) {
+    if (
+      sessionUser.role !== "admin" &&
+      sessionUser.global_role !== "leadership_admin" &&
+      !sessionUser.is_support &&
+      !sessionUser.is_manager &&
+      !sessionUser.is_it
+    ) {
       return NextResponse.json({ error: "Access denied. Admin role required." }, { status: 403 });
     }
 
@@ -60,20 +69,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Return a simple session token (user ID based for simplicity)
-    const token = Buffer.from(`${user.id}:${user.email}:${Date.now()}`).toString("base64");
+    const token = createPortalSessionToken(user);
 
     return NextResponse.json({
       token,
-      user: {
-        id: user.id,
-        display_name: user.display_name,
-        email: user.email,
-        role: user.role,
-        global_role: user.global_role,
-        is_support: isSupport,
-        is_manager: isManager,
-        is_it: isIt,
-      },
+      user: sessionUser,
     });
   } catch (error) {
     console.error("Admin login failed", error);

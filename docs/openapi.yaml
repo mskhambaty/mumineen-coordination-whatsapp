@@ -64,6 +64,30 @@ paths:
                 required: [ok]
                 properties:
                   ok: { type: boolean }
+  /auth/reset-password:
+    post:
+      tags: [auth]
+      summary: Set a password from a reset or welcome setup link.
+      description: Stores the new password, clears the reset token, and returns a portal session so the caller can be logged in immediately.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string, minLength: 8 }
+      responses:
+        "200":
+          description: Password updated and session created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthSessionResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /admin/users:
     get:
       tags: [users]
@@ -1076,6 +1100,24 @@ components:
         department_membership_id: { type: [string, "null"], format: uuid }
         department_role: { type: [string, "null"], enum: [hod, pm, member, null] }
         contact_for_issues: { type: boolean }
+    AuthSessionResponse:
+      type: object
+      required: [ok, token, user]
+      properties:
+        ok: { type: boolean }
+        token: { type: string }
+        user:
+          type: object
+          required: [id, is_support, is_manager, is_it]
+          properties:
+            id: { type: string, format: uuid }
+            display_name: { type: [string, "null"] }
+            email: { type: [string, "null"], format: email }
+            role: { type: [string, "null"], enum: [visitor, committee, admin, null] }
+            global_role: { type: [string, "null"], enum: [member, pm, hod, leadership_admin, null] }
+            is_support: { type: boolean }
+            is_manager: { type: boolean }
+            is_it: { type: boolean }
     CallerContext:
       type: object
       required: [user_id, global_role, can_read_all, can_write_all, departments]
@@ -1287,6 +1329,9 @@ components:
         dept_role: { type: string, enum: [hod, pm, member] }
         is_active: { type: boolean }
         contact_for_issues: { type: boolean }
+        send_welcome:
+          type: boolean
+          description: When true, issue a password setup link and send the new-user welcome email/WhatsApp notification.
     BulkCreateUsersRequest:
       type: object
       required: [members]

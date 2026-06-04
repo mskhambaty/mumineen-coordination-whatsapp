@@ -8,13 +8,14 @@ Postmark sends all portal email through `src/lib/email/postmark.ts`. The module 
 |----------|---------|
 | `POSTMARK_API_TOKEN` | Postmark server API token. Rotate any token shared in chat or docs before production use. |
 | `POSTMARK_FROM_EMAIL` | Sender address, e.g. `info@cysora.com`. |
-| `POSTMARK_PASSWORD_RESET_TEMPLATE` | Template alias for password reset email. |
+| `POSTMARK_PASSWORD_RESET_TEMPLATE` | Template alias for password reset email. Defaults to `password-reset`. |
+| `POSTMARK_WELCOME_ADMIN_TEMPLATE` | Template alias for new portal user welcome invites. Defaults to `welcome-admin-email`. |
 | `POSTMARK_TASK_NOTIFICATION_TEMPLATE` | Template alias for task digest email. |
 | `NEXT_PUBLIC_APP_URL` | Public base URL for links back to the portal. |
 
 ## Password Reset
 
-`POST /api/auth/forgot-password` accepts `{ "email": "user@example.com" }`, uses Supabase Auth admin `generateLink({ type: "recovery" })`, then sends the generated link through Postmark. The route always returns `{ "ok": true }` so callers cannot enumerate users.
+`POST /api/auth/forgot-password` accepts `{ "email": "user@example.com" }`, creates an app-owned one-hour reset token on `whatsapp_users`, and sends the reset link through Postmark. The route always returns `{ "ok": true }` so callers cannot enumerate users.
 
 Password reset template alias: `password-reset`
 
@@ -24,7 +25,7 @@ No template change is required for the role/department updates. The template mod
 |-------|-------|
 | `name` | User display name or fallback name |
 | `product_name` | `Anjuman e Saifee Chicago Portal` |
-| `action_url` | Supabase recovery link |
+| `action_url` | `${NEXT_PUBLIC_APP_URL}/admin/reset-password?token=...` |
 | `operating_system` | `Unknown` |
 | `browser_name` | `Unknown` |
 | `support_url` | `${NEXT_PUBLIC_APP_URL}/admin` |
@@ -66,6 +67,40 @@ If you did not request a password reset, ignore this email or contact support:
 Thanks,
 The {{product_name}} Team
 ```
+
+`POST /api/auth/reset-password` accepts `{ "token": "...", "password": "..." }`, stores the new password hash, clears the reset token, and returns the same local portal session payload as `POST /api/admin/auth`:
+
+```json
+{
+  "ok": true,
+  "token": "...",
+  "user": {
+    "id": "...",
+    "display_name": "Member Name",
+    "email": "member@example.com",
+    "role": "committee",
+    "global_role": "member",
+    "is_support": false,
+    "is_manager": true,
+    "is_it": false
+  }
+}
+```
+
+## New Portal User Welcome
+
+When the admin Users page creates a new user and department membership, it calls `POST /api/admin/users/{id}/departments` with `send_welcome: true`. The API creates a password setup link using the same reset-token flow, sends the `welcome-admin-email` Postmark template when the user has an email address, and attempts a WhatsApp welcome message when the user has a phone number.
+
+Template model for `welcome-admin-email`:
+
+| Field | Value |
+|-------|-------|
+| `member_name` | User display name or `there` |
+| `department_name` | Department name |
+| `set_password_url` | `${NEXT_PUBLIC_APP_URL}/admin/reset-password?token=...` |
+| `login_url` | `https://www.chicagorelaycenter.com/admin/login` when `NEXT_PUBLIC_APP_URL=https://www.chicagorelaycenter.com` |
+
+The WhatsApp welcome is sent as a regular text message and recorded in the inbox when Meta accepts it. For users outside the Meta customer-service window, Meta may reject free-form text; create and configure an approved utility template before relying on WhatsApp as the only invite channel.
 
 ## Daily Digest
 

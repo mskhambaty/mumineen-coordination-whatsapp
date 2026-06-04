@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { hashPassword, hashPasswordResetToken, isValidNewPassword } from "@/lib/admin/passwords";
+import { buildPortalSessionUser, createPortalSessionToken } from "@/lib/admin/session";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 type ResetPasswordRequest = {
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
 
     const { data: user, error: lookupError } = await supabase
       .from("whatsapp_users")
-      .select("id, role, global_role, status, password_reset_expires_at")
+      .select("id, display_name, email, role, global_role, status, password_reset_expires_at")
       .eq("password_reset_token_hash", tokenHash)
       .maybeSingle();
 
@@ -36,9 +37,8 @@ export async function POST(req: NextRequest) {
     const expiresAt = user?.password_reset_expires_at
       ? new Date(user.password_reset_expires_at as string).getTime()
       : 0;
-    const canReset = user?.status === "active" && isAdminOrLeadership(user) && expiresAt > Date.now();
 
-    if (!canReset) {
+    if (!user || user.status !== "active" || !isAdminOrLeadership(user) || expiresAt <= Date.now()) {
       return NextResponse.json({ error: "This reset link is invalid or expired." }, { status: 400 });
     }
 
@@ -58,7 +58,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unable to reset password right now." }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true });
+    const sessionUser = await buildPortalSessionUser({
+      id: user.id,
+      display_name: user.display_name,
+      email: user.email,
+      role: user.role,
+      global_role: user.global_role,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      token: createPortalSessionToken(sessionUser),
+      user: sessionUser,
+    });
   } catch (err) {
     console.error("Password reset failed:", err);
     return NextResponse.json({ error: "Unable to reset password right now." }, { status: 500 });

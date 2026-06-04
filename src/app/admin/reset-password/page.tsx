@@ -2,8 +2,16 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+type ResetPasswordResponse = {
+  error?: string;
+  token?: string;
+  user?: unknown;
+};
 
 export default function ResetPasswordPage() {
+  const router = useRouter();
   const [token] = useState(() => {
     if (typeof window === "undefined") return "";
     return new URLSearchParams(window.location.search).get("token") ?? "";
@@ -41,10 +49,17 @@ export default function ResetPasswordPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, password }),
       });
-      const data = (await res.json()) as { error?: string };
+      const data = (await res.json()) as ResetPasswordResponse;
 
       if (!res.ok) {
         setError(data.error ?? "Unable to reset password right now.");
+        return;
+      }
+
+      if (data.token && data.user) {
+        window.localStorage.setItem("admin_token", data.token);
+        window.localStorage.setItem("admin_user", JSON.stringify(data.user));
+        router.push("/admin");
         return;
       }
 
