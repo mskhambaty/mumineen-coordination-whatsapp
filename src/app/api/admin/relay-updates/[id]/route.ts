@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdminKey } from "@/lib/api/auth";
 import { requireLeadership } from "@/lib/relay-updates/auth";
-import { reindexRelayUpdates } from "@/lib/relay-updates/index-updates";
+import { reindexRelayUpdatesBestEffort } from "@/lib/relay-updates/index-updates";
 import { validateRelayUpdateInput } from "@/lib/relay-updates/shared";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -38,10 +38,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "Update not found." }, { status: 404 });
   }
 
-  try {
-    await reindexRelayUpdates();
-  } catch (err) {
-    console.error("relay updates re-index failed:", err);
-  }
+  await reindexRelayUpdatesBestEffort();
   return NextResponse.json({ ok: true, id: data.id });
 }

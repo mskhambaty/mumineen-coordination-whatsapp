@@ -2,21 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdminKey } from "@/lib/api/auth";
 import { requireLeadership } from "@/lib/relay-updates/auth";
-import { reindexRelayUpdates } from "@/lib/relay-updates/index-updates";
+import { reindexRelayUpdatesBestEffort } from "@/lib/relay-updates/index-updates";
 import { validateRelayUpdateInput } from "@/lib/relay-updates/shared";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 // Embedding the re-index can take a moment.
 export const maxDuration = 60;
-
-async function reindexBestEffort() {
-  try {
-    await reindexRelayUpdates();
-  } catch (err) {
-    console.error("relay updates re-index failed:", err);
-  }
-}
 
 // GET: all updates (incl. unpublished) for the portal table, newest first.
 export async function GET(req: NextRequest) {
@@ -58,6 +50,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  await reindexBestEffort();
+  await reindexRelayUpdatesBestEffort();
   return NextResponse.json({ ok: true, id: data?.id });
 }

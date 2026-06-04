@@ -20,3 +20,13 @@ export async function reindexRelayUpdates(): Promise<number> {
 
   return indexChunksForPage(RELAY_UPDATES_PAGE_URL, "Relay Center Updates", buildUpdateChunks(data ?? []));
 }
+
+// Best-effort variant for write routes: a vector-store failure must never fail the write
+// (the feed is the source of truth; the index catches up on the next successful write).
+export async function reindexRelayUpdatesBestEffort(): Promise<void> {
+  try {
+    await reindexRelayUpdates();
+  } catch (err) {
+    console.error("relay updates re-index failed:", err);
+  }
+}
