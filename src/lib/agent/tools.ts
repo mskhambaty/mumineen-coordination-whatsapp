@@ -2,7 +2,8 @@ import type OpenAI from "openai";
 
 import { canUseTool, canUseTaskToolForCaller, type AppUser } from "@/lib/permissions";
 import { retrieveReligiousContext, retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
-import { getSupabaseAdmin, recordToolAudit } from "@/lib/supabase/server";
+import { recordToolAudit } from "@/lib/supabase/server";
+import { recordKnowledgeGap } from "@/lib/knowledge/knowledge-gaps";
 import type { CallerContext } from "@/lib/api/auth";
 
 type ToolInput = Record<string, unknown>;
@@ -485,39 +486,9 @@ export async function executeTool(name: string, args: ToolInput, context: ToolCo
   return result;
 }
 
-// Record a topic the agent couldn't answer. Repeat questions on the same topic aggregate onto
-// one open row (times_seen) so the team sees demand, not duplicates.
 async function flagKnowledgeGap(topic: string, question: string | null, phone: string) {
-  const normalized = topic.toLowerCase().replace(/\s+/g, " ").trim();
-  if (!normalized) return { status: "skipped", reason: "empty topic" };
-  const supabase = getSupabaseAdmin();
-  const { data: existing } = await supabase
-    .from("knowledge_gaps")
-    .select("id, times_seen, sample_question")
-    .eq("normalized_topic", normalized)
-    .eq("status", "open")
-    .maybeSingle();
-
-  if (existing) {
-    const seen = (existing.times_seen ?? 1) + 1;
-    await supabase
-      .from("knowledge_gaps")
-      .update({
-        times_seen: seen,
-        last_seen_at: new Date().toISOString(),
-        last_phone_e164: phone,
-        sample_question: existing.sample_question ?? question,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", existing.id);
-    return { status: "logged", topic, times_seen: seen };
-  }
-
-  const { error } = await supabase
-    .from("knowledge_gaps")
-    .insert({ topic: topic.trim(), normalized_topic: normalized, sample_question: question, last_phone_e164: phone });
-  if (error) return { status: "error", error: error.message };
-  return { status: "logged", topic, times_seen: 1 };
+  const result = await recordKnowledgeGap(topic, question, phone);
+  return { ...result, topic };
 }
 
 function isTaskTool(name: string): boolean {
