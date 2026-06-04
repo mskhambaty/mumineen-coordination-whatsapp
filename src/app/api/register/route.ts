@@ -152,6 +152,7 @@ function validateSubmission(members: MemberInput[], acc: Record<string, unknown>
   for (const m of present) {
     if (bool(m.not_attending)) continue; // not attending → their details aren't required
     const who = str(m.its) ?? "a member";
+    if (typeof m.wants_khidmat !== "boolean") return `Khidmat interest is required for ${who}.`;
     if (!str(m.whatsapp_e164)) return `Missing WhatsApp number for ${who}.`;
     const email = str(m.email);
     if (!email || !/^\S+@\S+\.\S+$/.test(email)) return `Missing or invalid email for ${who}.`;
