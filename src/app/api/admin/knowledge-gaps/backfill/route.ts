@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
   const { data: sessions, error } = await supabase
     .from("conversation_sessions")
     .select("phone_e164")
-    .order("updated_at", { ascending: false })
+    .order("last_message_at", { ascending: false })
     .limit(limit);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
