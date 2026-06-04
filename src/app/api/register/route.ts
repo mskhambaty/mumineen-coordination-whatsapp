@@ -60,13 +60,38 @@ export async function GET(req: NextRequest) {
 
   const { data: members } = await supabase
     .from("mumineen")
-    .select("its, full_name, gender, age, is_adult, is_head, whatsapp_e164, email, arrival_at, arrival_flight_no, departure_at, departure_flight_no, airport, not_attending, rahat_seating, wheelchair, special_needs")
+    .select("its, full_name, gender, age, is_adult, is_head, whatsapp_e164, email, arrival_at, arrival_flight_no, departure_at, departure_flight_no, airport, not_attending, rahat_seating, wheelchair, special_needs, roster_arrival_raw, roster_flight_code")
     .eq("hof_its", hofIts)
     .eq("roster_active", true)
     .order("is_head", { ascending: false })
     .order("age", { ascending: false });
 
-  return NextResponse.json({ family, members: members ?? [] });
+  // Prefill travel from the roster import where the family hasn't entered it yet. Roster arrival
+  // dates can be rough/placeholder; the committee can correct them later.
+  type RosterRow = {
+    arrival_at: string | null;
+    arrival_flight_no: string | null;
+    roster_arrival_raw: string | null;
+    roster_flight_code: string | null;
+    [key: string]: unknown;
+  };
+  const prefilled = ((members ?? []) as RosterRow[]).map((row) => {
+    const { roster_arrival_raw, roster_flight_code, ...m } = row;
+    return {
+      ...m,
+      arrival_at: m.arrival_at ?? rosterDateToIso(roster_arrival_raw),
+      arrival_flight_no: m.arrival_flight_no ?? roster_flight_code,
+    };
+  });
+
+  return NextResponse.json({ family, members: prefilled });
+}
+
+// Best-effort parse of the roster's free-text arrival (e.g. "10-Jun-25", "01-Jun-26 03:00:27").
+function rosterDateToIso(raw: string | null): string | null {
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
 type MemberInput = {
