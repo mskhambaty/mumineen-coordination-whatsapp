@@ -8,14 +8,40 @@ export const runtime = "nodejs";
 // gate this behind a per-family token link or a verification factor. The write path below
 // is idempotent and unaffected by whatever auth wraps it.
 
-// GET /api/register?hof=<hofIts> — load a family's roster members for the form.
+// GET /api/register?hof=<its> — load a family's roster members for the form. The ITS may belong
+// to ANY family member (or the HOF directly); we resolve it to the family's hof_its.
 export async function GET(req: NextRequest) {
-  const hofIts = (req.nextUrl.searchParams.get("hof") ?? "").trim();
-  if (!hofIts) {
-    return NextResponse.json({ error: "Enter your HOF ITS number." }, { status: 400 });
+  const input = (req.nextUrl.searchParams.get("hof") ?? "").trim();
+  if (!input) {
+    return NextResponse.json({ error: "Enter your ITS number." }, { status: 400 });
   }
 
   const supabase = getSupabaseAdmin();
+
+  // Resolve the family: match any member's ITS, else fall back to a direct HOF ITS match
+  // (covers families whose head isn't in the roster).
+  let hofIts: string | null = null;
+  const { data: member } = await supabase
+    .from("mumineen")
+    .select("hof_its")
+    .eq("its", input)
+    .eq("roster_active", true)
+    .maybeSingle();
+  if (member?.hof_its) {
+    hofIts = member.hof_its;
+  } else {
+    const { data: directFamily } = await supabase
+      .from("families")
+      .select("hof_its")
+      .eq("hof_its", input)
+      .eq("roster_active", true)
+      .maybeSingle();
+    hofIts = directFamily?.hof_its ?? null;
+  }
+  if (!hofIts) {
+    return NextResponse.json({ error: "We couldn't find a family for that ITS number." }, { status: 404 });
+  }
+
   const { data: family } = await supabase
     .from("families")
     .select("hof_its, registration_status, acc_type, hotel_name, hotel_address, hotel_lat, hotel_lon, open_to_utaro, utaro_host_name, utaro_host_its, utaro_host_address, utaro_host_whatsapp_e164, utaro_host_email, transport_mode, transport_detail")
@@ -25,6 +51,11 @@ export async function GET(req: NextRequest) {
 
   if (!family) {
     return NextResponse.json({ error: "We couldn't find a family with that HOF ITS number." }, { status: 404 });
+  }
+
+  // One-time submission: once submitted/confirmed the form is locked; changes go via the helpline.
+  if (family.registration_status === "submitted" || family.registration_status === "confirmed") {
+    return NextResponse.json({ locked: true, status: family.registration_status });
   }
 
   const { data: members } = await supabase
@@ -107,9 +138,13 @@ export async function POST(req: NextRequest) {
   }
 
   const supabase = getSupabaseAdmin();
-  const { data: family } = await supabase.from("families").select("id").eq("hof_its", hofIts).eq("roster_active", true).maybeSingle();
+  const { data: family } = await supabase.from("families").select("id, registration_status").eq("hof_its", hofIts).eq("roster_active", true).maybeSingle();
   if (!family) {
     return NextResponse.json({ error: "Family not found." }, { status: 404 });
+  }
+  // One-time submission — reject a second submit (e.g. a form left open before another member submitted).
+  if (family.registration_status === "submitted" || family.registration_status === "confirmed") {
+    return NextResponse.json({ error: "This registration has already been submitted. Please contact the helpline to make changes.", locked: true }, { status: 409 });
   }
 
   // Update each member's collected columns — scoped to this family so a submission can't

@@ -130,6 +130,7 @@ export default function RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [locked, setLocked] = useState(false);
   const [errorField, setErrorField] = useState<string | null>(null);
   // ITS of non-head members whose flight details mirror the head's.
   const [sameAsHead, setSameAsHead] = useState<Set<string>>(new Set());
@@ -154,6 +155,10 @@ export default function RegisterPage() {
       const res = await fetch(`/api/register?hof=${encodeURIComponent(hofInput.trim())}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Could not find your family");
+      if (data.locked) {
+        setLocked(true);
+        return;
+      }
       setFamily(data.family as Family);
       setAcc(data.family as Family);
       setMembers(
@@ -242,6 +247,10 @@ export default function RegisterPage() {
         }),
       });
       const data = await res.json().catch(() => ({}));
+      if (data.locked) {
+        setLocked(true);
+        return;
+      }
       if (!res.ok) throw new Error(data.error ?? "Could not submit");
       setDone(true);
     } catch (err) {
@@ -275,20 +284,43 @@ export default function RegisterPage() {
           <div className={`${cardClass} text-center`}>
             <h2 className="font-serif text-2xl font-bold text-emerald-800">Registration received</h2>
             <p className="mt-3 text-sm text-emerald-950/70">
-              Jazakallahu Khairan. Your family&apos;s details have been recorded. You can reopen this form anytime to update them.
+              Jazakallahu Khairan. Your family&apos;s details have been recorded. This is a one-time submission — to make any
+              changes, please message our helpline on WhatsApp at{" "}
+              <a href="https://wa.me/16308190250" className="font-semibold text-emerald-800 underline">+1 630 819 0250</a>.
             </p>
+          </div>
+        ) : locked ? (
+          <div className={`${cardClass} mx-auto max-w-md text-center`}>
+            <h2 className="font-serif text-2xl font-bold text-emerald-800">Already registered</h2>
+            <p className="mt-3 text-sm text-emerald-950/70">
+              This family&apos;s registration has already been submitted. Registration is a one-time submission.
+            </p>
+            <div className="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+              To make any changes or updates, please message our helpline on WhatsApp:{" "}
+              <a href="https://wa.me/16308190250" className="font-semibold text-emerald-800 underline">+1 630 819 0250</a>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setLocked(false); setHofInput(""); setError(null); }}
+              className="mt-5 text-sm text-emerald-800 underline"
+            >
+              Enter a different ITS number
+            </button>
           </div>
         ) : !family ? (
           <form onSubmit={findFamily} className={`${cardClass} mx-auto max-w-md`}>
             <h2 className={sectionHeading}>Find your family</h2>
             <label className="mt-4 block text-sm font-medium text-emerald-950/80">
-              Head-of-family ITS number
+              Your ITS number
+              <span className="mt-1 block text-xs font-normal text-emerald-950/55">
+                Enter the ITS number of any family member.
+              </span>
               <input
                 value={hofInput}
                 onChange={(e) => setHofInput(e.target.value)}
                 required
                 placeholder="e.g. 20365101"
-                className={inputClass}
+                className={`${inputClass} mt-1`}
               />
             </label>
             <button type="submit" disabled={loading || !hofInput.trim()} className={`${goldBtn} mt-5 w-full`}>
