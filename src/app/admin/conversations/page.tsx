@@ -73,6 +73,7 @@ export default function ConversationsPage() {
   const [qualityFilter, setQualityFilter] = useState<"all" | "poor">("all");
   const [attachment, setAttachment] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const messagePaneRef = useRef<HTMLDivElement>(null);
   const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [canQuickEdit] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -126,6 +127,22 @@ export default function ConversationsPage() {
     () => visibleConversations.find((conversation) => conversation.phone_e164 === selectedPhone) ?? searchedConversations[0] ?? visibleConversations[0] ?? null,
     [visibleConversations, searchedConversations, selectedPhone],
   );
+  const latestMessageId = selected?.messages[selected.messages.length - 1]?.id ?? null;
+  const unreadInboundCount = selected?.unread_inbound_count ?? 0;
+  const unreadMessageStartIndex = selected
+    ? Math.max(selected.messages.length - unreadInboundCount, 0)
+    : Number.POSITIVE_INFINITY;
+
+  useEffect(() => {
+    const pane = messagePaneRef.current;
+    if (!pane) return;
+
+    const frame = requestAnimationFrame(() => {
+      pane.scrollTop = pane.scrollHeight;
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [selected?.phone_e164, latestMessageId]);
 
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
@@ -469,15 +486,31 @@ export default function ConversationsPage() {
               )}
             </div>
 
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-gray-50 p-5 dark:bg-gray-950/40">
-              {selected?.messages.map((message) => (
-                <div key={message.id} className={`flex ${message.direction === "outbound" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[78%] rounded-lg border px-4 py-3 shadow-sm ${message.direction === "outbound" ? "bg-blue-600 text-white dark:bg-blue-700" : "bg-white text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"}`}>
-                    <MessageContent message={message} adminKey={adminKey} />
-                    <p className={`mt-2 text-xs ${message.direction === "outbound" ? "text-blue-100" : "text-gray-400 dark:text-gray-500"}`}>{formatDate(message.created_at)}</p>
+            <div ref={messagePaneRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-gray-50 p-5 dark:bg-gray-950/40">
+              {selected?.messages.map((message, index) => {
+                const isNewInbound =
+                  unreadInboundCount > 0 &&
+                  message.direction === "inbound" &&
+                  index >= unreadMessageStartIndex;
+
+                return (
+                  <div key={message.id} className={`flex ${message.direction === "outbound" ? "justify-end" : "justify-start"}`}>
+                    <div className={`max-w-[78%] rounded-lg border px-4 py-3 shadow-sm ${
+                      message.direction === "outbound"
+                        ? "bg-blue-600 text-white dark:bg-blue-700"
+                        : isNewInbound
+                          ? "border-green-300 bg-green-50 text-gray-900 ring-2 ring-green-200 dark:border-green-700 dark:bg-green-950/40 dark:text-gray-100 dark:ring-green-900"
+                          : "bg-white text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                    }`}>
+                      <MessageContent message={message} adminKey={adminKey} />
+                      <div className={`mt-2 flex items-center gap-2 text-xs ${message.direction === "outbound" ? "text-blue-100" : isNewInbound ? "text-green-700 dark:text-green-300" : "text-gray-400 dark:text-gray-500"}`}>
+                        <span>{formatDate(message.created_at)}</span>
+                        {isNewInbound && <span className="rounded-full bg-green-100 px-2 py-0.5 font-medium text-green-700 dark:bg-green-900 dark:text-green-200">New</span>}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               {selected && selected.messages.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">No messages stored for this conversation.</p>}
             </div>
 
