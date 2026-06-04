@@ -7,7 +7,7 @@ Admin-only test page that lets you compare Ollama cloud model responses against 
 ## How It Works
 
 1. Admin enters an Ollama API key in the test page.
-2. Available models are fetched from the Ollama cloud API (`https://ollama.com/api/models`).
+2. Available models are fetched from the Ollama cloud API (`https://api.ollama.com/v1/models`).
 3. Admin selects a model and types a test message.
 4. The backend sends the message (with the live agent system prompt) to both Ollama cloud and optionally OpenAI.
 5. Responses are displayed side-by-side with latency metrics for comparison.
