@@ -47,6 +47,8 @@ create table if not exists public.relay_updates (
   title text not null,
   body text not null,
   category text not null check (category in ('urgent','schedule','travel','advisory')),
+  link text,
+  cta text,
   published boolean not null default true,
   created_by uuid references public.whatsapp_users(id) on delete set null,
   created_at timestamptz not null default now(),
@@ -104,12 +106,26 @@ const valid = {
 };
 
 describe("validateRelayUpdateInput", () => {
-  it("accepts a valid input and defaults published to true", () => {
+  it("accepts a valid input and defaults published to true, link/cta to null", () => {
     const r = validateRelayUpdateInput(valid);
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.value).toEqual({ ...valid, published: true });
+      expect(r.value).toEqual({ ...valid, link: null, cta: null, published: true });
     }
+  });
+
+  it("accepts an http(s) link with a cta label", () => {
+    const r = validateRelayUpdateInput({ ...valid, link: "https://www.chicagorelaycenter.com/parking", cta: "View your zone" });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.link).toBe("https://www.chicagorelaycenter.com/parking");
+      expect(r.value.cta).toBe("View your zone");
+    }
+  });
+
+  it("rejects a non-http link and a cta without a link", () => {
+    expect(validateRelayUpdateInput({ ...valid, link: "javascript:alert(1)" }).ok).toBe(false);
+    expect(validateRelayUpdateInput({ ...valid, cta: "View" }).ok).toBe(false);
   });
 
   it("accepts an explicit published=false", () => {
@@ -145,14 +161,20 @@ describe("validateRelayUpdateInput", () => {
 });
 
 describe("toFeedItem", () => {
-  it("maps a row to the static page schema", () => {
+  it("maps a row to the static page schema with id, omitting unset link/cta", () => {
     expect(
-      toFeedItem({ date: "2026-06-10", title: "T", body: "B", category: "urgent" }),
-    ).toEqual({ date: "2026-06-10", title: "T", body: "B", category: "urgent" });
+      toFeedItem({ id: "u-1", date: "2026-06-10", title: "T", body: "B", category: "urgent", link: null, cta: null }),
+    ).toEqual({ id: "u-1", date: "2026-06-10", title: "T", body: "B", category: "urgent" });
+  });
+
+  it("includes link and cta when set", () => {
+    expect(
+      toFeedItem({ id: "u-2", date: "2026-06-10", title: "T", body: "B", category: "travel", link: "https://x.test/p", cta: "Go" }),
+    ).toEqual({ id: "u-2", date: "2026-06-10", title: "T", body: "B", category: "travel", link: "https://x.test/p", cta: "Go" });
   });
 
   it("trims a timestamp-style date to yyyy-mm-dd", () => {
-    expect(toFeedItem({ date: "2026-06-10T00:00:00", title: "T", body: "B", category: "urgent" }).date).toBe(
+    expect(toFeedItem({ id: "u-3", date: "2026-06-10T00:00:00", title: "T", body: "B", category: "urgent", link: null, cta: null }).date).toBe(
       "2026-06-10",
     );
   });
@@ -201,16 +223,21 @@ export type RelayUpdateCategory = (typeof RELAY_UPDATE_CATEGORIES)[number];
 
 export const MAX_TITLE_CHARS = 200;
 export const MAX_BODY_CHARS = 1000;
+export const MAX_LINK_CHARS = 500;
+export const MAX_CTA_CHARS = 80;
 
 export type RelayUpdateInput = {
   date: string; // yyyy-mm-dd
   title: string;
   body: string;
   category: RelayUpdateCategory;
+  link: string | null;
+  cta: string | null;
   published: boolean;
 };
 
-export type FeedItem = { date: string; title: string; body: string; category: string };
+// `id` is always emitted (row UUID -> the card's data-id); link/cta only when set.
+export type FeedItem = { id: string; date: string; title: string; body: string; category: string; link?: string; cta?: string };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -235,19 +262,43 @@ export function validateRelayUpdateInput(raw: unknown): ValidationResult {
     return { ok: false, error: `Category must be one of: ${RELAY_UPDATE_CATEGORIES.join(", ")}.` };
   }
 
+  // Optional CTA link: http(s) only (the page renders it as a real anchor).
+  const link = typeof b.link === "string" && b.link.trim() ? b.link.trim() : null;
+  if (link) {
+    if (link.length > MAX_LINK_CHARS) return { ok: false, error: `Link must be at most ${MAX_LINK_CHARS} characters.` };
+    if (!/^https?:\/\/\S+$/i.test(link)) return { ok: false, error: "Link must be an http(s) URL." };
+  }
+
+  const cta = typeof b.cta === "string" && b.cta.trim() ? b.cta.trim() : null;
+  if (cta && !link) return { ok: false, error: "A CTA label requires a link." };
+  if (cta && cta.length > MAX_CTA_CHARS) return { ok: false, error: `CTA label must be at most ${MAX_CTA_CHARS} characters.` };
+
   const published = b.published === undefined ? true : b.published === true || b.published === "true";
 
-  return { ok: true, value: { date, title, body, category: category as RelayUpdateCategory, published } };
+  return { ok: true, value: { date, title, body, category: category as RelayUpdateCategory, link, cta, published } };
 }
 
-// Row -> the exact item shape the static page consumes.
-export function toFeedItem(row: { date: string; title: string; body: string; category: string }): FeedItem {
-  return {
+// Row -> the exact item shape the static page consumes. `id` becomes the card's
+// data-id; link/cta render a CTA anchor (new tab) and are omitted when unset.
+export function toFeedItem(row: {
+  id: string;
+  date: string;
+  title: string;
+  body: string;
+  category: string;
+  link: string | null;
+  cta: string | null;
+}): FeedItem {
+  const item: FeedItem = {
+    id: row.id,
     date: String(row.date).slice(0, 10),
     title: row.title,
     body: row.body,
     category: row.category,
   };
+  if (row.link) item.link = row.link;
+  if (row.cta) item.cta = row.cta;
+  return item;
 }
 
 function categoryLabel(category: string): string {
@@ -293,7 +344,9 @@ export const RELAY_UPDATES_PAGE_URL = "updates://relay";
 
 // Re-embed ALL published updates into site_content (replacing previous chunks) so the
 // agent's get_site_content_faq answers from the same news the public page shows.
-// Unpublished updates simply drop out on the next call.
+// Unpublished updates simply drop out on the next call. Deliberately EXCLUDES link/cta:
+// the agent may only share the asharamubaraka.net URL (see run-agent.ts), so update links
+// must not enter its retrieval context.
 export async function reindexRelayUpdates(): Promise<number> {
   const { data, error } = await getSupabaseAdmin()
     .from("relay_updates")
@@ -346,7 +399,7 @@ const CORS_HEADERS = {
 export async function GET() {
   const { data, error } = await getSupabaseAdmin()
     .from("relay_updates")
-    .select("date, title, body, category")
+    .select("id, date, title, body, category, link, cta")
     .eq("published", true)
     .order("date", { ascending: false });
 
@@ -452,7 +505,7 @@ export async function GET(req: NextRequest) {
   }
   const { data, error } = await getSupabaseAdmin()
     .from("relay_updates")
-    .select("id, date, title, body, category, published, created_at, updated_at, creator:whatsapp_users!relay_updates_created_by_fkey(display_name)")
+    .select("id, date, title, body, category, link, cta, published, created_at, updated_at, creator:whatsapp_users!relay_updates_created_by_fkey(display_name)")
     .order("date", { ascending: false })
     .order("created_at", { ascending: false });
   if (error) {
@@ -591,13 +644,15 @@ type Update = {
   title: string;
   body: string;
   category: string;
+  link: string | null;
+  cta: string | null;
   published: boolean;
   created_at: string;
   updated_at: string;
   creator: { display_name: string | null } | null;
 };
 
-type Draft = { id?: string; date: string; title: string; body: string; category: string; published: boolean };
+type Draft = { id?: string; date: string; title: string; body: string; category: string; link: string; cta: string; published: boolean };
 
 const CATEGORY_BADGE: Record<string, string> = {
   urgent: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
@@ -607,7 +662,7 @@ const CATEGORY_BADGE: Record<string, string> = {
 };
 
 function emptyDraft(): Draft {
-  return { date: new Date().toISOString().slice(0, 10), title: "", body: "", category: "advisory", published: true };
+  return { date: new Date().toISOString().slice(0, 10), title: "", body: "", category: "advisory", link: "", cta: "", published: true };
 }
 
 export default function RelayUpdatesPage() {
@@ -730,7 +785,7 @@ export default function RelayUpdatesPage() {
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-gray-500 dark:text-gray-400">{u.creator?.display_name ?? "—"}</td>
                   <td className="whitespace-nowrap px-4 py-3">
-                    <button onClick={() => setDraft({ id: u.id, date: u.date, title: u.title, body: u.body, category: u.category, published: u.published })} className="text-blue-600 hover:underline dark:text-blue-400">Edit</button>
+                    <button onClick={() => setDraft({ id: u.id, date: u.date, title: u.title, body: u.body, category: u.category, link: u.link ?? "", cta: u.cta ?? "", published: u.published })} className="text-blue-600 hover:underline dark:text-blue-400">Edit</button>
                     <button onClick={() => togglePublished(u)} className="ml-3 text-gray-600 hover:underline dark:text-gray-300">
                       {u.published ? "Unpublish" : "Publish"}
                     </button>
@@ -769,6 +824,14 @@ export default function RelayUpdatesPage() {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Body
                 <textarea value={draft.body} maxLength={1000} rows={4} onChange={(e) => setDraft({ ...draft, body: e.target.value })} className="mt-1 block w-full rounded-md border px-3 py-2 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100" />
+              </label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Link (optional — card shows a CTA button to this URL)
+                <input type="url" value={draft.link} maxLength={500} placeholder="https://…" onChange={(e) => setDraft({ ...draft, link: e.target.value })} className="mt-1 block w-full rounded-md border px-3 py-2 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100" />
+              </label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                CTA label (optional — requires a link; page default otherwise)
+                <input value={draft.cta} maxLength={80} placeholder="View your zone" disabled={!draft.link.trim()} onChange={(e) => setDraft({ ...draft, cta: e.target.value })} className="mt-1 block w-full rounded-md border px-3 py-2 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100" />
               </label>
               <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
                 <input type="checkbox" checked={draft.published} onChange={(e) => setDraft({ ...draft, published: e.target.checked })} />
@@ -827,11 +890,21 @@ portal UI to author updates.
 Returns published updates, newest first:
 
 ```json
-[{ "date": "2026-06-10", "title": "…", "body": "…", "category": "travel" }]
+[{
+  "id": "4b6c…-uuid",
+  "date": "2026-06-10",
+  "title": "…",
+  "body": "…",
+  "category": "travel",
+  "link": "https://www.chicagorelaycenter.com/parking",
+  "cta": "View your zone"
+}]
 ```
 
-`category` ∈ `urgent | schedule | travel | advisory` (lowercase). The page HTML-escapes
-fields client-side and falls back to baked-in updates if the fetch fails.
+`category` ∈ `urgent | schedule | travel | advisory` (lowercase). `id` (row UUID) becomes
+the card's `data-id`; optional `link`/`cta` render a CTA anchor (new tab, `rel="noopener"`)
+and are omitted when unset. The page HTML-escapes fields client-side and falls back to
+baked-in updates if the fetch fails.
 
 **Static-page configuration (manual, outside this repo):** set the page's
 `UPDATES_ENDPOINT` constant to `https://<this-app-domain>/api/relay-updates` and make sure
@@ -872,6 +945,8 @@ Updates shown on the public relay-center page (and indexed for the WhatsApp agen
 | `title` | text | ≤ 200 chars (API-validated) |
 | `body` | text | ≤ 1000 chars (API-validated) |
 | `category` | text | `urgent` \| `schedule` \| `travel` \| `advisory` |
+| `link` | text | Optional CTA URL (http/https, ≤ 500 chars; nullable) |
+| `cta` | text | Optional CTA label (≤ 80 chars; requires `link`; nullable) |
 | `published` | boolean | Default `true`; unpublished rows are excluded from the feed and the vector index |
 | `created_by` | uuid | FK → `whatsapp_users.id` (nullable on delete) |
 | `created_at` / `updated_at` | timestamptz | `updated_at` app-managed |

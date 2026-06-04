@@ -11,7 +11,10 @@ We will serve the feed from this app instead, and build portal UI so designated 
 
 **Page contract** (from the static page's JS):
 - Fetched with a simple `GET` (`cache: 'no-store'`), so the response must send `Access-Control-Allow-Origin: *` (cross-origin page).
-- Schema: JSON array of `{ "date": "yyyy-mm-dd", "title": string, "body": string, "category": string }`.
+- Schema: JSON array of `{ "date": "yyyy-mm-dd", "title": string, "body": string, "category": string }` plus three **optional, back-compatible** properties:
+  - `id` — rendered as the card's `data-id`. We auto-emit the row UUID (decided: not an authored slug).
+  - `link` — URL; the card renders a CTA anchor to it (new tab, `rel="noopener"`).
+  - `cta` — label for that CTA (page falls back to its default label when absent).
 - Categories are **type-based**: `urgent` | `schedule` | `travel` | `advisory` (lowercase in JSON). The currently-downloaded page version still shows the older general/accommodation/transport tabs; the page is being updated to the new category set alongside this feature.
 - The page sorts by `date` descending and HTML-escapes all fields client-side.
 - On fetch failure it renders baked-in fallback updates, so feed errors are non-fatal.
@@ -35,6 +38,8 @@ New migration creating `relay_updates` (committed to `supabase/migrations/` **an
 | `title` | text not null | ≤ 200 chars (API-validated) |
 | `body` | text not null | ≤ 1000 chars (API-validated) |
 | `category` | text not null | `check (category in ('urgent','schedule','travel','advisory'))` |
+| `link` | text nullable | Optional CTA URL (http/https, ≤ 500 chars, API-validated) |
+| `cta` | text nullable | Optional CTA label (≤ 80 chars); only allowed when `link` is set |
 | `published` | boolean not null default true | Unpublish = retract without losing history |
 | `created_by` | uuid FK → `whatsapp_users(id)` on delete set null | Attribution |
 | `created_at` / `updated_at` | timestamptz not null default now() | `updated_at` app-managed |
@@ -45,7 +50,7 @@ Index: `(published, date desc)`. RLS enabled, no policies (service-role only —
 
 `GET /api/relay-updates` — unauthenticated.
 
-- Selects `published = true` rows ordered `date desc`, serialized to exactly the page schema: `[{date, title, body, category}]` with `date` formatted `yyyy-mm-dd`.
+- Selects `published = true` rows ordered `date desc`, serialized to exactly the page schema: `[{id, date, title, body, category, link?, cta?}]` with `date` formatted `yyyy-mm-dd`. `id` is the row UUID (always emitted); `link`/`cta` are included only when set.
 - Headers: `Access-Control-Allow-Origin: *`; `Cache-Control: public, s-maxage=60, stale-while-revalidate=300` (posts visible within ~1 minute; trivial function load). Minimal `OPTIONS` handler for safety.
 - On DB error: return 500 — the page's fallback covers it.
 
@@ -58,7 +63,7 @@ Auth follows the house portal convention: shared `x-admin-key` header + acting `
 ## Admin API
 
 - `GET /api/admin/relay-updates` — all rows including unpublished, with creator display name. Requires admin key.
-- `POST /api/admin/relay-updates` — create. Body: `{user_id, date, title, body, category, published?}`. Validates: category enum (`urgent|schedule|travel|advisory`), `yyyy-mm-dd` date, title/body required and within length caps; then the admin/leadership check on `user_id`.
+- `POST /api/admin/relay-updates` — create. Body: `{user_id, date, title, body, category, link?, cta?, published?}`. Validates: category enum (`urgent|schedule|travel|advisory`), `yyyy-mm-dd` date, title/body required and within length caps, `link` http/https when present, `cta` only with `link`; then the admin/leadership check on `user_id`.
 - `PUT /api/admin/relay-updates/[id]` — edit any field and toggle `published`. Same validation + permission rule.
 - No `DELETE` route.
 
@@ -73,7 +78,7 @@ On create/edit/publish-toggle, re-index **all currently published updates** into
 New page `/admin/relay-updates`, added to `AdminNav` in the External group:
 
 - Table: date, title, category badge, published/unpublished badge, author, updated-at.
-- Create/Edit modal: date (defaults to today), title, body, category dropdown (Urgent / Schedule / Travel / Advisory), published toggle.
+- Create/Edit modal: date (defaults to today), title, body, category dropdown (Urgent / Schedule / Travel / Advisory), optional link URL + CTA label, published toggle.
 - Page access mirrors the API rule: admin/leadership only. Others don't see the nav item (and the API enforces server-side regardless).
 
 ## Error handling
