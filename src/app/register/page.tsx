@@ -19,7 +19,7 @@ type Member = {
   departure_flight_no: string | null;
   airport: string | null;
   not_attending: boolean;
-  wants_khidmat: boolean;
+  wants_khidmat: boolean | null;
   khidmat_department_ids: string[];
   rahat_seating: boolean;
   wheelchair: boolean;
@@ -245,6 +245,7 @@ export default function RegisterPage() {
         ...m,
         arrival_at: toLocalInput(m.arrival_at),
         departure_at: toLocalInput(m.departure_at),
+        wants_khidmat: null, // force an explicit Interested / Not interested choice
       }));
       setFamily(data.family as Family);
       setAcc(data.family as Family);
@@ -285,6 +286,7 @@ export default function RegisterPage() {
       if (!m.arrival_at) return { message: `Enter arrival date & time for ${who}.`, fieldId: `reg-${m.its}-arrival` };
       if (!m.departure_at) return { message: `Enter departure date & time for ${who}.`, fieldId: `reg-${m.its}-departure` };
       if (m.rahat_seating && !m.special_needs?.trim()) return { message: `Describe the rahat / special need for ${who}.`, fieldId: `reg-${m.its}-special` };
+      if (m.wants_khidmat !== true && m.wants_khidmat !== false) return { message: `Select khidmat interest for ${who}.`, fieldId: `reg-${m.its}-khidmat` };
     }
     if (acc.acc_type !== "hotel" && acc.acc_type !== "utaro") return { message: "Select your accommodation type.", fieldId: "reg-acc-type" };
     if (acc.acc_type === "hotel") {
@@ -513,12 +515,22 @@ export default function RegisterPage() {
                       </label>
                     )}
 
-                    <div className="mt-3 border-t border-emerald-950/10 pt-3">
-                      <label className="flex items-center gap-2 text-sm text-emerald-950/80">
-                        <input type="checkbox" className="accent-amber-500" checked={m.wants_khidmat} onChange={(e) => setMember(m.its, e.target.checked ? { wants_khidmat: true } : { wants_khidmat: false, khidmat_department_ids: [] })} />
-                        I want to sign up for khidmat
-                      </label>
-                      {m.wants_khidmat && (
+                    <div id={`reg-${m.its}-khidmat`} className="mt-3 border-t border-emerald-950/10 pt-3">
+                      <p className={labelClass}>Khidmat<span className="text-red-500"> *</span></p>
+                      <div className="mt-2 flex gap-6 text-sm text-emerald-950/80">
+                        <label className="flex items-center gap-2">
+                          <input type="radio" name={`khidmat-${m.its}`} className="accent-amber-500" checked={m.wants_khidmat === true} onChange={() => { setMember(m.its, { wants_khidmat: true }); if (errorField === `reg-${m.its}-khidmat`) setErrorField(null); }} />
+                          Interested
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <input type="radio" name={`khidmat-${m.its}`} className="accent-amber-500" checked={m.wants_khidmat === false} onChange={() => { setMember(m.its, { wants_khidmat: false, khidmat_department_ids: [] }); if (errorField === `reg-${m.its}-khidmat`) setErrorField(null); }} />
+                          Not interested
+                        </label>
+                      </div>
+                      {errorField === `reg-${m.its}-khidmat` && (
+                        <p className="mt-1 text-xs text-red-600">Please choose one.</p>
+                      )}
+                      {m.wants_khidmat === true && (
                         <KhidmatPicker
                           departments={departments}
                           selected={m.khidmat_department_ids ?? []}
