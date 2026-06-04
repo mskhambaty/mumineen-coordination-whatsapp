@@ -1,0 +1,74 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  retrieveReligiousContext: vi.fn(),
+  retrieveSiteContext: vi.fn(),
+  recordToolAudit: vi.fn(),
+}));
+
+vi.mock("@/lib/scraper/retrieve-site-context", () => ({
+  retrieveReligiousContext: mocks.retrieveReligiousContext,
+  retrieveSiteContext: mocks.retrieveSiteContext,
+}));
+
+vi.mock("@/lib/supabase/server", () => ({
+  recordToolAudit: mocks.recordToolAudit,
+  getSupabaseAdmin: vi.fn(),
+}));
+
+import { executeTool, toolDefinitions } from "@/lib/agent/tools";
+import { canUseTool, publicTools } from "@/lib/permissions";
+import { RELIGIOUS_GUIDANCE_RULE } from "@/lib/agent/run-agent";
+
+const visitor = { id: "u1", phone_e164: "+1555", role: "visitor" as const, status: "active" };
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.recordToolAudit.mockResolvedValue(undefined);
+});
+
+describe("answer_religious_questions tool", () => {
+  it("is registered as a tool definition", () => {
+    const names = toolDefinitions.map((t) => t.function.name);
+    expect(names).toContain("answer_religious_questions");
+  });
+
+  it("is a public tool available to visitors (external) and committee/admin (internal)", () => {
+    expect(publicTools.has("answer_religious_questions")).toBe(true);
+    expect(canUseTool(visitor, "answer_religious_questions")).toBe(true);
+    expect(canUseTool({ role: "committee", status: "active" }, "answer_religious_questions")).toBe(true);
+  });
+
+  it("routes to the religious store and returns its context", async () => {
+    mocks.retrieveReligiousContext.mockResolvedValue("[Majlis 1]\nThe theme was al-Falak al-Muheet.");
+
+    const result = await executeTool(
+      "answer_religious_questions",
+      { query: "majlis 1 theme" },
+      { user: visitor, phoneE164: "+1555" },
+    );
+
+    expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith("majlis 1 theme", 5);
+    expect(mocks.retrieveSiteContext).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: "ok", source: "indexed_religious_content" });
+  });
+
+  it("reports no match when the religious store is empty", async () => {
+    mocks.retrieveReligiousContext.mockResolvedValue("");
+    const result = await executeTool(
+      "answer_religious_questions",
+      { query: "obscure" },
+      { user: visitor, phoneE164: "+1555" },
+    );
+    expect(result).toMatchObject({ status: "no_indexed_match" });
+  });
+});
+
+describe("RELIGIOUS_GUIDANCE_RULE", () => {
+  it("routes religious questions to the tool and enforces the guardrails", () => {
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("answer_religious_questions");
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("Iqtibasaat");
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("verbatim");
+    expect(RELIGIOUS_GUIDANCE_RULE.toLowerCase()).toContain("fatwa");
+  });
+});

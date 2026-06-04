@@ -407,14 +407,20 @@ paths:
       tags: [conversations]
       summary: List uploaded FAQ/guide documents.
       security: [{ adminKey: [] }]
+      parameters:
+        - name: store
+          in: query
+          required: false
+          schema: { type: string, enum: [logistics, religious] }
+          description: Filter by destination store. Omit for all.
       responses:
         "200": { description: Documents with status and chunk counts. }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
     post:
       tags: [conversations]
-      summary: Upload a CSV/Excel/Word/PDF document and index it into site_content.
-      description: Admin/leadership or department PM/HOD. Extracted text is chunked, embedded, and stored for the agent's get_site_content_faq.
+      summary: Upload a CSV/Excel/Word/PDF document and index it.
+      description: Admin/leadership or department PM/HOD. Extracted text is chunked, embedded, and stored for the agent — into site_content (store=logistics, default) or religious_content (store=religious, not department-scoped).
       security: [{ adminKey: [] }]
       requestBody:
         required: true
@@ -427,6 +433,7 @@ paths:
                 file: { type: string, format: binary }
                 title: { type: string }
                 department_id: { type: string, format: uuid }
+                store: { type: string, enum: [logistics, religious], default: logistics }
       responses:
         "201": { description: Indexed document with chunk count. }
         "400": { $ref: "#/components/responses/BadRequest" }
@@ -436,7 +443,62 @@ paths:
   /knowledge/{id}:
     delete:
       tags: [conversations]
-      summary: Delete a document and remove its vectors from site_content.
+      summary: Delete a document and remove its vectors from its store.
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/religious-topics:
+    get:
+      tags: [conversations]
+      summary: List religious content topic blocks (Vaaz Talaqi, Iqtibasaat, Lisan word meanings).
+      security: [{ adminKey: [] }]
+      responses:
+        "200": { description: Topics with content + entry/chunk counts. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [conversations]
+      summary: Create a new (empty) religious topic block.
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+      responses:
+        "201": { description: Created topic { id, slug }. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/religious-topics/{id}:
+    put:
+      tags: [conversations]
+      summary: Save a religious topic block and re-index it into religious_content.
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content: { type: string }
+                updated_by: { type: string }
+      responses:
+        "200": { description: Saved with chunk count. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    delete:
+      tags: [conversations]
+      summary: Delete a religious topic block and its vectors.
       security: [{ adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses:

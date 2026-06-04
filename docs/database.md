@@ -109,17 +109,19 @@ Index: `(member_id)`. Multiple rows per member (multiple ranges per day).
 ### `knowledge_documents`
 
 Uploaded FAQ/guide documents (CSV, Excel, Word, PDF). Their extracted text is chunked,
-embedded, and stored in `site_content` with `page_url = 'knowledge://<id>'`, so the agent's
-`get_site_content_faq` grounds on them. Deleting a row also removes those chunks.
+embedded, and stored in `site_content` with `page_url = 'knowledge://<id>'` (or in
+`religious_content` when `store = 'religious'`), so the agent's `get_site_content_faq`
+(or `answer_religious_questions`) grounds on them. Deleting a row also removes those chunks.
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | uuid | PK |
-| `department_id` | uuid | FK → `departments.id` (nullable) — optional labeling |
+| `department_id` | uuid | FK → `departments.id` (nullable) — optional labeling; omitted for religious uploads |
 | `uploaded_by` | uuid | FK → `whatsapp_users.id` (nullable) |
 | `title` | text | Display title (defaults to filename) |
 | `filename` | text | Original filename (nullable) |
 | `file_type` | text | `csv` \| `excel` \| `word` \| `pdf` \| `faq` (`faq` = created from an approved conversation suggestion) |
+| `store` | text | `logistics` (default) \| `religious` — which vector store the chunks land in (`site_content` vs `religious_content`) |
 | `status` | text | `processing` \| `indexed` \| `failed` |
 | `chunk_count` | integer | Number of vectorized chunks |
 | `error` | text | Failure reason (nullable) |
@@ -166,6 +168,45 @@ so the agent retrieves it while it stays organized and editable per department.
 | `updated_by` | text | Who last saved (nullable) |
 | `updated_at` | timestamptz | Auto |
 | `created_at` | timestamptz | Auto |
+
+### `religious_content`
+
+Dedicated vector store for religious content (Vaaz Talaqi, Iqtibasaat, Lisan ud Dawat word
+meanings), kept entirely separate from `site_content` so the agent's
+`answer_religious_questions` tool never cross-contaminates with logistics retrieval. Mirrors
+`site_content`. Populated from `religious_topics` blocks (`page_url = 'religious://topic/<id>'`)
+and religious uploads (`page_url = 'religious://doc/<id>'`).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | bigserial | PK |
+| `page_url` | text | Namespace: `religious://topic/<id>` or `religious://doc/<id>` |
+| `page_title` | text | Display title (the topic/doc name) |
+| `section` | text | Chunk identifier (`chunk_1`, …) |
+| `content` | text | Chunk text |
+| `embedding` | vector(1536) | OpenAI `text-embedding-3-small` |
+| `source_type` | text | `topic_block` \| `uploaded_doc` |
+| `indexed_at` | timestamptz | Auto |
+| `is_current` | boolean | Default true |
+
+### `religious_topics`
+
+Editable "FAQ by Topic" blocks for religious content (the **Religious Content** tab of the
+Vectorized Data for Agent page). Not department-scoped. Saving a topic chunks + embeds its
+`content` into `religious_content` under `page_url = 'religious://topic/<id>'`. Seeded with
+three starter topics (Vaaz Talaqi / Iqtibasaat help, Lisan ud Dawat word meanings,
+Guardrails / scope control).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `slug` | text | Unique stable key |
+| `title` | text | Display title |
+| `content` | text | Editable Q&A text (entries separated by blank lines) |
+| `chunk_count` | integer | Vectorized chunks from the last save |
+| `sort_order` | integer | Display order |
+| `updated_by` | text | Who last saved (nullable) |
+| `updated_at` | timestamptz | Auto |
 
 ### `committee_permissions`
 
@@ -399,6 +440,10 @@ Source: `supabase/migrations/20260602120000_whatsapp_coalescing.sql`
 
 `match_site_content(query_embedding, match_threshold, match_count)` — vector similarity search.  
 Source: `supabase/migrations/20260529134501_match_site_content.sql`
+
+`match_religious_content(query_embedding, match_threshold, match_count)` — vector similarity
+search over `religious_content` (same signature/body as `match_site_content`).  
+Source: `supabase/migrations/20260604130000_religious_content.sql`
 
 ## Migration Conventions
 

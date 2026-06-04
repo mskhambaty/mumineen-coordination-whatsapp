@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdminKey } from "@/lib/api/auth";
-import { chunkText, indexKnowledgeChunks } from "@/lib/knowledge/index-content";
+import { chunkText, indexKnowledgeChunks, indexReligiousDocument } from "@/lib/knowledge/index-content";
 import { detectFileType, extractText } from "@/lib/knowledge/parse";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -17,12 +17,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data, error } = await getSupabaseAdmin()
+  // Optional ?store=logistics|religious filter (defaults to all for backward compatibility).
+  const store = req.nextUrl.searchParams.get("store");
+
+  let query = getSupabaseAdmin()
     .from("knowledge_documents")
     .select(
-      "id, title, filename, file_type, status, chunk_count, error, created_at, department:departments(name), uploader:whatsapp_users!knowledge_documents_uploaded_by_fkey(display_name)",
+      "id, title, filename, file_type, store, status, chunk_count, error, created_at, department:departments(name), uploader:whatsapp_users!knowledge_documents_uploaded_by_fkey(display_name)",
     )
     .order("created_at", { ascending: false });
+
+  if (store === "logistics" || store === "religious") {
+    query = query.eq("store", store);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -51,8 +60,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unsupported file type. Use CSV, Excel, Word, or PDF." }, { status: 400 });
   }
 
+  const storeRaw = form?.get("store");
+  const store = storeRaw === "religious" ? "religious" : "logistics";
+  // Religious uploads are not department-scoped.
   const departmentIdRaw = form?.get("department_id");
-  const departmentId = typeof departmentIdRaw === "string" && departmentIdRaw ? departmentIdRaw : null;
+  const departmentId =
+    store === "religious" ? null : typeof departmentIdRaw === "string" && departmentIdRaw ? departmentIdRaw : null;
   const titleRaw = form?.get("title");
   const title = (typeof titleRaw === "string" && titleRaw.trim()) || file.name;
   const uploadedByRaw = form?.get("uploaded_by");
@@ -62,7 +75,7 @@ export async function POST(req: NextRequest) {
   const supabase = getSupabaseAdmin();
   const { data: doc, error: insertError } = await supabase
     .from("knowledge_documents")
-    .insert({ department_id: departmentId, title, filename: file.name, file_type: type, status: "processing", uploaded_by: uploadedBy })
+    .insert({ department_id: departmentId, title, filename: file.name, file_type: type, store, status: "processing", uploaded_by: uploadedBy })
     .select("id")
     .single();
 
@@ -81,10 +94,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: message }, { status: 422 });
     }
 
-    const chunkCount = await indexKnowledgeChunks(doc.id, title, chunks);
+    const chunkCount =
+      store === "religious"
+        ? await indexReligiousDocument(doc.id, title, chunks)
+        : await indexKnowledgeChunks(doc.id, title, chunks);
     await supabase.from("knowledge_documents").update({ status: "indexed", chunk_count: chunkCount }).eq("id", doc.id);
 
-    return NextResponse.json({ id: doc.id, title, file_type: type, status: "indexed", chunk_count: chunkCount }, { status: 201 });
+    return NextResponse.json({ id: doc.id, title, file_type: type, store, status: "indexed", chunk_count: chunkCount }, { status: 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to process file";
     await supabase.from("knowledge_documents").update({ status: "failed", error: message.slice(0, 300) }).eq("id", doc.id);

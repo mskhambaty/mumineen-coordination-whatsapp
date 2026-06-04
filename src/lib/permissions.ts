@@ -13,6 +13,7 @@ export type AppUser = {
 
 export const publicTools = new Set([
   "get_site_content_faq",
+  "answer_religious_questions",
   "move_to_escalation",
   "create_issue",
 ]);

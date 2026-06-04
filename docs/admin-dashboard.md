@@ -33,7 +33,7 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - **Conversations / Escalations tabs** — escalated threads (`escalation_status = 'pending'`) move to the Escalations tab (urgent first), with a count badge. The **De-escalate** button on an escalated chat resolves it back to Conversations. See [escalation.md](./escalation.md).
 - Conversation list shows display name, last message, unread inbound count, an AI/MANUAL badge, and an ESCALATED/URGENT badge + category when escalated
 - **Agent ↔ Manual toggle** per conversation switches `handling_mode` via `PUT /api/admin/conversations/[phoneE164]/mode`. `manual` pauses the AI agent so an admin handles the thread by hand
-- **Edit FAQ / Prompt** quick-edit button (admin/leadership only) opens a modal ([QuickEditModal](../src/components/admin/QuickEditModal.tsx)) with two paths: **FAQ** (pick a department → edit its bucket via the shared editor, re-indexes on save) and **Prompt** (pick the agent or quality prompt → edit and save via `PUT /api/admin/prompts/[key]`)
+- **Edit FAQ / Prompt** quick-edit button (admin/leadership only) opens a modal ([QuickEditModal](../src/components/admin/QuickEditModal.tsx)) with three paths: **FAQ** (pick a department → edit its bucket via the shared editor, re-indexes on save), **Religious Content** (pick a topic → edit its block via `PUT /api/admin/religious-topics/[id]`), and **Prompt** (pick the agent or quality prompt → edit and save via `PUT /api/admin/prompts/[key]`)
 - **Search bar** filters the conversation list by keyword across display name, phone number, and message bodies of the loaded chats
 - The inbox API fetches the newest message/tool-call activity first under its response caps, then returns each loaded thread in chronological order so recently updated conversations always include their latest inbound or manual outbound message.
 - Manual reply box (enabled only in Manual mode) sends a WhatsApp message via `POST /api/admin/conversations/[phoneE164]/messages`. Supports an **image attachment** (📎) with an optional caption — sent as a multipart request that uploads the image to Meta and delivers it as a WhatsApp image
@@ -54,13 +54,21 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - Task metrics: totals by status/priority, overdue list, and per-department breakdown (optional `department_id` filter)
 - Conversation metrics: active/manual/AI conversation counts, inbound vs outbound message volume, messages-by-day series, and top agent tools
 
-### FAQ & Guides (`/admin/knowledge`)
+### Vectorized Data for Agent (`/admin/knowledge`)
+Two tabs, each feeding a **separate vector store** so logistics and religious answers never mix.
+
+**Tab 1 — FAQ & Guides** (department-scoped, store `logistics`):
 - Upload customer-facing facts, FAQs, and guides as **CSV, Excel (.xlsx/.xls), Word (.docx), or PDF** (≤ 15 MB)
 - Extracted text is chunked, embedded, and indexed into `site_content` (`page_url = knowledge://<id>`), so the WhatsApp agent answers from it via `get_site_content_faq` — same vector store as the scraped site/hotel sheet
 - Document list shows status (processing/indexed/failed), chunk count, department, **who uploaded it**, and a delete action (removes the document and its vectors). Entries created from approved conversation suggestions show "Learned from chat".
 - Access: **admin/leadership and department PM/HOD** (`POST/GET /api/knowledge`, `DELETE /api/knowledge/[id]`). Scanned/image-only PDFs can't be read.
 - **Department is required** when uploading a document.
-- **FAQ by Department** — below the document list, a button per department opens an editable notepad ([FaqBucketEditor](../src/components/admin/FaqBucketEditor.tsx)) holding that department's Q&A. Saving re-indexes the bucket into `site_content` (`page_url = faqbucket://<department_id>`) via `PUT /api/admin/faq-buckets/[departmentId]`; list via `GET /api/admin/faq-buckets`. Buckets live in the `faq_buckets` table (one editable doc per department). A **Sort learned FAQs into departments** button (`POST /api/admin/faq-buckets {action:"migrate"}`) classifies the loose "Learned from chat" entries into department buckets and removes the loose docs.
+- **FAQ by Department** — below the document list, a button per department opens an editable notepad ([ContentBucketEditor](../src/components/admin/ContentBucketEditor.tsx) via [FaqBucketEditor](../src/components/admin/FaqBucketEditor.tsx)) holding that department's Q&A. Saving re-indexes the bucket into `site_content` (`page_url = faqbucket://<department_id>`) via `PUT /api/admin/faq-buckets/[departmentId]`; list via `GET /api/admin/faq-buckets`. Buckets live in the `faq_buckets` table (one editable doc per department). A **Sort learned FAQs into departments** button (`POST /api/admin/faq-buckets {action:"migrate"}`) classifies the loose "Learned from chat" entries into department buckets and removes the loose docs.
+
+**Tab 2 — Religious Content** (not department-scoped, store `religious`):
+- Powers the agent's `answer_religious_questions` tool — Vaaz Talaqi, Iqtibasaat, and Lisan ud Dawat word meanings. Indexed into the **dedicated `religious_content`** store, kept separate from logistics.
+- Upload (`POST /api/knowledge` with `store=religious`, no department) lands in `religious_content` (`page_url = religious://doc/<id>`); the list is filtered via `GET /api/knowledge?store=religious`.
+- **FAQ by Topic** — dynamic, editable topic blocks (seeded with *Vaaz Talaqi / Iqtibasaat help*, *Lisan ud Dawat word meanings*, *Guardrails / scope control*). Add (`POST /api/admin/religious-topics`), edit/save (`PUT /api/admin/religious-topics/[id]`, re-indexes to `religious://topic/<id>`), delete (`DELETE`). Topics live in the `religious_topics` table; list via `GET /api/admin/religious-topics`.
 
 ### Prompt — Learn from Conversations (`/admin/prompt`)
 - Admin/leadership-only section on the Prompt page that turns recent conversations into new knowledge (a manual stand-in for a future nightly cron).

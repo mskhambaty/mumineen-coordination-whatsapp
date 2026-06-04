@@ -27,6 +27,14 @@ const toolMetadata: Record<string, ToolMetadata> = {
     audience: "external",
     ...indexedSiteStatus,
   },
+  answer_religious_questions: {
+    internal_api: "Vector search: religious_content",
+    audience: "external",
+    availability: "active",
+    status_label: "Religious content",
+    status_note:
+      "Backed by the dedicated religious_content vector store (Vaaz Talaqi, Iqtibasaat, Lisan ud Dawat topic blocks + uploads).",
+  },
   move_to_escalation: {
     internal_api: "POST /api/escalations",
     audience: "external",
