@@ -140,7 +140,6 @@ export default function RegisterPage() {
   const fieldClass = (id: string) =>
     errorField === id ? `${inputClass} border-red-400 ring-2 ring-red-300` : inputClass;
 
-  const FLIGHT_KEYS: (keyof Member)[] = ["arrival_at", "arrival_flight_no", "departure_at", "departure_flight_no", "airport"];
   const copyFlight = (from: Member, to: Member): Member => ({
     ...to,
     arrival_at: from.arrival_at,
@@ -149,6 +148,14 @@ export default function RegisterPage() {
     departure_flight_no: from.departure_flight_no,
     airport: from.airport,
   });
+
+  // Non-head members linked to the head inherit the head's flight (computed, not stored, so
+  // unchecking restores each member's own values). Used for both validation and submit.
+  function effectiveMembers(): Member[] {
+    const head = members[0];
+    if (!head) return members;
+    return members.map((m, i) => (i > 0 && sameAsHead.has(m.its) ? copyFlight(head, m) : m));
+  }
 
   async function findFamily(event: React.FormEvent) {
     event.preventDefault();
@@ -162,15 +169,16 @@ export default function RegisterPage() {
         setLocked(true);
         return;
       }
+      const loaded = (data.members as Member[]).map((m) => ({
+        ...m,
+        arrival_at: toLocalInput(m.arrival_at),
+        departure_at: toLocalInput(m.departure_at),
+      }));
       setFamily(data.family as Family);
       setAcc(data.family as Family);
-      setMembers(
-        (data.members as Member[]).map((m) => ({
-          ...m,
-          arrival_at: toLocalInput(m.arrival_at),
-          departure_at: toLocalInput(m.departure_at),
-        })),
-      );
+      setMembers(loaded);
+      // Default everyone (other than the head) to "same flight as head"; they can uncheck.
+      setSameAsHead(new Set(loaded.slice(1).map((m) => m.its)));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not find your family");
     } finally {
@@ -179,14 +187,7 @@ export default function RegisterPage() {
   }
 
   function setMember(its: string, patch: Partial<Member>) {
-    setMembers((prev) => {
-      const next = prev.map((m) => (m.its === its ? { ...m, ...patch } : m));
-      // Edits to the head's flight mirror to every member currently linked to the head.
-      if (prev[0]?.its === its && FLIGHT_KEYS.some((k) => k in patch)) {
-        return next.map((m, i) => (i === 0 || !sameAsHead.has(m.its) ? m : copyFlight(next[0], m)));
-      }
-      return next;
-    });
+    setMembers((prev) => prev.map((m) => (m.its === its ? { ...m, ...patch } : m)));
   }
 
   function toggleSameAsHead(its: string, checked: boolean) {
@@ -196,16 +197,13 @@ export default function RegisterPage() {
       else next.delete(its);
       return next;
     });
-    if (checked) {
-      setMembers((prev) => (prev.length ? prev.map((m) => (m.its === its ? copyFlight(prev[0], m) : m)) : prev));
-    }
   }
 
   // One-time submission: everything is required except flight numbers and the rahat/same-flight
   // checkboxes. Mirrored server-side. Returns the first problem + the field to focus.
   function validate(): { message: string; fieldId: string } | null {
     if (members.length === 0) return { message: "No family members found.", fieldId: "" };
-    for (const m of members) {
+    for (const m of effectiveMembers()) {
       const who = m.full_name || m.its;
       if (!m.whatsapp_e164?.trim()) return { message: `Enter a WhatsApp number for ${who}.`, fieldId: `reg-${m.its}-whatsapp` };
       if (!m.email?.trim() || !/^\S+@\S+\.\S+$/.test(m.email.trim()))
@@ -249,7 +247,7 @@ export default function RegisterPage() {
         body: JSON.stringify({
           hof_its: family.hof_its,
           submitted_by_its: members[0]?.its ?? null,
-          members,
+          members: effectiveMembers(),
           accommodation: {
             acc_type: acc.acc_type,
             hotel_name: acc.hotel_name,
@@ -284,7 +282,7 @@ export default function RegisterPage() {
         {/* Hero */}
         <header className="mb-8 text-center">
           <h1 className="font-serif text-3xl font-bold leading-tight text-white sm:text-4xl">
-            Ashara Mubaraka 1448H — Chicago
+            Ashara Mubaraka 1448H — Chicago Relay Center
           </h1>
           <p className="mt-2 font-serif text-lg text-amber-300">Mumineen Registration</p>
           <p className="mx-auto mt-3 max-w-xl text-sm text-emerald-100/70">
@@ -376,8 +374,8 @@ export default function RegisterPage() {
                     </div>
 
                     {idx > 0 && (
-                      <label className="mt-3 flex items-center gap-2 text-sm text-emerald-950/80">
-                        <input type="checkbox" className="accent-amber-500" checked={sameAsHead.has(m.its)} onChange={(e) => toggleSameAsHead(m.its, e.target.checked)} />
+                      <label className="mt-3 flex items-center gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2.5 text-sm font-medium text-emerald-900">
+                        <input type="checkbox" className="h-4 w-4 accent-amber-500" checked={sameAsHead.has(m.its)} onChange={(e) => toggleSameAsHead(m.its, e.target.checked)} />
                         Same flight details as {members[0].full_name || "head of family"}
                       </label>
                     )}
