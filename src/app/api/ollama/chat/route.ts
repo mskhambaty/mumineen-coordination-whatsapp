@@ -80,9 +80,13 @@ export async function POST(req: NextRequest) {
       },
     });
     const latencyMs = Date.now() - start;
+    const ollamaContent =
+      typeof ollamaResponse.message?.content === "string"
+        ? ollamaResponse.message.content.trim()
+        : "";
 
     results.ollama = {
-      content: ollamaResponse.message.content?.trim() ?? "",
+      content: ollamaContent,
       model: ollamaModel,
       latencyMs,
     };
