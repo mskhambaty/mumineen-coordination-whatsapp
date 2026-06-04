@@ -19,10 +19,14 @@ type Member = {
   departure_flight_no: string | null;
   airport: string | null;
   not_attending: boolean;
+  wants_khidmat: boolean;
+  khidmat_department_ids: string[];
   rahat_seating: boolean;
   wheelchair: boolean;
   special_needs: string | null;
 };
+
+type Department = { id: string; name: string };
 
 type Family = {
   hof_its: string;
@@ -126,10 +130,68 @@ function AddressAutocomplete({ value, onPick, id, invalid, className }: { value:
   );
 }
 
+// Searchable multiselect of khidmat departments, capped at 3.
+function KhidmatPicker({ departments, selected, onChange }: { departments: Department[]; selected: string[]; onChange: (ids: string[]) => void }) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const nameById = new Map(departments.map((d) => [d.id, d.name]));
+  const chosen = new Set(selected);
+  const atLimit = selected.length >= 3;
+  const matches = departments
+    .filter((d) => !chosen.has(d.id) && d.name.toLowerCase().includes(q.trim().toLowerCase()))
+    .slice(0, 8);
+
+  return (
+    <div className="mt-2">
+      {selected.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {selected.map((id) => (
+            <span key={id} className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-900">
+              {nameById.get(id) ?? id}
+              <button type="button" onClick={() => onChange(selected.filter((x) => x !== id))} className="text-emerald-700 hover:text-emerald-900" aria-label="Remove">×</button>
+            </span>
+          ))}
+        </div>
+      )}
+      {atLimit ? (
+        <p className="text-xs text-emerald-950/55">Maximum of 3 departments selected. Remove one to change.</p>
+      ) : (
+        <div className="relative">
+          <input
+            value={q}
+            onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setTimeout(() => setOpen(false), 150)}
+            autoComplete="off"
+            placeholder="Search departments…"
+            className={inputClass}
+          />
+          {open && matches.length > 0 && (
+            <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-emerald-950/15 bg-white text-sm shadow-lg">
+              {matches.map((d) => (
+                <li key={d.id}>
+                  <button
+                    type="button"
+                    onClick={() => { onChange([...selected, d.id]); setQ(""); }}
+                    className="block w-full px-3 py-2 text-left text-gray-800 hover:bg-amber-50"
+                  >
+                    {d.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RegisterPage() {
   const [hofInput, setHofInput] = useState("");
   const [family, setFamily] = useState<Family | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [acc, setAcc] = useState<Partial<Family>>({});
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -188,6 +250,7 @@ export default function RegisterPage() {
       }));
       setFamily(data.family as Family);
       setAcc(data.family as Family);
+      setDepartments((data.departments as Department[]) ?? []);
       setMembers(loaded);
       // Default everyone (other than the head) to "same flight as head"; they can uncheck.
       setSameAsHead(new Set(loaded.slice(1).map((m) => m.its)));
@@ -451,6 +514,20 @@ export default function RegisterPage() {
                         <input id={`reg-${m.its}-special`} value={m.special_needs ?? ""} onChange={(e) => { setMember(m.its, { special_needs: e.target.value }); if (errorField === `reg-${m.its}-special`) setErrorField(null); }} className={fieldClass(`reg-${m.its}-special`)} />
                       </label>
                     )}
+
+                    <div className="mt-3 border-t border-emerald-950/10 pt-3">
+                      <label className="flex items-center gap-2 text-sm text-emerald-950/80">
+                        <input type="checkbox" className="accent-amber-500" checked={m.wants_khidmat} onChange={(e) => setMember(m.its, e.target.checked ? { wants_khidmat: true } : { wants_khidmat: false, khidmat_department_ids: [] })} />
+                        I want to sign up for khidmat
+                      </label>
+                      {m.wants_khidmat && (
+                        <KhidmatPicker
+                          departments={departments}
+                          selected={m.khidmat_department_ids ?? []}
+                          onChange={(ids) => setMember(m.its, { khidmat_department_ids: ids })}
+                        />
+                      )}
+                    </div>
                       </>
                     )}
                   </div>

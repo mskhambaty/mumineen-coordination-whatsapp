@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
 
   const { data: members } = await supabase
     .from("mumineen")
-    .select("its, full_name, gender, age, is_adult, is_head, whatsapp_e164, email, arrival_at, arrival_flight_no, departure_at, departure_flight_no, airport, not_attending, rahat_seating, wheelchair, special_needs, roster_arrival_raw, roster_flight_code")
+    .select("its, full_name, gender, age, is_adult, is_head, whatsapp_e164, email, arrival_at, arrival_flight_no, departure_at, departure_flight_no, airport, not_attending, rahat_seating, wheelchair, special_needs, wants_khidmat, khidmat_department_ids, roster_arrival_raw, roster_flight_code")
     .eq("hof_its", hofIts)
     .eq("roster_active", true)
     .order("is_head", { ascending: false })
@@ -84,7 +84,10 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  return NextResponse.json({ family, members: prefilled });
+  // Khidmat department options (public list for the optional sign-up multiselect).
+  const { data: departments } = await supabase.from("departments").select("id, name").order("name");
+
+  return NextResponse.json({ family, members: prefilled, departments: departments ?? [] });
 }
 
 // Best-effort parse of the roster's free-text arrival (e.g. "10-Jun-25", "01-Jun-26 03:00:27").
@@ -107,6 +110,8 @@ type MemberInput = {
   rahat_seating?: unknown;
   wheelchair?: unknown;
   special_needs?: unknown;
+  wants_khidmat?: unknown;
+  khidmat_department_ids?: unknown;
 };
 
 type RegisterBody = {
@@ -116,6 +121,11 @@ type RegisterBody = {
   accommodation?: Record<string, unknown>;
   transport?: Record<string, unknown>;
 };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Sanitize a khidmat selection: keep valid UUIDs only, dedupe, cap at 3.
+const khidmatIds = (v: unknown): string[] =>
+  Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === "string" && UUID_RE.test(x)))].slice(0, 3) : [];
 
 const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
 const bool = (v: unknown) => v === true || v === "true";
@@ -203,6 +213,8 @@ export async function POST(req: NextRequest) {
         departure_flight_no: str(m.departure_flight_no),
         airport: oneOf(m.airport, ["ORD", "MDW"]),
         not_attending: bool(m.not_attending),
+        wants_khidmat: bool(m.wants_khidmat),
+        khidmat_department_ids: bool(m.wants_khidmat) ? khidmatIds(m.khidmat_department_ids) : [],
         rahat_seating: bool(m.rahat_seating),
         wheelchair: bool(m.rahat_seating) && bool(m.wheelchair),
         special_needs: str(m.special_needs),
