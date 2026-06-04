@@ -1055,7 +1055,7 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/RelayUpdateWriteRequest" }
       responses:
-        "201":
+        "200":
           description: Created update.
           content:
             application/json:

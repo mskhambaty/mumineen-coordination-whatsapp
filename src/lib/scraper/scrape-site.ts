@@ -82,13 +82,14 @@ export async function scrapeSite() {
   }
 
   const uniqueChunks = Array.from(new Map(chunks.map((chunk) => [chunkKey(chunk), chunk])).values());
-  // Only scraped rows participate in stale-marking. NEVER touch FAQ & Guides uploads
-  // (page_url 'knowledge://...') — they aren't part of the scrape and were being wiped.
+  // Only scraped rows participate in stale-marking — they're the only ones with http(s)
+  // page_urls. NEVER touch app-indexed namespaces (knowledge://, faqbucket://, updates://)
+  // — they aren't part of the scrape and were being wiped by the nightly cron.
   const { data: existingRows, error: existingError } = await supabase
     .from("site_content")
     .select("id, page_url, section, content")
     .eq("is_current", true)
-    .not("page_url", "like", "knowledge://%");
+    .like("page_url", "http%");
 
   if (existingError) {
     console.error("Failed to load current site content:", existingError);
