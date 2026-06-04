@@ -25,8 +25,6 @@ export default function KnowledgeGapsPage() {
   const [filter, setFilter] = useState<StatusFilter>("open");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [backfilling, setBackfilling] = useState(false);
-  const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
   const load = useCallback(
@@ -80,50 +78,17 @@ export default function KnowledgeGapsPage() {
     }
   }
 
-  async function runBackfill() {
-    if (!window.confirm("Analyze past conversations to find topics the bot couldn't answer? This runs an AI pass over recent chats and may take a minute.")) return;
-    setBackfilling(true);
-    setBackfillMsg(null);
-    setError(null);
-    try {
-      const res = await fetch("/api/admin/knowledge-gaps/backfill", { method: "POST", headers: { "x-admin-key": adminKey } });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Backfill failed");
-      setBackfillMsg(`Scanned ${data.scanned} conversations — recorded ${data.gaps_recorded} gap(s) from ${data.conversations_with_gaps}.`);
-      await load(filter);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Backfill failed");
-    } finally {
-      setBackfilling(false);
-    }
-  }
-
   const fmt = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold">Knowledge Gaps</h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Topics the AI assistant couldn&apos;t answer from indexed content. Add an FAQ or guide for the
-            common ones, then mark them addressed.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void runBackfill()}
-          disabled={backfilling}
-          title="One-time: scan past conversations for gaps the bot didn't flag live. The agent flags new ones automatically."
-          className="shrink-0 rounded-md border border-blue-300 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50 dark:border-blue-900 dark:text-blue-300 dark:hover:bg-blue-950"
-        >
-          {backfilling ? "Analyzing…" : "Analyze past chats"}
-        </button>
+      <div className="mb-5">
+        <h1 className="text-xl font-bold">Knowledge Gaps</h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          Topics the AI assistant couldn&apos;t answer from indexed content. Add an FAQ or guide for the
+          common ones, then mark them addressed.
+        </p>
       </div>
-
-      {backfillMsg && (
-        <div className="mb-4 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">{backfillMsg}</div>
-      )}
 
       {error && (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{error}</div>
