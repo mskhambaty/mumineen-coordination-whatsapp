@@ -292,7 +292,6 @@ export default function RegisterPage() {
         return { message: `Enter a valid email for ${who}.`, fieldId: `reg-${m.its}-email` };
       if (!isLocal && !m.arrival_at) return { message: `Enter arrival date & time for ${who}.`, fieldId: `reg-${m.its}-arrival` };
       if (!isLocal && !m.departure_at) return { message: `Enter departure date & time for ${who}.`, fieldId: `reg-${m.its}-departure` };
-      if (!m.special_needs?.trim()) return { message: `Enter special needs for ${who} (write "None" if not applicable).`, fieldId: `reg-${m.its}-special` };
       if (!isLocal && m.wants_khidmat !== true && m.wants_khidmat !== false) return { message: `Select khidmat interest for ${who}.`, fieldId: `reg-${m.its}-khidmat` };
     }
     if (!isLocal && acc.acc_type !== "hotel" && acc.acc_type !== "utaro") return { message: "Select your accommodation type.", fieldId: "reg-acc-type" };
@@ -524,14 +523,14 @@ export default function RegisterPage() {
                     </div>
                     <label className={`${labelClass} mt-3`}>
                       <span className="flex items-center gap-1.5">
-                        Special needs<span className="text-red-500"> *</span>
+                        Special needs <span className="text-zinc-400">(optional)</span>
                         <span
-                          title="Please list any special information — food allergies, dietary restrictions, medical conditions, medication, or mobility/accessibility needs. Write 'None' if not applicable."
+                          title="Optional — list any special information such as food allergies, dietary restrictions, medical conditions, medication, or mobility/accessibility needs. Leave blank if not applicable."
                           aria-label="Special needs help"
                           className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-emerald-700 text-[10px] font-bold text-white"
                         >i</span>
                       </span>
-                      <input id={`reg-${m.its}-special`} value={m.special_needs ?? ""} placeholder="Allergies, dietary, medical, accessibility… or 'None'" onChange={(e) => { setMember(m.its, { special_needs: e.target.value }); if (errorField === `reg-${m.its}-special`) setErrorField(null); }} className={fieldClass(`reg-${m.its}-special`)} />
+                      <input id={`reg-${m.its}-special`} value={m.special_needs ?? ""} placeholder="Allergies, dietary, medical, accessibility… (optional)" onChange={(e) => { setMember(m.its, { special_needs: e.target.value }); if (errorField === `reg-${m.its}-special`) setErrorField(null); }} className={fieldClass(`reg-${m.its}-special`)} />
                     </label>
 
                     <div id={`reg-${m.its}-khidmat`} className="mt-3 border-t border-emerald-950/10 pt-3">
