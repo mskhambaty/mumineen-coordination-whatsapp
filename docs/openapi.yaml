@@ -1035,8 +1035,12 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items: { $ref: "#/components/schemas/RelayUpdate" }
+                type: object
+                required: [updates]
+                properties:
+                  updates:
+                    type: array
+                    items: { $ref: "#/components/schemas/RelayUpdate" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "500": { $ref: "#/components/responses/ServerError" }
@@ -1060,7 +1064,7 @@ paths:
                 required: [ok, id]
                 properties:
                   ok: { type: boolean }
-                  id: { type: string, format: uuid }
+                  id: { type: string, format: uuid, nullable: true }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
