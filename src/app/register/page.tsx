@@ -137,9 +137,7 @@ function KhidmatPicker({ departments, selected, onChange }: { departments: Depar
   const nameById = new Map(departments.map((d) => [d.id, d.name]));
   const chosen = new Set(selected);
   const atLimit = selected.length >= 3;
-  const matches = departments
-    .filter((d) => !chosen.has(d.id) && d.name.toLowerCase().includes(q.trim().toLowerCase()))
-    .slice(0, 8);
+  const matches = departments.filter((d) => !chosen.has(d.id) && d.name.toLowerCase().includes(q.trim().toLowerCase()));
 
   return (
     <div className="mt-2">
