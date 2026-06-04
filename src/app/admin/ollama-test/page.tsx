@@ -68,7 +68,31 @@ export default function OllamaTestPage() {
         setModelsError(data.error ?? "Failed to fetch models");
         return;
       }
-      const modelList: OllamaModel[] = data.models ?? data.data ?? [];
+      const rawModels = Array.isArray(data.data)
+        ? data.data
+        : Array.isArray(data.models)
+          ? data.models
+          : [];
+      const modelList: OllamaModel[] = rawModels
+        .map((item: unknown) => {
+          if (!item || typeof item !== "object") return null;
+
+          const model = item as {
+            id?: string;
+            name?: string;
+            model?: string;
+            modified_at?: string;
+          };
+          const identifier = model.model ?? model.name ?? model.id;
+          if (!identifier) return null;
+
+          return {
+            name: model.name ?? model.id ?? model.model ?? identifier,
+            model: model.model ?? model.id ?? model.name ?? identifier,
+            modified_at: model.modified_at,
+          };
+        })
+        .filter((model): model is OllamaModel => model !== null);
       setModels(modelList);
       if (modelList.length > 0 && !selectedModel) {
         setSelectedModel(modelList[0].model ?? modelList[0].name);
