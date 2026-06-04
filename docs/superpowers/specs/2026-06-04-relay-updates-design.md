@@ -52,9 +52,17 @@ Index: `(published, date desc)`. RLS enabled, no policies (service-role only —
 
 New helper `canManageRelayCategory(caller, category)` (lives beside the existing permission helpers):
 
-- `role = 'admin'` or `global_role = 'leadership_admin'` → all categories. Only they may post `general`.
+- `role = 'admin'` or `global_role = 'leadership_admin'` → may post in **all three categories** (no restriction).
 - PM or HOD (`dept_role in ('pm','hod')`, `is_active`) of a department whose **lowercased name equals the category** (`Accommodation` → `accommodation`, `Transport` → `transport`) → that category only.
+- `general` has no matching department, so it is postable **only** by admin/leadership.
 - Edit/unpublish applies the same rule to the row's current category, and to the new category when it changes.
+
+| Who | general | accommodation | transport |
+|---|---|---|---|
+| `admin` / `leadership_admin` | ✅ | ✅ | ✅ |
+| PM/HOD of Accommodation dept | ❌ | ✅ | ❌ |
+| PM/HOD of Transport dept | ❌ | ❌ | ✅ |
+| Everyone else | ❌ | ❌ | ❌ |
 
 Auth follows the house portal convention: shared `x-admin-key` header + acting `user_id` in the request body; the server resolves role and department memberships from the DB. (Portal-wide per-user auth strength is an existing, separate concern — same class as ticket #58 — and is not expanded here.)
 
