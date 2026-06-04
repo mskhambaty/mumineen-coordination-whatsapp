@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
@@ -25,6 +26,10 @@ export default function KnowledgeGapsPage() {
   const [filter, setFilter] = useState<StatusFilter>("open");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [faqGap, setFaqGap] = useState<Gap | null>(null);
+  const [faqTitle, setFaqTitle] = useState("");
+  const [faqAnswer, setFaqAnswer] = useState("");
+  const [savingFaq, setSavingFaq] = useState(false);
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
   const load = useCallback(
@@ -78,16 +83,64 @@ export default function KnowledgeGapsPage() {
     }
   }
 
+  function openFaq(gap: Gap) {
+    setFaqGap(gap);
+    setFaqTitle(gap.topic);
+    setFaqAnswer("");
+    setError(null);
+  }
+
+  function closeFaq() {
+    setFaqGap(null);
+    setFaqTitle("");
+    setFaqAnswer("");
+  }
+
+  async function saveFaq(event: React.FormEvent) {
+    event.preventDefault();
+    if (!faqGap || !faqTitle.trim() || !faqAnswer.trim()) return;
+    setSavingFaq(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/knowledge-gaps/faq", {
+        method: "POST",
+        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
+        body: JSON.stringify({
+          gap_id: faqGap.id,
+          title: faqTitle.trim(),
+          question: faqGap.sample_question ?? "",
+          answer: faqAnswer.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to save FAQ");
+      closeFaq();
+      await load(filter);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save FAQ");
+    } finally {
+      setSavingFaq(false);
+    }
+  }
+
   const fmt = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mb-5">
-        <h1 className="text-xl font-bold">Knowledge Gaps</h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Topics the AI assistant couldn&apos;t answer from indexed content. Add an FAQ or guide for the
-          common ones, then mark them addressed.
-        </p>
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold">Knowledge Gaps</h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Topics the AI assistant couldn&apos;t answer from indexed content. Add an FAQ for the
+            common ones (it&apos;s vectorized instantly), or edit the agent prompt — then mark them addressed.
+          </p>
+        </div>
+        <Link
+          href="/admin/prompt"
+          className="shrink-0 rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+        >
+          Edit agent prompt
+        </Link>
       </div>
 
       {error && (
@@ -138,6 +191,7 @@ export default function KnowledgeGapsPage() {
                   <td className="px-3 py-2 text-gray-500 dark:text-gray-400">{fmt(g.last_seen_at)}</td>
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap gap-1.5">
+                      <button type="button" onClick={() => openFaq(g)} className="rounded border border-blue-300 px-2 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-50 dark:border-blue-900 dark:text-blue-300 dark:hover:bg-blue-950">Add FAQ</button>
                       {g.status !== "addressed" && (
                         <button type="button" onClick={() => setStatus(g.id, "addressed")} className="rounded border border-green-300 px-2 py-0.5 text-xs font-medium text-green-700 hover:bg-green-50 dark:border-green-900 dark:hover:bg-green-950">Addressed</button>
                       )}
@@ -153,6 +207,55 @@ export default function KnowledgeGapsPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {faqGap && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-lg bg-white p-6 dark:bg-gray-900">
+            <h3 className="text-lg font-semibold">Add FAQ</h3>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              This is vectorized into the logistics store immediately so the agent can answer it next time. The gap is marked addressed on save.
+            </p>
+            {faqGap.sample_question && (
+              <p className="mt-3 rounded-md bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                <span className="font-medium">Example question:</span> {faqGap.sample_question}
+              </p>
+            )}
+            <form onSubmit={saveFaq} className="mt-4 space-y-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Title
+                <input
+                  type="text"
+                  value={faqTitle}
+                  onChange={(e) => setFaqTitle(e.target.value)}
+                  required
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                />
+              </label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Answer
+                <textarea
+                  value={faqAnswer}
+                  onChange={(e) => setFaqAnswer(e.target.value)}
+                  required
+                  rows={6}
+                  placeholder="Write the answer the agent should give for this topic."
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                />
+              </label>
+              <div className="flex justify-end gap-3">
+                <button type="button" onClick={closeFaq} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300">Cancel</button>
+                <button
+                  type="submit"
+                  disabled={savingFaq || !faqTitle.trim() || !faqAnswer.trim()}
+                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+                >
+                  {savingFaq ? "Saving…" : "Save & Vectorize"}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </main>
