@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { canAccessMumineen } from "@/lib/admin/access";
 
-type Stats = { mumineen: number; adults: number; families: number; registered_families: number };
+type Stats = { mumineen: number; adults: number; families: number; registered_families: number; cancelled_families: number };
 
 type SearchResult = {
   its: string;
@@ -107,6 +107,21 @@ export default function MumineenPage() {
     }
   }
 
+  async function runSearch(term: string) {
+    setSearching(true);
+    try {
+      const res = await fetch(`/api/admin/mumineen/search?q=${encodeURIComponent(term)}`, {
+        headers: { "x-admin-key": adminKey },
+      });
+      const data = await res.json().catch(() => ({}));
+      setResults(res.ok ? ((data.results as SearchResult[]) ?? []) : []);
+    } catch {
+      setResults([]);
+    } finally {
+      setSearching(false);
+    }
+  }
+
   function onQueryChange(value: string) {
     setQuery(value);
     if (searchTimer.current) clearTimeout(searchTimer.current);
@@ -117,19 +132,28 @@ export default function MumineenPage() {
       return;
     }
     setSearching(true);
-    searchTimer.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/admin/mumineen/search?q=${encodeURIComponent(term)}`, {
-          headers: { "x-admin-key": adminKey },
-        });
-        const data = await res.json().catch(() => ({}));
-        setResults(res.ok ? ((data.results as SearchResult[]) ?? []) : []);
-      } catch {
-        setResults([]);
-      } finally {
-        setSearching(false);
-      }
-    }, 300);
+    searchTimer.current = setTimeout(() => runSearch(term), 300);
+  }
+
+  async function registrationAction(hofIts: string, action: "cancel" | "reopen") {
+    const verb = action === "cancel" ? "Cancel" : "Reopen";
+    const reason =
+      action === "cancel" ? window.prompt(`Cancel registration for family ${hofIts}?\nOptional reason:`, "") : "";
+    if (action === "cancel" && reason === null) return; // user dismissed the prompt
+    if (action === "reopen" && !window.confirm(`Reopen registration for family ${hofIts}? They will be able to submit the form again.`)) return;
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/mumineen/registration", {
+        method: "POST",
+        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
+        body: JSON.stringify({ hof_its: hofIts, action, reason }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? `${verb} failed`);
+      await Promise.all([runSearch(query.trim()), loadStats()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `${verb} failed`);
+    }
   }
 
   const cards: { label: string; value: number | undefined }[] = [
@@ -137,6 +161,7 @@ export default function MumineenPage() {
     { label: "Adults (RSVP targets)", value: stats?.adults },
     { label: "Families", value: stats?.families },
     { label: "Registered families", value: stats?.registered_families },
+    { label: "Cancelled", value: stats?.cancelled_families },
   ];
 
   return (
@@ -189,6 +214,7 @@ export default function MumineenPage() {
                     <th className="px-2 py-1.5">City</th>
                     <th className="px-2 py-1.5">WhatsApp</th>
                     <th className="px-2 py-1.5">Reg.</th>
+                    <th className="px-2 py-1.5">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -208,8 +234,19 @@ export default function MumineenPage() {
                       <td className="px-2 py-1.5">
                         {r.family?.registration_status === "submitted" || r.family?.registration_status === "confirmed" ? (
                           <span className="text-green-600 dark:text-green-400">{r.family.registration_status}</span>
+                        ) : r.family?.registration_status === "cancelled" ? (
+                          <span className="text-red-500">cancelled</span>
                         ) : (
                           <span className="text-gray-400">{r.family?.registration_status ?? "—"}</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        {r.hof_its && (r.family?.registration_status === "submitted" || r.family?.registration_status === "confirmed") ? (
+                          <button type="button" onClick={() => registrationAction(r.hof_its!, "cancel")} className="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950">Cancel</button>
+                        ) : r.hof_its && r.family?.registration_status === "cancelled" ? (
+                          <button type="button" onClick={() => registrationAction(r.hof_its!, "reopen")} className="rounded border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800">Reopen</button>
+                        ) : (
+                          <span className="text-gray-300 dark:text-gray-600">—</span>
                         )}
                       </td>
                     </tr>

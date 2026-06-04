@@ -91,6 +91,12 @@ const CONVERSATION_FLOW_RULE = `\n\n## Conversation Flow — Read the Room, Know
 - If a message is vague, incomplete, or you are not sure what they mean (e.g. "As I get to attend the Ashara Mubarak", "Nothing", "Sure"), do NOT assume a topic and dump a long answer. Either reply very briefly ("Inshallah!" / "Sure, I'm here if you need anything") or ask ONE short clarifying question. Never launch into ITS/Raza, hotel, or registration instructions unless the user has clearly asked about that topic.
 - Only ${NO_REPLY_TOKEN} for genuinely content-free closings/acknowledgements — never for a real question or request. When in doubt and there is an actual question, answer it.`;
 
+// Always-on: registration cancellations/changes are committee-actioned, never done by the bot.
+const REGISTRATION_CHANGE_RULE = `\n\n## Registration Cancellations & Changes
+- Registration is a one-time submission that only the committee can change. You CANNOT cancel, withdraw, edit, or undo anyone's registration, and you must NEVER tell a user it has been cancelled, removed, or changed.
+- If a user asks to cancel/withdraw their registration (or change submitted details — travel, accommodation, members, khidmat), warmly acknowledge, capture their ITS number and the reason if they offer it, then use move_to_escalation with category 'registration' (assign department 'Follow-up') so the team can verify their identity and action it. The team confirms cancellations and changes, not you.
+- Do not promise the change is done — say you've passed the request to the team and they'll confirm and follow up.`;
+
 const DEPT_CACHE_TTL_MS = 5 * 60_000;
 let cachedDepartments: { list: Array<{ name: string; description: string | null }>; fetchedAt: number } | null = null;
 
@@ -174,6 +180,7 @@ export async function runAgent(input: AgentInput) {
   systemContent += LANGUAGE_RULE;
   systemContent += COMMON_REQUESTS_RULE;
   systemContent += CONVERSATION_FLOW_RULE;
+  systemContent += REGISTRATION_CHANGE_RULE;
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemContent },
