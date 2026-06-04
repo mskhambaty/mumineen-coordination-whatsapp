@@ -160,12 +160,12 @@ export default function AdminNav() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex min-h-16 flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
-            {/* Full logo is portrait (emblem + text); crop to the circular emblem for the nav. */}
+            {/* Official Ashara Mubaraka 1448H Chicago Relay Center logo (full-bleed art — show whole mark). */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/logo.png"
-              alt="Relay Center Chicago"
-              className="h-16 w-16 shrink-0 object-cover object-top"
+              src="/logo.jpg"
+              alt="Ashara Mubaraka 1448H Chicago Relay Center"
+              className="h-16 w-16 shrink-0 object-contain"
             />
             <h1 className="text-xl font-bold dark:text-gray-100">Ashara 1448H</h1>
           </div>
