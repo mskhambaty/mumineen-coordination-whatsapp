@@ -75,6 +75,7 @@ export default function OllamaTestPage() {
         setModelsError(data.error ?? "Failed to fetch models");
         return;
       }
+      // Supports OpenAI-compatible { data: [...] } and legacy { models: [...] } payloads.
       const rawModels = Array.isArray(data.data)
         ? data.data
         : Array.isArray(data.models)
@@ -87,11 +88,9 @@ export default function OllamaTestPage() {
           const model = item as RawOllamaModel;
           const identifier = model.model ?? model.id ?? model.name;
           if (!identifier) return null;
-          const displayName = model.name ?? model.id ?? model.model;
-          if (!displayName) return null;
 
           return {
-            name: displayName,
+            name: identifier,
             model: identifier,
             modified_at: model.modified_at,
           };
