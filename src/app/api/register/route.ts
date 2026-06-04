@@ -165,7 +165,7 @@ function validateSubmission(members: MemberInput[], acc: Record<string, unknown>
       if (!ts(m.arrival_at)) return `Missing arrival date & time for ${who}.`;
       if (!ts(m.departure_at)) return `Missing departure date & time for ${who}.`;
     }
-    if (bool(m.rahat_seating) && !str(m.special_needs)) return `Missing rahat / special need detail for ${who}.`;
+    if (!str(m.special_needs)) return `Missing special needs for ${who}.`;
   }
   // Travel + accommodation are mehman-only; locals provide neither.
   if (!isLocal) {
