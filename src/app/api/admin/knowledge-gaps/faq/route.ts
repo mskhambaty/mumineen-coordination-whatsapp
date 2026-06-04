@@ -21,11 +21,15 @@ export async function POST(req: NextRequest) {
     title?: unknown;
     question?: unknown;
     answer?: unknown;
+    department_id?: unknown;
   };
   const title = typeof body.title === "string" ? body.title.trim() : "";
   const question = typeof body.question === "string" ? body.question.trim() : "";
   const answer = typeof body.answer === "string" ? body.answer.trim() : "";
   const gapId = typeof body.gap_id === "string" ? body.gap_id : null;
+  // Optional, organizational only — not used in retrieval.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const departmentId = typeof body.department_id === "string" && UUID_RE.test(body.department_id) ? body.department_id : null;
 
   if (!title) return NextResponse.json({ error: "A title is required." }, { status: 400 });
   if (!answer) return NextResponse.json({ error: "An answer is required." }, { status: 400 });
@@ -35,7 +39,7 @@ export async function POST(req: NextRequest) {
   const { data: doc, error: insertError } = await supabase
     .from("knowledge_documents")
     .insert({
-      department_id: null,
+      department_id: departmentId,
       title,
       filename: `${title}.faq`,
       file_type: "faq",

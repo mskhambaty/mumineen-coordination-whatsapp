@@ -29,7 +29,9 @@ export default function KnowledgeGapsPage() {
   const [faqGap, setFaqGap] = useState<Gap | null>(null);
   const [faqTitle, setFaqTitle] = useState("");
   const [faqAnswer, setFaqAnswer] = useState("");
+  const [faqDeptId, setFaqDeptId] = useState("");
   const [savingFaq, setSavingFaq] = useState(false);
+  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
   const load = useCallback(
@@ -67,6 +69,20 @@ export default function KnowledgeGapsPage() {
     void load(filter);
   }, [router, filter, load]);
 
+  // Load departments once for the optional Add FAQ dropdown.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/departments", { headers: { "x-admin-key": adminKey } });
+        if (!res.ok) return;
+        const data = (await res.json()) as { id: string; name: string }[];
+        setDepartments(Array.isArray(data) ? data : []);
+      } catch {
+        // Non-fatal: the dropdown just shows "No department".
+      }
+    })();
+  }, [adminKey]);
+
   async function setStatus(id: string, status: Gap["status"]) {
     setError(null);
     try {
@@ -87,6 +103,7 @@ export default function KnowledgeGapsPage() {
     setFaqGap(gap);
     setFaqTitle(gap.topic);
     setFaqAnswer("");
+    setFaqDeptId("");
     setError(null);
   }
 
@@ -94,6 +111,7 @@ export default function KnowledgeGapsPage() {
     setFaqGap(null);
     setFaqTitle("");
     setFaqAnswer("");
+    setFaqDeptId("");
   }
 
   async function saveFaq(event: React.FormEvent) {
@@ -110,6 +128,7 @@ export default function KnowledgeGapsPage() {
           title: faqTitle.trim(),
           question: faqGap.sample_question ?? "",
           answer: faqAnswer.trim(),
+          department_id: faqDeptId || null,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -232,6 +251,19 @@ export default function KnowledgeGapsPage() {
                   required
                   className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                 />
+              </label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Department <span className="font-normal text-gray-400">(optional)</span>
+                <select
+                  value={faqDeptId}
+                  onChange={(e) => setFaqDeptId(e.target.value)}
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                >
+                  <option value="">No department</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
               </label>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Answer
