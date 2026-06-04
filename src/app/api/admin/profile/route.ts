@@ -81,10 +81,10 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "New password must be at least 8 characters" }, { status: 400 });
     }
     const storedHash = typeof user.password_hash === "string" ? user.password_hash : null;
-    const legacyPassword = optionalEnv("ADMIN_FALLBACK_PASSWORD") ?? "786110";
+    const legacyPassword = optionalEnv("ADMIN_FALLBACK_PASSWORD");
     const currentValid = storedHash
       ? await verifyPassword(currentPassword, storedHash)
-      : currentPassword === legacyPassword;
+      : Boolean(legacyPassword && currentPassword === legacyPassword);
     if (!currentValid) {
       return NextResponse.json({ error: "Current password is incorrect" }, { status: 401 });
     }

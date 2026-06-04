@@ -7,9 +7,10 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 ## Pages
 
 ### Login (`/admin/login`)
+- Production portal: `https://www.chicagorelaycenter.com/admin/login`
 - Email and password authentication
 - Forgot password link that calls `POST /api/auth/forgot-password`
-- Default password: `786110`
+- Legacy fallback password is read from `ADMIN_FALLBACK_PASSWORD` only and must not be committed to the repo
 - Only users with `role = 'admin'` or `global_role = 'leadership_admin'` can log in
 - Primary admin: mskhambaty@gmail.com (Mufaddal Khambaty)
 
