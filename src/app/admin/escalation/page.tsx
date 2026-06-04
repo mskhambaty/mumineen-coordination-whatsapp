@@ -21,6 +21,10 @@ type SupportMember = {
 type UserOption = { id: string; display_name: string | null; phone_e164: string; email: string | null };
 type Department = { id: string; name: string };
 
+type Tally = { label: string; count: number };
+type RecentReason = { reason: string; category: string; priority: string; escalated_at: string | null };
+type Breakdown = { total: number; pending: number; by_category: Tally[]; by_priority: Tally[]; recent: RecentReason[] };
+
 export default function EscalationSupportPage() {
   const router = useRouter();
   const [members, setMembers] = useState<SupportMember[]>([]);
@@ -30,6 +34,8 @@ export default function EscalationSupportPage() {
   const [selectedUserId, setSelectedUserId] = useState("");
   const [selectedDeptId, setSelectedDeptId] = useState("");
   const [filterDeptId, setFilterDeptId] = useState("all");
+  const [breakdown, setBreakdown] = useState<Breakdown | null>(null);
+  const [showReasons, setShowReasons] = useState(false);
   const [expandedHours, setExpandedHours] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -65,11 +71,13 @@ export default function EscalationSupportPage() {
     setLoading(true);
     setError(null);
     try {
-      const [membersRes, usersRes, deptRes] = await Promise.all([
+      const [membersRes, usersRes, deptRes, breakdownRes] = await Promise.all([
         apiFetch("/api/admin/escalation-support"),
         apiFetch("/api/admin/users"),
         apiFetch("/api/departments"),
+        apiFetch("/api/admin/escalations/breakdown"),
       ]);
+      if (breakdownRes.ok) setBreakdown((await breakdownRes.json()) as Breakdown);
       const membersData = await membersRes.json().catch(() => ({}));
       if (!membersRes.ok) throw new Error(membersData.error ?? "Failed to load support team");
       const list = (membersData.members ?? []) as SupportMember[];
@@ -212,6 +220,68 @@ export default function EscalationSupportPage() {
       {error && (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
           {error}
+        </div>
+      )}
+
+      {breakdown && breakdown.total > 0 && (
+        <div className="mb-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-lg font-semibold">Why chats get escalated</h2>
+            <span className="text-sm text-gray-500 dark:text-gray-400">{breakdown.total} total · {breakdown.pending} pending</span>
+          </div>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Patterns in what the bot hands off — high-volume categories often signal where an FAQ or process fix would help.
+          </p>
+
+          <div className="mt-4 grid gap-5 sm:grid-cols-2">
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase text-gray-400">By category</h3>
+              <div className="space-y-1.5">
+                {breakdown.by_category.map((c) => {
+                  const pct = breakdown.total ? Math.round((c.count / breakdown.total) * 100) : 0;
+                  return (
+                    <div key={c.label} className="flex items-center gap-2 text-sm">
+                      <span className="w-28 shrink-0 capitalize text-gray-600 dark:text-gray-300">{c.label}</span>
+                      <span className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                        <span className="block h-full rounded-full bg-blue-500" style={{ width: `${pct}%` }} />
+                      </span>
+                      <span className="w-14 shrink-0 text-right tabular-nums text-gray-500 dark:text-gray-400">{c.count} ({pct}%)</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase text-gray-400">By priority</h3>
+              <div className="space-y-1.5">
+                {breakdown.by_priority.map((p) => (
+                  <div key={p.label} className="flex items-center gap-2 text-sm">
+                    <span className={`w-28 shrink-0 capitalize ${p.label === "urgent" ? "font-medium text-red-600 dark:text-red-400" : "text-gray-600 dark:text-gray-300"}`}>{p.label}</span>
+                    <span className="text-gray-500 dark:text-gray-400 tabular-nums">{p.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {breakdown.recent.length > 0 && (
+            <div className="mt-4 border-t border-gray-100 pt-3 dark:border-gray-800">
+              <button type="button" onClick={() => setShowReasons((v) => !v)} className="text-sm font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400">
+                {showReasons ? "Hide" : "Show"} recent reasons ({breakdown.recent.length})
+              </button>
+              {showReasons && (
+                <ul className="mt-2 space-y-2">
+                  {breakdown.recent.map((r, i) => (
+                    <li key={i} className="text-sm">
+                      <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs capitalize text-gray-600 dark:bg-gray-800 dark:text-gray-300">{r.category}</span>
+                      {r.priority === "urgent" && <span className="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-300">urgent</span>}
+                      <span className="ml-2 text-gray-700 dark:text-gray-300">{r.reason}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       )}
 
