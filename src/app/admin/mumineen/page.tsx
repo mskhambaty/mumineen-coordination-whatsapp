@@ -57,10 +57,127 @@ type SearchResult = {
   special_needs: string | null;
   wants_khidmat: boolean | null;
   not_attending: boolean | null;
+  khidmat_department_ids: string[] | null;
   whatsapp_link_clicked: boolean | null;
   updated_at: string | null;
   family: FamilyDetail | null;
 };
+
+type Department = { id: string; name: string };
+
+// Draft state for the modal's edit mode. Dates are held as datetime-local strings; everything
+// else mirrors the editable member + family columns. Converted back to ISO/null on save.
+type EditForm = {
+  whatsapp_e164: string;
+  email: string;
+  arrival_at: string;
+  arrival_flight_no: string;
+  departure_at: string;
+  departure_flight_no: string;
+  airport: string;
+  not_attending: boolean;
+  rahat_seating: boolean;
+  wheelchair: boolean;
+  special_needs: string;
+  wants_khidmat: boolean;
+  khidmat_department_ids: string[];
+  acc_type: string;
+  hotel_name: string;
+  hotel_address: string;
+  open_to_utaro: boolean;
+  utaro_host_name: string;
+  utaro_host_its: string;
+  utaro_host_address: string;
+  utaro_host_whatsapp_e164: string;
+  utaro_host_email: string;
+  transport_mode: string;
+  transport_detail: string;
+};
+
+const inputCls =
+  "block w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-950";
+
+// ISO timestamp → value for a <input type="datetime-local"> (local time, minute precision).
+function toLocalInput(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// datetime-local string (interpreted in the admin's local TZ) → ISO, or null when empty/invalid.
+function localInputToIso(v: string): string | null {
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+// A labelled row for an edit control.
+function EditRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-3">
+      <label className="w-44 shrink-0 text-xs uppercase tracking-wide text-gray-400">{label}</label>
+      <div className="flex-1">{children}</div>
+    </div>
+  );
+}
+
+// Searchable multiselect of khidmat departments, capped at 3 (admin-styled twin of the one on the
+// public registration form).
+function KhidmatPicker({ departments, selected, onChange }: { departments: Department[]; selected: string[]; onChange: (ids: string[]) => void }) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const nameById = new Map(departments.map((d) => [d.id, d.name]));
+  const chosen = new Set(selected);
+  const atLimit = selected.length >= 3;
+  const matches = departments.filter((d) => !chosen.has(d.id) && d.name.toLowerCase().includes(q.trim().toLowerCase()));
+
+  return (
+    <div>
+      {selected.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {selected.map((id) => (
+            <span key={id} className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-900 dark:bg-blue-950 dark:text-blue-200">
+              {nameById.get(id) ?? id}
+              <button type="button" onClick={() => onChange(selected.filter((x) => x !== id))} className="text-blue-700 hover:text-blue-900 dark:text-blue-300" aria-label="Remove">×</button>
+            </span>
+          ))}
+        </div>
+      )}
+      {atLimit ? (
+        <p className="text-xs text-gray-400">Maximum of 3 departments selected. Remove one to change.</p>
+      ) : (
+        <div className="relative">
+          <input
+            value={q}
+            onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setTimeout(() => setOpen(false), 150)}
+            autoComplete="off"
+            placeholder="Search departments…"
+            className={inputCls}
+          />
+          {open && matches.length > 0 && (
+            <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-gray-200 bg-white text-sm shadow-lg dark:border-gray-700 dark:bg-gray-900">
+              {matches.map((d) => (
+                <li key={d.id}>
+                  <button
+                    type="button"
+                    onPointerDown={(e) => { e.preventDefault(); onChange([...selected, d.id]); setQ(""); }}
+                    className="block w-full px-3 py-2 text-left text-gray-800 hover:bg-blue-50 dark:text-gray-100 dark:hover:bg-gray-800"
+                  >
+                    {d.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function fmtDateTime(v: string | null | undefined): string | null {
   if (!v) return null;
@@ -108,6 +225,10 @@ export default function MumineenPage() {
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [selected, setSelected] = useState<SearchResult | null>(null);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<EditForm | null>(null);
+  const [saving, setSaving] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
@@ -126,17 +247,112 @@ export default function MumineenPage() {
     }
     void loadStats();
     void loadGate();
+    void loadDepartments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   useEffect(() => {
     if (!selected) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSelected(null);
+      if (e.key === "Escape") closeModal();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [selected]);
+
+  function closeModal() {
+    setSelected(null);
+    setEditing(false);
+    setForm(null);
+  }
+
+  function startEdit(s: SearchResult) {
+    setForm({
+      whatsapp_e164: s.whatsapp_e164 ?? "",
+      email: s.email ?? "",
+      arrival_at: toLocalInput(s.arrival_at),
+      arrival_flight_no: s.arrival_flight_no ?? "",
+      departure_at: toLocalInput(s.departure_at),
+      departure_flight_no: s.departure_flight_no ?? "",
+      airport: s.airport ?? "",
+      not_attending: Boolean(s.not_attending),
+      rahat_seating: Boolean(s.rahat_seating),
+      wheelchair: Boolean(s.wheelchair),
+      special_needs: s.special_needs ?? "",
+      wants_khidmat: Boolean(s.wants_khidmat),
+      khidmat_department_ids: s.khidmat_department_ids ?? [],
+      acc_type: s.family?.acc_type ?? "",
+      hotel_name: s.family?.hotel_name ?? "",
+      hotel_address: s.family?.hotel_address ?? "",
+      open_to_utaro: Boolean(s.family?.open_to_utaro),
+      utaro_host_name: s.family?.utaro_host_name ?? "",
+      utaro_host_its: s.family?.utaro_host_its ?? "",
+      utaro_host_address: s.family?.utaro_host_address ?? "",
+      utaro_host_whatsapp_e164: s.family?.utaro_host_whatsapp_e164 ?? "",
+      utaro_host_email: s.family?.utaro_host_email ?? "",
+      transport_mode: s.family?.transport_mode ?? "",
+      transport_detail: s.family?.transport_detail ?? "",
+    });
+    setEditing(true);
+  }
+
+  function updateForm(patch: Partial<EditForm>) {
+    setForm((prev) => (prev ? { ...prev, ...patch } : prev));
+  }
+
+  async function saveEdit() {
+    if (!selected || !form) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const member = {
+        whatsapp_e164: form.whatsapp_e164,
+        email: form.email,
+        arrival_at: localInputToIso(form.arrival_at),
+        arrival_flight_no: form.arrival_flight_no,
+        departure_at: localInputToIso(form.departure_at),
+        departure_flight_no: form.departure_flight_no,
+        airport: form.airport,
+        not_attending: form.not_attending,
+        wants_khidmat: form.wants_khidmat,
+        khidmat_department_ids: form.khidmat_department_ids,
+        rahat_seating: form.rahat_seating,
+        wheelchair: form.wheelchair,
+        special_needs: form.special_needs,
+      };
+      const family = selected.family
+        ? {
+            acc_type: form.acc_type,
+            hotel_name: form.hotel_name,
+            hotel_address: form.hotel_address,
+            open_to_utaro: form.open_to_utaro,
+            utaro_host_name: form.utaro_host_name,
+            utaro_host_its: form.utaro_host_its,
+            utaro_host_address: form.utaro_host_address,
+            utaro_host_whatsapp_e164: form.utaro_host_whatsapp_e164,
+            utaro_host_email: form.utaro_host_email,
+            transport_mode: form.transport_mode,
+            transport_detail: form.transport_detail,
+          }
+        : undefined;
+      const res = await fetch("/api/admin/mumineen/update", {
+        method: "POST",
+        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
+        body: JSON.stringify({ its: selected.its, member, family }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Save failed");
+      // Reflect the saved rows in the modal and the search list without a re-open.
+      setSelected({ ...selected, ...(data.member ?? {}), family: data.family ?? selected.family });
+      setEditing(false);
+      setForm(null);
+      await runSearch(query.trim());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function loadStats() {
     const res = await fetch("/api/admin/mumineen", { headers: { "x-admin-key": adminKey } });
@@ -146,6 +362,11 @@ export default function MumineenPage() {
   async function loadGate() {
     const res = await fetch("/api/admin/registration-gate", { headers: { "x-admin-key": adminKey } });
     if (res.ok) setGate(Boolean((await res.json()).enabled));
+  }
+
+  async function loadDepartments() {
+    const res = await fetch("/api/admin/mumineen/departments", { headers: { "x-admin-key": adminKey } });
+    if (res.ok) setDepartments(((await res.json()).departments as Department[]) ?? []);
   }
 
   async function toggleGate(next: boolean) {
@@ -417,7 +638,7 @@ export default function MumineenPage() {
       {selected && (
         <div
           className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-6"
-          onClick={() => setSelected(null)}
+          onClick={closeModal}
         >
           <div
             className="my-4 w-full max-w-2xl rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900"
@@ -433,16 +654,46 @@ export default function MumineenPage() {
                 </h2>
                 <p className="mt-0.5 font-mono text-xs text-gray-500">ITS {selected.its}</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                aria-label="Close"
-                className="shrink-0 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-              >
-                <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path strokeLinecap="round" d="M5 5l10 10M15 5L5 15" />
-                </svg>
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                {editing ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={saveEdit}
+                      disabled={saving}
+                      className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300 dark:disabled:bg-gray-700"
+                    >
+                      {saving ? "Saving…" : "Save"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setEditing(false); setForm(null); }}
+                      disabled={saving}
+                      className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => startEdit(selected)}
+                    className="rounded-md border border-blue-300 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50 dark:border-blue-900 dark:text-blue-300 dark:hover:bg-blue-950"
+                  >
+                    Edit
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  aria-label="Close"
+                  className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+                >
+                  <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path strokeLinecap="round" d="M5 5l10 10M15 5L5 15" />
+                  </svg>
+                </button>
+              </div>
             </div>
 
             <div className="px-5 py-3">
@@ -463,50 +714,136 @@ export default function MumineenPage() {
                 <Field label="Local / Mehman" value={selected.local_mehman} />
               </Section>
 
-              <Section title="Contact">
-                <Field label="WhatsApp" value={selected.whatsapp_e164} />
-                <Field label="Email" value={selected.email} />
-                <Field label="WhatsApp link clicked" value={yesOrNull(selected.whatsapp_link_clicked)} />
-              </Section>
+              {editing && form ? (
+                <>
+                  <Section title="Contact">
+                    <EditRow label="WhatsApp"><input value={form.whatsapp_e164} onChange={(e) => updateForm({ whatsapp_e164: e.target.value })} placeholder="+1…" className={inputCls} /></EditRow>
+                    <EditRow label="Email"><input value={form.email} onChange={(e) => updateForm({ email: e.target.value })} type="email" className={inputCls} /></EditRow>
+                  </Section>
 
-              <Section title="Travel">
-                <Field label="Arrival" value={fmtDateTime(selected.arrival_at)} />
-                <Field label="Arrival flight" value={selected.arrival_flight_no} />
-                <Field label="Departure" value={fmtDateTime(selected.departure_at)} />
-                <Field label="Departure flight" value={selected.departure_flight_no} />
-                <Field label="Airport" value={selected.airport} />
-                <Field label="Daily transport" value={selected.daily_trans} />
-                <Field label="Roster arrival (raw)" value={selected.roster_arrival_raw} />
-                <Field label="Roster flight code" value={selected.roster_flight_code} />
-              </Section>
+                  <Section title="Travel">
+                    <EditRow label="Arrival"><input value={form.arrival_at} onChange={(e) => updateForm({ arrival_at: e.target.value })} type="datetime-local" className={inputCls} /></EditRow>
+                    <EditRow label="Arrival flight"><input value={form.arrival_flight_no} onChange={(e) => updateForm({ arrival_flight_no: e.target.value })} className={inputCls} /></EditRow>
+                    <EditRow label="Departure"><input value={form.departure_at} onChange={(e) => updateForm({ departure_at: e.target.value })} type="datetime-local" className={inputCls} /></EditRow>
+                    <EditRow label="Departure flight"><input value={form.departure_flight_no} onChange={(e) => updateForm({ departure_flight_no: e.target.value })} className={inputCls} /></EditRow>
+                    <EditRow label="Airport">
+                      <select value={form.airport} onChange={(e) => updateForm({ airport: e.target.value })} className={inputCls}>
+                        <option value="">—</option>
+                        <option value="ORD">ORD</option>
+                        <option value="MDW">MDW</option>
+                      </select>
+                    </EditRow>
+                  </Section>
 
-              <Section title="Needs / khidmat">
-                <Field label="Rahat seating" value={yesOrNull(selected.rahat_seating)} />
-                <Field label="Wheelchair" value={yesOrNull(selected.wheelchair)} />
-                <Field label="Special needs" value={selected.special_needs} />
-                <Field label="Wants khidmat" value={yesOrNull(selected.wants_khidmat)} />
-                <Field label="Not attending" value={yesOrNull(selected.not_attending)} />
-              </Section>
+                  <Section title="Needs / khidmat">
+                    <EditRow label="Not attending"><input type="checkbox" checked={form.not_attending} onChange={(e) => updateForm({ not_attending: e.target.checked })} className="h-4 w-4 accent-blue-600" /></EditRow>
+                    <EditRow label="Rahat seating"><input type="checkbox" checked={form.rahat_seating} onChange={(e) => updateForm({ rahat_seating: e.target.checked, wheelchair: e.target.checked ? form.wheelchair : false })} className="h-4 w-4 accent-blue-600" /></EditRow>
+                    {form.rahat_seating && (
+                      <EditRow label="Wheelchair"><input type="checkbox" checked={form.wheelchair} onChange={(e) => updateForm({ wheelchair: e.target.checked })} className="h-4 w-4 accent-blue-600" /></EditRow>
+                    )}
+                    <EditRow label="Special needs"><input value={form.special_needs} onChange={(e) => updateForm({ special_needs: e.target.value })} className={inputCls} /></EditRow>
+                    <EditRow label="Wants khidmat"><input type="checkbox" checked={form.wants_khidmat} onChange={(e) => updateForm({ wants_khidmat: e.target.checked, khidmat_department_ids: e.target.checked ? form.khidmat_department_ids : [] })} className="h-4 w-4 accent-blue-600" /></EditRow>
+                    {form.wants_khidmat && (
+                      <EditRow label="Departments">
+                        <KhidmatPicker departments={departments} selected={form.khidmat_department_ids} onChange={(ids) => updateForm({ khidmat_department_ids: ids })} />
+                      </EditRow>
+                    )}
+                  </Section>
 
-              {selected.family && (
-                <Section title="Family registration">
-                  <Field label="Status" value={selected.family.registration_status} />
-                  <Field label="Submitted" value={fmtDateTime(selected.family.submitted_at)} />
-                  <Field label="Submitted by ITS" value={selected.family.submitted_by_its} />
-                  <Field label="Accommodation" value={selected.family.acc_type} />
-                  <Field label="Hotel name" value={selected.family.hotel_name} />
-                  <Field label="Hotel address" value={selected.family.hotel_address} />
-                  <Field label="Open to utaro" value={yesOrNull(selected.family.open_to_utaro)} />
-                  <Field label="Utaro host" value={selected.family.utaro_host_name} />
-                  <Field label="Utaro host ITS" value={selected.family.utaro_host_its} />
-                  <Field label="Utaro host address" value={selected.family.utaro_host_address} />
-                  <Field label="Utaro host WhatsApp" value={selected.family.utaro_host_whatsapp_e164} />
-                  <Field label="Utaro host email" value={selected.family.utaro_host_email} />
-                  <Field label="Transport mode" value={selected.family.transport_mode} />
-                  <Field label="Transport detail" value={selected.family.transport_detail} />
-                  <Field label="Cancelled" value={fmtDateTime(selected.family.cancelled_at)} />
-                  <Field label="Cancel reason" value={selected.family.cancelled_reason} />
-                </Section>
+                  {selected.family && (
+                    <Section title="Family registration">
+                      <EditRow label="Accommodation">
+                        <select value={form.acc_type} onChange={(e) => updateForm({ acc_type: e.target.value })} className={inputCls}>
+                          <option value="">—</option>
+                          <option value="hotel">Hotel</option>
+                          <option value="utaro">Utaro</option>
+                        </select>
+                      </EditRow>
+                      {form.acc_type === "hotel" && (
+                        <>
+                          <EditRow label="Hotel name"><input value={form.hotel_name} onChange={(e) => updateForm({ hotel_name: e.target.value })} className={inputCls} /></EditRow>
+                          <EditRow label="Hotel address"><input value={form.hotel_address} onChange={(e) => updateForm({ hotel_address: e.target.value })} className={inputCls} /></EditRow>
+                        </>
+                      )}
+                      {form.acc_type === "utaro" && (
+                        <>
+                          <EditRow label="Utaro host"><input value={form.utaro_host_name} onChange={(e) => updateForm({ utaro_host_name: e.target.value })} className={inputCls} /></EditRow>
+                          <EditRow label="Utaro host ITS"><input value={form.utaro_host_its} onChange={(e) => updateForm({ utaro_host_its: e.target.value })} className={inputCls} /></EditRow>
+                          <EditRow label="Utaro host address"><input value={form.utaro_host_address} onChange={(e) => updateForm({ utaro_host_address: e.target.value })} className={inputCls} /></EditRow>
+                          <EditRow label="Utaro host WhatsApp"><input value={form.utaro_host_whatsapp_e164} onChange={(e) => updateForm({ utaro_host_whatsapp_e164: e.target.value })} className={inputCls} /></EditRow>
+                          <EditRow label="Utaro host email"><input value={form.utaro_host_email} onChange={(e) => updateForm({ utaro_host_email: e.target.value })} type="email" className={inputCls} /></EditRow>
+                        </>
+                      )}
+                      <EditRow label="Open to utaro"><input type="checkbox" checked={form.open_to_utaro} onChange={(e) => updateForm({ open_to_utaro: e.target.checked })} className="h-4 w-4 accent-blue-600" /></EditRow>
+                      <EditRow label="Transport mode">
+                        <select value={form.transport_mode} onChange={(e) => updateForm({ transport_mode: e.target.value })} className={inputCls}>
+                          <option value="">—</option>
+                          <option value="rideshare">Rideshare</option>
+                          <option value="rental">Rental</option>
+                          <option value="commute_with_utaro">Commute with utaro</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </EditRow>
+                      <EditRow label="Transport detail"><input value={form.transport_detail} onChange={(e) => updateForm({ transport_detail: e.target.value })} className={inputCls} /></EditRow>
+                    </Section>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Section title="Contact">
+                    <Field label="WhatsApp" value={selected.whatsapp_e164} />
+                    <Field label="Email" value={selected.email} />
+                    <Field label="WhatsApp link clicked" value={yesOrNull(selected.whatsapp_link_clicked)} />
+                  </Section>
+
+                  <Section title="Travel">
+                    <Field label="Arrival" value={fmtDateTime(selected.arrival_at)} />
+                    <Field label="Arrival flight" value={selected.arrival_flight_no} />
+                    <Field label="Departure" value={fmtDateTime(selected.departure_at)} />
+                    <Field label="Departure flight" value={selected.departure_flight_no} />
+                    <Field label="Airport" value={selected.airport} />
+                    <Field label="Daily transport" value={selected.daily_trans} />
+                    <Field label="Roster arrival (raw)" value={selected.roster_arrival_raw} />
+                    <Field label="Roster flight code" value={selected.roster_flight_code} />
+                  </Section>
+
+                  <Section title="Needs / khidmat">
+                    <Field label="Rahat seating" value={yesOrNull(selected.rahat_seating)} />
+                    <Field label="Wheelchair" value={yesOrNull(selected.wheelchair)} />
+                    <Field label="Special needs" value={selected.special_needs} />
+                    <Field label="Wants khidmat" value={yesOrNull(selected.wants_khidmat)} />
+                    <Field
+                      label="Khidmat depts"
+                      value={
+                        selected.khidmat_department_ids && selected.khidmat_department_ids.length > 0
+                          ? selected.khidmat_department_ids.map((id) => departments.find((d) => d.id === id)?.name ?? id).join(", ")
+                          : null
+                      }
+                    />
+                    <Field label="Not attending" value={yesOrNull(selected.not_attending)} />
+                  </Section>
+
+                  {selected.family && (
+                    <Section title="Family registration">
+                      <Field label="Status" value={selected.family.registration_status} />
+                      <Field label="Submitted" value={fmtDateTime(selected.family.submitted_at)} />
+                      <Field label="Submitted by ITS" value={selected.family.submitted_by_its} />
+                      <Field label="Accommodation" value={selected.family.acc_type} />
+                      <Field label="Hotel name" value={selected.family.hotel_name} />
+                      <Field label="Hotel address" value={selected.family.hotel_address} />
+                      <Field label="Open to utaro" value={yesOrNull(selected.family.open_to_utaro)} />
+                      <Field label="Utaro host" value={selected.family.utaro_host_name} />
+                      <Field label="Utaro host ITS" value={selected.family.utaro_host_its} />
+                      <Field label="Utaro host address" value={selected.family.utaro_host_address} />
+                      <Field label="Utaro host WhatsApp" value={selected.family.utaro_host_whatsapp_e164} />
+                      <Field label="Utaro host email" value={selected.family.utaro_host_email} />
+                      <Field label="Transport mode" value={selected.family.transport_mode} />
+                      <Field label="Transport detail" value={selected.family.transport_detail} />
+                      <Field label="Cancelled" value={fmtDateTime(selected.family.cancelled_at)} />
+                      <Field label="Cancel reason" value={selected.family.cancelled_reason} />
+                    </Section>
+                  )}
+                </>
               )}
             </div>
           </div>

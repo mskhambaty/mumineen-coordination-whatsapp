@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { ACC_TYPES, AIRPORTS, TRANSPORT_MODES, bool, khidmatIds, num, oneOf, str, ts } from "@/lib/registration/normalize";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -127,28 +128,6 @@ type RegisterBody = {
   transport?: Record<string, unknown>;
 };
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-// Sanitize a khidmat selection: keep valid UUIDs only, dedupe, cap at 3.
-const khidmatIds = (v: unknown): string[] =>
-  Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === "string" && UUID_RE.test(x)))].slice(0, 3) : [];
-
-const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
-const bool = (v: unknown) => v === true || v === "true";
-const num = (v: unknown) => {
-  const n = typeof v === "number" ? v : Number(str(v));
-  return Number.isFinite(n) ? n : null;
-};
-const ts = (v: unknown) => {
-  const s = str(v);
-  if (!s) return null;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
-};
-const oneOf = (v: unknown, allowed: string[]) => {
-  const s = str(v);
-  return s && allowed.includes(s) ? s : null;
-};
-
 // One-time submission: everything is required except flight numbers and the rahat/same-flight
 // checkboxes. Mirrors the form. Returns the first problem, or null.
 function validateSubmission(members: MemberInput[], acc: Record<string, unknown>, tr: Record<string, unknown>, isLocal: boolean): string | null {
@@ -169,12 +148,12 @@ function validateSubmission(members: MemberInput[], acc: Record<string, unknown>
   }
   // Travel, accommodation, and transport are mehman-only; locals provide none of them.
   if (!isLocal) {
-    const accType = oneOf(acc.acc_type, ["hotel", "utaro"]);
+    const accType = oneOf(acc.acc_type, ACC_TYPES);
     if (!accType) return "Accommodation type is required.";
     if (accType === "hotel" && (!str(acc.hotel_name) || !str(acc.hotel_address))) return "Hotel name and address are required.";
     if (accType === "utaro" && !str(acc.utaro_host_name)) return "Host name is required.";
 
-    const mode = oneOf(tr.transport_mode, ["rideshare", "rental", "commute_with_utaro", "other"]);
+    const mode = oneOf(tr.transport_mode, TRANSPORT_MODES);
     if (!mode) return "Transport mode is required.";
     if (mode === "other" && !str(tr.transport_detail)) return "Transport details are required.";
   }
@@ -226,7 +205,7 @@ export async function POST(req: NextRequest) {
         arrival_flight_no: str(m.arrival_flight_no),
         departure_at: ts(m.departure_at),
         departure_flight_no: str(m.departure_flight_no),
-        airport: oneOf(m.airport, ["ORD", "MDW"]),
+        airport: oneOf(m.airport, AIRPORTS),
         not_attending: bool(m.not_attending),
         wants_khidmat: bool(m.wants_khidmat),
         khidmat_department_ids: bool(m.wants_khidmat) ? khidmatIds(m.khidmat_department_ids) : [],
@@ -259,7 +238,7 @@ export async function POST(req: NextRequest) {
   const { error: famError } = await supabase
     .from("families")
     .update({
-      acc_type: oneOf(acc.acc_type, ["hotel", "utaro"]),
+      acc_type: oneOf(acc.acc_type, ACC_TYPES),
       hotel_name: str(acc.hotel_name),
       hotel_address: str(acc.hotel_address),
       hotel_lat: num(acc.hotel_lat),
@@ -270,7 +249,7 @@ export async function POST(req: NextRequest) {
       utaro_host_address: str(acc.utaro_host_address),
       utaro_host_whatsapp_e164: str(acc.utaro_host_whatsapp_e164),
       utaro_host_email: str(acc.utaro_host_email),
-      transport_mode: oneOf(tr.transport_mode, ["rideshare", "rental", "commute_with_utaro", "other"]),
+      transport_mode: oneOf(tr.transport_mode, TRANSPORT_MODES),
       transport_detail: str(tr.transport_detail),
       registration_status: "submitted",
       submitted_at: new Date().toISOString(),
