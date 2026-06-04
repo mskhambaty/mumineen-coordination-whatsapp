@@ -6,13 +6,15 @@ const nextConfig: NextConfig = {
   },
   // Keep heavy/native-ish parsers out of the bundle; load them at runtime.
   serverExternalPackages: ["mammoth"],
-  // Land visitors hitting the bare domain on the registration form. Exact "/" only — admin,
-  // register, and API routes are unaffected. 307 (temporary) so browsers don't hard-cache it.
+  // Send visitors hitting the bare domain to the official Chicago relay site. Exact "/" only —
+  // admin, register, and API routes are unaffected. basePath:false marks it as an external
+  // redirect; 307 (temporary) so browsers don't hard-cache it.
   async redirects() {
     return [
       {
         source: "/",
-        destination: "/register",
+        destination: "https://asharamubaraka.net/relay/chicago/",
+        basePath: false,
         permanent: false,
       },
     ];
