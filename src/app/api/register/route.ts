@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
     hofIts = directFamily?.hof_its ?? null;
   }
   if (!hofIts) {
-    return NextResponse.json({ error: "We couldn't find a family for that ITS number." }, { status: 404 });
+    return NextResponse.json({ error: "Sorry, we couldn't find your registration. Please contact the helpline on WhatsApp at +1 630 819 0250." }, { status: 404 });
   }
 
   const { data: family } = await supabase
@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
     .maybeSingle();
 
   if (!family) {
-    return NextResponse.json({ error: "We couldn't find a family with that HOF ITS number." }, { status: 404 });
+    return NextResponse.json({ error: "Sorry, we couldn't find your registration. Please contact the helpline on WhatsApp at +1 630 819 0250." }, { status: 404 });
   }
 
   // One-time submission: once submitted/confirmed the form is locked; changes go via the helpline.
