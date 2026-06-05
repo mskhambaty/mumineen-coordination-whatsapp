@@ -71,4 +71,13 @@ describe("RELIGIOUS_GUIDANCE_RULE", () => {
     expect(RELIGIOUS_GUIDANCE_RULE).toContain("verbatim");
     expect(RELIGIOUS_GUIDANCE_RULE.toLowerCase()).toContain("fatwa");
   });
+
+  it("routes Tazyeen/decoration questions to the religious tool and guards Lisan word precision", () => {
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("Tazyeen");
+    expect(RELIGIOUS_GUIDANCE_RULE.toLowerCase()).toContain("decoration");
+    // Lisan precision guard: do not substitute a near-spelled word.
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("Aameen");
+    // Out-of-scope redirect names a concrete path.
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("Aamil Saheb");
+  });
 });
