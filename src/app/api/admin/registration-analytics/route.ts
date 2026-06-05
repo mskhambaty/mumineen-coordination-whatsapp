@@ -7,6 +7,7 @@ export const runtime = "nodejs";
 
 type MuminRow = {
   its: string;
+  full_name: string | null;
   hof_its: string;
   gender: string | null;
   age: number | null;
@@ -76,7 +77,7 @@ export async function GET(req: NextRequest) {
       supabase
         .from("mumineen")
         .select(
-          "its, hof_its, gender, age, is_adult, is_head, local_mehman, arrival_at, departure_at, arrival_flight_no, airport, not_attending, rahat_seating, wheelchair, special_needs, wants_khidmat, khidmat_department_ids, whatsapp_e164, email",
+          "its, full_name, hof_its, gender, age, is_adult, is_head, local_mehman, arrival_at, departure_at, arrival_flight_no, airport, not_attending, rahat_seating, wheelchair, special_needs, wants_khidmat, khidmat_department_ids, whatsapp_e164, email",
         )
         .eq("roster_active", true)
         .range(from, to),
@@ -327,6 +328,12 @@ export async function GET(req: NextRequest) {
     no_flight_no: mehmanSubmittedAttending.filter((m) => !m.arrival_flight_no).length,
   };
 
+  // ── Roster data quality (applies to whole roster, not just submitted) ─────────
+  const dataQuality = {
+    no_full_name: members.filter((m) => !m.full_name?.trim()).length,
+    no_local_mehman: members.filter((m) => !m.local_mehman?.trim()).length,
+  };
+
   return NextResponse.json({
     generated_at: new Date().toISOString(),
     filters: { local_mehman: localMehmanFilter, status: statusFilter, attending: attendingFilter },
@@ -371,5 +378,6 @@ export async function GET(req: NextRequest) {
     },
     accessibility,
     missing_data: missingData,
+    data_quality: dataQuality,
   });
 }

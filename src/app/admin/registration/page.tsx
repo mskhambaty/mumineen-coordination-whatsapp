@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import React, { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { canViewRegistrations } from "@/lib/admin/access";
 
@@ -62,6 +62,7 @@ type Analytics = {
     by_department: { id: string; name: string; count: number }[];
   };
   accessibility: { rahat_seating: number; wheelchair: number; special_needs: number };
+  data_quality: { no_full_name: number; no_local_mehman: number };
   missing_data: {
     no_whatsapp: number;
     no_email: number;
@@ -87,6 +88,11 @@ type DetailRow = {
   email: string;
   detail: string;
   hof_its: string;
+  utaro_host_name?: string;
+  utaro_host_its?: string;
+  utaro_host_whatsapp?: string;
+  utaro_host_email?: string;
+  utaro_host_address?: string;
 };
 
 type DetailRequest = {
@@ -234,50 +240,57 @@ function DetailPanel({
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {filtered.map((r) => (
-                  <tr key={r.its} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                    <td className="px-4 py-2 font-medium text-gray-900 dark:text-gray-100">
-                      {r.name}
-                    </td>
-                    <td className="px-2 py-2 font-mono text-xs text-gray-500">{r.its}</td>
-                    {showGender && (
-                      <td className="px-2 py-2 text-gray-500">{r.gender}</td>
-                    )}
-                    {showAge && (
-                      <td className="px-2 py-2 text-gray-500">{r.age}</td>
-                    )}
-                    <td className="px-2 py-2">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                          r.local_mehman === "Mehman"
-                            ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300"
-                            : r.local_mehman === "Local"
-                            ? "bg-teal-100 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300"
-                            : "bg-gray-100 text-gray-500"
-                        }`}
-                      >
-                        {r.local_mehman}
-                      </span>
-                    </td>
-                    <td className="px-2 py-2">
-                      {r.whatsapp ? (
-                        <a
-                          href={`https://wa.me/${r.whatsapp.replace("+", "")}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-green-600 hover:underline dark:text-green-400"
-                        >
-                          {r.whatsapp}
-                        </a>
-                      ) : (
-                        <span className="text-gray-300 dark:text-gray-600">—</span>
-                      )}
-                    </td>
-                    {hasDetail && (
-                      <td className="max-w-xs px-2 py-2 text-gray-600 dark:text-gray-400">
-                        {r.detail || "—"}
+                  <React.Fragment key={r.its}>
+                    <tr className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                      <td className="px-4 py-2 font-medium text-gray-900 dark:text-gray-100">
+                        {r.name}
                       </td>
+                      <td className="px-2 py-2 font-mono text-xs text-gray-500">{r.its}</td>
+                      {showGender && <td className="px-2 py-2 text-gray-500">{r.gender}</td>}
+                      {showAge && <td className="px-2 py-2 text-gray-500">{r.age}</td>}
+                      <td className="px-2 py-2">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                          r.local_mehman === "Mehman" ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300"
+                          : r.local_mehman === "Local" ? "bg-teal-100 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300"
+                          : "bg-gray-100 text-gray-500"
+                        }`}>
+                          {r.local_mehman}
+                        </span>
+                      </td>
+                      <td className="px-2 py-2">
+                        {r.whatsapp ? (
+                          <a href={`https://wa.me/${r.whatsapp.replace("+", "")}`} target="_blank" rel="noreferrer" className="text-green-600 hover:underline dark:text-green-400">
+                            {r.whatsapp}
+                          </a>
+                        ) : (
+                          <span className="text-gray-300 dark:text-gray-600">—</span>
+                        )}
+                      </td>
+                      {hasDetail && (
+                        <td className="max-w-xs px-2 py-2 text-gray-600 dark:text-gray-400">
+                          {r.detail || "—"}
+                        </td>
+                      )}
+                    </tr>
+                    {r.utaro_host_name && (
+                      <tr key={`${r.its}-host`} className="bg-emerald-50/50 dark:bg-emerald-950/20">
+                        <td colSpan={showGender || showAge ? 7 : 5} className="px-4 py-1.5">
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-emerald-800 dark:text-emerald-300">
+                            <span className="font-semibold">Host:</span>
+                            <span>{r.utaro_host_name}</span>
+                            {r.utaro_host_its && <span className="font-mono text-emerald-600 dark:text-emerald-400">{r.utaro_host_its}</span>}
+                            {r.utaro_host_whatsapp && (
+                              <a href={`https://wa.me/${r.utaro_host_whatsapp.replace("+", "")}`} target="_blank" rel="noreferrer" className="text-green-600 hover:underline dark:text-green-400">
+                                {r.utaro_host_whatsapp}
+                              </a>
+                            )}
+                            {r.utaro_host_email && <span className="text-emerald-600 dark:text-emerald-400">{r.utaro_host_email}</span>}
+                            {r.utaro_host_address && <span className="text-emerald-500 dark:text-emerald-500">{r.utaro_host_address}</span>}
+                          </div>
+                        </td>
+                      </tr>
                     )}
-                  </tr>
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
@@ -1056,6 +1069,37 @@ export default function RegistrationAnalyticsPage() {
                 )}
               </SectionCard>
             </div>
+
+            {/* ── Roster data quality ── */}
+            {(data.data_quality.no_full_name > 0 || data.data_quality.no_local_mehman > 0) && (
+              <SectionCard title="Roster Data Quality" className="mb-4">
+                <p className="mb-3 text-xs text-gray-400">
+                  Gaps in the imported roster — not from registration. Re-import with corrected data to fix.
+                </p>
+                <div className="space-y-2">
+                  {data.data_quality.no_full_name > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => drill({ segment: "no_full_name", label: "Roster entries with no name" })}
+                      className="flex w-full items-center justify-between rounded-lg bg-orange-50 px-4 py-2.5 text-sm text-orange-800 hover:opacity-80 dark:bg-orange-950/30 dark:text-orange-300"
+                    >
+                      <span>No full name in roster</span>
+                      <span className="font-semibold">{data.data_quality.no_full_name.toLocaleString()} →</span>
+                    </button>
+                  )}
+                  {data.data_quality.no_local_mehman > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => drill({ segment: "no_local_mehman", label: "Roster entries with no Local/Mehman classification" })}
+                      className="flex w-full items-center justify-between rounded-lg bg-orange-50 px-4 py-2.5 text-sm text-orange-800 hover:opacity-80 dark:bg-orange-950/30 dark:text-orange-300"
+                    >
+                      <span>No Local / Mehman classification</span>
+                      <span className="font-semibold">{data.data_quality.no_local_mehman.toLocaleString()} →</span>
+                    </button>
+                  )}
+                </div>
+              </SectionCard>
+            )}
           </>
         )}
       </main>

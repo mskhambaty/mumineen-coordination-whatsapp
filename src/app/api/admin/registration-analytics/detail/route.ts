@@ -56,6 +56,9 @@ type FamilyDetail = {
   submitted_at: string | null;
   utaro_host_name: string | null;
   utaro_host_its: string | null;
+  utaro_host_address: string | null;
+  utaro_host_whatsapp_e164: string | null;
+  utaro_host_email: string | null;
 };
 
 // Normalized row sent to the client — flat, display-ready.
@@ -69,6 +72,11 @@ export type DetailRow = {
   email: string;
   detail: string; // segment-specific field(s)
   hof_its: string;
+  utaro_host_name?: string;
+  utaro_host_its?: string;
+  utaro_host_whatsapp?: string;
+  utaro_host_email?: string;
+  utaro_host_address?: string;
 };
 
 export async function GET(req: NextRequest) {
@@ -89,7 +97,7 @@ export async function GET(req: NextRequest) {
     "its, full_name, gender, age, is_adult, is_head, hof_its, local_mehman, whatsapp_e164, email, not_attending, arrival_at, departure_at, arrival_flight_no, airport, rahat_seating, wheelchair, special_needs, wants_khidmat, khidmat_department_ids";
 
   const FAMILY_SELECT =
-    "hof_its, registration_status, acc_type, hotel_name, open_to_utaro, transport_mode, transport_detail, submitted_at, utaro_host_name, utaro_host_its";
+    "hof_its, registration_status, acc_type, hotel_name, open_to_utaro, transport_mode, transport_detail, submitted_at, utaro_host_name, utaro_host_its, utaro_host_address, utaro_host_whatsapp_e164, utaro_host_email";
 
   const isFamilySegment = ["hotel", "transport", "acc_type", "registration_status", "open_to_utaro", "host"].includes(segment);
 
@@ -187,6 +195,10 @@ export async function GET(req: NextRequest) {
         detail = [f.utaro_host_name?.trim(), f.utaro_host_its?.trim() ? `ITS ${f.utaro_host_its.trim()}` : null]
           .filter(Boolean)
           .join(" · ");
+      // For the utaro acc_type drill, show host name + address instead of the bare type.
+      if (segment === "acc_type" && f.acc_type === "utaro" && f.utaro_host_name) {
+        detail = [f.utaro_host_name, f.utaro_host_address].filter(Boolean).join(" · ");
+      }
       return {
         its: f.hof_its,
         name: hof?.full_name ?? f.hof_its,
@@ -197,6 +209,12 @@ export async function GET(req: NextRequest) {
         email: "",
         detail,
         hof_its: f.hof_its,
+        // Pass utaro host fields through for the panel to render separately
+        utaro_host_name: f.utaro_host_name ?? undefined,
+        utaro_host_its: f.utaro_host_its ?? undefined,
+        utaro_host_whatsapp: f.utaro_host_whatsapp_e164 ?? undefined,
+        utaro_host_email: f.utaro_host_email ?? undefined,
+        utaro_host_address: f.utaro_host_address ?? undefined,
       };
     });
   } else {
@@ -350,6 +368,12 @@ export async function GET(req: NextRequest) {
             submittedHofIts!.has(m.hof_its) &&
             !m.arrival_flight_no,
         );
+        break;
+      case "no_full_name":
+        filtered = allMembers.filter((m) => !m.full_name?.trim());
+        break;
+      case "no_local_mehman":
+        filtered = allMembers.filter((m) => !m.local_mehman?.trim());
         break;
     }
 
