@@ -88,7 +88,7 @@ Stats on top, registrations table below. Reuse the `Metric` / `Panel` / `BarRows
 2. **Accommodation**
    - Hotel vs utaro split — families and people
    - **Awaiting utaro**: hotel families with `open_to_utaro = true` (the future matching pool) — families and people
-   - Per-hotel breakdown (`hotel_name`): families and people per hotel
+   - Per-hotel breakdown (`hotel_name`): families and people per hotel, with an inline "awaiting utaro" count per hotel (how many of that hotel's families/people checked `open_to_utaro`). Clicking the hotel filters the table to its families; clicking its awaiting-utaro count filters to just the open-to-utaro ones.
    - **Hosts** breakdown, derived from guest registrations: utaro families grouped by host (`utaro_host_its` when present, else normalized `utaro_host_name`) — each host with the families/people staying with them. This is the guest-reported view of which local families are hosting; the future matching feature replaces/augments it with the Google Form host-offer data.
 3. **Transport** (Parking)
    - `transport_mode` breakdown: rental / rideshare / commute with host / other
