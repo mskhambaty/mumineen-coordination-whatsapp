@@ -16,7 +16,7 @@ vi.mock("@/lib/supabase/server", () => ({
   getSupabaseAdmin: vi.fn(),
 }));
 
-import { executeTool, toolDefinitions } from "@/lib/agent/tools";
+import { executeTool, allToolDefinitions } from "@/lib/agent/tools";
 import { canUseTool, publicTools } from "@/lib/permissions";
 import { RELIGIOUS_GUIDANCE_RULE } from "@/lib/agent/run-agent";
 
@@ -29,7 +29,7 @@ beforeEach(() => {
 
 describe("answer_religious_questions tool", () => {
   it("is registered as a tool definition", () => {
-    const names = toolDefinitions.map((t) => (t.type === "function" ? t.function.name : ""));
+    const names = allToolDefinitions.map((t) => (t.type === "function" ? t.function.name : ""));
     expect(names).toContain("answer_religious_questions");
   });
 
@@ -40,7 +40,7 @@ describe("answer_religious_questions tool", () => {
   });
 
   it("registers get_lisan_word_meaning as a public dictionary tool", () => {
-    const names = toolDefinitions.map((t) => (t.type === "function" ? t.function.name : ""));
+    const names = allToolDefinitions.map((t) => (t.type === "function" ? t.function.name : ""));
     expect(names).toContain("get_lisan_word_meaning");
     expect(publicTools.has("get_lisan_word_meaning")).toBe(true);
     expect(canUseTool(visitor, "get_lisan_word_meaning")).toBe(true);
