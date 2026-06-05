@@ -83,6 +83,11 @@ type DetailRow = {
   email: string;
   detail: string;
   hof_its: string;
+  utaro_host_name?: string;
+  utaro_host_its?: string;
+  utaro_host_whatsapp?: string;
+  utaro_host_email?: string;
+  utaro_host_address?: string;
 };
 
 type DetailRequest = {
@@ -205,50 +210,57 @@ function DetailPanel({
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {filtered.map((r) => (
-                  <tr key={r.its} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                    <td className="px-4 py-2 font-medium text-gray-900 dark:text-gray-100">
-                      {r.name}
-                    </td>
-                    <td className="px-2 py-2 font-mono text-xs text-gray-500">{r.its}</td>
-                    {showGender && (
-                      <td className="px-2 py-2 text-gray-500">{r.gender}</td>
-                    )}
-                    {showAge && (
-                      <td className="px-2 py-2 text-gray-500">{r.age}</td>
-                    )}
-                    <td className="px-2 py-2">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                          r.local_mehman === "Mehman"
-                            ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300"
-                            : r.local_mehman === "Local"
-                            ? "bg-teal-100 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300"
-                            : "bg-gray-100 text-gray-500"
-                        }`}
-                      >
-                        {r.local_mehman}
-                      </span>
-                    </td>
-                    <td className="px-2 py-2">
-                      {r.whatsapp ? (
-                        <a
-                          href={`https://wa.me/${r.whatsapp.replace("+", "")}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-green-600 hover:underline dark:text-green-400"
-                        >
-                          {r.whatsapp}
-                        </a>
-                      ) : (
-                        <span className="text-gray-300 dark:text-gray-600">—</span>
-                      )}
-                    </td>
-                    {hasDetail && (
-                      <td className="max-w-xs px-2 py-2 text-gray-600 dark:text-gray-400">
-                        {r.detail || "—"}
+                  <>
+                    <tr key={r.its} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                      <td className="px-4 py-2 font-medium text-gray-900 dark:text-gray-100">
+                        {r.name}
                       </td>
+                      <td className="px-2 py-2 font-mono text-xs text-gray-500">{r.its}</td>
+                      {showGender && <td className="px-2 py-2 text-gray-500">{r.gender}</td>}
+                      {showAge && <td className="px-2 py-2 text-gray-500">{r.age}</td>}
+                      <td className="px-2 py-2">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                          r.local_mehman === "Mehman" ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300"
+                          : r.local_mehman === "Local" ? "bg-teal-100 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300"
+                          : "bg-gray-100 text-gray-500"
+                        }`}>
+                          {r.local_mehman}
+                        </span>
+                      </td>
+                      <td className="px-2 py-2">
+                        {r.whatsapp ? (
+                          <a href={`https://wa.me/${r.whatsapp.replace("+", "")}`} target="_blank" rel="noreferrer" className="text-green-600 hover:underline dark:text-green-400">
+                            {r.whatsapp}
+                          </a>
+                        ) : (
+                          <span className="text-gray-300 dark:text-gray-600">—</span>
+                        )}
+                      </td>
+                      {hasDetail && (
+                        <td className="max-w-xs px-2 py-2 text-gray-600 dark:text-gray-400">
+                          {r.detail || "—"}
+                        </td>
+                      )}
+                    </tr>
+                    {r.utaro_host_name && (
+                      <tr key={`${r.its}-host`} className="bg-emerald-50/50 dark:bg-emerald-950/20">
+                        <td colSpan={showGender || showAge ? 7 : 5} className="px-4 py-1.5">
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-emerald-800 dark:text-emerald-300">
+                            <span className="font-semibold">Host:</span>
+                            <span>{r.utaro_host_name}</span>
+                            {r.utaro_host_its && <span className="font-mono text-emerald-600 dark:text-emerald-400">{r.utaro_host_its}</span>}
+                            {r.utaro_host_whatsapp && (
+                              <a href={`https://wa.me/${r.utaro_host_whatsapp.replace("+", "")}`} target="_blank" rel="noreferrer" className="text-green-600 hover:underline dark:text-green-400">
+                                {r.utaro_host_whatsapp}
+                              </a>
+                            )}
+                            {r.utaro_host_email && <span className="text-emerald-600 dark:text-emerald-400">{r.utaro_host_email}</span>}
+                            {r.utaro_host_address && <span className="text-emerald-500 dark:text-emerald-500">{r.utaro_host_address}</span>}
+                          </div>
+                        </td>
+                      </tr>
                     )}
-                  </tr>
+                  </>
                 ))}
               </tbody>
             </table>
@@ -752,10 +764,14 @@ export default function RegistrationAnalyticsPage() {
                         />
                       )}
                       {data.accommodation.open_to_utaro > 0 && (
-                        <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                        <button
+                          type="button"
+                          onClick={() => drill({ segment: "open_to_utaro", label: "Hotel Families Open to Utaro", detailLabel: "Hotel" })}
+                          className="mt-3 w-full rounded-md bg-amber-50 px-3 py-2 text-left text-sm text-amber-800 hover:bg-amber-100 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50"
+                        >
                           {data.accommodation.open_to_utaro}{" "}
-                          {data.accommodation.open_to_utaro === 1 ? "family" : "families"} open to utaro
-                        </p>
+                          {data.accommodation.open_to_utaro === 1 ? "family" : "families"} open to utaro — click to see who →
+                        </button>
                       )}
                       {filteredHotels.length > 0 && (
                         <div className="mt-4">
