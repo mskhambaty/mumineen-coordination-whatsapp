@@ -89,7 +89,7 @@ export async function GET(req: NextRequest) {
   const FAMILY_SELECT =
     "hof_its, registration_status, acc_type, hotel_name, open_to_utaro, transport_mode, transport_detail, submitted_at";
 
-  const isFamilySegment = ["hotel", "transport", "acc_type"].includes(segment);
+  const isFamilySegment = ["hotel", "transport", "acc_type", "registration_status"].includes(segment);
 
   let rows: DetailRow[] = [];
 
@@ -139,7 +139,19 @@ export async function GET(req: NextRequest) {
       fams = fams.filter((f) => f.acc_type === value);
     } else if (segment === "transport") {
       fams = fams.filter((f) => (f.transport_mode ?? "") === value);
+    } else if (segment === "registration_status") {
+      if (value === "submitted") {
+        fams = fams.filter((f) => f.registration_status === "submitted" || f.registration_status === "confirmed");
+      } else {
+        fams = fams.filter((f) => (f.registration_status ?? "pending") === value);
+      }
     }
+
+    // Sort: submitted families by submitted_at desc; others by hof name
+    fams = fams.slice().sort((a, b) => {
+      if (a.submitted_at && b.submitted_at) return b.submitted_at.localeCompare(a.submitted_at);
+      return (hofMap.get(a.hof_its)?.full_name ?? "").localeCompare(hofMap.get(b.hof_its)?.full_name ?? "");
+    });
 
     rows = fams.map((f) => {
       const hof = hofMap.get(f.hof_its);
@@ -147,6 +159,7 @@ export async function GET(req: NextRequest) {
       if (segment === "hotel") detail = f.hotel_name?.trim() ?? "—";
       else if (segment === "acc_type") detail = f.acc_type ?? "—";
       else if (segment === "transport") detail = [f.transport_mode, f.transport_detail].filter(Boolean).join(" — ");
+      else if (segment === "registration_status") detail = f.submitted_at ? `Submitted ${f.submitted_at.slice(0, 10)}` : "Not submitted";
       return {
         its: f.hof_its,
         name: hof?.full_name ?? f.hof_its,
