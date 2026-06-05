@@ -39,46 +39,96 @@ type FamilyRow = {
 
 type DeptRow = { id: string; name: string };
 
+// Supabase PostgREST caps rows at 1000 by default — paginate to get all.
+async function fetchAll<T>(
+  buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null }>,
+): Promise<T[]> {
+  const PAGE = 1000;
+  const all: T[] = [];
+  let start = 0;
+  for (;;) {
+    const { data } = await buildQuery(start, start + PAGE - 1);
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < PAGE) break;
+    start += PAGE;
+  }
+  return all;
+}
+
 export async function GET(req: NextRequest) {
   if (!requireAdminKey(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const { searchParams } = new URL(req.url);
+  // Filters passed by the UI. Unset means "all".
+  const localMehmanFilter = searchParams.get("local_mehman"); // "Local" | "Mehman" | null
+  const statusFilter = searchParams.get("status"); // "submitted" | "confirmed" | "pending" | "cancelled" | null
+  const attendingFilter = searchParams.get("attending"); // "true" | null
+
   const supabase = getSupabaseAdmin();
 
-  const [{ data: mumineen }, { data: families }, { data: departments }] =
-    await Promise.all([
+  const [allMembers, allFams, deptRows] = await Promise.all([
+    fetchAll<MuminRow>((from, to) =>
       supabase
         .from("mumineen")
         .select(
           "its, hof_its, gender, age, is_adult, is_head, local_mehman, arrival_at, departure_at, arrival_flight_no, airport, not_attending, rahat_seating, wheelchair, special_needs, wants_khidmat, khidmat_department_ids, whatsapp_e164, email",
         )
         .eq("roster_active", true)
-        .limit(20000),
+        .range(from, to),
+    ),
+    fetchAll<FamilyRow>((from, to) =>
       supabase
         .from("families")
         .select(
           "hof_its, registration_status, acc_type, hotel_name, open_to_utaro, transport_mode, submitted_at",
         )
         .eq("roster_active", true)
-        .limit(10000),
-      supabase.from("departments").select("id, name").order("name"),
-    ]);
+        .range(from, to),
+    ),
+    supabase
+      .from("departments")
+      .select("id, name")
+      .order("name")
+      .then((r) => (r.data ?? []) as DeptRow[]),
+  ]);
 
-  const members = (mumineen ?? []) as MuminRow[];
-  const fams = (families ?? []) as FamilyRow[];
-  const depts = (departments ?? []) as DeptRow[];
-  const deptMap = new Map(depts.map((d) => [d.id, d.name]));
+  const deptMap = new Map(deptRows.map((d) => [d.id, d.name]));
 
-  // Build a fast lookup: hof_its → registration_status
+  // ── Apply filters ────────────────────────────────────────────────────────────
+
+  // Member-level filter
+  let members = allMembers;
+  if (localMehmanFilter) members = members.filter((m) => m.local_mehman === localMehmanFilter);
+  if (attendingFilter === "true") members = members.filter((m) => !m.not_attending);
+
+  // Family-level filter: when filtering by local_mehman, restrict to families whose HoF matches.
+  // When filtering by status, restrict families accordingly.
+  const hofItsSet = localMehmanFilter
+    ? new Set(allMembers.filter((m) => m.local_mehman === localMehmanFilter && m.is_head).map((m) => m.hof_its))
+    : null;
+
+  let fams = allFams;
+  if (hofItsSet) fams = fams.filter((f) => hofItsSet.has(f.hof_its));
+  if (statusFilter) {
+    if (statusFilter === "submitted") {
+      fams = fams.filter((f) => f.registration_status === "submitted" || f.registration_status === "confirmed");
+    } else {
+      fams = fams.filter((f) => (f.registration_status ?? "pending") === statusFilter);
+    }
+  }
+
+  // ── Summary ──────────────────────────────────────────────────────────────────
+
   const famStatusMap = new Map(fams.map((f) => [f.hof_its, f.registration_status ?? "pending"]));
   const isSubmitted = (hofIts: string) => {
     const s = famStatusMap.get(hofIts);
     return s === "submitted" || s === "confirmed";
   };
 
-  // --- Summary ---
-  const totalFamilies = fams.length;
+  const totalFamilies = allFams.length; // always unfiltered for context
   const submittedFamilies = fams.filter(
     (f) => f.registration_status === "submitted" || f.registration_status === "confirmed",
   ).length;
@@ -93,7 +143,8 @@ export async function GET(req: NextRequest) {
   const localCount = members.filter((m) => m.local_mehman === "Local").length;
   const mehmanCount = members.filter((m) => m.local_mehman === "Mehman").length;
 
-  // --- Registration timeline ---
+  // ── Registration timeline ────────────────────────────────────────────────────
+
   const timelineMap = new Map<string, number>();
   for (const f of fams) {
     if (f.submitted_at) {
@@ -109,7 +160,8 @@ export async function GET(req: NextRequest) {
       return { date, count, cumulative };
     });
 
-  // --- Accommodation (registered families only) ---
+  // ── Accommodation ────────────────────────────────────────────────────────────
+
   const registeredFams = fams.filter(
     (f) => f.registration_status === "submitted" || f.registration_status === "confirmed",
   );
@@ -130,7 +182,8 @@ export async function GET(req: NextRequest) {
     .slice(0, 10)
     .map(([name, count]) => ({ name, count }));
 
-  // --- Transport ---
+  // ── Transport ────────────────────────────────────────────────────────────────
+
   const transport = {
     rideshare: registeredFams.filter((f) => f.transport_mode === "rideshare").length,
     rental: registeredFams.filter((f) => f.transport_mode === "rental").length,
@@ -139,7 +192,8 @@ export async function GET(req: NextRequest) {
     not_set: registeredFams.filter((f) => !f.transport_mode).length,
   };
 
-  // --- Airport & travel (attending mehman) ---
+  // ── Airport & travel (attending mehman) ──────────────────────────────────────
+
   const mehmanAttending = members.filter((m) => m.local_mehman === "Mehman" && !m.not_attending);
   const airports = {
     ORD: mehmanAttending.filter((m) => m.airport === "ORD").length,
@@ -154,9 +208,8 @@ export async function GET(req: NextRequest) {
       const day = m.arrival_at.slice(0, 10);
       arrivalMap.set(day, (arrivalMap.get(day) ?? 0) + 1);
     }
-    const depField = (m as MuminRow & { departure_at?: string | null }).departure_at;
-    if (depField) {
-      const day = depField.slice(0, 10);
+    if (m.departure_at) {
+      const day = m.departure_at.slice(0, 10);
       departureMap.set(day, (departureMap.get(day) ?? 0) + 1);
     }
   }
@@ -167,7 +220,8 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, count]) => ({ date, count }));
 
-  // --- Gender (attending members) ---
+  // ── Gender ───────────────────────────────────────────────────────────────────
+
   const genderMap = new Map<string, number>();
   for (const m of attending) {
     const g = m.gender?.trim() ?? "Unknown";
@@ -177,7 +231,8 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => b[1] - a[1])
     .map(([label, count]) => ({ label, count }));
 
-  // --- Age groups (attending members) ---
+  // ── Age groups ───────────────────────────────────────────────────────────────
+
   const ageGroups = {
     under_12: attending.filter((m) => m.age !== null && m.age < 12).length,
     teen_12_17: attending.filter((m) => m.age !== null && m.age >= 12 && m.age <= 17).length,
@@ -186,7 +241,8 @@ export async function GET(req: NextRequest) {
     unknown: attending.filter((m) => m.age === null).length,
   };
 
-  // --- Khidmat ---
+  // ── Khidmat ──────────────────────────────────────────────────────────────────
+
   const khidmatPool = members.filter((m) => !m.not_attending && m.local_mehman === "Mehman");
   const wantsKhidmat = khidmatPool.filter((m) => m.wants_khidmat === true).length;
   const notKhidmat = khidmatPool.filter((m) => m.wants_khidmat === false).length;
@@ -204,14 +260,16 @@ export async function GET(req: NextRequest) {
     .map(([id, count]) => ({ id, name: deptMap.get(id) ?? id, count }))
     .sort((a, b) => b.count - a.count);
 
-  // --- Accessibility ---
+  // ── Accessibility ────────────────────────────────────────────────────────────
+
   const accessibility = {
     rahat_seating: attending.filter((m) => m.rahat_seating).length,
     wheelchair: attending.filter((m) => m.wheelchair).length,
     special_needs: attending.filter((m) => m.special_needs?.trim()).length,
   };
 
-  // --- Missing data (submitted families, attending members only) ---
+  // ── Missing data ─────────────────────────────────────────────────────────────
+
   const submittedAttending = attending.filter((m) => isSubmitted(m.hof_its));
   const mehmanSubmittedAttending = submittedAttending.filter((m) => m.local_mehman === "Mehman");
   const missingData = {
@@ -224,8 +282,10 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     generated_at: new Date().toISOString(),
+    filters: { local_mehman: localMehmanFilter, status: statusFilter, attending: attendingFilter },
     summary: {
       total_families: totalFamilies,
+      filtered_families: fams.length,
       submitted_families: submittedFamilies,
       confirmed_families: confirmedFamilies,
       pending_families: pendingFamilies,
