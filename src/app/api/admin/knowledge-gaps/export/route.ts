@@ -58,10 +58,9 @@ export async function POST(req: NextRequest) {
   ws["!cols"] = [{ wch: 30 }, { wch: 60 }, { wch: 80 }, { wch: 20 }];
   XLSX.utils.book_append_sheet(wb, ws, "Knowledge Gaps");
 
-  const rawBuffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
-  const buffer = Buffer.isBuffer(rawBuffer) ? rawBuffer : Buffer.from(rawBuffer as Uint8Array);
+  const bytes = new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }) as number[]);
 
-  return new NextResponse(buffer, {
+  return new NextResponse(bytes, {
     status: 200,
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
