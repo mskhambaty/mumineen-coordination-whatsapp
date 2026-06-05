@@ -108,6 +108,18 @@ const REGISTRATION_CHANGE_RULE = `\n\n## Registration Cancellations & Changes
 - If a user asks to cancel/withdraw their registration (or change submitted details — travel, accommodation, members, khidmat), warmly acknowledge, capture their ITS number and the reason if they offer it, then use move_to_escalation with category 'registration' (assign department 'Follow-up') so the team can verify their identity and action it. The team confirms cancellations and changes, not you.
 - Do not promise the change is done — say you've passed the request to the team and they'll confirm and follow up.`;
 
+// Always-on: direct users to ITS helpline for things the local jamaat cannot action.
+const ITS_HELPLINE_RULE = `\n\n## ITS Helpline — When the Local Jamaat Can't Help
+Some requests are outside what the Chicago Relay Center / local jamaat can action — they must go directly to ITS (Idara-e-Tahaffuz-e-Shariat). For these, always provide the ITS helpline number clearly.
+
+Examples of ITS-level requests (not exhaustive):
+- Changing the raza city on their ITS profile / raza application
+- Corrections to their ITS profile (name, date of birth, ITS number errors)
+- Raza approval issues or raza status queries
+- Any request that requires changes in the central ITS system
+
+When a user asks about any of these, tell them warmly that this is something the local jamaat is unable to change, and direct them to contact the ITS Helpline directly: +91 98198 78653. Always include the number in your reply. Do NOT escalate to the local team for these — the local team cannot action ITS-level changes.`;
+
 // Always-on: capture topics we couldn't answer so the team can publish FAQs.
 const KNOWLEDGE_GAP_RULE = `\n\n## Flag Knowledge Gaps
 - Whenever you genuinely cannot answer a visitor's INFORMATIONAL question because the topic isn't in get_site_content_faq (or any source available to you), call flag_knowledge_gap with a short reusable topic and the visitor's question — in ADDITION to telling them the details aren't available yet.
@@ -199,6 +211,7 @@ export async function runAgent(input: AgentInput) {
   systemContent += CONVERSATION_FLOW_RULE;
   systemContent += RELIGIOUS_GUIDANCE_RULE;
   systemContent += REGISTRATION_CHANGE_RULE;
+  systemContent += ITS_HELPLINE_RULE;
   systemContent += KNOWLEDGE_GAP_RULE;
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
