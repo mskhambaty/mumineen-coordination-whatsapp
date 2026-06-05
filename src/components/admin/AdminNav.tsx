@@ -36,6 +36,7 @@ const dropdownGroups: DropdownGroup[] = [
       { href: "/admin/knowledge", label: "Vectorized Data for Agent", access: "manage" },
       { href: "/admin/knowledge-gaps", label: "Knowledge Gaps", access: "manage" },
       { href: "/admin/mumineen", label: "Mumineen", access: "mumineen" },
+      { href: "/admin/registration", label: "Registration Analytics", access: "mumineen" },
       { href: "/admin/relay-updates", label: "Relay Updates", access: "admin" },
       { href: "/admin/niyaz", label: "Niyaz Registration", access: "admin" },
       { href: "/admin/whatsapp", label: "WhatsApp", access: "admin" },
