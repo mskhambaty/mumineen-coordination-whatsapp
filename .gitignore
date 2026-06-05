@@ -44,5 +44,8 @@ next-env.d.ts
 # claude code agent memory (local, per-developer)
 memory/
 
+# superpowers working docs (specs/plans, local per-developer)
+/docs/superpowers/
+
 # local mcp config backup
 *.localbak
