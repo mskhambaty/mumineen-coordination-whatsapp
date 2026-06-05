@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from "react";
 //  inbox         = admin/leadership or escalation support members
 //  manage        = admin/leadership or department PM/HOD
 //  mumineen      = admin/leadership or IT department members
-//  registrations = admin/leadership, department PM/HOD, or IT
+//  registrations = admin/leadership or any internal (department-assigned) user
 //  any           = any signed-in user
 type Access = "admin" | "inbox" | "manage" | "mumineen" | "registrations" | "any";
 
@@ -25,6 +25,7 @@ type NavAccess = {
   isSupport: boolean;
   isManager: boolean;
   isIt: boolean;
+  isInternal: boolean;
 };
 
 const dropdownGroups: DropdownGroup[] = [
@@ -70,18 +71,19 @@ const trailingLinks: NavLink[] = [
 ];
 
 function readNavAccess(): NavAccess {
-  const empty = { isAdmin: false, isSupport: false, isManager: false, isIt: false };
+  const empty = { isAdmin: false, isSupport: false, isManager: false, isIt: false, isInternal: false };
   if (typeof window === "undefined") return empty;
 
   try {
     const user = JSON.parse(window.localStorage.getItem("admin_user") ?? "null") as
-      | { role?: string; global_role?: string; is_support?: boolean; is_manager?: boolean; is_it?: boolean }
+      | { role?: string; global_role?: string; is_support?: boolean; is_manager?: boolean; is_it?: boolean; is_internal?: boolean }
       | null;
     return {
       isAdmin: user?.role === "admin" || user?.global_role === "leadership_admin",
       isSupport: user?.is_support === true,
       isManager: user?.is_manager === true,
       isIt: user?.is_it === true,
+      isInternal: user?.is_internal === true,
     };
   } catch {
     return empty;
@@ -108,7 +110,7 @@ export default function AdminNav() {
     if (itemAccess === "admin") return access.isAdmin;
     if (itemAccess === "inbox") return access.isAdmin || access.isSupport;
     if (itemAccess === "mumineen") return access.isAdmin || access.isIt;
-    if (itemAccess === "registrations") return access.isAdmin || access.isManager || access.isIt;
+    if (itemAccess === "registrations") return access.isAdmin || access.isInternal || access.isManager || access.isIt;
     return access.isAdmin || access.isManager; // manage
   }
 

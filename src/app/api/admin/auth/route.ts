@@ -53,9 +53,10 @@ export async function POST(req: NextRequest) {
       sessionUser.global_role !== "leadership_admin" &&
       !sessionUser.is_support &&
       !sessionUser.is_manager &&
-      !sessionUser.is_it
+      !sessionUser.is_it &&
+      !sessionUser.is_internal
     ) {
-      return NextResponse.json({ error: "Access denied. Admin role required." }, { status: 403 });
+      return NextResponse.json({ error: "Access denied. Internal team access required." }, { status: 403 });
     }
 
     const passwordHash = typeof user.password_hash === "string" ? user.password_hash : null;

@@ -4,6 +4,7 @@ export type PortalUser = {
   is_support?: boolean | null;
   is_manager?: boolean | null;
   is_it?: boolean | null;
+  is_internal?: boolean | null;
 };
 
 export function isAdminOrLeadership(user: PortalUser | null | undefined) {
@@ -25,7 +26,9 @@ export function canManageKnowledge(user: PortalUser | null | undefined) {
   return isAdminOrLeadership(user) || user?.is_manager === true;
 }
 
-// Who may open the Registration Analytics page: admins/leadership, department PM/HOD, and IT.
+// Who may open the Registration Analytics page: admins/leadership plus any internal user
+// (assigned to a department) — regular team members shouldn't need manager permissions for it.
+// is_manager/is_it kept as fallbacks for sessions stored before is_internal existed.
 export function canViewRegistrations(user: PortalUser | null | undefined) {
-  return isAdminOrLeadership(user) || user?.is_manager === true || user?.is_it === true;
+  return isAdminOrLeadership(user) || user?.is_internal === true || user?.is_manager === true || user?.is_it === true;
 }

@@ -45,9 +45,12 @@ export default function AdminLoginPage() {
       } else if (data.user?.is_support) {
         // Support members land on the inbox.
         router.push("/admin/conversations");
-      } else {
+      } else if (data.user?.is_manager) {
         // PM/HOD managers land on the FAQ & Guides upload page.
         router.push("/admin/knowledge");
+      } else {
+        // Plain internal (department-assigned) users land on Registration Analytics.
+        router.push("/admin/registration");
       }
     } catch {
       setError("Network error. Please try again.");
