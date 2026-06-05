@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { canManageKnowledge } from "@/lib/admin/access";
 import ContentBucketEditor from "@/components/admin/ContentBucketEditor";
 import FaqBucketEditor from "@/components/admin/FaqBucketEditor";
+import LisanDictionaryUploader from "@/components/admin/LisanDictionaryUploader";
 
 type Department = { id: string; name: string };
 
@@ -492,6 +493,8 @@ export default function KnowledgePage() {
           </div>
         </section>
       )}
+
+      {tab === "religious" && <LisanDictionaryUploader adminKey={adminKey} />}
 
       {editing && (
         <FaqBucketEditor

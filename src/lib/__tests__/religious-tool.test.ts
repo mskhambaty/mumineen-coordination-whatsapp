@@ -39,6 +39,13 @@ describe("answer_religious_questions tool", () => {
     expect(canUseTool({ role: "committee", status: "active" }, "answer_religious_questions")).toBe(true);
   });
 
+  it("registers get_lisan_word_meaning as a public dictionary tool", () => {
+    const names = toolDefinitions.map((t) => (t.type === "function" ? t.function.name : ""));
+    expect(names).toContain("get_lisan_word_meaning");
+    expect(publicTools.has("get_lisan_word_meaning")).toBe(true);
+    expect(canUseTool(visitor, "get_lisan_word_meaning")).toBe(true);
+  });
+
   it("routes to the religious store and returns its context", async () => {
     mocks.retrieveReligiousContext.mockResolvedValue("[Majlis 1]\nThe theme was al-Falak al-Muheet.");
 
@@ -75,8 +82,9 @@ describe("RELIGIOUS_GUIDANCE_RULE", () => {
   it("routes Tazyeen/decoration questions to the religious tool and guards Lisan word precision", () => {
     expect(RELIGIOUS_GUIDANCE_RULE).toContain("Tazyeen");
     expect(RELIGIOUS_GUIDANCE_RULE.toLowerCase()).toContain("decoration");
-    // Lisan precision guard: do not substitute a near-spelled word.
-    expect(RELIGIOUS_GUIDANCE_RULE).toContain("Aameen");
+    // Lisan word lookups route to the exact-lookup tool and never substitute a near word.
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("get_lisan_word_meaning");
+    expect(RELIGIOUS_GUIDANCE_RULE.toLowerCase()).toContain("substitute");
     // Out-of-scope redirect names a concrete path.
     expect(RELIGIOUS_GUIDANCE_RULE).toContain("Aamil Saheb");
   });

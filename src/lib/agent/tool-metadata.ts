@@ -33,7 +33,15 @@ const toolMetadata: Record<string, ToolMetadata> = {
     availability: "active",
     status_label: "Religious content",
     status_note:
-      "Backed by the dedicated religious_content vector store (Vaaz Talaqi, Iqtibasaat, Lisan ud Dawat topic blocks + uploads).",
+      "Backed by the dedicated religious_content vector store (Vaaz Talaqi, Iqtibasaat, Tazyeen topic blocks + uploads).",
+  },
+  get_lisan_word_meaning: {
+    internal_api: "Exact lookup: lisan_words (+ pg_trgm did-you-mean)",
+    audience: "external",
+    availability: "active",
+    status_label: "Lisan dictionary",
+    status_note:
+      "Exact word lookup over the lisan_words table with fuzzy 'did you mean' suggestions; populated from the uploaded dictionary CSV.",
   },
   move_to_escalation: {
     internal_api: "POST /api/escalations",

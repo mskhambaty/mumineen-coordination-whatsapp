@@ -14,6 +14,7 @@ export type AppUser = {
 export const publicTools = new Set([
   "get_site_content_faq",
   "answer_religious_questions",
+  "get_lisan_word_meaning",
   "move_to_escalation",
   "create_issue",
   "flag_knowledge_gap",
