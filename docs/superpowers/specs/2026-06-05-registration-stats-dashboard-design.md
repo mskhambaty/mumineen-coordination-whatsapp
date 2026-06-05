@@ -1,33 +1,33 @@
-# Registration Stats Hub — Design
+# Registrations Page — Design
 
 **Date:** 2026-06-05
 **Status:** Approved
 
 ## Purpose
 
-Internal department teams need self-serve visibility into mumineen registration data:
+Internal department teams need self-serve visibility into mumineen registrations:
 
 - **Accommodation**: hotel vs host-family (utaro) split, per-hotel family/person counts, utaro requests
 - **Mawaid & Flow**: total registered, rahat/wheelchair needs, age buckets, men vs women
 - **Parking/Transport**: rental vs rideshare vs riding-with-host counts for parking pass planning
 
-A single read-only dashboard page serves all departments. Per-department pages were rejected: all dept leads are trusted to see everything, the data overlaps across teams, and separate pages only add navigation overhead. Repurposing `/admin/mumineen` was rejected: that page is operational (import, edit, cancel/reopen, WhatsApp gate toggle) with a narrow audience; widening it would require auditing/gating every control.
+The page is framed around the **registrations themselves**: one first-class searchable table of registered families (expandable to their members), with stat cards on top that act as **filters** into that table. A single read-only page serves all departments. Per-department pages were rejected: all dept leads are trusted to see everything, the data overlaps across teams, and separate pages only add navigation overhead. Repurposing `/admin/mumineen` was rejected: that page is operational (import, edit, cancel/reopen, WhatsApp gate toggle) with a narrow audience; widening it would require auditing/gating every control.
 
 **Out of scope:** Parking pass management (issuing/tracking passes — 1 per household, extras as needed, color-coded lots, printed for local hosts and rental mehman welcome kits) is a separate future feature. This dashboard's household-level transport drill-down is its natural data source/jump-off.
 
 ## Route & Access
 
-- New page: `src/app/admin/registration-stats/page.tsx`, route `/admin/registration-stats`
-- Nav: "Registration Stats" entry in `AdminNav`, grouped near Mumineen Roster
+- New page: `src/app/admin/registrations/page.tsx`, route `/admin/registrations`
+- Nav: "Registrations" entry in `AdminNav`, grouped near Mumineen Roster
 - New check in `src/lib/admin/access.ts`:
-  `canViewRegistrationStats(user)` = `isAdminOrLeadership(user) || user.is_manager === true`
+  `canViewRegistrations(user)` = `isAdminOrLeadership(user) || user.is_manager === true`
   (dept PMs/HODs carry `is_manager`)
 - Read-only page — no mutations
 - `/admin/mumineen` is untouched
 
 ## Data Flow
 
-One API route: `GET /api/admin/registration-stats` (gated by `canViewRegistrationStats`). Returns row-level data with only the columns the dashboard needs; the client computes all aggregates. Rationale: a few thousand rows max, every count derives from the same rows it drills into, drill-downs are instant, no second endpoint, CSV export is client-side.
+One API route: `GET /api/admin/registrations` (gated by `canViewRegistrations`). Returns row-level data with only the columns the page needs; the client computes all aggregates and does all filtering. Rationale: a few thousand rows max, every count derives from the same rows the table shows, filtering is instant, no second endpoint, CSV export is client-side.
 
 Response shape:
 
@@ -64,41 +64,40 @@ Filters applied server-side: `roster_active = true`, `not_attending` members exc
 
 ## Population Rule
 
-- **Overview funnel** counts all active families by `registration_status` (including not-started).
-- **All other stats** (demographics, accommodation, transport) count only families with status `submitted` or `confirmed` — accommodation/transport data doesn't exist before submission.
+- **Registration funnel** counts all active families by `registration_status` (including not-started); clicking a funnel stage filters the table to those families.
+- **All other stats** (demographics, accommodation, transport) count only families with status `submitted` or `confirmed` — accommodation/transport data doesn't exist before submission. The table defaults to submitted + confirmed.
 - `not_attending` members excluded everywhere.
 
 ## Page Layout
 
-Three anchored sections on one page, all visible to every authorized user. Reuse the `Metric` / `Panel` / `BarRows` visual patterns from `src/app/admin/page.tsx` (no chart library).
+Stats on top, registrations table below. Reuse the `Metric` / `Panel` / `BarRows` visual patterns from `src/app/admin/page.tsx` (no chart library).
 
-### 1. Overview & Demographics (Mawaid / Flow)
+### Stat groups (top of page — every stat is a filter)
 
-- Registration funnel: families by status (not started → in progress → submitted → confirmed)
-- Total registered people; local vs mehman split
-- Gender split (M / F)
-- Age buckets: **kids < 18** (via `is_adult`), **adults 18–64**, **seniors 65+** (via `age`)
-- Needs: rahat seating count, wheelchair count, special-needs count (non-empty `special_needs`)
+1. **Overview & Demographics** (Mawaid / Flow)
+   - Registration funnel: families by status (not started → in progress → submitted → confirmed)
+   - Total registered people; local vs mehman split
+   - Gender split (M / F)
+   - Age buckets: **kids < 18** (via `is_adult`), **adults 18–64**, **seniors 65+** (via `age`)
+   - Needs: rahat seating count, wheelchair count, special-needs count (non-empty `special_needs`)
+2. **Accommodation**
+   - Hotel vs utaro split — families and people
+   - Per-hotel breakdown (`hotel_name`): families and people per hotel
+3. **Transport** (Parking)
+   - `transport_mode` breakdown: rental / rideshare / commute with host / other
+   - Counted by **household** (primary, since passes are per-household) and by people
 
-### 2. Accommodation
+### Registrations table (heart of the page)
 
-- Hotel vs utaro split — families and people
-- Per-hotel breakdown (`hotel_name`): families and people per hotel
-- Utaro list: families with host names
+One searchable table of families, each row expandable to show its members.
 
-### 3. Transport (Parking)
-
-- `transport_mode` breakdown: rental / rideshare / commute with host / other
-- Counted by **household** (primary, since passes are per-household) and by people
-
-## Drill-down
-
-Clicking any metric or bar row expands an inline table below that section (not a modal) listing the underlying rows:
-
-- Family-level drill-downs (funnel, accommodation, transport): HOF name, HOF ITS, family size, plus section-relevant columns (hotel name / host name / transport mode + detail)
-- Member-level drill-downs (demographics, needs): name, ITS, age, gender, HOF, plus the relevant flag/text
-
-Each drill-down table has a **Download CSV** button (client-side generation from the same data).
+- **Family row columns**: HOF name, HOF ITS, family size, registration status, accommodation (Hotel: *name* / Utaro: *host name*), transport mode
+- **Expanded member rows**: name, ITS, age, gender, local/mehman, rahat seating, wheelchair, special needs
+- **Search box**: filters by HOF name, HOF ITS, or member name/ITS
+- **Filtering via stats**: clicking any stat card or bar row filters the table to its underlying rows; the active filter is shown as a dismissible chip
+  - *Family-level stats* (funnel stage, acc type, specific hotel, transport mode) → table shows matching families
+  - *Member-level stats* (gender, age bucket, rahat, wheelchair, special needs, local/mehman) → table shows families containing ≥1 matching member, auto-expanded to the matching members
+- **Download CSV** button exports the current filtered view (family-level export, or member-level when a member filter is active), client-side
 
 ## Testing / Verification
 
@@ -109,9 +108,10 @@ Manual: cross-check totals against the stats cards on `/admin/mumineen` and spot
 | Decision | Choice |
 |---|---|
 | Hub vs per-dept pages | Single hub (Approach A) |
+| Framing | Registrations page — first-class family table, stats act as filters (not stats-with-drilldowns) |
 | Audience | Dept PMs/HODs self-serve via `is_manager`, plus admin/leadership |
 | Access scope | Everyone sees all sections |
-| Depth | Counts + drill-down lists + CSV export |
+| Depth | Counts + filterable table of families/members + CSV export |
 | Senior cutoff | 65+ |
 | Population | Submitted + confirmed (funnel shows all) |
 | Parking pass mgmt | Separate future feature |
