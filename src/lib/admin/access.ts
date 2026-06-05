@@ -24,3 +24,8 @@ export function canAccessInbox(user: PortalUser | null | undefined) {
 export function canManageKnowledge(user: PortalUser | null | undefined) {
   return isAdminOrLeadership(user) || user?.is_manager === true;
 }
+
+// Who may open the Registration Analytics page: admins/leadership, department PM/HOD, and IT.
+export function canViewRegistrations(user: PortalUser | null | undefined) {
+  return isAdminOrLeadership(user) || user?.is_manager === true || user?.is_it === true;
+}

@@ -5,12 +5,13 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 // access controls who sees a link, matching each page's gate:
-//  admin    = admin/leadership only
-//  inbox    = admin/leadership or escalation support members
-//  manage   = admin/leadership or department PM/HOD
-//  mumineen = admin/leadership or IT department members
-//  any      = any signed-in user
-type Access = "admin" | "inbox" | "manage" | "mumineen" | "any";
+//  admin         = admin/leadership only
+//  inbox         = admin/leadership or escalation support members
+//  manage        = admin/leadership or department PM/HOD
+//  mumineen      = admin/leadership or IT department members
+//  registrations = admin/leadership, department PM/HOD, or IT
+//  any           = any signed-in user
+type Access = "admin" | "inbox" | "manage" | "mumineen" | "registrations" | "any";
 
 type NavLink = { href: string; label: string; access: Access; exact?: boolean };
 
@@ -36,7 +37,7 @@ const dropdownGroups: DropdownGroup[] = [
       { href: "/admin/knowledge", label: "Vectorized Data for Agent", access: "manage" },
       { href: "/admin/knowledge-gaps", label: "Knowledge Gaps", access: "manage" },
       { href: "/admin/mumineen", label: "Mumineen", access: "mumineen" },
-      { href: "/admin/registration", label: "Registration Analytics", access: "mumineen" },
+      { href: "/admin/registration", label: "Registration Analytics", access: "registrations" },
       { href: "/admin/relay-updates", label: "Relay Updates", access: "admin" },
       { href: "/admin/niyaz", label: "Niyaz Registration", access: "admin" },
       { href: "/admin/whatsapp", label: "WhatsApp", access: "admin" },
@@ -107,6 +108,7 @@ export default function AdminNav() {
     if (itemAccess === "admin") return access.isAdmin;
     if (itemAccess === "inbox") return access.isAdmin || access.isSupport;
     if (itemAccess === "mumineen") return access.isAdmin || access.isIt;
+    if (itemAccess === "registrations") return access.isAdmin || access.isManager || access.isIt;
     return access.isAdmin || access.isManager; // manage
   }
 

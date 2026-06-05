@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
-import { canAccessMumineen } from "@/lib/admin/access";
+import { canViewRegistrations } from "@/lib/admin/access";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -503,7 +503,7 @@ export default function RegistrationAnalyticsPage() {
     if (!token) { router.push("/admin/login"); return; }
     const raw = localStorage.getItem("admin_user");
     const user = raw ? JSON.parse(raw) : null;
-    if (!canAccessMumineen(user)) { router.push("/admin/conversations"); return; }
+    if (!canViewRegistrations(user)) { router.push("/admin/conversations"); return; }
     void load(filters);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
