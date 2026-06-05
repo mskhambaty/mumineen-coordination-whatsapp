@@ -28,10 +28,14 @@ type Analytics = {
   timeline: { date: string; count: number; cumulative: number }[];
   accommodation: {
     hotel: number;
+    hotel_people: number;
     utaro: number;
+    utaro_people: number;
     open_to_utaro: number;
+    open_to_utaro_people: number;
     not_set: number;
-    top_hotels: { name: string; count: number }[];
+    top_hotels: { name: string; count: number; people: number; awaiting: number; awaiting_people: number }[];
+    hosts: { key: string; label: string; families: number; people: number }[];
   };
   transport: {
     rideshare: number;
@@ -148,6 +152,21 @@ function DetailPanel({
   const showGender = rows.some((r) => r.gender !== "—");
   const showAge = rows.some((r) => r.age !== "—");
 
+  function exportCsv() {
+    const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+    const header = ["Name", "ITS", "Gender", "Age", "Type", "Phone", "Email", req.detailLabel ?? "Details", "HOF ITS"];
+    const lines = filtered.map((r) =>
+      [r.name, r.its, r.gender, r.age, r.local_mehman, r.whatsapp, r.email, r.detail, r.hof_its].map(esc).join(","),
+    );
+    const blob = new Blob([[header.join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${req.label.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40">
       <div
@@ -162,15 +181,25 @@ function DetailPanel({
               <p className="text-xs text-gray-500">{filtered.length} of {rows.length} shown</p>
             )}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
-          >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={exportCsv}
+              disabled={loading || filtered.length === 0}
+              className="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              Export CSV
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
+            >
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Search */}
@@ -312,12 +341,14 @@ function HBar({
   total,
   color = "bg-blue-500",
   onClick,
+  trailing,
 }: {
   label: string;
   value: number;
   total: number;
   color?: string;
   onClick?: () => void;
+  trailing?: ReactNode;
 }) {
   const pct = total > 0 ? (value / total) * 100 : 0;
   return (
@@ -345,6 +376,7 @@ function HBar({
         </span>
         <span className="ml-1 text-xs text-gray-400">({Math.round(pct)}%)</span>
       </span>
+      {trailing}
     </div>
   );
 }
@@ -699,8 +731,8 @@ export default function RegistrationAnalyticsPage() {
               </SectionCard>
 
               <SectionCard title="Local vs Mehman">
-                <HBar label="Mehman" value={summary.mehman} total={summary.total_mumineen} color="bg-indigo-500" onClick={() => drill({ segment: "attending", label: "Mehman (attending)", })} />
-                <HBar label="Local" value={summary.local} total={summary.total_mumineen} color="bg-teal-500" onClick={() => drill({ segment: "attending", label: "Local (attending)" })} />
+                <HBar label="Mehman" value={summary.mehman} total={summary.total_mumineen} color="bg-indigo-500" onClick={() => drill({ segment: "local_mehman", value: "Mehman", label: "Mehman (attending)" })} />
+                <HBar label="Local" value={summary.local} total={summary.total_mumineen} color="bg-teal-500" onClick={() => drill({ segment: "local_mehman", value: "Local", label: "Local (attending)" })} />
                 <div className="my-3 border-t border-gray-100 dark:border-gray-700" />
                 {data.gender.map((g) => (
                   <HBar key={g.label} label={g.label} value={g.count} total={summary.attending} color="bg-pink-400"
@@ -742,9 +774,11 @@ export default function RegistrationAnalyticsPage() {
                     <>
                       <HBar label="Hotel" value={data.accommodation.hotel} total={total} color="bg-blue-500"
                         onClick={() => drill({ segment: "hotel", label: "All Hotel Families", detailLabel: "Hotel" })}
+                        trailing={<span className="w-14 shrink-0 text-right text-xs text-gray-400">{data.accommodation.hotel_people} ppl</span>}
                       />
                       <HBar label="Utaro / Host" value={data.accommodation.utaro} total={total} color="bg-emerald-500"
                         onClick={() => drill({ segment: "acc_type", value: "utaro", label: "Utaro / Host Families", detailLabel: "Accommodation" })}
+                        trailing={<span className="w-14 shrink-0 text-right text-xs text-gray-400">{data.accommodation.utaro_people} ppl</span>}
                       />
                       {data.accommodation.not_set > 0 && (
                         <HBar label="Not set" value={data.accommodation.not_set} total={total} color="bg-gray-300"
@@ -752,10 +786,18 @@ export default function RegistrationAnalyticsPage() {
                         />
                       )}
                       {data.accommodation.open_to_utaro > 0 && (
-                        <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-                          {data.accommodation.open_to_utaro}{" "}
-                          {data.accommodation.open_to_utaro === 1 ? "family" : "families"} open to utaro
-                        </p>
+                        <button
+                          type="button"
+                          onClick={() => drill({ segment: "open_to_utaro", label: "Awaiting Utaro — hotel booked, open to a host", detailLabel: "Hotel" })}
+                          className="mt-3 flex w-full items-center justify-between rounded-md bg-amber-50 px-3 py-2 text-left text-sm text-amber-800 hover:bg-amber-100 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50"
+                        >
+                          <span>
+                            {data.accommodation.open_to_utaro}{" "}
+                            {data.accommodation.open_to_utaro === 1 ? "family" : "families"} (
+                            {data.accommodation.open_to_utaro_people} people) awaiting utaro
+                          </span>
+                          <span className="text-xs">View →</span>
+                        </button>
                       )}
                       {filteredHotels.length > 0 && (
                         <div className="mt-4">
@@ -765,8 +807,42 @@ export default function RegistrationAnalyticsPage() {
                           {filteredHotels.map((h) => (
                             <HBar key={h.name} label={h.name} value={h.count} total={data.accommodation.hotel} color="bg-blue-400"
                               onClick={() => drill({ segment: "hotel", value: h.name, label: `${h.name} — families`, detailLabel: "Hotel" })}
+                              trailing={
+                                <span className="flex w-28 shrink-0 items-center justify-end gap-1">
+                                  <span className="text-xs text-gray-400">{h.people} ppl</span>
+                                  {h.awaiting > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        drill({ segment: "open_to_utaro", value: h.name, label: `${h.name} — awaiting utaro`, detailLabel: "Hotel" });
+                                      }}
+                                      className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 hover:bg-amber-200 dark:bg-amber-950/40 dark:text-amber-300"
+                                      title={`${h.awaiting} families (${h.awaiting_people} people) at ${h.name} awaiting utaro`}
+                                    >
+                                      {h.awaiting} awaiting
+                                    </button>
+                                  )}
+                                </span>
+                              }
                             />
                           ))}
+                        </div>
+                      )}
+                      {data.accommodation.hosts.length > 0 && (
+                        <div className="mt-4">
+                          <p className="mb-2 text-xs font-medium text-gray-500 dark:text-gray-400">
+                            Utaro hosts (guest-reported) — click to see who&apos;s staying with them
+                          </p>
+                          {data.accommodation.hosts.slice(0, 10).map((h) => (
+                            <HBar key={h.key} label={h.label} value={h.families} total={data.accommodation.utaro} color="bg-emerald-400"
+                              onClick={() => drill({ segment: "host", value: h.key, label: `${h.label} — guest families`, detailLabel: "Host" })}
+                              trailing={<span className="w-14 shrink-0 text-right text-xs text-gray-400">{h.people} ppl</span>}
+                            />
+                          ))}
+                          {data.accommodation.hosts.length > 10 && (
+                            <p className="mt-1 text-xs text-gray-400">Showing top 10 of {data.accommodation.hosts.length} hosts.</p>
+                          )}
                         </div>
                       )}
                     </>
