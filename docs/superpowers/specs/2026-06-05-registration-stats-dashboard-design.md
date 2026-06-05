@@ -80,7 +80,7 @@ Stats on top, registrations table below. Reuse the `Metric` / `Panel` / `BarRows
 ### Stat groups (top of page — every stat is a filter)
 
 1. **Overview & Demographics** (Mawaid / Flow)
-   - Registration funnel: families by status (not started → in progress → submitted → confirmed)
+   - Registration funnel: families by status (not started → in progress → submitted → confirmed, plus cancelled — the cancel/reopen flow sets `registration_status = 'cancelled'`)
    - Total registered people; local vs mehman split
    - Gender split (M / F)
    - Age buckets: **kids < 18** (via `is_adult`), **adults 18–64**, **seniors 65+** (via `age`)
