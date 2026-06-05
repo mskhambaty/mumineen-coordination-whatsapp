@@ -237,9 +237,10 @@ function extractContentChunks($: cheerio.CheerioAPI, pageUrl: string): ContentCh
   const pageTitle = cleanText($("title").first().text()) || cleanText($("h1").first().text()) || pageUrl;
   const chunks: ContentChunk[] = [];
 
-  $("h1, h2, h3").each((_, el) => {
+  // Primary pass: group content by headings h1–h6 (covers card-level headings too)
+  $("h1, h2, h3, h4, h5, h6").each((_, el) => {
     const heading = cleanText($(el).text());
-    const body = cleanText($(el).nextUntil("h1, h2, h3").text());
+    const body = cleanText($(el).nextUntil("h1, h2, h3, h4, h5, h6").text());
     const text = cleanText([heading, body].filter(Boolean).join("\n"));
 
     for (const part of splitText(text)) {
@@ -252,9 +253,34 @@ function extractContentChunks($: cheerio.CheerioAPI, pageUrl: string): ContentCh
     }
   });
 
-  if (chunks.length > 0) {
-    return chunks;
-  }
+  // Supplemental pass: pick up content in block elements not anchored to any heading
+  // (card components, standalone paragraphs, list items, leaf divs with inline labels)
+  const captured = new Set(chunks.map((c) => c.content));
+
+  $("p, li").each((_, el) => {
+    const text = cleanText($(el).text());
+    for (const part of splitText(text)) {
+      if (!captured.has(part)) {
+        captured.add(part);
+        chunks.push({ page_url: pageUrl, page_title: pageTitle, section: "page", content: part });
+      }
+    }
+  });
+
+  // Leaf divs: divs with no nested block children that may hold inline-labelled content
+  $("div").each((_, el) => {
+    const $el = $(el);
+    if ($el.find("div, p, section, article, h1, h2, h3, h4, h5, h6, ul, ol, table").length > 0) return;
+    const text = cleanText($el.text());
+    for (const part of splitText(text)) {
+      if (!captured.has(part)) {
+        captured.add(part);
+        chunks.push({ page_url: pageUrl, page_title: pageTitle, section: "page", content: part });
+      }
+    }
+  });
+
+  if (chunks.length > 0) return chunks;
 
   const fallback = cleanText($("main").text() || $("body").text());
   return splitText(fallback).map((content) => ({
