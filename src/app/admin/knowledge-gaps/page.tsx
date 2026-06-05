@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { canManageKnowledge } from "@/lib/admin/access";
 
@@ -26,12 +26,12 @@ export default function KnowledgeGapsPage() {
   const [filter, setFilter] = useState<StatusFilter>("open");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [faqGap, setFaqGap] = useState<Gap | null>(null);
-  const [faqTitle, setFaqTitle] = useState("");
-  const [faqAnswer, setFaqAnswer] = useState("");
-  const [faqDeptId, setFaqDeptId] = useState("");
-  const [savingFaq, setSavingFaq] = useState(false);
-  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
+
+  // Export state
+  const [referenceFile, setReferenceFile] = useState<File | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
   const load = useCallback(
@@ -55,90 +55,44 @@ export default function KnowledgeGapsPage() {
 
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
-    if (!token) {
-      router.push("/admin/login");
-      return;
-    }
+    if (!token) { router.push("/admin/login"); return; }
     const raw = localStorage.getItem("admin_user");
     const user = raw ? (JSON.parse(raw) as { role?: string; global_role?: string; is_manager?: boolean }) : null;
-    if (!canManageKnowledge(user)) {
-      router.push("/admin/conversations");
-      return;
-    }
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!canManageKnowledge(user)) { router.push("/admin/conversations"); return; }
     void load(filter);
   }, [router, filter, load]);
 
-  // Load departments once for the optional Add FAQ dropdown.
-  useEffect(() => {
-    void (async () => {
-      try {
-        const res = await fetch("/api/departments", { headers: { "x-admin-key": adminKey } });
-        if (!res.ok) return;
-        const data = (await res.json()) as { id: string; name: string }[];
-        setDepartments(Array.isArray(data) ? data : []);
-      } catch {
-        // Non-fatal: the dropdown just shows "No department".
-      }
-    })();
-  }, [adminKey]);
-
-  async function setStatus(id: string, status: Gap["status"]) {
+  async function handleExport() {
+    setExporting(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/knowledge-gaps", {
-        method: "PATCH",
-        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
-        body: JSON.stringify({ id, status }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Update failed");
-      await load(filter);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Update failed");
-    }
-  }
+      const form = new FormData();
+      if (referenceFile) form.append("reference", referenceFile);
 
-  function openFaq(gap: Gap) {
-    setFaqGap(gap);
-    setFaqTitle(gap.topic);
-    setFaqAnswer("");
-    setFaqDeptId("");
-    setError(null);
-  }
-
-  function closeFaq() {
-    setFaqGap(null);
-    setFaqTitle("");
-    setFaqAnswer("");
-    setFaqDeptId("");
-  }
-
-  async function saveFaq(event: React.FormEvent) {
-    event.preventDefault();
-    if (!faqGap || !faqTitle.trim() || !faqAnswer.trim()) return;
-    setSavingFaq(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/admin/knowledge-gaps/faq", {
+      const res = await fetch("/api/admin/knowledge-gaps/export", {
         method: "POST",
-        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
-        body: JSON.stringify({
-          gap_id: faqGap.id,
-          title: faqTitle.trim(),
-          question: faqGap.sample_question ?? "",
-          answer: faqAnswer.trim(),
-          department_id: faqDeptId || null,
-        }),
+        headers: { "x-admin-key": adminKey },
+        body: form,
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Failed to save FAQ");
-      closeFaq();
-      await load(filter);
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as { error?: string }).error ?? "Export failed");
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const disposition = res.headers.get("content-disposition") ?? "";
+      const match = /filename="([^"]+)"/.exec(disposition);
+      a.download = match?.[1] ?? "knowledge-gaps.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save FAQ");
+      setError(err instanceof Error ? err.message : "Export failed");
     } finally {
-      setSavingFaq(false);
+      setExporting(false);
     }
   }
 
@@ -150,8 +104,7 @@ export default function KnowledgeGapsPage() {
         <div>
           <h1 className="text-xl font-bold">Knowledge Gaps</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Topics the AI assistant couldn&apos;t answer from indexed content. Add an FAQ for the
-            common ones (it&apos;s vectorized instantly), or edit the agent prompt — then mark them addressed.
+            Topics the AI couldn&apos;t answer. Export net-new gaps to paste into Google Sheets — the team fills answers there and the cron picks them up automatically.
           </p>
         </div>
         <Link
@@ -160,6 +113,47 @@ export default function KnowledgeGapsPage() {
         >
           Edit agent prompt
         </Link>
+      </div>
+
+      {/* Export panel */}
+      <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900">
+        <p className="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">Export to Google Sheets</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <div>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Upload last exported sheet <span className="text-gray-400">(optional — for dedup)</span>
+            </label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={(e) => setReferenceFile(e.target.files?.[0] ?? null)}
+              className="block text-sm text-gray-600 dark:text-gray-300 file:mr-3 file:rounded file:border-0 file:bg-gray-200 file:px-3 file:py-1 file:text-sm file:font-medium dark:file:bg-gray-700 dark:file:text-gray-200"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={exporting}
+            className="mt-4 self-end rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+          >
+            {exporting ? "Exporting…" : referenceFile ? "Export (deduped)" : "Export all open"}
+          </button>
+          {referenceFile && (
+            <button
+              type="button"
+              onClick={() => { setReferenceFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+              className="mt-4 self-end text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+            >
+              Clear file
+            </button>
+          )}
+        </div>
+        {referenceFile && (
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            Reference: <span className="font-medium">{referenceFile.name}</span> — only gaps not already in this sheet will be exported.
+          </p>
+        )}
       </div>
 
       {error && (
@@ -195,8 +189,8 @@ export default function KnowledgeGapsPage() {
                 <th className="px-3 py-2">Topic</th>
                 <th className="px-3 py-2">Example question</th>
                 <th className="px-3 py-2 text-center">Asked</th>
-                <th className="px-3 py-2">Last</th>
-                <th className="px-3 py-2">Actions</th>
+                <th className="px-3 py-2">Last seen</th>
+                <th className="px-3 py-2">Status</th>
               </tr>
             </thead>
             <tbody>
@@ -209,85 +203,18 @@ export default function KnowledgeGapsPage() {
                   </td>
                   <td className="px-3 py-2 text-gray-500 dark:text-gray-400">{fmt(g.last_seen_at)}</td>
                   <td className="px-3 py-2">
-                    <div className="flex flex-wrap gap-1.5">
-                      <button type="button" onClick={() => openFaq(g)} className="rounded border border-blue-300 px-2 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-50 dark:border-blue-900 dark:text-blue-300 dark:hover:bg-blue-950">Add FAQ</button>
-                      {g.status !== "addressed" && (
-                        <button type="button" onClick={() => setStatus(g.id, "addressed")} className="rounded border border-green-300 px-2 py-0.5 text-xs font-medium text-green-700 hover:bg-green-50 dark:border-green-900 dark:hover:bg-green-950">Addressed</button>
-                      )}
-                      {g.status !== "dismissed" && (
-                        <button type="button" onClick={() => setStatus(g.id, "dismissed")} className="rounded border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800">Dismiss</button>
-                      )}
-                      {g.status !== "open" && (
-                        <button type="button" onClick={() => setStatus(g.id, "open")} className="rounded border border-blue-300 px-2 py-0.5 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:border-blue-900 dark:hover:bg-blue-950">Reopen</button>
-                      )}
-                    </div>
+                    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize ${
+                      g.status === "open"
+                        ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                        : g.status === "addressed"
+                        ? "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300"
+                        : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                    }`}>{g.status}</span>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
-      )}
-
-      {faqGap && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-lg rounded-lg bg-white p-6 dark:bg-gray-900">
-            <h3 className="text-lg font-semibold">Add FAQ</h3>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              This is vectorized into the logistics store immediately so the agent can answer it next time. The gap is marked addressed on save.
-            </p>
-            {faqGap.sample_question && (
-              <p className="mt-3 rounded-md bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">
-                <span className="font-medium">Example question:</span> {faqGap.sample_question}
-              </p>
-            )}
-            <form onSubmit={saveFaq} className="mt-4 space-y-4">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Title
-                <input
-                  type="text"
-                  value={faqTitle}
-                  onChange={(e) => setFaqTitle(e.target.value)}
-                  required
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-                />
-              </label>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Department <span className="font-normal text-gray-400">(optional)</span>
-                <select
-                  value={faqDeptId}
-                  onChange={(e) => setFaqDeptId(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-                >
-                  <option value="">No department</option>
-                  {departments.map((d) => (
-                    <option key={d.id} value={d.id}>{d.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Answer
-                <textarea
-                  value={faqAnswer}
-                  onChange={(e) => setFaqAnswer(e.target.value)}
-                  required
-                  rows={6}
-                  placeholder="Write the answer the agent should give for this topic."
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-                />
-              </label>
-              <div className="flex justify-end gap-3">
-                <button type="button" onClick={closeFaq} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300">Cancel</button>
-                <button
-                  type="submit"
-                  disabled={savingFaq || !faqTitle.trim() || !faqAnswer.trim()}
-                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
-                >
-                  {savingFaq ? "Saving…" : "Save & Vectorize"}
-                </button>
-              </div>
-            </form>
-          </div>
         </div>
       )}
     </main>

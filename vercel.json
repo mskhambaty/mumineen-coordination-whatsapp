@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/conversation-quality",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/sync-gaps-sheet",
+      "schedule": "0 */2 * * *"
     }
   ]
 }
