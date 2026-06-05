@@ -22,6 +22,7 @@ type ToolDefinition = OpenAI.Chat.Completions.ChatCompletionTool;
 // task-management or committee tools when it's talking to a visitor.
 export function toolDefinitionsFor(user: Pick<AppUser, "role" | "status">): ToolDefinition[] {
   return allToolDefinitions.filter((t) => {
+    if (t.type !== "function") return false;
     const name = t.function.name;
     if (publicTools.has(name)) return true;
     if (committeeTools.has(name)) return user.role === "committee" || user.role === "admin";
@@ -32,7 +33,7 @@ export function toolDefinitionsFor(user: Pick<AppUser, "role" | "status">): Tool
   });
 }
 
-const allToolDefinitions: ToolDefinition[] = [
+export const allToolDefinitions: ToolDefinition[] = [
   {
     type: "function",
     function: {

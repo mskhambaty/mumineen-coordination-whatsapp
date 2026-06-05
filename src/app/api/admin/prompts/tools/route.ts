@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { ForbiddenError, resolveCallerFromRequest } from "@/lib/api/auth";
-import { toolDefinitions } from "@/lib/agent/tools";
+import { allToolDefinitions } from "@/lib/agent/tools";
 import { getToolMetadata } from "@/lib/agent/tool-metadata";
 
 export async function GET(req: NextRequest) {
@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
 
     const metadataMap = getToolMetadata();
 
-    const tools = toolDefinitions
+    const tools = allToolDefinitions
       .filter((tool): tool is typeof tool & { type: "function" } => tool.type === "function")
       .map((tool) => {
         const metadata = metadataMap[tool.function.name];
