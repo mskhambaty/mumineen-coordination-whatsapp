@@ -285,6 +285,12 @@ export async function GET(req: NextRequest) {
     no_flight_no: mehmanSubmittedAttending.filter((m) => !m.arrival_flight_no).length,
   };
 
+  // ── Roster data quality (applies to whole roster, not just submitted) ─────────
+  const dataQuality = {
+    no_full_name: members.filter((m) => !m.full_name?.trim()).length,
+    no_local_mehman: members.filter((m) => !m.local_mehman?.trim()).length,
+  };
+
   return NextResponse.json({
     generated_at: new Date().toISOString(),
     filters: { local_mehman: localMehmanFilter, status: statusFilter, attending: attendingFilter },
@@ -325,5 +331,6 @@ export async function GET(req: NextRequest) {
     },
     accessibility,
     missing_data: missingData,
+    data_quality: dataQuality,
   });
 }

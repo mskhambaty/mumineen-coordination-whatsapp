@@ -58,6 +58,7 @@ type Analytics = {
     by_department: { id: string; name: string; count: number }[];
   };
   accessibility: { rahat_seating: number; wheelchair: number; special_needs: number };
+  data_quality: { no_full_name: number; no_local_mehman: number };
   missing_data: {
     no_whatsapp: number;
     no_email: number;
@@ -996,6 +997,37 @@ export default function RegistrationAnalyticsPage() {
                 )}
               </SectionCard>
             </div>
+
+            {/* ── Roster data quality ── */}
+            {(data.data_quality.no_full_name > 0 || data.data_quality.no_local_mehman > 0) && (
+              <SectionCard title="Roster Data Quality" className="mb-4">
+                <p className="mb-3 text-xs text-gray-400">
+                  Gaps in the imported roster — not from registration. Re-import with corrected data to fix.
+                </p>
+                <div className="space-y-2">
+                  {data.data_quality.no_full_name > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => drill({ segment: "no_full_name", label: "Roster entries with no name" })}
+                      className="flex w-full items-center justify-between rounded-lg bg-orange-50 px-4 py-2.5 text-sm text-orange-800 hover:opacity-80 dark:bg-orange-950/30 dark:text-orange-300"
+                    >
+                      <span>No full name in roster</span>
+                      <span className="font-semibold">{data.data_quality.no_full_name.toLocaleString()} →</span>
+                    </button>
+                  )}
+                  {data.data_quality.no_local_mehman > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => drill({ segment: "no_local_mehman", label: "Roster entries with no Local/Mehman classification" })}
+                      className="flex w-full items-center justify-between rounded-lg bg-orange-50 px-4 py-2.5 text-sm text-orange-800 hover:opacity-80 dark:bg-orange-950/30 dark:text-orange-300"
+                    >
+                      <span>No Local / Mehman classification</span>
+                      <span className="font-semibold">{data.data_quality.no_local_mehman.toLocaleString()} →</span>
+                    </button>
+                  )}
+                </div>
+              </SectionCard>
+            )}
           </>
         )}
       </main>

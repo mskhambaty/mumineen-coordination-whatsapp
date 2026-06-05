@@ -348,6 +348,12 @@ export async function GET(req: NextRequest) {
             !m.arrival_flight_no,
         );
         break;
+      case "no_full_name":
+        filtered = allMembers.filter((m) => !m.full_name?.trim());
+        break;
+      case "no_local_mehman":
+        filtered = allMembers.filter((m) => !m.local_mehman?.trim());
+        break;
     }
 
     filtered.sort((a, b) => (a.full_name ?? "").localeCompare(b.full_name ?? ""));

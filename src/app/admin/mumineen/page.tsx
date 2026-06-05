@@ -212,6 +212,21 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 const yesOrNull = (v: boolean | null | undefined) => (v ? "Yes" : null);
 
+type ImportLogEntry = {
+  id: string;
+  imported_by_name: string | null;
+  file_name: string | null;
+  file_size_bytes: number | null;
+  rows_in_file: number | null;
+  families_upserted: number | null;
+  mumineen_upserted: number | null;
+  deactivated_missing: boolean | null;
+  auto_columns: string[] | null;
+  status: "success" | "error";
+  error_message: string | null;
+  created_at: string;
+};
+
 export default function MumineenPage() {
   const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
@@ -221,6 +236,8 @@ export default function MumineenPage() {
   const [error, setError] = useState<string | null>(null);
   const [gate, setGate] = useState<boolean | null>(null);
   const [gateBusy, setGateBusy] = useState(false);
+  const [importHistory, setImportHistory] = useState<ImportLogEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -248,6 +265,7 @@ export default function MumineenPage() {
     void loadStats();
     void loadGate();
     void loadDepartments();
+    void loadHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
@@ -369,6 +387,13 @@ export default function MumineenPage() {
     if (res.ok) setDepartments(((await res.json()).departments as Department[]) ?? []);
   }
 
+  async function loadHistory() {
+    setHistoryLoading(true);
+    const res = await fetch("/api/admin/mumineen/import", { headers: { "x-admin-key": adminKey } });
+    if (res.ok) setImportHistory((await res.json()) as ImportLogEntry[]);
+    setHistoryLoading(false);
+  }
+
   async function toggleGate(next: boolean) {
     setGateBusy(true);
     setError(null);
@@ -397,7 +422,12 @@ export default function MumineenPage() {
     try {
       const body = new FormData();
       body.append("file", file);
-      const res = await fetch("/api/admin/mumineen/import", { method: "POST", headers: { "x-admin-key": adminKey }, body });
+      const adminUserRaw = localStorage.getItem("admin_user");
+      const adminUser = adminUserRaw ? JSON.parse(adminUserRaw) as { id?: string; display_name?: string } : null;
+      const importHeaders: Record<string, string> = { "x-admin-key": adminKey };
+      if (adminUser?.id) importHeaders["x-admin-user-id"] = adminUser.id;
+      if (adminUser?.display_name) importHeaders["x-admin-user-name"] = adminUser.display_name;
+      const res = await fetch("/api/admin/mumineen/import", { method: "POST", headers: importHeaders, body });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Import failed");
       const extras: string[] = [];
@@ -414,6 +444,7 @@ export default function MumineenPage() {
       setFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       await loadStats();
+      void loadHistory();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Import failed");
     } finally {
@@ -655,6 +686,82 @@ export default function MumineenPage() {
           Expects columns: Hof Id, Mumin Id, Fullname, Gender, Age, Jamaat, Idara, Category, Prefix, Title, Venue (Waaz), City, Local/Mehman, Arr Place Date, Flight Code, Daily Trans, Whatsapp Link Clicked?, whatsapp_e164, email.
         </p>
       </form>
+
+      {/* ── Import history ── */}
+      <div className="rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-800">
+          <h2 className="text-lg font-semibold">Import history</h2>
+          <button
+            type="button"
+            onClick={() => void loadHistory()}
+            disabled={historyLoading}
+            className="text-xs text-gray-500 hover:text-blue-600 disabled:opacity-50"
+          >
+            {historyLoading ? "Loading…" : "Refresh"}
+          </button>
+        </div>
+        {importHistory.length === 0 ? (
+          <p className="px-5 py-6 text-sm text-gray-400">{historyLoading ? "Loading…" : "No imports yet."}</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 dark:bg-gray-800">
+                <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <th className="px-4 py-2">Date</th>
+                  <th className="px-4 py-2">Uploaded by</th>
+                  <th className="px-4 py-2">File</th>
+                  <th className="px-4 py-2 text-right">Rows</th>
+                  <th className="px-4 py-2 text-right">Families</th>
+                  <th className="px-4 py-2 text-right">Mumineen</th>
+                  <th className="px-4 py-2">Notes</th>
+                  <th className="px-4 py-2">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {importHistory.map((entry) => {
+                  const dt = new Date(entry.created_at);
+                  const dateStr = dt.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+                  const timeStr = dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+                  const fileSizeStr = entry.file_size_bytes
+                    ? entry.file_size_bytes > 1024 * 1024
+                      ? `${(entry.file_size_bytes / 1024 / 1024).toFixed(1)} MB`
+                      : `${Math.round(entry.file_size_bytes / 1024)} KB`
+                    : null;
+                  const notes: string[] = [];
+                  if (entry.deactivated_missing === false) notes.push("Additive — existing roster preserved");
+                  if (entry.auto_columns?.length) notes.push(`Auto-mapped: ${entry.auto_columns.join(", ")}`);
+                  return (
+                    <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                      <td className="px-4 py-2 whitespace-nowrap">
+                        <span className="font-medium text-gray-900 dark:text-gray-100">{dateStr}</span>
+                        <span className="ml-1 text-xs text-gray-400">{timeStr}</span>
+                      </td>
+                      <td className="px-4 py-2 text-gray-700 dark:text-gray-300">
+                        {entry.imported_by_name ?? <span className="text-gray-400 italic">Unknown</span>}
+                      </td>
+                      <td className="px-4 py-2">
+                        <span className="font-mono text-xs text-gray-600 dark:text-gray-400">{entry.file_name ?? "—"}</span>
+                        {fileSizeStr && <span className="ml-1 text-xs text-gray-400">({fileSizeStr})</span>}
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums text-gray-700 dark:text-gray-300">{entry.rows_in_file?.toLocaleString() ?? "—"}</td>
+                      <td className="px-4 py-2 text-right tabular-nums text-gray-700 dark:text-gray-300">{entry.families_upserted?.toLocaleString() ?? "—"}</td>
+                      <td className="px-4 py-2 text-right tabular-nums text-gray-700 dark:text-gray-300">{entry.mumineen_upserted?.toLocaleString() ?? "—"}</td>
+                      <td className="px-4 py-2 max-w-xs text-xs text-gray-500 dark:text-gray-400">{notes.join(" · ") || "—"}</td>
+                      <td className="px-4 py-2">
+                        {entry.status === "success" ? (
+                          <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-950/50 dark:text-green-300">Success</span>
+                        ) : (
+                          <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-950/50 dark:text-red-300" title={entry.error_message ?? ""}>Failed</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {selected && (
         <div
