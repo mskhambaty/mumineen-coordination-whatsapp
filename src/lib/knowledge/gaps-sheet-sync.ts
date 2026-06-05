@@ -101,7 +101,6 @@ export async function syncGapsFromSheet(): Promise<{
         .select("content")
         .eq("page_url", pageUrl)
         .eq("is_current", true)
-        .limit(1)
         .maybeSingle();
 
       if (existing && normalize(existing.content as string) === normalize(content)) {

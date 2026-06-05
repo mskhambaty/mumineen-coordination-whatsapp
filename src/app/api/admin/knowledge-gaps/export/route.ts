@@ -58,7 +58,8 @@ export async function POST(req: NextRequest) {
   ws["!cols"] = [{ wch: 30 }, { wch: 60 }, { wch: 80 }, { wch: 20 }];
   XLSX.utils.book_append_sheet(wb, ws, "Knowledge Gaps");
 
-  const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  const rawBuffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+  const buffer = Buffer.isBuffer(rawBuffer) ? rawBuffer : Buffer.from(rawBuffer as Uint8Array);
 
   return new NextResponse(buffer, {
     status: 200,
