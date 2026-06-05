@@ -35,6 +35,8 @@ type FamilyRow = {
   open_to_utaro: boolean | null;
   transport_mode: string | null;
   submitted_at: string | null;
+  utaro_host_name: string | null;
+  utaro_host_its: string | null;
 };
 
 type DeptRow = { id: string; name: string };
@@ -83,7 +85,7 @@ export async function GET(req: NextRequest) {
       supabase
         .from("families")
         .select(
-          "hof_its, registration_status, acc_type, hotel_name, open_to_utaro, transport_mode, submitted_at",
+          "hof_its, registration_status, acc_type, hotel_name, open_to_utaro, transport_mode, submitted_at, utaro_host_name, utaro_host_its",
         )
         .eq("roster_active", true)
         .range(from, to),
@@ -165,27 +167,64 @@ export async function GET(req: NextRequest) {
   const registeredFams = fams.filter(
     (f) => f.registration_status === "submitted" || f.registration_status === "confirmed",
   );
+
+  // People per family = attending members of that household (post global filters).
+  const attendingByHof = new Map<string, number>();
+  for (const m of attending) {
+    attendingByHof.set(m.hof_its, (attendingByHof.get(m.hof_its) ?? 0) + 1);
+  }
+  const famPeople = (f: FamilyRow) => attendingByHof.get(f.hof_its) ?? 0;
+
   const hotelFams = registeredFams.filter((f) => f.acc_type === "hotel").length;
   const utaroFams = registeredFams.filter((f) => f.acc_type === "utaro").length;
   const openToUtaro = registeredFams.filter((f) => f.open_to_utaro).length;
   const accNotSet = registeredFams.filter((f) => !f.acc_type).length;
+  const hotelPeople = registeredFams.filter((f) => f.acc_type === "hotel").reduce((s, f) => s + famPeople(f), 0);
+  const utaroPeople = registeredFams.filter((f) => f.acc_type === "utaro").reduce((s, f) => s + famPeople(f), 0);
+  const openToUtaroPeople = registeredFams.filter((f) => f.open_to_utaro).reduce((s, f) => s + famPeople(f), 0);
 
   // Placeholder / dirty values users sometimes enter instead of a real hotel name.
   const HOTEL_JUNK = new Set(["pending", "na", "n/a", "n.a", "tbd", "none", "unknown", "no", "-", "--", "tba"]);
 
-  const hotelCounts = new Map<string, number>();
+  type HotelAgg = { name: string; count: number; people: number; awaiting: number; awaiting_people: number };
+  const hotelCounts = new Map<string, HotelAgg>(); // keyed by lowercased name so case variants merge
   for (const f of registeredFams) {
     if (f.acc_type === "hotel" && f.hotel_name?.trim()) {
       const name = f.hotel_name.trim();
-      if (!HOTEL_JUNK.has(name.toLowerCase())) {
-        hotelCounts.set(name, (hotelCounts.get(name) ?? 0) + 1);
+      if (HOTEL_JUNK.has(name.toLowerCase())) continue;
+      const agg = hotelCounts.get(name.toLowerCase()) ?? { name, count: 0, people: 0, awaiting: 0, awaiting_people: 0 };
+      agg.count += 1;
+      agg.people += famPeople(f);
+      if (f.open_to_utaro) {
+        agg.awaiting += 1;
+        agg.awaiting_people += famPeople(f);
       }
+      hotelCounts.set(name.toLowerCase(), agg);
     }
   }
-  const topHotels = Array.from(hotelCounts.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
-    .map(([name, count]) => ({ name, count }));
+  const topHotels = Array.from(hotelCounts.values())
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+  // Hosts derived from guest-entered utaro fields: keyed by host ITS when present,
+  // else normalized host name (free text — imperfect until the matching feature lands).
+  type HostAgg = { key: string; label: string; families: number; people: number };
+  const hostMap = new Map<string, HostAgg>();
+  for (const f of registeredFams) {
+    if (f.acc_type !== "utaro") continue;
+    const its = f.utaro_host_its?.trim();
+    const normName = (f.utaro_host_name ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+    const key = its ? `its:${its}` : normName ? `name:${normName}` : null;
+    if (!key) continue;
+    const label = its ? `${f.utaro_host_name?.trim() || "Unknown host"} (ITS ${its})` : f.utaro_host_name!.trim();
+    const agg = hostMap.get(key) ?? { key, label, families: 0, people: 0 };
+    agg.families += 1;
+    agg.people += famPeople(f);
+    hostMap.set(key, agg);
+  }
+  const hosts = Array.from(hostMap.values()).sort(
+    (a, b) => b.families - a.families || a.label.localeCompare(b.label),
+  );
 
   // ── Transport ────────────────────────────────────────────────────────────────
 
@@ -306,10 +345,14 @@ export async function GET(req: NextRequest) {
     timeline,
     accommodation: {
       hotel: hotelFams,
+      hotel_people: hotelPeople,
       utaro: utaroFams,
+      utaro_people: utaroPeople,
       open_to_utaro: openToUtaro,
+      open_to_utaro_people: openToUtaroPeople,
       not_set: accNotSet,
       top_hotels: topHotels,
+      hosts,
     },
     transport,
     airports,
