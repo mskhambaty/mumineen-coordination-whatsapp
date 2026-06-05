@@ -7,6 +7,7 @@ export const runtime = "nodejs";
 
 type MuminRow = {
   its: string;
+  full_name: string | null;
   hof_its: string;
   gender: string | null;
   age: number | null;
@@ -74,7 +75,7 @@ export async function GET(req: NextRequest) {
       supabase
         .from("mumineen")
         .select(
-          "its, hof_its, gender, age, is_adult, is_head, local_mehman, arrival_at, departure_at, arrival_flight_no, airport, not_attending, rahat_seating, wheelchair, special_needs, wants_khidmat, khidmat_department_ids, whatsapp_e164, email",
+          "its, full_name, hof_its, gender, age, is_adult, is_head, local_mehman, arrival_at, departure_at, arrival_flight_no, airport, not_attending, rahat_seating, wheelchair, special_needs, wants_khidmat, khidmat_department_ids, whatsapp_e164, email",
         )
         .eq("roster_active", true)
         .range(from, to),

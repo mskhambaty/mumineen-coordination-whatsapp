@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import React, { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { canAccessMumineen } from "@/lib/admin/access";
 
@@ -211,8 +211,8 @@ function DetailPanel({
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {filtered.map((r) => (
-                  <>
-                    <tr key={r.its} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                  <React.Fragment key={r.its}>
+                    <tr className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                       <td className="px-4 py-2 font-medium text-gray-900 dark:text-gray-100">
                         {r.name}
                       </td>
@@ -261,7 +261,7 @@ function DetailPanel({
                         </td>
                       </tr>
                     )}
-                  </>
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
