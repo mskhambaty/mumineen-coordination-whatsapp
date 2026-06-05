@@ -296,7 +296,10 @@ export default function RegisterPage() {
     }
     if (!isLocal && acc.acc_type !== "hotel" && acc.acc_type !== "utaro") return { message: "Select your accommodation type.", fieldId: "reg-acc-type" };
     if (!isLocal && acc.acc_type === "hotel") {
-      if (!acc.hotel_name?.trim()) return { message: "Enter your hotel name.", fieldId: "reg-hotel-name" };
+      const hotelNameTrimmed = acc.hotel_name?.trim() ?? "";
+      const JUNK = new Set(["pending", "na", "n/a", "n.a", "tbd", "tba", "none", "unknown", "no", "-", "--", "hotel"]);
+      if (!hotelNameTrimmed) return { message: "Enter your hotel name.", fieldId: "reg-hotel-name" };
+      if (JUNK.has(hotelNameTrimmed.toLowerCase())) return { message: "Please enter the actual name of your hotel (e.g. "Marriott O'Hare").", fieldId: "reg-hotel-name" };
       if (!acc.hotel_address?.trim()) return { message: "Enter your hotel address.", fieldId: "reg-hotel-address" };
     }
     if (!isLocal && acc.acc_type === "utaro" && !acc.utaro_host_name?.trim()) {
