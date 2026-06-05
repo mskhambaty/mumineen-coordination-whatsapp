@@ -56,6 +56,14 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - Task metrics: totals by status/priority, overdue list, and per-department breakdown (optional `department_id` filter)
 - Conversation metrics: active/manual/AI conversation counts, inbound vs outbound message volume, messages-by-day series, and top agent tools
 
+### Mumineen Roster (`/admin/mumineen`)
+- Admin/leadership and IT-access page for roster import, lookup, registration gate control, and committee corrections.
+- **Download template** links to `/templates/mumineen-roster-template.xlsx`, a static Excel workbook with an upload-ready `Roster` first sheet, plus `Examples` and `Instructions` sheets.
+- The importer reads the first worksheet only. Keep the `Roster` sheet first and fill one row per mumin.
+- Required upload columns are `Hof Id` and `Mumin Id`; optional roster/contact columns include `Fullname`, `Gender`, `Age`, `Jamaat`, `Idara`, `Category`, `Prefix`, `Title`, `Venue (Waaz)`, `City`, `Local/Mehman`, `Arr Place Date`, `Flight Code`, `Daily Trans`, `Whatsapp Link Clicked?`, `whatsapp_e164`, and `email`.
+- Imports call `POST /api/admin/mumineen/import` and upsert families by `hof_its` and mumineen by `its`, preserving registration-submitted details on re-import.
+- Lookup/edit uses `GET /api/admin/mumineen/search` and `POST /api/admin/mumineen/update`; edits are for existing active roster members only.
+
 ### Vectorized Data for Agent (`/admin/knowledge`)
 Two tabs, each feeding a **separate vector store** so logistics and religious answers never mix.
 

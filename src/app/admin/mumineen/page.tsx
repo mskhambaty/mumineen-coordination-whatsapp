@@ -624,7 +624,16 @@ export default function MumineenPage() {
       </div>
 
       <form onSubmit={runImport} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-        <h2 className="text-lg font-semibold">Import roster</h2>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-lg font-semibold">Import roster</h2>
+          <a
+            href="/templates/mumineen-roster-template.xlsx"
+            download
+            className="inline-flex w-fit items-center rounded-md border border-blue-300 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50 dark:border-blue-900 dark:text-blue-300 dark:hover:bg-blue-950"
+          >
+            Download template
+          </a>
+        </div>
         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
           <input
             ref={fileInputRef}
@@ -643,7 +652,7 @@ export default function MumineenPage() {
         </div>
         {message && <p className="mt-3 text-sm font-medium text-green-700 dark:text-green-400">{message}</p>}
         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-          Expects columns: Hof Id, Mumin Id, Fullname, Gender, Age, Jamaat, Idara, Category, Prefix, Title, Venue, City, Local/Mehman, Arr Place Date, Flight Code, Daily Trans, Whatsapp Link Clicked.
+          Expects columns: Hof Id, Mumin Id, Fullname, Gender, Age, Jamaat, Idara, Category, Prefix, Title, Venue (Waaz), City, Local/Mehman, Arr Place Date, Flight Code, Daily Trans, Whatsapp Link Clicked?, whatsapp_e164, email.
         </p>
       </form>
 

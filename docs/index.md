@@ -50,6 +50,7 @@ src/lib/whatsapp/parser.ts               — Incoming webhook payload parsing
 src/lib/scraper/scrape-site.ts           — Cheerio scraper + OpenAI embedding
 src/lib/scraper/retrieve-site-context.ts — RAG vector search
 src/lib/env.ts                           — Env var lookup with alias support
+public/templates/mumineen-roster-template.xlsx — Downloadable Mumineen roster import template
 supabase/migrations/                     — All database migrations
 src/app/api/relay-updates/route.ts       — Public relay updates JSON feed
 ```
