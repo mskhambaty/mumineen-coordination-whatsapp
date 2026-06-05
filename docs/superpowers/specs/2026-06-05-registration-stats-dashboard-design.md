@@ -13,7 +13,10 @@ Internal department teams need self-serve visibility into mumineen registrations
 
 The page is framed around the **registrations themselves**: one first-class searchable table of registered families (expandable to their members), with stat cards on top that act as **filters** into that table. A single read-only page serves all departments. Per-department pages were rejected: all dept leads are trusted to see everything, the data overlaps across teams, and separate pages only add navigation overhead. Repurposing `/admin/mumineen` was rejected: that page is operational (import, edit, cancel/reopen, WhatsApp gate toggle) with a narrow audience; widening it would require auditing/gating every control.
 
-**Out of scope:** Parking pass management (issuing/tracking passes — 1 per household, extras as needed, color-coded lots, printed for local hosts and rental mehman welcome kits) is a separate future feature. This dashboard's household-level transport drill-down is its natural data source/jump-off.
+**Out of scope (separate future sessions):**
+
+- **Parking pass management** — issuing/tracking passes (1 per household, extras as needed, color-coded lots, printed for local hosts and rental mehman welcome kits). This page's household-level transport view is its data source/jump-off.
+- **Utaro matching** — matching mehman awaiting utaro with local host offers collected via Google Form (capacity, bedrooms/bathrooms, mardo/bairo preference, pets, sahebo willingness, transport offer). Will need a host-offers table + import + assignment workflow. This page's "awaiting utaro" pool and derived hosts view (below) are its two inputs on the guest side.
 
 ## Route & Access
 
@@ -41,7 +44,9 @@ Response shape:
     memberCount: number             // active, attending members
     accType: 'hotel' | 'utaro' | null
     hotelName: string | null
+    openToUtaro: boolean            // hotel-booked but wants a host ("awaiting utaro")
     utaroHostName: string | null
+    utaroHostIts: string | null
     transportMode: 'rideshare' | 'rental' | 'commute_with_utaro' | 'other' | null
     transportDetail: string | null
   }>
@@ -82,7 +87,9 @@ Stats on top, registrations table below. Reuse the `Metric` / `Panel` / `BarRows
    - Needs: rahat seating count, wheelchair count, special-needs count (non-empty `special_needs`)
 2. **Accommodation**
    - Hotel vs utaro split — families and people
+   - **Awaiting utaro**: hotel families with `open_to_utaro = true` (the future matching pool) — families and people
    - Per-hotel breakdown (`hotel_name`): families and people per hotel
+   - **Hosts** breakdown, derived from guest registrations: utaro families grouped by host (`utaro_host_its` when present, else normalized `utaro_host_name`) — each host with the families/people staying with them. This is the guest-reported view of which local families are hosting; the future matching feature replaces/augments it with the Google Form host-offer data.
 3. **Transport** (Parking)
    - `transport_mode` breakdown: rental / rideshare / commute with host / other
    - Counted by **household** (primary, since passes are per-household) and by people
@@ -114,4 +121,7 @@ Manual: cross-check totals against the stats cards on `/admin/mumineen` and spot
 | Depth | Counts + filterable table of families/members + CSV export |
 | Senior cutoff | 65+ |
 | Population | Submitted + confirmed (funnel shows all) |
+| Utaro request signal | `open_to_utaro` on hotel families (by design: mehman without self-arranged utaro book a refundable hotel + check the box) |
+| Hosts view | Derived from guest-side `utaro_host_*` fields; no host-offer table yet |
 | Parking pass mgmt | Separate future feature |
+| Utaro matching | Separate future feature (host-offer import + assignment workflow) |
