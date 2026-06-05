@@ -12,6 +12,7 @@ const HOTEL_SHEET_SOURCE_URL =
 
 const SEED_PATHS = [
   "/",
+  "/ashara-relay-center.html",
   "/hotels",
   "/travel-venue",
   "/get-involved",
