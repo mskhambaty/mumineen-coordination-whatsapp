@@ -49,9 +49,8 @@ async function retrieveContext(
   if (!data?.length) return "";
 
   return data
-    .map((row: { page_title: string; page_url?: string; content: string }) => {
-      const source = row.page_url ? `\nSource: ${row.page_url}` : "";
-      return `[${row.page_title}]${source}\n${row.content}`;
+    .map((row: { page_title: string; content: string }) => {
+      return `[${row.page_title}]\n${row.content}`;
     })
     .join("\n\n---\n\n");
 }

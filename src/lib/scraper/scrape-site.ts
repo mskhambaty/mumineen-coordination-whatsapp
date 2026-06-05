@@ -11,11 +11,7 @@ const HOTEL_SHEET_SOURCE_URL =
   "https://docs.google.com/spreadsheets/d/1Zf0hoZ0Sty66e9_k4fEDhdEwWclbF0mG9ZvzbqotYF8/edit?usp=sharing";
 
 const SEED_PATHS = [
-  "/",
   "/ashara-relay-center.html",
-  "/hotels",
-  "/travel-venue",
-  "/get-involved",
 ];
 
 const MAX_PAGES = 30;
