@@ -170,11 +170,16 @@ export async function GET(req: NextRequest) {
   const openToUtaro = registeredFams.filter((f) => f.open_to_utaro).length;
   const accNotSet = registeredFams.filter((f) => !f.acc_type).length;
 
+  // Placeholder / dirty values users sometimes enter instead of a real hotel name.
+  const HOTEL_JUNK = new Set(["pending", "na", "n/a", "n.a", "tbd", "none", "unknown", "no", "-", "--", "tba"]);
+
   const hotelCounts = new Map<string, number>();
   for (const f of registeredFams) {
     if (f.acc_type === "hotel" && f.hotel_name?.trim()) {
       const name = f.hotel_name.trim();
-      hotelCounts.set(name, (hotelCounts.get(name) ?? 0) + 1);
+      if (!HOTEL_JUNK.has(name.toLowerCase())) {
+        hotelCounts.set(name, (hotelCounts.get(name) ?? 0) + 1);
+      }
     }
   }
   const topHotels = Array.from(hotelCounts.entries())
