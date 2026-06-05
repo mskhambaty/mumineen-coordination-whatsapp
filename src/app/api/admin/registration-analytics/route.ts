@@ -168,9 +168,12 @@ export async function GET(req: NextRequest) {
     (f) => f.registration_status === "submitted" || f.registration_status === "confirmed",
   );
 
-  // People per family = attending members of that household (post global filters).
+  // People per family = ALL attending members of that household, regardless of the
+  // local_mehman member filter — keeps people counts consistent with the paired
+  // family counts (families are filtered by HoF type, not by member type).
   const attendingByHof = new Map<string, number>();
-  for (const m of attending) {
+  for (const m of allMembers) {
+    if (m.not_attending) continue;
     attendingByHof.set(m.hof_its, (attendingByHof.get(m.hof_its) ?? 0) + 1);
   }
   const famPeople = (f: FamilyRow) => attendingByHof.get(f.hof_its) ?? 0;
