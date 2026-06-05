@@ -180,11 +180,11 @@ export async function GET(req: NextRequest) {
 
   const hotelFams = registeredFams.filter((f) => f.acc_type === "hotel").length;
   const utaroFams = registeredFams.filter((f) => f.acc_type === "utaro").length;
-  const openToUtaro = registeredFams.filter((f) => f.open_to_utaro).length;
+  const openToUtaro = registeredFams.filter((f) => f.acc_type === "hotel" && f.open_to_utaro).length;
   const accNotSet = registeredFams.filter((f) => !f.acc_type).length;
   const hotelPeople = registeredFams.filter((f) => f.acc_type === "hotel").reduce((s, f) => s + famPeople(f), 0);
   const utaroPeople = registeredFams.filter((f) => f.acc_type === "utaro").reduce((s, f) => s + famPeople(f), 0);
-  const openToUtaroPeople = registeredFams.filter((f) => f.open_to_utaro).reduce((s, f) => s + famPeople(f), 0);
+  const openToUtaroPeople = registeredFams.filter((f) => f.acc_type === "hotel" && f.open_to_utaro).reduce((s, f) => s + famPeople(f), 0);
 
   // Placeholder / dirty values users sometimes enter instead of a real hotel name.
   const HOTEL_JUNK = new Set(["pending", "na", "n/a", "n.a", "tbd", "none", "unknown", "no", "-", "--", "tba"]);
