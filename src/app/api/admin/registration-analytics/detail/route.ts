@@ -136,7 +136,7 @@ export async function GET(req: NextRequest) {
 
     // Apply segment filter
     if (segment === "hotel") {
-      fams = fams.filter((f) => f.acc_type === "hotel" && (value === "" || f.hotel_name?.trim() === value));
+      fams = fams.filter((f) => f.acc_type === "hotel" && (value === "" || f.hotel_name?.trim().toLowerCase() === value.toLowerCase()));
     } else if (segment === "acc_type") {
       fams = fams.filter((f) => f.acc_type === value);
     } else if (segment === "transport") {
@@ -155,7 +155,7 @@ export async function GET(req: NextRequest) {
           (f.registration_status === "submitted" || f.registration_status === "confirmed") &&
           f.acc_type === "hotel" &&
           f.open_to_utaro &&
-          (value === "" || f.hotel_name?.trim() === value),
+          (value === "" || f.hotel_name?.trim().toLowerCase() === value.toLowerCase()),
       );
     } else if (segment === "host") {
       // value is the host key from the analytics response: "its:<its>" or "name:<normalized name>".
