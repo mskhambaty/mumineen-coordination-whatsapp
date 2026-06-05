@@ -208,6 +208,25 @@ Guardrails / scope control).
 | `updated_by` | text | Who last saved (nullable) |
 | `updated_at` | timestamptz | Auto |
 
+### `lisan_words`
+
+Structured **exact** Lisan ud Dawat dictionary (Path B) backing the `get_lisan_word_meaning`
+tool — a real lookup table instead of fuzzy vector search, so "aaeen" never resolves to
+"Aameen". Populated by a full-replace CSV import (`POST /api/admin/lisan-words`). Uses
+`pg_trgm` for "did you mean" suggestions via the `match_lisan_words` RPC.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | bigserial | PK |
+| `transliteration` | text | Roman form, e.g. `Aaeen` (nullable) |
+| `lisan` | text | Lisan ud Dawat script (nullable) |
+| `meaning` | text | English meaning (nullable) |
+| `example` | text | Example sentence (nullable) |
+| `norm` | text | Normalized transliteration (diacritics/case stripped) — exact + fuzzy match key |
+| `created_at` | timestamptz | Auto |
+
+Indexes: `(norm)` btree (exact), GIN `gin_trgm_ops` on `norm` (fuzzy).
+
 ### `committee_permissions`
 
 Fine-grained permission keys per user (reserved for future use).
@@ -459,6 +478,10 @@ Index: `(published, date desc)`.
 
 `match_site_content(query_embedding, match_threshold, match_count)` — vector similarity search.  
 Source: `supabase/migrations/20260529134501_match_site_content.sql`
+
+`match_lisan_words(query_norm, match_count)` — pg_trgm fuzzy "did you mean" lookup over
+`lisan_words`, ordered by trigram similarity. Source:
+`supabase/migrations/20260604200000_lisan_words.sql`
 
 `match_religious_content(query_embedding, match_threshold, match_count)` — vector similarity
 search over `religious_content` (same signature/body as `match_site_content`).  

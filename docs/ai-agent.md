@@ -89,7 +89,8 @@ All tools are defined in `src/lib/agent/tools.ts`.
 | Tool | Description |
 |------|-------------|
 | `get_site_content_faq` | Single public-info tool — looks up schedule, parking, directions, accommodation, registration, lost & found, and general FAQs from the indexed site content (RAG). Consolidates the former five `get_*` tools. |
-| `answer_religious_questions` | Religious/sermon RAG — answers Vaaz Talaqi, Iqtibasaat, and Lisan ud Dawat word-meaning questions from the **dedicated `religious_content` store** (`match_religious_content`). Kept fully separate from `get_site_content_faq` so religious and logistics retrieval never cross-contaminate. |
+| `answer_religious_questions` | Religious/sermon RAG — answers Vaaz Talaqi, Iqtibasaat, and Tazyeen/decoration questions from the **dedicated `religious_content` store** (`match_religious_content`). Kept fully separate from `get_site_content_faq` so religious and logistics retrieval never cross-contaminate. |
+| `get_lisan_word_meaning` | **Exact** Lisan ud Dawat word lookup over the `lisan_words` table (not vector search), with `pg_trgm` "did you mean" suggestions (`match_lisan_words`). Returns `ok` / `did_you_mean` / `not_found`. |
 | `move_to_escalation` | **Last resort** — hands the conversation to the human support team. Deterministic guardrails enforced server-side in `/api/escalations` (see [escalation.md](./escalation.md)). |
 | `create_issue` | Logs an external issue the visitor reports (`POST /api/issues` → `tasks` row with `item_type='issue'`, `origin='external'`). Shown on the Kanban with External/Internal badges. |
 

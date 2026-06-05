@@ -71,6 +71,7 @@ Two tabs, each feeding a **separate vector store** so logistics and religious an
 - Powers the agent's `answer_religious_questions` tool — Vaaz Talaqi, Iqtibasaat, and Lisan ud Dawat word meanings. Indexed into the **dedicated `religious_content`** store, kept separate from logistics.
 - Upload (`POST /api/knowledge` with `store=religious`, no department) lands in `religious_content` (`page_url = religious://doc/<id>`); the list is filtered via `GET /api/knowledge?store=religious`.
 - **FAQ by Topic** — dynamic, editable topic blocks (seeded with *Vaaz Talaqi / Iqtibasaat help*, *Lisan ud Dawat word meanings*, *Guardrails / scope control*). Add (`POST /api/admin/religious-topics`), edit/save (`PUT /api/admin/religious-topics/[id]`, re-indexes to `religious://topic/<id>`), delete (`DELETE`). Topics live in the `religious_topics` table; list via `GET /api/admin/religious-topics`.
+- **Lisan ud Dawat Dictionary (exact lookup)** — a CSV uploader ([LisanDictionaryUploader](../src/components/admin/LisanDictionaryUploader.tsx)) that full-replaces the `lisan_words` table (`POST /api/admin/lisan-words`; count via `GET`). This is a **structured exact lookup** (not the vector store) powering the agent's `get_lisan_word_meaning` tool, so word meanings are precise with "did you mean" fallbacks. Columns: transliteration/word, lisan, meaning, example.
 
 ### Prompt — Learn from Conversations (`/admin/prompt`)
 - Admin/leadership-only section on the Prompt page that turns recent conversations into new knowledge (a manual stand-in for a future nightly cron).
