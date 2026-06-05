@@ -53,13 +53,15 @@ export async function GET(req: NextRequest) {
         .select(
           "its, hof_its, gender, age, is_adult, is_head, local_mehman, arrival_at, departure_at, arrival_flight_no, airport, not_attending, rahat_seating, wheelchair, special_needs, wants_khidmat, khidmat_department_ids, whatsapp_e164, email",
         )
-        .eq("roster_active", true),
+        .eq("roster_active", true)
+        .limit(20000),
       supabase
         .from("families")
         .select(
           "hof_its, registration_status, acc_type, hotel_name, open_to_utaro, transport_mode, submitted_at",
         )
-        .eq("roster_active", true),
+        .eq("roster_active", true)
+        .limit(10000),
       supabase.from("departments").select("id, name").order("name"),
     ]);
 
