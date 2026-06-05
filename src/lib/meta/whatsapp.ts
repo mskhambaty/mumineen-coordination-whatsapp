@@ -116,6 +116,67 @@ export async function sendWhatsAppTemplate(
   return responseBody;
 }
 
+export type WaTemplateButton = { type: string; text?: string; url?: string };
+export type WaTemplateComponent = {
+  type: string; // HEADER | BODY | FOOTER | BUTTONS
+  format?: string; // for HEADER: TEXT | IMAGE | VIDEO | DOCUMENT
+  text?: string;
+  buttons?: WaTemplateButton[];
+};
+export type WaTemplate = {
+  name: string;
+  language: string;
+  status: string;
+  category?: string;
+  components?: WaTemplateComponent[];
+};
+
+// List the WhatsApp Business Account's message templates (live from Meta). Caller filters status.
+export async function listMessageTemplates(): Promise<WaTemplate[]> {
+  const waba = optionalEnv("WHATSAPP_BUSINESS_ACCOUNT_ID");
+  if (!waba) {
+    throw new Error("WHATSAPP_BUSINESS_ACCOUNT_ID is not configured.");
+  }
+  const accessToken = requireEnv("WHATSAPP_ACCESS_TOKEN");
+  const response = await fetch(
+    `${graphBase()}/${waba}/message_templates?fields=name,language,status,category,components&limit=200`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  const body = (await response.json().catch(() => ({}))) as { data?: WaTemplate[]; error?: { message?: string } };
+  if (!response.ok) {
+    const detail = body?.error?.message ?? `status ${response.status}`;
+    throw new Error(`Failed to load templates: ${detail}`);
+  }
+  return body.data ?? [];
+}
+
+// Send a template message with a prebuilt components array (header/body/button parameters).
+export async function sendWhatsAppTemplateComponents(
+  to: string,
+  templateName: string,
+  language: string,
+  components: unknown[],
+): Promise<MetaMessageResponse> {
+  const phoneNumberId = requireEnv("WHATSAPP_PHONE_NUMBER_ID");
+  const accessToken = requireEnv("WHATSAPP_ACCESS_TOKEN");
+
+  const template: Record<string, unknown> = { name: templateName, language: { code: language } };
+  if (components.length > 0) template.components = components;
+
+  const response = await fetch(`${graphBase()}/${phoneNumberId}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ messaging_product: "whatsapp", to, type: "template", template }),
+  });
+
+  const responseBody = (await response.json().catch(() => ({}))) as MetaMessageResponse;
+  if (!response.ok) {
+    console.error("Meta send-template(components) error", { status: response.status, responseBody, templateName });
+    throw new Error(`Meta send-template failed with status ${response.status}`);
+  }
+  return responseBody;
+}
+
 function graphBase() {
   const apiVersion = optionalEnv("META_GRAPH_API_VERSION") || "v25.0";
   return `https://graph.facebook.com/${apiVersion}`;

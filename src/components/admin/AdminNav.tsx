@@ -38,6 +38,7 @@ const dropdownGroups: DropdownGroup[] = [
       { href: "/admin/mumineen", label: "Mumineen", access: "mumineen" },
       { href: "/admin/relay-updates", label: "Relay Updates", access: "admin" },
       { href: "/admin/niyaz", label: "Niyaz Registration", access: "admin" },
+      { href: "/admin/whatsapp", label: "WhatsApp", access: "admin" },
     ],
   },
   {

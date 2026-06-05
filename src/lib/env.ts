@@ -21,9 +21,8 @@ const envAliases: Record<string, string[]> = {
   WHATSAPP_ALLOWED_PHONE_NUMBER_IDS: ["WHATSAPP_ALLOWED_PHONE_NUMBER_IDS", "Whatsapp_allowed_phone_number_ids"],
   WHATSAPP_DISPLAY_PHONE_NUMBER: ["WHATSAPP_DISPLAY_PHONE_NUMBER", "Whatsapp_display_phone_number"],
   WHATSAPP_PHONE_NUMBER_ID: ["WHATSAPP_PHONE_NUMBER_ID", "Whatsapp_phone_number_id"],
+  WHATSAPP_BUSINESS_ACCOUNT_ID: ["WHATSAPP_BUSINESS_ACCOUNT_ID", "Whatsapp_business_account_id"],
   WHATSAPP_TEMPLATE_LANGUAGE: ["WHATSAPP_TEMPLATE_LANGUAGE", "Whatsapp_template_language"],
-  NIYAZ_RSVP_BUTTON_TEMPLATE: ["NIYAZ_RSVP_BUTTON_TEMPLATE", "Niyaz_rsvp_button_template"],
-  NIYAZ_RSVP_TEXT_TEMPLATE: ["NIYAZ_RSVP_TEXT_TEMPLATE", "Niyaz_rsvp_text_template"],
 };
 
 export function requireEnv(name: string): string {
