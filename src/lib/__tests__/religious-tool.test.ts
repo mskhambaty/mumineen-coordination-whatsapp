@@ -46,16 +46,18 @@ describe("answer_religious_questions tool", () => {
     expect(canUseTool(visitor, "get_lisan_word_meaning")).toBe(true);
   });
 
-  it("routes to the religious store and returns its context", async () => {
-    mocks.retrieveReligiousContext.mockResolvedValue("[Majlis 1]\nThe theme was al-Falak al-Muheet.");
+  it("falls back to the religious vector store for non-majlis questions", async () => {
+    // A query that names no specific majlis takes the vector path (findMajlisReflection
+    // returns [] before touching the DB, so no supabase mock is needed here).
+    mocks.retrieveReligiousContext.mockResolvedValue("[Vaaz Talaqi]\n...");
 
     const result = await executeTool(
       "answer_religious_questions",
-      { query: "majlis 1 theme" },
+      { query: "what is vaaz talaqi" },
       { user: visitor, phoneE164: "+1555" },
     );
 
-    expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith("majlis 1 theme", 5);
+    expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith("what is vaaz talaqi", 5);
     expect(mocks.retrieveSiteContext).not.toHaveBeenCalled();
     expect(result).toMatchObject({ status: "ok", source: "indexed_religious_content" });
   });
