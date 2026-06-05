@@ -3,6 +3,8 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
+import { canManageInternalTools } from "@/lib/admin/access";
+
 type TaskStatus = "open" | "in_progress" | "blocked" | "complete";
 type TaskPriority = "low" | "medium" | "high";
 
@@ -116,6 +118,12 @@ function KanbanPage() {
     const token = localStorage.getItem("admin_token");
     if (!token) {
       router.push("/admin/login");
+      return;
+    }
+    const raw = localStorage.getItem("admin_user");
+    const user = raw ? (JSON.parse(raw) as { role?: string; global_role?: string; is_manager?: boolean }) : null;
+    if (!canManageInternalTools(user)) {
+      router.push("/admin/registration");
       return;
     }
 

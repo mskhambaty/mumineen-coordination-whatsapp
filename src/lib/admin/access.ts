@@ -26,6 +26,12 @@ export function canManageKnowledge(user: PortalUser | null | undefined) {
   return isAdminOrLeadership(user) || user?.is_manager === true;
 }
 
+// Internal PM tools (tasks, milestones, transcript uploads): admins/leadership plus department
+// PM/HOD — the nav's "manage" level. Plain internal members get Registration Analytics + Profile only.
+export function canManageInternalTools(user: PortalUser | null | undefined) {
+  return isAdminOrLeadership(user) || user?.is_manager === true;
+}
+
 // Who may open the Registration Analytics page: admins/leadership plus any internal user
 // (assigned to a department) — regular team members shouldn't need manager permissions for it.
 // is_manager/is_it kept as fallbacks for sessions stored before is_internal existed.

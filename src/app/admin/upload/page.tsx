@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import { canManageInternalTools } from "@/lib/admin/access";
 import { FIXED_MEETING_PROMPT, FIXED_TRANSCRIPT_PROMPT, type TranscriptType } from "@/lib/transcripts/prompts";
 
 type Department = { id: string; name: string };
@@ -341,12 +342,10 @@ export default function UploadPage() {
     }
 
     const userRaw = localStorage.getItem("admin_user");
-    if (userRaw) {
-      const user = JSON.parse(userRaw) as { global_role?: string };
-      if (user.global_role === "member") {
-        router.push("/admin/tasks");
-        return;
-      }
+    const user = userRaw ? (JSON.parse(userRaw) as { role?: string; global_role?: string; is_manager?: boolean }) : null;
+    if (!canManageInternalTools(user)) {
+      router.push("/admin/registration");
+      return;
     }
 
     void Promise.resolve().then(fetchDepartments);

@@ -156,7 +156,8 @@ export default function ConversationsPage() {
     const userRaw = localStorage.getItem("admin_user");
     const user = userRaw ? JSON.parse(userRaw) as { role?: string; global_role?: string; is_support?: boolean } : null;
     if (!canAccessInbox(user)) {
-      router.push("/admin/tasks");
+      // Registration Analytics is the universal internal landing page (tasks is manager-gated).
+      router.push("/admin/registration");
       return;
     }
 

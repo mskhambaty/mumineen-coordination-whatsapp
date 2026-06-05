@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { canManageInternalTools } from "@/lib/admin/access";
+
 type Department = { id: string; name: string };
 type User = { id: string; display_name: string | null; phone_e164: string };
 
@@ -63,6 +65,9 @@ export default function MilestonesPage() {
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
     if (!token) { router.push("/admin/login"); return; }
+    const raw = localStorage.getItem("admin_user");
+    const user = raw ? (JSON.parse(raw) as { role?: string; global_role?: string; is_manager?: boolean }) : null;
+    if (!canManageInternalTools(user)) { router.push("/admin/registration"); return; }
     void loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
