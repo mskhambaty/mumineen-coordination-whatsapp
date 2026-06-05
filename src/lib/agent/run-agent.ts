@@ -1,11 +1,10 @@
 import OpenAI from "openai";
 
-import { executeTool, toolDefinitions } from "@/lib/agent/tools";
+import { executeTool, toolDefinitionsFor } from "@/lib/agent/tools";
 import { SYSTEM_PROMPT, loadAgentSystemPrompt } from "@/lib/agent/prompts";
 import { AGENT_TEMPERATURE, AI_MODEL, getAIClient, MAX_AGENT_TOKENS } from "@/lib/ai/model";
 import { resolveCallerFromPhone, type CallerContext } from "@/lib/api/auth";
 import type { AppUser } from "@/lib/permissions";
-import { retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
 import { getRecentMessages, getSupabaseAdmin } from "@/lib/supabase/server";
 
 export { SYSTEM_PROMPT };
@@ -167,33 +166,24 @@ export async function runAgent(input: AgentInput) {
 
   const client = getAIClient();
 
-  // Resolve caller context, relevant site context, and conversation history
-  // concurrently so the extra history read adds no sequential latency.
   const callerPromise: Promise<CallerContext | undefined> = input.callerContext
     ? Promise.resolve(input.callerContext)
     : resolveCallerFromPhone(input.phoneE164).catch(() => undefined);
 
-  const [callerContext, siteContext, history, systemPromptText, departmentSection] = await Promise.all([
+  const [callerContext, history, systemPromptText, departmentSection] = await Promise.all([
     callerPromise,
-    retrieveSiteContext(input.message).catch((err) => {
-      console.error("Failed to retrieve site context, continuing without it:", err);
-      return "";
-    }),
     getRecentMessages(input.phoneE164, HISTORY_MESSAGE_LIMIT).catch(() => []),
     loadAgentSystemPrompt(),
     loadDepartmentsForPrompt(),
   ]);
 
   let systemContent = systemPromptText;
-  if (siteContext) {
-    systemContent += `\n\n## Current Site Information\nThe following is retrieved from the official Chicago Relay Center site (scraped daily):\n\n${siteContext}`;
-  }
 
   // Sender + caller context belongs in the system prompt, not a user turn,
   // so the message history can replay cleanly as the conversation.
   systemContent += `\n\n## Sender Context\nPhone: ${input.phoneE164}\nBackend role: ${input.user.role}\nGlobal access: ${callerContext?.global_role ?? "unknown"}`;
   if (callerContext) {
-    const deptNames = callerContext.departments.map((d) => `${d.department_name} (${d.dept_role})`).join(", ");
+    const deptNames = callerContext.departments.map((d: { department_name: string; dept_role: string }) => `${d.department_name} (${d.dept_role})`).join(", ");
     systemContent += `\nDepartments: ${deptNames || "none"}\nCan read all: ${callerContext.can_read_all}\nCan write all: ${callerContext.can_write_all}`;
   }
 
@@ -237,7 +227,7 @@ export async function runAgent(input: AgentInput) {
   const firstResponse = await client.chat.completions.create({
     model: AI_MODEL,
     messages,
-    tools: toolDefinitions,
+    tools: toolDefinitionsFor(input.user),
     tool_choice: "auto",
     temperature: AGENT_TEMPERATURE,
     max_tokens: MAX_AGENT_TOKENS,

@@ -1,6 +1,6 @@
 import type OpenAI from "openai";
 
-import { canUseTool, canUseTaskToolForCaller, type AppUser } from "@/lib/permissions";
+import { canUseTool, canUseTaskToolForCaller, publicTools, committeeTools, taskReadTools, taskWriteTools, taskCreateTools, leadershipTools, type AppUser } from "@/lib/permissions";
 import { retrieveReligiousContext, retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
 import { recordToolAudit } from "@/lib/supabase/server";
 import { recordKnowledgeGap } from "@/lib/knowledge/knowledge-gaps";
@@ -16,7 +16,22 @@ type ToolContext = {
 
 type ToolDefinition = OpenAI.Chat.Completions.ChatCompletionTool;
 
-export const toolDefinitions: ToolDefinition[] = [
+// Return only the tool definitions the caller's role permits. Sending fewer
+// tools reduces input tokens on every LLM call — the model never needs to see
+// task-management or committee tools when it's talking to a visitor.
+export function toolDefinitionsFor(user: Pick<AppUser, "role" | "status">): ToolDefinition[] {
+  return allToolDefinitions.filter((t) => {
+    const name = t.function.name;
+    if (publicTools.has(name)) return true;
+    if (committeeTools.has(name)) return user.role === "committee" || user.role === "admin";
+    if (taskReadTools.has(name) || taskCreateTools.has(name) || taskWriteTools.has(name) || leadershipTools.has(name)) {
+      return user.role === "committee" || user.role === "admin";
+    }
+    return false;
+  });
+}
+
+const allToolDefinitions: ToolDefinition[] = [
   {
     type: "function",
     function: {
@@ -146,66 +161,6 @@ export const toolDefinitions: ToolDefinition[] = [
           },
         },
         required: ["topic"],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_volunteer_assignment",
-      description: "Get a committee member's volunteer assignment.",
-      parameters: {
-        type: "object",
-        properties: {
-          phone_e164: { type: "string", description: "Optional phone number to look up." },
-        },
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "lookup_committee_contact",
-      description: "Look up an internal committee contact.",
-      parameters: {
-        type: "object",
-        properties: {
-          committee: { type: "string", description: "Committee name or function." },
-        },
-        required: ["committee"],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "update_volunteer_status",
-      description: "Update volunteer status for committee coordination.",
-      parameters: {
-        type: "object",
-        properties: {
-          status: { type: "string", description: "New status." },
-          note: { type: "string", description: "Optional note." },
-        },
-        required: ["status"],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "create_internal_note",
-      description: "Create an internal committee note.",
-      parameters: {
-        type: "object",
-        properties: {
-          note: { type: "string", description: "Internal note content." },
-        },
-        required: ["note"],
         additionalProperties: false,
       },
     },
