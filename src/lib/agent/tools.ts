@@ -3,6 +3,7 @@ import type OpenAI from "openai";
 import { canUseTool, canUseTaskToolForCaller, publicTools, committeeTools, taskReadTools, taskWriteTools, taskCreateTools, leadershipTools, type AppUser } from "@/lib/permissions";
 import { retrieveReligiousContext, retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
 import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
+import { findMajlisReflection } from "@/lib/knowledge/religious-topics";
 import { recordToolAudit } from "@/lib/supabase/server";
 import { recordKnowledgeGap } from "@/lib/knowledge/knowledge-gaps";
 import type { CallerContext } from "@/lib/api/auth";
@@ -548,13 +549,25 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
         retrieveSiteContext,
         "indexed_site_content",
       );
-    case "answer_religious_questions":
+    case "answer_religious_questions": {
+      const query = String(args.query ?? "Ashara majlis Vaaz Talaqi Iqtibasaat");
+      // If the user names a specific majlis ("second waaz", "Majlis 2", "4th Muharram"),
+      // fetch that exact reflection by number — vector search mis-ranks majlis ordinals.
+      const majlis = await findMajlisReflection(query);
+      if (majlis.length) {
+        return {
+          status: "ok",
+          source: "religious_topic_exact",
+          context: majlis.map((t) => `[${t.title}]\n${t.content}`).join("\n\n---\n\n"),
+        };
+      }
       return getIndexedInfo(
-        String(args.query ?? "Ashara majlis Vaaz Talaqi Iqtibasaat"),
+        query,
         "I could not find this in the indexed religious content yet.",
         retrieveReligiousContext,
         "indexed_religious_content",
       );
+    }
     case "get_lisan_word_meaning":
       return lookupLisanWord(String(args.word ?? ""));
     case "move_to_escalation":
