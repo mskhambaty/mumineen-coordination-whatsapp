@@ -562,6 +562,81 @@ function stripInvisible(value: string): string {
   return value.replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "");
 }
 
+// --- JSONL support ---
+
+export type JsonlMessage = {
+  group_jid?: string;
+  sender_lid?: string;
+  sender_phone?: string;
+  sender_name?: string;
+  body?: string;
+  ts?: number;
+  wa_msg_id?: string;
+};
+
+/**
+ * Detects whether raw file content is JSONL format (each line is a JSON object
+ * with at least `body` and `ts` fields).
+ */
+export function isJsonlFormat(content: string): boolean {
+  const firstLine = content.trimStart().split("\n")[0]?.trim();
+  if (!firstLine || !firstLine.startsWith("{")) return false;
+  try {
+    const parsed = JSON.parse(firstLine) as Record<string, unknown>;
+    return typeof parsed.ts === "number" && typeof parsed.body === "string";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Converts JSONL WhatsApp message logs into standard WhatsApp export text format
+ * that the existing parser can handle. Format:
+ * [M/D/YY, H:MM:SS AM] Sender Name: message body
+ */
+export function convertJsonlToWhatsAppText(content: string, cutoffIso?: string | null): string {
+  const cutoff = cutoffIso ? new Date(cutoffIso) : null;
+  const lines = content.split("\n");
+  const output: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    let msg: JsonlMessage;
+    try {
+      msg = JSON.parse(trimmed) as JsonlMessage;
+    } catch {
+      continue;
+    }
+
+    if (!msg.body || !msg.ts) continue;
+
+    const date = new Date(msg.ts);
+    if (isNaN(date.getTime())) continue;
+
+    // Apply cutoff filter (ts in JSONL is epoch millis)
+    if (cutoff && date <= cutoff) continue;
+
+    const sender = msg.sender_name || "Unknown";
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+    const year = date.getFullYear() % 100;
+    let hours = date.getHours();
+    const minutes = date.getMinutes().toString().padStart(2, "0");
+    const seconds = date.getSeconds().toString().padStart(2, "0");
+    const meridiem = hours >= 12 ? "PM" : "AM";
+    if (hours > 12) hours -= 12;
+    if (hours === 0) hours = 12;
+
+    // Format: [M/D/YY, H:MM:SS AM] Sender: body
+    const formatted = `[${month}/${day}/${year.toString().padStart(2, "0")}, ${hours}:${minutes}:${seconds} ${meridiem}] ${sender}: ${msg.body}`;
+    output.push(formatted);
+  }
+
+  return output.join("\n");
+}
+
 function parseExportTimestamp(datePart: string | undefined, timePart: string | undefined): string | null {
   if (!datePart || !timePart) return null;
 

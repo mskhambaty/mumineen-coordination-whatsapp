@@ -781,10 +781,10 @@ export default function UploadPage() {
           </div>
           <div className="grid gap-3">
             <label className="block text-sm font-medium">
-              Transcript File (.txt)
+              Transcript File (.txt, .jsonl)
               <input
                 type="file"
-                accept=".txt"
+                accept=".txt,.jsonl"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 required
                 className="mt-1 block w-full rounded-md border px-3 py-2"

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { AI_MODEL } from "@/lib/ai/model";
 import { resolveCallerFromRequest, ForbiddenError } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { parseTranscript, type ParsedEvent } from "@/lib/transcripts/parser";
+import { parseTranscript, type ParsedEvent, isJsonlFormat, convertJsonlToWhatsAppText } from "@/lib/transcripts/parser";
 import { getDefaultFlexiblePrompt, type TranscriptType } from "@/lib/transcripts/prompts";
 import {
   addReviewFieldsToEvents,
@@ -67,9 +67,19 @@ export async function POST(req: NextRequest) {
 
     const fullContent = await file.text();
     const cutoffRaw = formData.get("cutoff_timestamp") as string | null;
-    const rawContent = cutoffRaw && transcriptType === "whatsapp"
-      ? trimTranscriptAfterCutoff(fullContent, cutoffRaw)
-      : fullContent;
+
+    let rawContent: string;
+    if (isJsonlFormat(fullContent)) {
+      // JSONL format: convert to WhatsApp text format (cutoff applied during conversion)
+      rawContent = convertJsonlToWhatsAppText(fullContent, cutoffRaw);
+      if (!rawContent.trim()) {
+        return NextResponse.json({ error: "No messages found in JSONL file (possibly all filtered by cutoff)" }, { status: 400 });
+      }
+    } else {
+      rawContent = cutoffRaw && transcriptType === "whatsapp"
+        ? trimTranscriptAfterCutoff(fullContent, cutoffRaw)
+        : fullContent;
+    }
     const supabase = getSupabaseAdmin();
 
     const [allDepartmentsResult, selectedDepartmentsResult, promptConfigsResult, milestonesResult, tasksResult] = await Promise.all([

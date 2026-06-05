@@ -102,3 +102,51 @@ describe("parseTranscript", () => {
     ]);
   });
 });
+
+describe("JSONL format support", () => {
+  const { isJsonlFormat, convertJsonlToWhatsAppText } = require("@/lib/transcripts/parser");
+
+  const sampleJsonl = [
+    '{"group_jid":"120363428427686503@g.us","sender_name":"Murtaza Ali Hussain","body":"Is this someone testing?","ts":1780639521000,"wa_msg_id":"3BE7FF3C"}',
+    '{"group_jid":"120363428427686503@g.us","sender_name":"Aliasgar Umaini","body":"Yes, a few my friends are testing it","ts":1780639889000,"wa_msg_id":"3BD9737B"}',
+    '{"group_jid":"120363428427686503@g.us","sender_name":"Mustafa Hussain","body":"This is too good","ts":1780639904000,"wa_msg_id":"AC7C51B7"}',
+  ].join("\n");
+
+  it("detects JSONL format", () => {
+    expect(isJsonlFormat(sampleJsonl)).toBe(true);
+    expect(isJsonlFormat("[6/2/26, 10:00:00 AM] Sender: hello")).toBe(false);
+    expect(isJsonlFormat("")).toBe(false);
+  });
+
+  it("converts JSONL to WhatsApp text format", () => {
+    const result = convertJsonlToWhatsAppText(sampleJsonl);
+    const lines = result.split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toMatch(/^\[\d+\/\d+\/\d+, \d+:\d+:\d+ [AP]M\] Murtaza Ali Hussain: Is this someone testing\?$/);
+    expect(lines[1]).toMatch(/^\[\d+\/\d+\/\d+, \d+:\d+:\d+ [AP]M\] Aliasgar Umaini: Yes, a few my friends are testing it$/);
+  });
+
+  it("applies cutoff timestamp filter", () => {
+    // Cutoff after first message (ts=1780639521000 → 2026-06-04T...)
+    const cutoffDate = new Date(1780639521000);
+    const result = convertJsonlToWhatsAppText(sampleJsonl, cutoffDate.toISOString());
+    const lines = result.split("\n").filter(Boolean);
+    // First message ts === cutoff should be excluded (<=), only messages after cutoff remain
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("Aliasgar Umaini");
+  });
+
+  it("skips invalid JSON lines", () => {
+    const content = 'not json\n{"sender_name":"Test","body":"hello","ts":1780639521000}\n{bad';
+    const result = convertJsonlToWhatsAppText(content);
+    const lines = result.split("\n").filter(Boolean);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("Test: hello");
+  });
+
+  it("heuristic parser works on converted JSONL output", () => {
+    const converted = convertJsonlToWhatsAppText(sampleJsonl);
+    const result = parseTranscriptHeuristically(converted);
+    expect(result.last_message_at).not.toBeNull();
+  });
+});
