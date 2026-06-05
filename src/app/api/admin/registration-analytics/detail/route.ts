@@ -54,6 +54,8 @@ type FamilyDetail = {
   transport_mode: string | null;
   transport_detail: string | null;
   submitted_at: string | null;
+  utaro_host_name: string | null;
+  utaro_host_its: string | null;
 };
 
 // Normalized row sent to the client — flat, display-ready.
@@ -87,9 +89,9 @@ export async function GET(req: NextRequest) {
     "its, full_name, gender, age, is_adult, is_head, hof_its, local_mehman, whatsapp_e164, email, not_attending, arrival_at, departure_at, arrival_flight_no, airport, rahat_seating, wheelchair, special_needs, wants_khidmat, khidmat_department_ids";
 
   const FAMILY_SELECT =
-    "hof_its, registration_status, acc_type, hotel_name, open_to_utaro, transport_mode, transport_detail, submitted_at";
+    "hof_its, registration_status, acc_type, hotel_name, open_to_utaro, transport_mode, transport_detail, submitted_at, utaro_host_name, utaro_host_its";
 
-  const isFamilySegment = ["hotel", "transport", "acc_type", "registration_status"].includes(segment);
+  const isFamilySegment = ["hotel", "transport", "acc_type", "registration_status", "open_to_utaro", "host"].includes(segment);
 
   let rows: DetailRow[] = [];
 
@@ -145,6 +147,26 @@ export async function GET(req: NextRequest) {
       } else {
         fams = fams.filter((f) => (f.registration_status ?? "pending") === value);
       }
+    } else if (segment === "open_to_utaro") {
+      // The awaiting-utaro matching pool: registered, hotel-booked, open to a host.
+      // Optional value narrows to one hotel (per-hotel awaiting badge).
+      fams = fams.filter(
+        (f) =>
+          (f.registration_status === "submitted" || f.registration_status === "confirmed") &&
+          f.acc_type === "hotel" &&
+          f.open_to_utaro &&
+          (value === "" || f.hotel_name?.trim() === value),
+      );
+    } else if (segment === "host") {
+      // value is the host key from the analytics response: "its:<its>" or "name:<normalized name>".
+      fams = fams.filter((f) => {
+        if (f.registration_status !== "submitted" && f.registration_status !== "confirmed") return false;
+        if (f.acc_type !== "utaro") return false;
+        const its = f.utaro_host_its?.trim();
+        const normName = (f.utaro_host_name ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+        const key = its ? `its:${its}` : normName ? `name:${normName}` : null;
+        return key === value;
+      });
     }
 
     // Sort: submitted families by submitted_at desc; others by hof name
@@ -160,6 +182,11 @@ export async function GET(req: NextRequest) {
       else if (segment === "acc_type") detail = f.acc_type ?? "—";
       else if (segment === "transport") detail = [f.transport_mode, f.transport_detail].filter(Boolean).join(" — ");
       else if (segment === "registration_status") detail = f.submitted_at ? `Submitted ${f.submitted_at.slice(0, 10)}` : "Not submitted";
+      else if (segment === "open_to_utaro") detail = f.hotel_name?.trim() ?? "—";
+      else if (segment === "host")
+        detail = [f.utaro_host_name?.trim(), f.utaro_host_its?.trim() ? `ITS ${f.utaro_host_its.trim()}` : null]
+          .filter(Boolean)
+          .join(" · ");
       return {
         its: f.hof_its,
         name: hof?.full_name ?? f.hof_its,
@@ -231,6 +258,9 @@ export async function GET(req: NextRequest) {
         break;
       case "attending":
         filtered = allMembers.filter((m) => !m.not_attending);
+        break;
+      case "local_mehman":
+        filtered = allMembers.filter((m) => !m.not_attending && m.local_mehman === value);
         break;
       case "special_needs":
         filtered = allMembers.filter((m) => m.special_needs?.trim());
