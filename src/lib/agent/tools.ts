@@ -2,6 +2,7 @@ import type OpenAI from "openai";
 
 import { canUseTool, canUseTaskToolForCaller, publicTools, committeeTools, taskReadTools, taskWriteTools, taskCreateTools, leadershipTools, type AppUser } from "@/lib/permissions";
 import { retrieveReligiousContext, retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
+import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
 import { recordToolAudit } from "@/lib/supabase/server";
 import { recordKnowledgeGap } from "@/lib/knowledge/knowledge-gaps";
 import type { CallerContext } from "@/lib/api/auth";
@@ -56,17 +57,36 @@ const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "answer_religious_questions",
       description:
-        "Look up answers to religious / sermon questions about Ashara Mubarak — Vaaz Talaqi (understanding the daily majalis/waaz), Iqtibasaat (the Quranic/hadith references used in the bayan), and Lisan ud Dawat word meanings — from the indexed religious content. ALWAYS use this for any Vaaz, majlis, Iqtibas, or Lisan-word-meaning question. Never answer such questions from general knowledge or from get_site_content_faq.",
+        "Look up answers to religious / sermon questions about Ashara Mubarak — Vaaz Talaqi (understanding the daily majalis/waaz), the Iqtibasaat (Quranic/hadith references used in the bayan), and the Tazyeen/decoration of a majlis — from the indexed religious content. ALWAYS use this for any Vaaz, majlis, Iqtibas, or Tazyeen/decoration question. Never answer such questions from general knowledge or from get_site_content_faq. For the meaning of a single Lisan ud Dawat WORD, use get_lisan_word_meaning instead.",
       parameters: {
         type: "object",
         properties: {
           query: {
             type: "string",
             description:
-              "The religious / Vaaz / Iqtibas / Lisan-word question or topic to look up in the indexed religious content.",
+              "The religious / Vaaz / Iqtibas / Tazyeen question or topic to look up in the indexed religious content.",
           },
         },
         required: ["query"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_lisan_word_meaning",
+      description:
+        "Look up the meaning of a single Lisan ud Dawat word in the official dictionary (exact lookup). Use this whenever a user asks what a Lisan ud Dawat / Lisaan ud Dawat word means, or how to say a word. Returns the exact entry, or close 'did you mean' suggestions if the word isn't found exactly. NEVER answer a word's meaning from general knowledge.",
+      parameters: {
+        type: "object",
+        properties: {
+          word: {
+            type: "string",
+            description: "The single word to look up, as the user typed it (Roman transliteration or Lisan script).",
+          },
+        },
+        required: ["word"],
         additionalProperties: false,
       },
     },
@@ -534,6 +554,8 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
         retrieveReligiousContext,
         "indexed_religious_content",
       );
+    case "get_lisan_word_meaning":
+      return lookupLisanWord(String(args.word ?? ""));
     case "move_to_escalation":
       return callInternalApi("/api/escalations", {
         method: "POST",

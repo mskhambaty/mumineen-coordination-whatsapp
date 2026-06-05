@@ -474,6 +474,35 @@ paths:
         "200": { description: Deleted. }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /admin/lisan-words:
+    get:
+      tags: [conversations]
+      summary: Count of Lisan ud Dawat words currently loaded for exact lookup.
+      security: [{ adminKey: [] }]
+      responses:
+        "200": { description: "{ count }." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [conversations]
+      summary: Upload the dictionary CSV (full replace) into the lisan_words exact-lookup table.
+      description: "Columns by header: transliteration/word, lisan, meaning, example. Powers get_lisan_word_meaning."
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "201": { description: Imported with word count. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { description: CSV missing data rows or required columns. }
+        "500": { $ref: "#/components/responses/ServerError" }
   /admin/religious-topics:
     get:
       tags: [conversations]
