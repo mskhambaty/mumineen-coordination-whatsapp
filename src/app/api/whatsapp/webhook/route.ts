@@ -5,6 +5,7 @@ import { runAgent } from "@/lib/agent/run-agent";
 import { answerImageQuestion } from "@/lib/agent/vision";
 import { resolveCallerFromPhone } from "@/lib/api/auth";
 import { getRegistrationStatus, isRegistrationGateEnabled } from "@/lib/mumineen/registration";
+import { maybeHandleRsvpReply } from "@/lib/niyaz/inbound";
 import { optionalEnv } from "@/lib/env";
 import { fetchWhatsAppMedia, sendWhatsAppText, verifyMetaSignature } from "@/lib/meta/whatsapp";
 import {
@@ -104,6 +105,12 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
     .maybeSingle();
 
   if (session?.handling_mode === "manual") {
+    return true;
+  }
+
+  // RSVP auto-capture: if this inbound answers an outstanding Niyaz RSVP prompt (button tap or
+  // free text), record it and stop — don't route to the agent.
+  if (await maybeHandleRsvpReply(message, user.id)) {
     return true;
   }
 

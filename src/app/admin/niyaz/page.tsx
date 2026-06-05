@@ -103,6 +103,10 @@ export default function NiyazPage() {
   const [editingRespId, setEditingRespId] = useState<string | null>(null);
   const [editResp, setEditResp] = useState({ response: "yes" as "yes" | "no" | "maybe", head_count: "" });
 
+  const [sendForm, setSendForm] = useState({ recipient: "", mode: "text_plain" as "button" | "text" | "text_plain" });
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState<string | null>(null);
+
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
     if (!token) {
@@ -278,6 +282,31 @@ export default function NiyazPage() {
     }
   }
 
+  async function sendRsvp() {
+    if (!selected) return;
+    if (!sendForm.recipient.trim()) {
+      setError("Enter an ITS or phone number to send to.");
+      return;
+    }
+    setSending(true);
+    setError(null);
+    setSendResult(null);
+    try {
+      const res = await fetch(`/api/admin/niyaz/instances/${selected.id}/send`, {
+        method: "POST",
+        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
+        body: JSON.stringify({ its: sendForm.recipient.trim(), mode: sendForm.mode }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Send failed");
+      setSendResult(`Sent (${data.mode}) to ${data.name ?? data.to}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Send failed");
+    } finally {
+      setSending(false);
+    }
+  }
+
   async function deleteResp(id: string) {
     if (!selected || !window.confirm("Delete this response?")) return;
     setError(null);
@@ -418,6 +447,29 @@ export default function NiyazPage() {
             <h2 className="text-lg font-semibold">RSVPs — {selected.title}</h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {respTally?.responded_families ?? 0} responded · {respTally?.yes_count ?? 0} attending · {respTally?.total_head_count ?? 0} heads
+            </p>
+          </div>
+
+          <div className="mb-4 rounded-md border border-blue-100 bg-blue-50/50 p-3 dark:border-blue-950 dark:bg-blue-950/20">
+            <p className="mb-2 text-sm font-medium">Send RSVP over WhatsApp (test — one recipient)</p>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="text-xs uppercase tracking-wide text-gray-400">ITS or phone
+                <input value={sendForm.recipient} onChange={(e) => setSendForm({ ...sendForm, recipient: e.target.value })} placeholder="40495151 or +1…" className={`${inputCls} w-44`} />
+              </label>
+              <label className="text-xs uppercase tracking-wide text-gray-400">Mode
+                <select value={sendForm.mode} onChange={(e) => setSendForm({ ...sendForm, mode: e.target.value as typeof sendForm.mode })} className={`${inputCls} w-48`}>
+                  <option value="button">Button (auto-flow)</option>
+                  <option value="text">Free text (template)</option>
+                  <option value="text_plain">Plain text (test)</option>
+                </select>
+              </label>
+              <button type="button" onClick={sendRsvp} disabled={sending} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-700">
+                {sending ? "Sending…" : "Send"}
+              </button>
+            </div>
+            {sendResult && <p className="mt-2 text-sm font-medium text-green-700 dark:text-green-400">{sendResult}</p>}
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              Button/Free-text modes need an approved template. Plain text only delivers if the recipient messaged the bot in the last 24h. Replies (a tapped button or a typed “yes 4”) are captured automatically.
             </p>
           </div>
 
