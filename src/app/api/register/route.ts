@@ -21,24 +21,13 @@ export async function GET(req: NextRequest) {
 
   // Resolve the family: match any member's ITS, else fall back to a direct HOF ITS match
   // (covers families whose head isn't in the roster).
-  let hofIts: string | null = null;
   const { data: member } = await supabase
     .from("mumineen")
     .select("hof_its")
     .eq("its", input)
     .eq("roster_active", true)
     .maybeSingle();
-  if (member?.hof_its) {
-    hofIts = member.hof_its;
-  } else {
-    const { data: directFamily } = await supabase
-      .from("families")
-      .select("hof_its")
-      .eq("hof_its", input)
-      .eq("roster_active", true)
-      .maybeSingle();
-    hofIts = directFamily?.hof_its ?? null;
-  }
+  const hofIts = member?.hof_its ?? null;
   if (!hofIts) {
     return NextResponse.json({ error: "Sorry, we couldn't find your registration. Please contact the helpline on WhatsApp at +1 630 819 0250." }, { status: 404 });
   }
