@@ -642,8 +642,19 @@ export default function RegistrationAnalyticsPage() {
             {/* ── Stat strip ── */}
             <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
               <StatCard label="Total Families" value={summary.total_families} sub={activeFilterCount ? `${summary.filtered_families} in filter` : "in roster"} />
-              <StatCard label="Registered" value={summary.submitted_families} sub={`${regRate}% complete`} highlight />
-              <StatCard label="Pending" value={summary.pending_families} sub="not yet submitted" onClick={() => drill({ segment: "not_attending", label: "Not yet submitted — all mumineen with pending families" })} />
+              <StatCard
+                label="Registered"
+                value={summary.submitted_families}
+                sub={`${regRate}% complete`}
+                highlight
+                onClick={() => drill({ segment: "registration_status", value: "submitted", label: "Registered Families", detailLabel: "Submitted" })}
+              />
+              <StatCard
+                label="Pending"
+                value={summary.pending_families}
+                sub="not yet submitted"
+                onClick={() => drill({ segment: "registration_status", value: "pending", label: "Pending Families — Not Yet Submitted", detailLabel: "Status" })}
+              />
               <StatCard label="Total Mumineen" value={summary.total_mumineen} />
               <StatCard
                 label="Attending"
