@@ -14,6 +14,7 @@ type User = {
   role: string;
   global_role: string;
   status: string;
+  is_master_admin?: boolean | null;
   last_login_at?: string | null;
   department_membership_id?: string | null;
   department_role?: string | null;
@@ -102,6 +103,17 @@ export default function UsersPage() {
       return user.id ?? null;
     } catch {
       return null;
+    }
+  });
+  const [currentUserIsMasterAdmin] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    const userRaw = window.localStorage.getItem("admin_user");
+    if (!userRaw) return false;
+    try {
+      const user = JSON.parse(userRaw) as { is_master_admin?: boolean };
+      return user.is_master_admin === true;
+    } catch {
+      return false;
     }
   });
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
@@ -619,7 +631,40 @@ export default function UsersPage() {
                     {savingEdit ? "Saving..." : "Save"}
                   </button>
                 </div>
-              </form>
+              {currentUserIsMasterAdmin && (
+                <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/20">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(editingUser.is_master_admin)}
+                      onChange={async (e) => {
+                        const next = e.target.checked;
+                        if (next && !window.confirm(`Grant master admin to ${editingUser.display_name ?? editingUser.email}? They will have unrestricted access to all portal features.`)) return;
+                        if (!next && !window.confirm(`Remove master admin from ${editingUser.display_name ?? editingUser.email}?`)) return;
+                        try {
+                          const res = await fetch(`/api/admin/users/${editingUser.id}`, {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
+                            body: JSON.stringify({ is_master_admin: next }),
+                          });
+                          if (!res.ok) {
+                            const d = await res.json().catch(() => ({})) as { error?: string };
+                            throw new Error(d.error ?? "Failed to update");
+                          }
+                          const updated = await res.json() as User;
+                          setUsers((items) => items.map((u) => u.id === updated.id ? { ...u, ...updated } : u));
+                          setEditingUser((prev) => prev ? { ...prev, is_master_admin: updated.is_master_admin } : prev);
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : "Failed to update master admin");
+                        }
+                      }}
+                      className="h-4 w-4 accent-amber-600"
+                    />
+                    <span className="text-sm font-medium text-amber-800 dark:text-amber-300">Master Admin</span>
+                    <span className="text-xs text-amber-600 dark:text-amber-400">— unrestricted access + export + registration edit</span>
+                  </label>
+                </div>
+              )}
 
               {/* Set / change portal password — separate from the profile form above. */}
               <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-4">
@@ -712,7 +757,12 @@ export default function UsersPage() {
               <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
                 {filteredUsers.map((user) => (
                   <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                    <td className="px-6 py-4 font-medium">{user.display_name ?? "—"}</td>
+                    <td className="px-6 py-4 font-medium">
+                      {user.display_name ?? "—"}
+                      {user.is_master_admin && (
+                        <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950 dark:text-amber-300">Master Admin</span>
+                      )}
+                    </td>
                     <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{user.phone_e164}</td>
                     <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{user.email ?? "—"}</td>
                     <td className="px-6 py-4">

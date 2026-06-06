@@ -6,10 +6,15 @@ export type PortalUser = {
   is_it?: boolean | null;
   is_internal?: boolean | null;
   is_transport?: boolean | null;
+  is_master_admin?: boolean | null;
 };
 
+export function isMasterAdmin(user: PortalUser | null | undefined): boolean {
+  return user?.is_master_admin === true;
+}
+
 export function isAdminOrLeadership(user: PortalUser | null | undefined) {
-  return user?.role === "admin" || user?.global_role === "leadership_admin";
+  return user?.role === "admin" || user?.global_role === "leadership_admin" || isMasterAdmin(user);
 }
 
 // Who may open the Mumineen roster page: admins/leadership plus IT department members.

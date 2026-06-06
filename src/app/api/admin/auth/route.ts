@@ -18,14 +18,14 @@ export async function POST(req: NextRequest) {
     // Check if user exists and has admin/leadership_admin role
     let { data: user, error } = await supabase
       .from("whatsapp_users")
-      .select("id, display_name, email, global_role, role, password_hash")
+      .select("id, display_name, email, global_role, role, password_hash, is_master_admin")
       .eq("email", email)
       .maybeSingle();
 
     if (error?.message.includes("password_hash")) {
       const fallbackResult = await supabase
         .from("whatsapp_users")
-        .select("id, display_name, email, global_role, role")
+        .select("id, display_name, email, global_role, role, is_master_admin")
         .eq("email", email)
         .maybeSingle();
       user = fallbackResult.data ? { ...fallbackResult.data, password_hash: null } : null;
@@ -46,11 +46,13 @@ export async function POST(req: NextRequest) {
       email: user.email,
       role: user.role,
       global_role: user.global_role,
+      is_master_admin: user.is_master_admin,
     });
 
     if (
       sessionUser.role !== "admin" &&
       sessionUser.global_role !== "leadership_admin" &&
+      !sessionUser.is_master_admin &&
       !sessionUser.is_support &&
       !sessionUser.is_manager &&
       !sessionUser.is_it &&

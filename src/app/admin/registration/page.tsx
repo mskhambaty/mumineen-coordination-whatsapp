@@ -102,6 +102,94 @@ type DetailRequest = {
   detailLabel?: string; // column header for the detail field
 };
 
+// ─── Registration Edit types (master admin) ───────────────────────────────────
+
+type RegFamilyDetail = {
+  registration_status: string | null;
+  submitted_at: string | null;
+  submitted_by_its: string | null;
+  acc_type: string | null;
+  hotel_name: string | null;
+  hotel_address: string | null;
+  open_to_utaro: boolean | null;
+  utaro_host_name: string | null;
+  utaro_host_its: string | null;
+  utaro_host_address: string | null;
+  utaro_host_whatsapp_e164: string | null;
+  utaro_host_email: string | null;
+  transport_mode: string | null;
+  transport_detail: string | null;
+  cancelled_at: string | null;
+  cancelled_reason: string | null;
+};
+
+type RegSearchResult = {
+  its: string;
+  full_name: string | null;
+  gender: string | null;
+  age: number | null;
+  hof_its: string | null;
+  is_head: boolean;
+  whatsapp_e164: string | null;
+  email: string | null;
+  local_mehman: string | null;
+  arrival_at: string | null;
+  arrival_flight_no: string | null;
+  departure_at: string | null;
+  departure_flight_no: string | null;
+  airport: string | null;
+  not_attending: boolean | null;
+  rahat_seating: boolean | null;
+  wheelchair: boolean | null;
+  special_needs: string | null;
+  wants_khidmat: boolean | null;
+  khidmat_department_ids: string[] | null;
+  family: RegFamilyDetail | null;
+};
+
+type RegEditForm = {
+  whatsapp_e164: string;
+  email: string;
+  arrival_at: string;
+  arrival_flight_no: string;
+  departure_at: string;
+  departure_flight_no: string;
+  airport: string;
+  not_attending: boolean;
+  rahat_seating: boolean;
+  wheelchair: boolean;
+  special_needs: string;
+  wants_khidmat: boolean;
+  khidmat_department_ids: string[];
+  acc_type: string;
+  hotel_name: string;
+  hotel_address: string;
+  open_to_utaro: boolean;
+  utaro_host_name: string;
+  utaro_host_its: string;
+  utaro_host_address: string;
+  utaro_host_whatsapp_e164: string;
+  utaro_host_email: string;
+  transport_mode: string;
+  transport_detail: string;
+};
+
+type RegDepartment = { id: string; name: string };
+
+function regToLocalInput(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function regLocalInputToIso(v: string): string | null {
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 // Page sections, in order — each maps to the team(s) it serves.
 const SECTIONS = [
   { id: "overview", num: "01", label: "Overview" },
@@ -304,6 +392,277 @@ function DetailPanel({
                 ))}
               </tbody>
             </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── RegEditPanel ─────────────────────────────────────────────────────────────
+
+const regInputCls =
+  "block w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100";
+
+function RegEditRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-3">
+      <label className="w-44 shrink-0 text-xs uppercase tracking-wide text-gray-400">{label}</label>
+      <div className="flex-1">{children}</div>
+    </div>
+  );
+}
+
+function RegKhidmatPicker({ departments, selected, onChange }: { departments: RegDepartment[]; selected: string[]; onChange: (ids: string[]) => void }) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const nameById = new Map(departments.map((d) => [d.id, d.name]));
+  const chosen = new Set(selected);
+  const atLimit = selected.length >= 3;
+  const matches = departments.filter((d) => !chosen.has(d.id) && d.name.toLowerCase().includes(q.trim().toLowerCase()));
+  return (
+    <div>
+      {selected.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {selected.map((id) => (
+            <span key={id} className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-900 dark:bg-blue-950 dark:text-blue-200">
+              {nameById.get(id) ?? id}
+              <button type="button" onClick={() => onChange(selected.filter((x) => x !== id))} className="text-blue-700 hover:text-blue-900 dark:text-blue-300" aria-label="Remove">×</button>
+            </span>
+          ))}
+        </div>
+      )}
+      {atLimit ? (
+        <p className="text-xs text-gray-400">Maximum 3 departments selected.</p>
+      ) : (
+        <div className="relative">
+          <input value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} autoComplete="off" placeholder="Search departments…" className={regInputCls} />
+          {open && matches.length > 0 && (
+            <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-gray-200 bg-white text-sm shadow-lg dark:border-gray-700 dark:bg-gray-900">
+              {matches.map((d) => (
+                <li key={d.id}>
+                  <button type="button" onPointerDown={(e) => { e.preventDefault(); onChange([...selected, d.id]); setQ(""); }} className="block w-full px-3 py-2 text-left text-gray-800 hover:bg-blue-50 dark:text-gray-100 dark:hover:bg-gray-800">{d.name}</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RegEditPanel({
+  selected,
+  adminKey,
+  departments,
+  onClose,
+  onSaved,
+}: {
+  selected: RegSearchResult;
+  adminKey: string;
+  departments: RegDepartment[];
+  onClose: () => void;
+  onSaved: (updated: RegSearchResult) => void;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [form, setForm] = useState<RegEditForm>(() => ({
+    whatsapp_e164: selected.whatsapp_e164 ?? "",
+    email: selected.email ?? "",
+    arrival_at: regToLocalInput(selected.arrival_at),
+    arrival_flight_no: selected.arrival_flight_no ?? "",
+    departure_at: regToLocalInput(selected.departure_at),
+    departure_flight_no: selected.departure_flight_no ?? "",
+    airport: selected.airport ?? "",
+    not_attending: Boolean(selected.not_attending),
+    rahat_seating: Boolean(selected.rahat_seating),
+    wheelchair: Boolean(selected.wheelchair),
+    special_needs: selected.special_needs ?? "",
+    wants_khidmat: Boolean(selected.wants_khidmat),
+    khidmat_department_ids: selected.khidmat_department_ids ?? [],
+    acc_type: selected.family?.acc_type ?? "",
+    hotel_name: selected.family?.hotel_name ?? "",
+    hotel_address: selected.family?.hotel_address ?? "",
+    open_to_utaro: Boolean(selected.family?.open_to_utaro),
+    utaro_host_name: selected.family?.utaro_host_name ?? "",
+    utaro_host_its: selected.family?.utaro_host_its ?? "",
+    utaro_host_address: selected.family?.utaro_host_address ?? "",
+    utaro_host_whatsapp_e164: selected.family?.utaro_host_whatsapp_e164 ?? "",
+    utaro_host_email: selected.family?.utaro_host_email ?? "",
+    transport_mode: selected.family?.transport_mode ?? "",
+    transport_detail: selected.family?.transport_detail ?? "",
+  }));
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [onClose]);
+
+  const upd = (patch: Partial<RegEditForm>) => setForm((prev) => ({ ...prev, ...patch }));
+
+  async function save() {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const member = {
+        whatsapp_e164: form.whatsapp_e164,
+        email: form.email,
+        arrival_at: regLocalInputToIso(form.arrival_at),
+        arrival_flight_no: form.arrival_flight_no,
+        departure_at: regLocalInputToIso(form.departure_at),
+        departure_flight_no: form.departure_flight_no,
+        airport: form.airport,
+        not_attending: form.not_attending,
+        wants_khidmat: form.wants_khidmat,
+        khidmat_department_ids: form.khidmat_department_ids,
+        rahat_seating: form.rahat_seating,
+        wheelchair: form.wheelchair,
+        special_needs: form.special_needs,
+      };
+      const family = selected.family ? {
+        acc_type: form.acc_type,
+        hotel_name: form.hotel_name,
+        hotel_address: form.hotel_address,
+        open_to_utaro: form.open_to_utaro,
+        utaro_host_name: form.utaro_host_name,
+        utaro_host_its: form.utaro_host_its,
+        utaro_host_address: form.utaro_host_address,
+        utaro_host_whatsapp_e164: form.utaro_host_whatsapp_e164,
+        utaro_host_email: form.utaro_host_email,
+        transport_mode: form.transport_mode,
+        transport_detail: form.transport_detail,
+      } : undefined;
+      const res = await fetch("/api/admin/mumineen/update", {
+        method: "POST",
+        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
+        body: JSON.stringify({ its: selected.its, member, family }),
+      });
+      const data = await res.json().catch(() => ({})) as { error?: string; member?: Partial<RegSearchResult>; family?: RegFamilyDetail };
+      if (!res.ok) throw new Error(data.error ?? "Save failed");
+      onSaved({ ...selected, ...(data.member ?? {}), family: data.family ?? selected.family });
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40">
+      <div ref={panelRef} className="flex h-full w-full max-w-xl flex-col bg-white shadow-2xl dark:bg-gray-900 overflow-y-auto">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white px-5 py-4 dark:border-gray-700 dark:bg-gray-900">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">{selected.full_name ?? "—"}</h2>
+            <p className="text-xs text-gray-500 font-mono">ITS {selected.its} · HOF {selected.hof_its ?? "—"}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => void save()} disabled={saving} className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300">
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button type="button" onClick={onClose} className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800">
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+        </div>
+
+        {saveError && (
+          <div className="mx-5 mt-3 rounded-md border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{saveError}</div>
+        )}
+
+        <div className="px-5 py-4 space-y-4">
+          <div className="border-t border-gray-100 pt-3 first:border-t-0 first:pt-0 dark:border-gray-800">
+            <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">Contact</h3>
+            <div className="space-y-2">
+              <RegEditRow label="WhatsApp"><input value={form.whatsapp_e164} onChange={(e) => upd({ whatsapp_e164: e.target.value })} placeholder="+1…" className={regInputCls} /></RegEditRow>
+              <RegEditRow label="Email"><input value={form.email} onChange={(e) => upd({ email: e.target.value })} type="email" className={regInputCls} /></RegEditRow>
+            </div>
+          </div>
+
+          <div className="border-t border-gray-100 pt-3 dark:border-gray-800">
+            <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">Travel</h3>
+            <div className="space-y-2">
+              <RegEditRow label="Arrival"><input value={form.arrival_at} onChange={(e) => upd({ arrival_at: e.target.value })} type="datetime-local" className={regInputCls} /></RegEditRow>
+              <RegEditRow label="Arrival flight"><input value={form.arrival_flight_no} onChange={(e) => upd({ arrival_flight_no: e.target.value })} className={regInputCls} /></RegEditRow>
+              <RegEditRow label="Departure"><input value={form.departure_at} onChange={(e) => upd({ departure_at: e.target.value })} type="datetime-local" className={regInputCls} /></RegEditRow>
+              <RegEditRow label="Departure flight"><input value={form.departure_flight_no} onChange={(e) => upd({ departure_flight_no: e.target.value })} className={regInputCls} /></RegEditRow>
+              <RegEditRow label="Airport">
+                <select value={form.airport} onChange={(e) => upd({ airport: e.target.value })} className={regInputCls}>
+                  <option value="">—</option>
+                  <option value="ORD">ORD</option>
+                  <option value="MDW">MDW</option>
+                </select>
+              </RegEditRow>
+            </div>
+          </div>
+
+          <div className="border-t border-gray-100 pt-3 dark:border-gray-800">
+            <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">Needs / Khidmat</h3>
+            <div className="space-y-2">
+              <RegEditRow label="Not attending"><input type="checkbox" checked={form.not_attending} onChange={(e) => upd({ not_attending: e.target.checked })} className="h-4 w-4 accent-blue-600" /></RegEditRow>
+              <RegEditRow label="Rahat seating"><input type="checkbox" checked={form.rahat_seating} onChange={(e) => upd({ rahat_seating: e.target.checked, wheelchair: e.target.checked ? form.wheelchair : false })} className="h-4 w-4 accent-blue-600" /></RegEditRow>
+              {form.rahat_seating && (
+                <RegEditRow label="Wheelchair"><input type="checkbox" checked={form.wheelchair} onChange={(e) => upd({ wheelchair: e.target.checked })} className="h-4 w-4 accent-blue-600" /></RegEditRow>
+              )}
+              <RegEditRow label="Special needs"><input value={form.special_needs} onChange={(e) => upd({ special_needs: e.target.value })} className={regInputCls} /></RegEditRow>
+              <RegEditRow label="Wants khidmat"><input type="checkbox" checked={form.wants_khidmat} onChange={(e) => upd({ wants_khidmat: e.target.checked, khidmat_department_ids: e.target.checked ? form.khidmat_department_ids : [] })} className="h-4 w-4 accent-blue-600" /></RegEditRow>
+              {form.wants_khidmat && (
+                <RegEditRow label="Departments">
+                  <RegKhidmatPicker departments={departments} selected={form.khidmat_department_ids} onChange={(ids) => upd({ khidmat_department_ids: ids })} />
+                </RegEditRow>
+              )}
+            </div>
+          </div>
+
+          {selected.family && (
+            <div className="border-t border-gray-100 pt-3 dark:border-gray-800">
+              <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">Family Registration</h3>
+              <div className="space-y-2">
+                <RegEditRow label="Accommodation">
+                  <select value={form.acc_type} onChange={(e) => upd({ acc_type: e.target.value })} className={regInputCls}>
+                    <option value="">—</option>
+                    <option value="hotel">Hotel</option>
+                    <option value="utaro">Utaro</option>
+                  </select>
+                </RegEditRow>
+                {form.acc_type === "hotel" && (
+                  <>
+                    <RegEditRow label="Hotel name"><input value={form.hotel_name} onChange={(e) => upd({ hotel_name: e.target.value })} className={regInputCls} /></RegEditRow>
+                    <RegEditRow label="Hotel address"><input value={form.hotel_address} onChange={(e) => upd({ hotel_address: e.target.value })} className={regInputCls} /></RegEditRow>
+                  </>
+                )}
+                {form.acc_type === "utaro" && (
+                  <>
+                    <RegEditRow label="Utaro host"><input value={form.utaro_host_name} onChange={(e) => upd({ utaro_host_name: e.target.value })} className={regInputCls} /></RegEditRow>
+                    <RegEditRow label="Utaro host ITS"><input value={form.utaro_host_its} onChange={(e) => upd({ utaro_host_its: e.target.value })} className={regInputCls} /></RegEditRow>
+                    <RegEditRow label="Utaro host addr"><input value={form.utaro_host_address} onChange={(e) => upd({ utaro_host_address: e.target.value })} className={regInputCls} /></RegEditRow>
+                    <RegEditRow label="Utaro WhatsApp"><input value={form.utaro_host_whatsapp_e164} onChange={(e) => upd({ utaro_host_whatsapp_e164: e.target.value })} className={regInputCls} /></RegEditRow>
+                    <RegEditRow label="Utaro email"><input value={form.utaro_host_email} onChange={(e) => upd({ utaro_host_email: e.target.value })} type="email" className={regInputCls} /></RegEditRow>
+                  </>
+                )}
+                <RegEditRow label="Open to utaro"><input type="checkbox" checked={form.open_to_utaro} onChange={(e) => upd({ open_to_utaro: e.target.checked })} className="h-4 w-4 accent-blue-600" /></RegEditRow>
+                <RegEditRow label="Transport mode">
+                  <select value={form.transport_mode} onChange={(e) => upd({ transport_mode: e.target.value })} className={regInputCls}>
+                    <option value="">—</option>
+                    <option value="rideshare">Rideshare</option>
+                    <option value="rental">Rental</option>
+                    <option value="commute_with_utaro">Commute with utaro</option>
+                    <option value="other">Other</option>
+                  </select>
+                </RegEditRow>
+                <RegEditRow label="Transport detail"><input value={form.transport_detail} onChange={(e) => upd({ transport_detail: e.target.value })} className={regInputCls} /></RegEditRow>
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -667,6 +1026,15 @@ export default function RegistrationAnalyticsPage() {
   const [airportFilter, setAirportFilter] = useState("");
   const [khidmatDeptFilter, setKhidmatDeptFilter] = useState("");
 
+  // Master admin registration edit
+  const [isMasterAdmin, setIsMasterAdmin] = useState(false);
+  const [editQuery, setEditQuery] = useState("");
+  const [editResults, setEditResults] = useState<RegSearchResult[] | null>(null);
+  const [editSearching, setEditSearching] = useState(false);
+  const [editSelected, setEditSelected] = useState<RegSearchResult | null>(null);
+  const [editDepts, setEditDepts] = useState<RegDepartment[]>([]);
+  const editTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
   const load = useCallback(
@@ -704,8 +1072,15 @@ export default function RegistrationAnalyticsPage() {
     const token = localStorage.getItem("admin_token");
     if (!token) { router.push("/admin/login"); return; }
     const raw = localStorage.getItem("admin_user");
-    const user = raw ? JSON.parse(raw) : null;
+    const user = raw ? JSON.parse(raw) as { role?: string; global_role?: string; is_master_admin?: boolean } : null;
     if (!canViewRegistrations(user)) { router.push("/admin/conversations"); return; }
+    if (user?.is_master_admin === true) {
+      setIsMasterAdmin(true);
+      void fetch("/api/admin/mumineen/departments", { headers: { "x-admin-key": adminKey } })
+        .then((r) => r.json())
+        .then((d) => setEditDepts((d.departments as RegDepartment[]) ?? []))
+        .catch(() => undefined);
+    }
     void load(filters);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
@@ -725,6 +1100,28 @@ export default function RegistrationAnalyticsPage() {
     });
     return () => obs.disconnect();
   }, [data]);
+
+  async function runEditSearch(term: string) {
+    setEditSearching(true);
+    try {
+      const res = await fetch(`/api/admin/mumineen/search?q=${encodeURIComponent(term)}`, { headers: { "x-admin-key": adminKey } });
+      const data = await res.json().catch(() => ({})) as { results?: RegSearchResult[] };
+      setEditResults(res.ok ? (data.results ?? []) : []);
+    } catch {
+      setEditResults([]);
+    } finally {
+      setEditSearching(false);
+    }
+  }
+
+  function onEditQueryChange(value: string) {
+    setEditQuery(value);
+    if (editTimer.current) clearTimeout(editTimer.current);
+    const term = value.trim();
+    if (term.length < 2) { setEditResults(null); setEditSearching(false); return; }
+    setEditSearching(true);
+    editTimer.current = setTimeout(() => void runEditSearch(term), 300);
+  }
 
   if (error)
     return (
@@ -790,6 +1187,18 @@ export default function RegistrationAnalyticsPage() {
           filters={filters}
           adminKey={adminKey}
           onClose={() => setDetail(null)}
+        />
+      )}
+      {editSelected && (
+        <RegEditPanel
+          selected={editSelected}
+          adminKey={adminKey}
+          departments={editDepts}
+          onClose={() => setEditSelected(null)}
+          onSaved={(updated) => {
+            setEditSelected(null);
+            setEditResults((prev) => prev ? prev.map((r) => r.its === updated.its ? updated : r) : prev);
+          }}
         />
       )}
 
@@ -1374,6 +1783,72 @@ export default function RegistrationAnalyticsPage() {
               </Masonry>
             </SectionBand>
           </>
+        )}
+
+        {isMasterAdmin && (
+          <section className="mt-10 scroll-mt-16" id="edit">
+            <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 pb-2.5 dark:border-gray-700">
+              <span className="text-xs font-bold tabular-nums text-amber-600 dark:text-amber-400">07</span>
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">Registration Editor</h2>
+              <span className="rounded-full border border-amber-200 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:border-amber-800 dark:text-amber-400">Master Admin</span>
+            </div>
+            <div className="mt-4 rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800/50">
+              <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">Search by ITS, name, WhatsApp number, or jamaat — then click a result to edit their registration.</p>
+              <input
+                value={editQuery}
+                onChange={(e) => onEditQueryChange(e.target.value)}
+                placeholder="Start typing a name or ITS…"
+                className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+              />
+              {editSearching && <p className="mt-2 text-xs text-gray-400">Searching…</p>}
+              {editResults && !editSearching && (
+                editResults.length === 0 ? (
+                  <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">No matches.</p>
+                ) : (
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="text-xs uppercase text-gray-400">
+                        <tr>
+                          <th className="px-2 py-1.5">Name</th>
+                          <th className="px-2 py-1.5">ITS</th>
+                          <th className="px-2 py-1.5">HOF</th>
+                          <th className="px-2 py-1.5">WhatsApp</th>
+                          <th className="px-2 py-1.5">Reg. Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {editResults.map((r) => (
+                          <tr
+                            key={r.its}
+                            onClick={() => setEditSelected(r)}
+                            className="cursor-pointer border-t border-gray-100 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
+                          >
+                            <td className="px-2 py-1.5 font-medium">
+                              {r.full_name ?? "—"}
+                              {r.is_head && <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">Head</span>}
+                            </td>
+                            <td className="px-2 py-1.5 font-mono text-xs">{r.its}</td>
+                            <td className="px-2 py-1.5 font-mono text-xs text-gray-500">{r.hof_its ?? "—"}</td>
+                            <td className="px-2 py-1.5">{r.whatsapp_e164 ?? "—"}</td>
+                            <td className="px-2 py-1.5">
+                              {r.family?.registration_status === "submitted" || r.family?.registration_status === "confirmed" ? (
+                                <span className="text-green-600 dark:text-green-400">{r.family.registration_status}</span>
+                              ) : r.family?.registration_status === "cancelled" ? (
+                                <span className="text-red-500">cancelled</span>
+                              ) : (
+                                <span className="text-gray-400">{r.family?.registration_status ?? "—"}</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {editResults.length === 50 && <p className="mt-2 text-xs text-gray-400">Showing first 50 — refine your search.</p>}
+                  </div>
+                )
+              )}
+            </div>
+          </section>
         )}
       </main>
     </>

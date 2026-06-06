@@ -13,6 +13,7 @@ export type PortalSessionSourceUser = {
   email: string | null;
   role: string | null;
   global_role: string | null;
+  is_master_admin?: boolean | null;
 };
 
 export type PortalSessionUser = {
@@ -26,6 +27,7 @@ export type PortalSessionUser = {
   is_it: boolean;
   is_transport: boolean;
   is_internal: boolean;
+  is_master_admin: boolean;
 };
 
 export async function buildPortalSessionUser(user: PortalSessionSourceUser): Promise<PortalSessionUser> {
@@ -48,6 +50,7 @@ export async function buildPortalSessionUser(user: PortalSessionSourceUser): Pro
     is_it: isIt,
     is_transport: isTransport,
     is_internal: isInternal,
+    is_master_admin: user.is_master_admin === true,
   };
 }
 

@@ -249,6 +249,7 @@ export default function MumineenPage() {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
+  const [displayName, setDisplayName] = useState<string | null>(null);
 
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
@@ -257,7 +258,8 @@ export default function MumineenPage() {
       return;
     }
     const raw = localStorage.getItem("admin_user");
-    const user = raw ? JSON.parse(raw) as { role?: string; global_role?: string; is_it?: boolean } : null;
+    const user = raw ? JSON.parse(raw) as { role?: string; global_role?: string; is_it?: boolean; display_name?: string; is_master_admin?: boolean } : null;
+    setDisplayName(user?.is_master_admin === true ? "__master__" : null);
     if (!canAccessMumineen(user)) {
       router.push("/admin/conversations");
       return;
@@ -516,23 +518,25 @@ export default function MumineenPage() {
       <div className="mb-5">
         <div className="flex items-center justify-between gap-4">
           <h1 className="text-xl font-bold">Mumineen Roster</h1>
-          <button
-            type="button"
-            onClick={async () => {
-              const res = await fetch("/api/admin/mumineen/export", { headers: { "x-admin-key": adminKey } });
-              if (!res.ok) return;
-              const blob = await res.blob();
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = `mumineen-roster-${new Date().toISOString().slice(0, 10)}.xlsx`;
-              a.click();
-              URL.revokeObjectURL(url);
-            }}
-            className="rounded-md bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
-          >
-            ↓ Export current roster
-          </button>
+          {displayName === "__master__" && (
+            <button
+              type="button"
+              onClick={async () => {
+                const res = await fetch("/api/admin/mumineen/export", { headers: { "x-admin-key": adminKey } });
+                if (!res.ok) return;
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `mumineen-roster-${new Date().toISOString().slice(0, 10)}.xlsx`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="rounded-md bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+            >
+              ↓ Export current roster
+            </button>
+          )}
         </div>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Import the attendee roster (Excel). Re-importing is safe — it refreshes roster fields and never
