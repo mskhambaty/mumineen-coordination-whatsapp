@@ -124,12 +124,14 @@ const ORDINALS: Record<string, number> = {
 };
 const MAJLIS_WORDS = "majlis|majlas|majlas|waaz|waaz|vaaz|va'az|bayan|sermon";
 
-export type MajlisRef = { lailat: boolean; majlisNum: number | null; wantsTazyeen: boolean; year: string | null };
+export type MajlisRef = { lailat: boolean; majlisNum: number | null; wantsTazyeen: boolean; wantsDars: boolean; year: string | null };
 
 // Parse a free-text query for a specific majlis reference. Returns null if none.
 export function parseMajlisRef(query: string): MajlisRef | null {
   const q = ` ${query.toLowerCase()} `;
   const wantsTazyeen = /\b(tazyeen|tazeen|tazyin|decorat|sajawat|sajaawat|artwork|calligraph)/.test(q);
+  // Al-Dars = the "Learning Canvas" deep-dive chapters (Falak-e-Muhit, 5 Duroos, etc.).
+  const wantsDars = /\b(al[\s-]?dars|dars|duroos|durus|learning canvas|deep[\s-]?dive|chapter)\b/.test(q);
   let lailat = /\b(lailat|laylat|aashura|ashura)\b/.test(q);
   let majlisNum: number | null = null;
 
@@ -163,11 +165,11 @@ export function parseMajlisRef(query: string): MajlisRef | null {
   if (majlisNum == null && !lailat) return null;
 
   const ym = q.match(/\b(14\d\d)\s*h?\b/);
-  return { lailat, majlisNum, wantsTazyeen, year: ym ? ym[1] : null };
+  return { lailat, majlisNum, wantsTazyeen, wantsDars, year: ym ? ym[1] : null };
 }
 
 // Resolve a parsed majlis reference to the matching topic block(s), preferring the
-// Reflection unless the user asked about Tazyeen. Returns [] if nothing matches.
+// Reflection unless the user asked about Tazyeen or Al-Dars. Returns [] if nothing matches.
 export async function findMajlisReflection(query: string): Promise<{ title: string; content: string; source_url: string | null }[]> {
   const ref = parseMajlisRef(query);
   if (!ref) return [];
@@ -178,7 +180,7 @@ export async function findMajlisReflection(query: string): Promise<{ title: stri
     .order("sort_order");
   const topics = ((data ?? []) as { title: string; content: string; source_url: string | null }[]).filter((t) => (t.content ?? "").trim());
 
-  const prefix = ref.wantsTazyeen ? /^tazyeen/i : /^reflections/i;
+  const prefix = ref.wantsDars ? /^al-dars/i : ref.wantsTazyeen ? /^tazyeen/i : /^reflections/i;
   const matches = topics.filter((t) => {
     const title = t.title.toLowerCase();
     if (!prefix.test(t.title)) return false;

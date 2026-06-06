@@ -2,7 +2,7 @@ import OpenAI from "openai";
 
 import { executeTool, toolDefinitionsFor } from "@/lib/agent/tools";
 import { SYSTEM_PROMPT, loadAgentSystemPrompt } from "@/lib/agent/prompts";
-import { AGENT_TEMPERATURE, AI_MODEL, AI_MODEL_HIGH, getAIClient, MAX_AGENT_TOKENS } from "@/lib/ai/model";
+import { AGENT_TEMPERATURE, AI_MODEL, getAIClient, MAX_AGENT_TOKENS } from "@/lib/ai/model";
 import { resolveCallerFromPhone, type CallerContext } from "@/lib/api/auth";
 import type { AppUser } from "@/lib/permissions";
 import { getRecentMessages, getSupabaseAdmin } from "@/lib/supabase/server";
@@ -309,12 +309,14 @@ export async function runAgent(input: AgentInput) {
     return escalationAck;
   }
 
-  // Waaz Talaqi / Lisan answers are generated with the higher-end model (accuracy + tone
-  // matter most); everything else stays on the standard model.
-  const finalModel = pickFinalModel(firstMessage.tool_calls, AI_MODEL, AI_MODEL_HIGH);
-
+  // NOTE: High-model routing for Waaz Talaqi / Lisan answers is temporarily DISABLED.
+  // OPENAI_MODEL_HIGH had been set to an invalid model (gpt-5.4) which made every religious
+  // answer's final completion throw → no reply. Every answer now uses the standard AI_MODEL.
+  // To re-enable: set OPENAI_MODEL_HIGH to a VALID model and switch the model below back to
+  // `pickFinalModel(firstMessage.tool_calls, AI_MODEL, AI_MODEL_HIGH)` (ideally with a
+  // try/catch fallback to AI_MODEL so a bad value can never cause an outage).
   const finalResponse = await client.chat.completions.create({
-    model: finalModel,
+    model: AI_MODEL,
     messages,
     temperature: AGENT_TEMPERATURE,
     max_tokens: MAX_AGENT_TOKENS,
