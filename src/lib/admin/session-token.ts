@@ -28,12 +28,9 @@ export function verifySessionToken(token: string): { user_id: string } | null {
   if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
   const [payloadB64, sigB64] = parts;
 
-  let providedSig: Buffer;
-  try {
-    providedSig = Buffer.from(sigB64, "base64url");
-  } catch {
-    return null;
-  }
+  // Buffer.from never throws on malformed base64url — invalid chars are dropped,
+  // and the resulting short buffer fails the length check below.
+  const providedSig = Buffer.from(sigB64, "base64url");
   const expectedSig = hmac(payloadB64);
   if (providedSig.length !== expectedSig.length || !timingSafeEqual(providedSig, expectedSig)) {
     return null;
