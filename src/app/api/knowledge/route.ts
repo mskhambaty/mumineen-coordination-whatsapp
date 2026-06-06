@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { canManageKnowledge } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { chunkText, indexKnowledgeChunks, indexReligiousDocument } from "@/lib/knowledge/index-content";
 import { detectFileType, extractText } from "@/lib/knowledge/parse";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -13,9 +14,8 @@ const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15 MB
 
 // GET: list uploaded knowledge documents (newest first).
 export async function GET(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canManageKnowledge);
+  if (auth instanceof NextResponse) return auth;
 
   // Optional ?store=logistics|religious filter (defaults to all for backward compatibility).
   const store = req.nextUrl.searchParams.get("store");
@@ -42,9 +42,8 @@ export async function GET(req: NextRequest) {
 
 // POST: upload a CSV/Excel/Word/PDF file; extract text, chunk, embed into site_content.
 export async function POST(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canManageKnowledge);
+  if (auth instanceof NextResponse) return auth;
 
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
