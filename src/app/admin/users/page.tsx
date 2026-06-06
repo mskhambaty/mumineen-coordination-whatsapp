@@ -631,6 +631,8 @@ export default function UsersPage() {
                     {savingEdit ? "Saving..." : "Save"}
                   </button>
                 </div>
+              </form>
+
               {currentUserIsMasterAdmin && (
                 <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/20">
                   <label className="flex items-center gap-3 cursor-pointer">
