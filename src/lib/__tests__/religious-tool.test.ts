@@ -98,8 +98,9 @@ describe("RELIGIOUS_GUIDANCE_RULE", () => {
   });
 
   it("instructs WhatsApp formatting (bold/italic/lists) for Waaz Talaqi answers only", () => {
-    expect(RELIGIOUS_GUIDANCE_RULE).toContain("*bold*");
-    expect(RELIGIOUS_GUIDANCE_RULE).toContain("_italic_");
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("BOLD");
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("ITALICIZE");
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("SINGLE asterisks");
     expect(RELIGIOUS_GUIDANCE_RULE.toLowerCase()).toContain("list");
     // Still no emojis, and logistics stays plain.
     expect(RELIGIOUS_GUIDANCE_RULE).toContain("never for logistics");
