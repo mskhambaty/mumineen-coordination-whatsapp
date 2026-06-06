@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { canManageKnowledge } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { countLisanWords, importLisanWords, type LisanImportRow } from "@/lib/knowledge/lisan-words";
 import { scraperInternals } from "@/lib/scraper/scrape-site";
 
@@ -11,9 +12,8 @@ const MAX_FILE_BYTES = 15 * 1024 * 1024;
 
 // GET: how many words are currently loaded.
 export async function GET(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canManageKnowledge);
+  if (auth instanceof NextResponse) return auth;
   try {
     return NextResponse.json({ count: await countLisanWords() });
   } catch (err) {
@@ -34,9 +34,8 @@ function findCol(headers: string[], ...candidates: string[]): number {
 // POST: upload the dictionary CSV (full replace). Expected columns (by header):
 // transliteration/word, lisan, meaning, example.
 export async function POST(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canManageKnowledge);
+  if (auth instanceof NextResponse) return auth;
 
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
