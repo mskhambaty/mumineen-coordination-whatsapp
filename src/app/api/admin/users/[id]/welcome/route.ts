@@ -59,6 +59,8 @@ export async function POST(
     );
   }
 
-  const welcome = await sendAdminWelcomeNotification({ userId: id, departmentId });
+  // Manual admin action: always (re-)send, even if the user was already
+  // welcomed — an admin clicks this precisely when a member asks for it again.
+  const welcome = await sendAdminWelcomeNotification({ userId: id, departmentId, force: true });
   return NextResponse.json({ welcome_notification: welcome });
 }

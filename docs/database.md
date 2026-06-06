@@ -34,6 +34,7 @@ Stores every person who has ever messaged the bot.
 | `jamaat` | text | Jamaat affiliation (nullable) |
 | `city` | text | City (nullable) |
 | `notes` | text | Free-form admin notes (nullable) |
+| `welcomed_at` | timestamptz | First successful onboarding welcome (email/WhatsApp); null = never welcomed. Gates the once-per-user auto-welcome — see [email.md](./email.md#new-portal-user-welcome) |
 | `created_at` | timestamptz | Auto |
 | `updated_at` | timestamptz | Auto-updated by trigger |
 

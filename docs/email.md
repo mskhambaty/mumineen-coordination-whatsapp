@@ -89,7 +89,7 @@ The {{product_name}} Team
 
 ## New Portal User Welcome
 
-When the admin Users page creates a new user and department membership, it calls `POST /api/admin/users/{id}/departments` with `send_welcome: true`. The API creates a password setup link using the same reset-token flow, sends the `welcome-admin-email` Postmark template when the user has an email address, and attempts a WhatsApp welcome message when the user has a phone number.
+When the admin Users page creates a new user and department membership, it calls `POST /api/admin/users/{id}/departments` with `send_welcome: true`. The welcome logic lives in [`src/lib/admin/onboarding.ts`](../src/lib/admin/onboarding.ts) (`sendAdminWelcomeNotification`): it creates a password setup link using the same reset-token flow, sends the `welcome-admin-email` Postmark template when the user has an email address, and sends a WhatsApp welcome when the user has a phone number.
 
 Template model for `welcome-admin-email`:
 
@@ -100,7 +100,20 @@ Template model for `welcome-admin-email`:
 | `set_password_url` | `${NEXT_PUBLIC_APP_URL}/admin/reset-password?token=...` |
 | `login_url` | `https://www.chicagorelaycenter.com/admin/login` when `NEXT_PUBLIC_APP_URL=https://www.chicagorelaycenter.com` |
 
-The WhatsApp welcome is sent as a regular text message and recorded in the inbox when Meta accepts it. For users outside the Meta customer-service window, Meta may reject free-form text; create and configure an approved utility template before relying on WhatsApp as the only invite channel.
+**WhatsApp welcome — approved template.** The WhatsApp welcome is sent as the approved utility template `committee_platform_access_created`, not free-form text. A template delivers whether or not the recipient has an open 24h customer-service window, and Meta does not charge for utility templates sent inside an open window — so it is sent unconditionally. The template language is resolved live from Meta (via `listMessageTemplates()`), so it works regardless of how the template's locale is registered. Its body mirrors the email and carries four variables:
+
+| Var | Value |
+|-----|-------|
+| `{{1}}` | Member display name (or `there`) |
+| `{{2}}` | Committee(s) the user is active in — see "Committee variable" below |
+| `{{3}}` | Password-setup link (`${NEXT_PUBLIC_APP_URL}/admin/reset-password?token=...`), same flow as the email |
+| `{{4}}` | Admin portal login — hard-coded to `https://www.chicagorelaycenter.com/admin/login` |
+
+The send is recorded in the inbox as `[template:committee_platform_access_created] …` (with `{{n}}` substituted) and `source: "admin_welcome"`.
+
+**Committee variable.** `{{2}}` is built at send time from *all* of the user's active department memberships (`formatCommittees`: `"A"`, `"A and B"`, `"A, B, and C"`), falling back to the triggering department name when there are none. This avoids any delayed/debounced job: a member added to several committees before the welcome fires sees them all. In the common Add-User flow the welcome fires on the single creation-time membership, so it lists just that one; later additions don't re-welcome (see below), but a manual re-send will list everything the member now belongs to.
+
+**Once per user.** `whatsapp_users.welcomed_at` records the first successful welcome. The automatic add-to-department path welcomes each user only once — adding an already-welcomed user to additional departments returns `already_welcomed: true` and sends nothing. The timestamp is stamped only when at least one channel (email or WhatsApp) actually delivered, so a transient failure doesn't permanently suppress the welcome. The manual "Send welcome" action (`POST /api/admin/users/{id}/welcome`) sets `force: true` to bypass this guard, so an admin can re-send on request (e.g. a member who lost their original link).
 
 ## Daily Digest
 

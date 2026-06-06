@@ -170,9 +170,52 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/DepartmentMembershipRequest" }
       responses:
-        "201": { description: Created membership. }
+        "201":
+          description: >-
+            Created membership. When the request set `send_welcome: true`, the body also includes
+            a `welcome_notification` (WelcomeNotification) describing the email/WhatsApp outcome.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  welcome_notification: { $ref: "#/components/schemas/WelcomeNotification" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { description: User already in this department. }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/users/{id}/welcome:
+    post:
+      tags: [users]
+      summary: (Re)send the onboarding welcome to an existing user.
+      description: >-
+        Sends the welcome email + `committee_platform_access_created` WhatsApp template with a
+        fresh password-setup link, without touching department memberships. Always (re)sends — it
+        forces past the once-per-user guard, so an admin can re-issue a welcome on request. A
+        department is resolved from the user's memberships when not supplied; the user must belong
+        to at least one department.
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                department_id: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Welcome attempted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  welcome_notification: { $ref: "#/components/schemas/WelcomeNotification" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: User not found. }
         "500": { $ref: "#/components/responses/ServerError" }
   /admin/users/{id}/departments/{membershipId}:
     put:
@@ -1452,7 +1495,26 @@ components:
         contact_for_issues: { type: boolean }
         send_welcome:
           type: boolean
-          description: When true, issue a password setup link and send the new-user welcome email/WhatsApp notification.
+          description: >-
+            When true, issue a password setup link and send the new-user welcome notification
+            (email + the `committee_platform_access_created` WhatsApp template). Welcomes each
+            user only once: an already-welcomed user (non-null `welcomed_at`) returns
+            `already_welcomed: true` and nothing is sent. When set, the response includes a
+            `welcome_notification` object (see WelcomeNotification).
+    WelcomeNotification:
+      type: object
+      description: >-
+        Outcome of an onboarding welcome attempt. `already_welcomed` is true when the user had
+        already been welcomed and the automatic path therefore sent nothing (the manual
+        /welcome action forces a re-send and never short-circuits).
+      properties:
+        email: { type: string, enum: [sent, skipped, failed] }
+        whatsapp: { type: string, enum: [sent, skipped, failed] }
+        already_welcomed: { type: boolean }
+        set_password_url: { type: string }
+        errors:
+          type: array
+          items: { type: string }
     BulkCreateUsersRequest:
       type: object
       required: [members]
