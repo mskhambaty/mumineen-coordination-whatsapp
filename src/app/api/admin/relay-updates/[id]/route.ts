@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requireLeadership } from "@/lib/relay-updates/auth";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { reindexRelayUpdatesBestEffort } from "@/lib/relay-updates/index-updates";
 import { validateRelayUpdateInput } from "@/lib/relay-updates/shared";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -11,9 +12,8 @@ export const maxDuration = 60;
 
 // PUT: full-field edit (incl. publish toggle). Body: { user_id, date, title, body, category, link?, cta?, published }
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 

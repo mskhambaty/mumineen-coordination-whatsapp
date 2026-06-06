@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { sendAdminWelcomeNotification, type WelcomeNotificationResult } from "@/lib/admin/onboarding";
-import { requireAdminKey } from "@/lib/api/auth";
+import { isAdminOrLeadership } from "@/lib/admin/access";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 
 const deptRoles = new Set(["member", "pm", "hod"]);
 
@@ -20,9 +21,8 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
   const supabase = getSupabaseAdmin();
@@ -52,9 +52,8 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
   const body = await req.json();

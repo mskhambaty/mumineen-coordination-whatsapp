@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { isAdminOrLeadership } from "@/lib/admin/access";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 
 export const runtime = "nodejs";
 
@@ -16,9 +17,8 @@ type Row = {
 // GET /api/admin/escalations/breakdown — why chats get escalated: counts by category/priority,
 // plus the most recent reasons, aggregated from conversation_sessions.
 export async function GET(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
   // escalation_status defaults to 'none' on every session — real escalations are anything else.
   const { data, error } = await getSupabaseAdmin()
     .from("conversation_sessions")

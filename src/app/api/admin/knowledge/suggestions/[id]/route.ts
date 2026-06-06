@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { isAdminOrLeadership } from "@/lib/admin/access";
 import { saveFaqBucket } from "@/lib/knowledge/faq-buckets";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -17,9 +18,8 @@ type ActionBody = {
 
 // POST: approve (index into the knowledge base) or reject a suggestion.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as ActionBody;

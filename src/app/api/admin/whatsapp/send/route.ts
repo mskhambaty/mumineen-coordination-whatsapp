@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { isAdminOrLeadership } from "@/lib/admin/access";
 import {
   listMessageTemplates,
   sendWhatsAppTemplateComponents,
@@ -9,6 +9,7 @@ import {
 import { str } from "@/lib/registration/normalize";
 import { getSupabaseAdmin, recordOutboundMessage } from "@/lib/supabase/server";
 import { buildSendComponents, describeTemplate, previewBody } from "@/lib/whatsapp/templates";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 
 export const runtime = "nodejs";
 
@@ -51,9 +52,8 @@ async function resolveTo(itsOrPhone: string): Promise<{ phone: string; name: str
 
 // POST /api/admin/whatsapp/send — send a free-text or template message to one recipient.
 export async function POST(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
   const body = (await req.json().catch(() => ({}))) as SendBody;
 
   const kind = str(body.kind);
