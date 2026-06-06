@@ -8,8 +8,11 @@ import {
   LOT_PURPOSES,
   PURPOSE_LABELS,
   SUGGESTED_COLORS,
+  pickAssignable,
   type HouseholdRow,
 } from "@/lib/parking/rollups";
+
+const PAGE_SIZE = 50;
 
 type Lot = {
   id: string;
@@ -281,7 +284,14 @@ export default function ParkingPage() {
   const [search, setSearch] = useState(""); // client-side head-name filter, no refetch
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null); // bulk-assign result message
   const [assignFor, setAssignFor] = useState<string | null>(null); // family_id with open assign menu
+  const [page, setPage] = useState(1);
+  // Bulk "fill lot" flow: selection spans pages and survives search narrowing; it clears
+  // on server-filter changes (the set it was built against changed) and after an assign.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkLotId, setBulkLotId] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
   const headers = useMemo(
@@ -358,7 +368,22 @@ export default function ParkingPage() {
   function applyFilter(patch: Partial<Filters>) {
     const next = { ...filters, ...patch };
     setFilters(next);
+    setPage(1);
+    setSelected(new Set()); // selection was built against the previous filtered set
+    setNotice(null);
     void loadAll(next);
+  }
+
+  function toggleSelected(familyId: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(familyId)) {
+        next.delete(familyId);
+      } else {
+        next.add(familyId);
+      }
+      return next;
+    });
   }
 
   async function assignPass(familyId: string, lotId: string, notes: string) {
@@ -407,6 +432,67 @@ export default function ParkingPage() {
     () => (search ? rows.filter((r) => r.head_name.toLowerCase().includes(search.toLowerCase())) : rows),
     [rows, search],
   );
+
+  // Pagination is purely visual — selection, the capacity meter, and CSV export all
+  // operate on the full filtered set. safePage derives the clamp (e.g. when a search
+  // shrinks the set below the current page) instead of correcting state in an effect.
+  const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paged = useMemo(
+    () => visible.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [visible, safePage],
+  );
+
+  // Bulk flow derived state. effectiveNew counts only selections that would consume a
+  // space in the chosen lot (already-in-lot households get skipped server-side too).
+  const bulkLot = lots.find((l) => l.id === bulkLotId) ?? null;
+  const bulkRemaining = bulkLot ? Math.max(0, bulkLot.capacity - bulkLot.assigned) : 0;
+  const rowByFamily = useMemo(() => new Map(rows.map((r) => [r.family_id, r])), [rows]);
+  const effectiveNew = useMemo(() => {
+    if (!bulkLot) return 0;
+    let n = 0;
+    for (const id of selected) {
+      const row = rowByFamily.get(id);
+      if (row && !row.passes.some((p) => p.lot_id === bulkLot.id)) n++;
+    }
+    return n;
+  }, [selected, rowByFamily, bulkLot]);
+  const overBy = Math.max(0, effectiveNew - bulkRemaining);
+
+  async function bulkAssign() {
+    if (!bulkLot || selected.size === 0) return;
+    if (
+      overBy > 0 &&
+      !window.confirm(
+        `This assigns ${overBy} more pass${overBy === 1 ? "" : "es"} than ${bulkLot.name} has remaining. Proceed?`,
+      )
+    ) {
+      return;
+    }
+    setBulkBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/parking/passes/bulk", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ lot_id: bulkLot.id, family_ids: [...selected] }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? "Bulk assign failed");
+        return;
+      }
+      setNotice(
+        `Assigned ${json.assigned} pass${json.assigned === 1 ? "" : "es"} to ${bulkLot.name}` +
+          (json.skipped > 0 ? `; skipped ${json.skipped} already in this lot.` : "."),
+      );
+      setSelected(new Set());
+      await loadAll(filters);
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   // One CSV row per pass across the currently visible households.
   function exportCsv() {
@@ -459,6 +545,11 @@ export default function ParkingPage() {
       {error && (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-900/20 dark:text-red-300">
           {error}
+        </div>
+      )}
+      {notice && (
+        <div className="mb-4 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700 dark:border-green-900 dark:bg-green-900/20 dark:text-green-300">
+          {notice}
         </div>
       )}
 
@@ -548,7 +639,10 @@ export default function ParkingPage() {
         <input
           type="search"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
           placeholder="Search household head…"
           className="min-w-44 rounded-md border border-gray-300 bg-white px-2 py-1 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
         />
@@ -557,11 +651,75 @@ export default function ParkingPage() {
         </span>
       </div>
 
+      {/* Bulk "fill lot" bar */}
+      {canManage && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800/50">
+          <span className="font-semibold text-gray-700 dark:text-gray-200">Bulk assign</span>
+          <select
+            value={bulkLotId}
+            onChange={(e) => setBulkLotId(e.target.value)}
+            className="rounded-md border border-gray-300 bg-white px-2 py-1 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+          >
+            <option value="">Choose lot…</option>
+            {lots.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name} — {Math.max(0, l.capacity - l.assigned)} of {l.capacity} remaining
+              </option>
+            ))}
+          </select>
+          {bulkLot && (
+            <>
+              <button
+                type="button"
+                onClick={() => setSelected(new Set(pickAssignable(visible, bulkLot.id, bulkRemaining)))}
+                className="rounded-md border border-blue-400 px-2.5 py-1 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+              >
+                Select up to remaining ({bulkRemaining})
+              </button>
+              <span
+                className={
+                  overBy > 0
+                    ? "font-semibold text-red-600 dark:text-red-400"
+                    : effectiveNew > 0 && effectiveNew === bulkRemaining
+                      ? "font-semibold text-amber-600 dark:text-amber-400"
+                      : "text-gray-500 dark:text-gray-400"
+                }
+              >
+                {effectiveNew} new / {bulkRemaining} remaining
+                {overBy > 0 ? ` — ${overBy} over` : ""}
+              </span>
+              {selected.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelected(new Set())}
+                  className="text-gray-400 hover:underline"
+                >
+                  Clear
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void bulkAssign()}
+                disabled={bulkBusy || selected.size === 0}
+                className={`ml-auto rounded-md px-3 py-1.5 font-medium text-white disabled:opacity-50 ${
+                  overBy > 0 ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"
+                }`}
+              >
+                {bulkBusy
+                  ? "Assigning…"
+                  : `Assign ${selected.size} → ${bulkLot.name}${overBy > 0 ? ` (${overBy} over capacity)` : ""}`}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Household table */}
       <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
         <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-800">
             <tr className="text-left text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              {canManage && <th className="w-8 px-3 py-2" aria-label="Select" />}
               <th className="px-3 py-2">Household</th>
               <th className="px-3 py-2">Type</th>
               <th className="px-3 py-2">Phone</th>
@@ -571,8 +729,18 @@ export default function ParkingPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 bg-white dark:divide-gray-800 dark:bg-gray-900">
-            {visible.map((r) => (
+            {paged.map((r) => (
               <tr key={r.family_id}>
+                {canManage && (
+                  <td className="px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(r.family_id)}
+                      onChange={() => toggleSelected(r.family_id)}
+                      aria-label={`Select ${r.head_name}`}
+                    />
+                  </td>
+                )}
                 <td className="px-3 py-2">
                   <div className="font-medium text-gray-900 dark:text-white">{r.head_name}</div>
                   <div className="text-[11px] text-gray-400">
@@ -645,7 +813,7 @@ export default function ParkingPage() {
             ))}
             {!loading && visible.length === 0 && (
               <tr>
-                <td colSpan={canManage ? 6 : 5} className="px-3 py-8 text-center text-sm text-gray-400">
+                <td colSpan={canManage ? 7 : 5} className="px-3 py-8 text-center text-sm text-gray-400">
                   No households match the current filters.
                 </td>
               </tr>
@@ -653,6 +821,31 @@ export default function ParkingPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination (visual only — selection and export span all pages) */}
+      {totalPages > 1 && (
+        <div className="mt-3 flex items-center justify-center gap-3 text-xs text-gray-600 dark:text-gray-300">
+          <button
+            type="button"
+            disabled={safePage === 1}
+            onClick={() => setPage(safePage - 1)}
+            className="rounded-md border border-gray-300 px-2.5 py-1 disabled:opacity-40 dark:border-gray-600"
+          >
+            Previous
+          </button>
+          <span>
+            Page {safePage} of {totalPages}
+          </span>
+          <button
+            type="button"
+            disabled={safePage === totalPages}
+            onClick={() => setPage(safePage + 1)}
+            className="rounded-md border border-gray-300 px-2.5 py-1 disabled:opacity-40 dark:border-gray-600"
+          >
+            Next
+          </button>
+        </div>
+      )}
     </div>
   );
 }

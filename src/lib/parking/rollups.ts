@@ -92,6 +92,18 @@ export function buildHouseholdRow(
   };
 }
 
+// Picks the first `count` households (in display order) that don't already hold a pass
+// in the given lot — powers the capacity-aware "Select up to remaining" bulk action.
+export function pickAssignable(rows: HouseholdRow[], lotId: string, count: number): string[] {
+  const picked: string[] = [];
+  for (const row of rows) {
+    if (picked.length >= count) break;
+    if (row.passes.some((p) => p.lot_id === lotId)) continue;
+    picked.push(row.family_id);
+  }
+  return picked;
+}
+
 export type HouseholdFilters = {
   eligible?: boolean;
   local_mehman?: string; // "Local" | "Mehman" | "" (all)

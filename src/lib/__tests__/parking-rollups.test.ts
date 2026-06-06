@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildHouseholdRow,
   matchesFilters,
+  pickAssignable,
   type HouseholdRow,
   type RollupFamily,
   type RollupMember,
@@ -153,5 +154,55 @@ describe("matchesFilters", () => {
     expect(matchesFilters(row(), { kids_under_7: true })).toBe(false);
     expect(matchesFilters(row(), { local_mehman: "Mehman" })).toBe(false);
     expect(matchesFilters(row(), { local_mehman: "Local" })).toBe(true);
+  });
+});
+
+describe("pickAssignable", () => {
+  const masjidPass = { id: "p1", lot_id: "lot-masjid", lot_name: "Masjid", lot_color: "Blue", notes: null };
+
+  function row(familyId: string, passes: HouseholdRow["passes"] = []): HouseholdRow {
+    return {
+      family_id: familyId,
+      hof_its: familyId,
+      head_name: familyId,
+      phone: null,
+      local_mehman: "Local",
+      transport_mode: null,
+      member_count: 1,
+      eligible: true,
+      rahat_count: 0,
+      senior_count: 0,
+      all_65_plus: false,
+      categories: [],
+      kids_under_7: 0,
+      passes,
+    };
+  }
+
+  it("picks the first N households in display order", () => {
+    const rows = [row("f1"), row("f2"), row("f3")];
+    expect(pickAssignable(rows, "lot-masjid", 2)).toEqual(["f1", "f2"]);
+  });
+
+  it("skips households already holding a pass in that lot", () => {
+    const rows = [row("f1", [masjidPass]), row("f2"), row("f3")];
+    expect(pickAssignable(rows, "lot-masjid", 2)).toEqual(["f2", "f3"]);
+  });
+
+  it("does not skip households whose passes are in other lots", () => {
+    const otherPass = { ...masjidPass, lot_id: "lot-buddha", lot_name: "Buddha" };
+    const rows = [row("f1", [otherPass]), row("f2")];
+    expect(pickAssignable(rows, "lot-masjid", 2)).toEqual(["f1", "f2"]);
+  });
+
+  it("returns fewer than N when not enough assignable households exist", () => {
+    const rows = [row("f1", [masjidPass]), row("f2")];
+    expect(pickAssignable(rows, "lot-masjid", 5)).toEqual(["f2"]);
+  });
+
+  it("returns empty for a zero or negative count", () => {
+    const rows = [row("f1"), row("f2")];
+    expect(pickAssignable(rows, "lot-masjid", 0)).toEqual([]);
+    expect(pickAssignable(rows, "lot-masjid", -3)).toEqual([]);
   });
 });
