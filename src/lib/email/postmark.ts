@@ -108,6 +108,60 @@ export async function sendTaskNotificationEmail(
   });
 }
 
+async function sendRawEmail(to: string, subject: string, htmlBody: string, textBody: string): Promise<void> {
+  const res = await fetch(`${POSTMARK_API}/email`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-Postmark-Server-Token": requireEnv("POSTMARK_API_TOKEN"),
+    },
+    body: JSON.stringify({
+      MessageStream: "outbound",
+      From: requireEnv("POSTMARK_FROM_EMAIL"),
+      To: to,
+      Subject: subject,
+      HtmlBody: htmlBody,
+      TextBody: textBody,
+    }),
+  });
+  if (!res.ok) {
+    const errorBody = await res.text();
+    throw new Error(`Postmark error ${res.status}: ${errorBody}`);
+  }
+}
+
+export async function sendRegistrationOtpEmail(
+  to: string,
+  recipientName: string,
+  otp: string,
+  expiryMinutes: number,
+): Promise<void> {
+  const subject = "Your registration edit code — Ashara Mubaraka 1448H Chicago";
+  const htmlBody = `
+<p>Salaamun Alaikum ${recipientName},</p>
+<p>Your one-time code to edit your Ashara Mubaraka 1448H registration is:</p>
+<p style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#0a3d2e;">${otp}</p>
+<p>This code expires in ${expiryMinutes} minutes.</p>
+<p>If you did not request this, please ignore this email or contact our helpline on WhatsApp at <a href="https://wa.me/16308190250">+1 630 819 0250</a>.</p>
+<p>Anjuman e Saifee Chicago</p>
+`.trim();
+  const textBody = [
+    `Salaamun Alaikum ${recipientName},`,
+    ``,
+    `Your one-time code to edit your Ashara Mubaraka 1448H registration is:`,
+    ``,
+    otp,
+    ``,
+    `This code expires in ${expiryMinutes} minutes.`,
+    ``,
+    `If you did not request this, please contact our helpline on WhatsApp at +1 630 819 0250.`,
+    ``,
+    `Anjuman e Saifee Chicago`,
+  ].join("\n");
+  await sendRawEmail(to, subject, htmlBody, textBody);
+}
+
 export async function sendEscalationEmail(to: string, model: Record<string, unknown>) {
   const templateAlias = process.env.POSTMARK_ESCALATION_REQUEST_TEMPLATE ?? "escalation-request";
   return sendTemplateEmail({

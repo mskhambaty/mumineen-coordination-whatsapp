@@ -1170,6 +1170,155 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /register:
+    get:
+      tags: [registration]
+      summary: Load a family's registration data by ITS number.
+      description: Public. Accepts any family member's ITS number. Returns locked status when already submitted/confirmed, or full roster data when pending.
+      parameters:
+        - in: query
+          name: hof
+          required: true
+          schema: { type: string }
+          description: ITS number of any family member.
+      responses:
+        "200":
+          description: Pending family data or locked status.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    required: [locked, status]
+                    properties:
+                      locked: { type: boolean, enum: [true] }
+                      status: { type: string, enum: [submitted, confirmed] }
+                  - type: object
+                    required: [family, members, departments, is_local]
+                    properties:
+                      family: { type: object }
+                      members: { type: array, items: { type: object } }
+                      departments: { type: array, items: { type: object } }
+                      is_local: { type: boolean }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [registration]
+      summary: Submit or edit a family registration.
+      description: Public. First submission sets status to submitted. Subsequent edits require a valid edit_token from /register/otp/verify.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hof_its, members]
+              properties:
+                hof_its: { type: string }
+                submitted_by_its: { type: string, nullable: true }
+                edit_token: { type: string, format: uuid, description: Required for editing an already-submitted registration. Obtained from /register/otp/verify. }
+                members: { type: array, items: { type: object } }
+                accommodation: { type: object }
+                transport: { type: object }
+      responses:
+        "200":
+          description: Registration saved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, members_updated]
+                properties:
+                  ok: { type: boolean }
+                  members_updated: { type: integer }
+                  edited: { type: boolean }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Registration already submitted and no valid edit_token provided, or edit_token expired.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error, locked]
+                properties:
+                  error: { type: string }
+                  locked: { type: boolean }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /register/otp:
+    post:
+      tags: [registration]
+      summary: Request an OTP to edit a submitted registration.
+      description: Public. Sends a 6-digit code to the head of family's email (or eldest attending member if HOF is not in the roster). Rate-limited to one request per 2 minutes per family.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [its]
+              properties:
+                its: { type: string, description: ITS number of any family member. }
+      responses:
+        "200":
+          description: OTP sent.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [masked_email]
+                properties:
+                  masked_email: { type: string, description: Partially masked recipient email for display (e.g. mu***@gmail.com). }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: No email found for this family.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: Rate limit exceeded. Try again in 2 minutes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /register/otp/verify:
+    post:
+      tags: [registration]
+      summary: Verify OTP and obtain an edit token.
+      description: Public. Validates the 6-digit OTP. On success returns an edit_token (valid 30 min) plus prefilled family data for the edit form.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [its, otp]
+              properties:
+                its: { type: string }
+                otp: { type: string, pattern: '^\d{6}$' }
+      responses:
+        "200":
+          description: OTP verified. Edit token issued.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [edit_token, family, members, departments, is_local]
+                properties:
+                  edit_token: { type: string, format: uuid }
+                  family: { type: object }
+                  members: { type: array, items: { type: object } }
+                  departments: { type: array, items: { type: object } }
+                  is_local: { type: boolean }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401":
+          description: Invalid or expired OTP.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
 components:
   securitySchemes:
     whatsappPhone:
