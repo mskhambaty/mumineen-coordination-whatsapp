@@ -1,5 +1,7 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
+import { canAccessInbox } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -24,12 +26,10 @@ async function activityMarker(supabase: ReturnType<typeof getSupabaseAdmin>): Pr
 }
 
 export async function GET(req: NextRequest) {
-  // EventSource cannot send custom headers, so the admin key arrives as a query
-  // param (same value already exposed to the client as NEXT_PUBLIC_ADMIN_KEY).
-  const key = req.nextUrl.searchParams.get("key");
-  if (!process.env.ADMIN_API_KEY || key !== process.env.ADMIN_API_KEY) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+  // EventSource can't send custom headers, but the browser attaches the
+  // httpOnly session cookie automatically on same-origin requests.
+  const auth = await requirePortalCaller(req, canAccessInbox);
+  if (auth instanceof NextResponse) return auth;
 
   const supabase = getSupabaseAdmin();
   const encoder = new TextEncoder();

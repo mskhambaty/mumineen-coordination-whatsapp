@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { canAccessInbox } from "@/lib/admin/access";
 import { countUnreadInbound, groupRowsByPhoneChronologically } from "@/lib/admin/conversations";
-import { requireAdminKey } from "@/lib/api/auth";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 type MessageRow = {
@@ -56,9 +57,8 @@ type SessionRow = {
 };
 
 export async function GET(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canAccessInbox);
+  if (auth instanceof NextResponse) return auth;
 
   const supabase = getSupabaseAdmin();
   const selectedPhone = req.nextUrl.searchParams.get("phone");

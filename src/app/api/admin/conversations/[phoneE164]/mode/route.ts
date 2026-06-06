@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { canAccessInbox } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 type RouteContext = {
@@ -8,9 +9,8 @@ type RouteContext = {
 };
 
 export async function PUT(req: NextRequest, { params }: RouteContext) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canAccessInbox);
+  if (auth instanceof NextResponse) return auth;
 
   const { phoneE164 } = await params;
   const phone = decodeURIComponent(phoneE164);
