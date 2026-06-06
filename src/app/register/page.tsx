@@ -558,9 +558,9 @@ export default function RegisterPage() {
             {/* Members */}
             <section className={cardClass}>
               <h2 className={sectionHeading}>Family members</h2>
-              <p className="mt-1 text-sm text-emerald-950/60">
-                {editToken ? "Review and update your family's details below." : "This is a one-time submission."}
-              </p>
+              {editToken && (
+                <p className="mt-1 text-sm text-emerald-950/60">Review and update your family&apos;s details below.</p>
+              )}
               <div className="mt-4 space-y-5">
                 {members.map((m, idx) => (
                   <div key={m.its} className="rounded-xl border border-emerald-950/10 bg-white/70 p-4">
