@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireEnv } from "@/lib/env";
 import { sendTaskNotificationEmail, type TaskNotificationEmailTask } from "@/lib/email/postmark";
+import { listPendingTranslations } from "@/lib/knowledge/religious-topics";
 import { getSupabaseAdmin, recordToolAudit } from "@/lib/supabase/server";
 import { priorityWeight } from "@/lib/tasks/types";
 
@@ -91,15 +92,19 @@ async function runDailyDigest(req: Request) {
       }
     }
 
+    // Ashara translation reminders: email admins the Lisan ud Dawat items still awaiting
+    // an English translation. Naturally a no-op outside Ashara (no pending items).
+    const translationDigest = await sendTranslationDigest((users ?? []) as DigestUser[]);
+
     await recordToolAudit({
       phoneE164: "cron",
       toolName: "daily_digest",
       arguments: { users_considered: users?.length ?? 0 },
       allowed: true,
-      resultSummary: JSON.stringify(result),
+      resultSummary: JSON.stringify({ ...result, translationDigest }),
     });
 
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json({ ok: true, ...result, translationDigest });
   } catch (err) {
     await recordToolAudit({
       phoneE164: "cron",
@@ -114,6 +119,34 @@ async function runDailyDigest(req: Request) {
       { status: 500 },
     );
   }
+}
+
+// Email admins/leadership the list of Ashara Lisan items pending English translation,
+// reusing the task-notification template (each item rendered as a "task" row).
+async function sendTranslationDigest(users: DigestUser[]): Promise<{ items: number; sent: number }> {
+  const pending = await listPendingTranslations(process.env.ASHARA_YEAR || undefined);
+  if (pending.length === 0) return { items: 0, sent: 0 };
+
+  const admins = users.filter((u) => u.role === "admin" || u.global_role === "leadership_admin");
+  const items: TaskNotificationEmailTask[] = pending.map((p) => ({
+    title: p.title,
+    status: "Needs translation",
+    priority: "high",
+    department: "Ashara content",
+    due_date: undefined,
+  }));
+  const boardUrl = `${requireEnv("NEXT_PUBLIC_APP_URL")}/admin/ashara`;
+
+  let sent = 0;
+  for (const u of admins) {
+    try {
+      await sendTaskNotificationEmail(u.email, u.display_name ?? "there", items, boardUrl);
+      sent++;
+    } catch {
+      // best-effort; failures are surfaced via the audit summary only
+    }
+  }
+  return { items: pending.length, sent };
 }
 
 async function getDigestTasksForUser(user: DigestUser): Promise<DigestTaskRow[]> {
