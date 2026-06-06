@@ -451,15 +451,8 @@ export default function RegisterPage() {
               {wasEdit ? "Registration updated" : "Registration received"}
             </h2>
             <p className="mt-3 text-sm text-emerald-950/70">
-              {wasEdit
-                ? "Jazakallahu Khairan. Your registration has been updated successfully."
-                : "Jazakallahu Khairan. Your family’s details have been recorded."}
-              {!wasEdit && (
-                <>
-                  {" "}To make any changes, please message our helpline on WhatsApp at{" "}
-                  <a href="https://wa.me/16308190250" className="font-semibold text-emerald-800 underline">+1 630 819 0250</a>.
-                </>
-              )}
+              Jazakallahu Khairan. Your family&apos;s details have been {wasEdit ? "updated" : "recorded"}.
+              {" "}To make changes, return to this page and enter your ITS number again.
             </p>
           </div>
         ) : locked && (otpPhase === "pending" || otpPhase === "verifying") ? (
