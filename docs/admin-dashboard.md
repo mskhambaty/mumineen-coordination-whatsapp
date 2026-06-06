@@ -134,7 +134,7 @@ Two tabs, each feeding a **separate vector store** so logistics and religious an
 The dashboard uses httpOnly session-cookie auth:
 
 1. User submits email + password to `POST /api/admin/auth`.
-2. Server verifies credentials and calls `get_user_permissions_by_id` to check role and active status.
+2. Server verifies the password hash and checks portal access via `buildPortalSessionUser` (src/lib/admin/session.ts).
 3. On success, the server sets a `portal_session` httpOnly cookie (HMAC-SHA256-signed, `SameSite=Lax`, `Secure` in production, 7-day TTL). The response body returns `{ user }` only — no token is sent to the client.
 4. Every subsequent admin API request is authenticated by `resolveCallerFromSession` (src/lib/api/auth.ts), which verifies the cookie signature and calls `get_user_permissions_by_id` per request — so role changes and deactivations take effect immediately without requiring a re-login.
 5. Route-level authorization is enforced by `requirePortalCaller` (src/lib/api/portal-auth.ts) using the same predicates as the page gates (src/lib/admin/access.ts): returns 401 for invalid/missing session, 403 for predicate failure, 500 for infra errors.
