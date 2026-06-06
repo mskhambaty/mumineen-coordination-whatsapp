@@ -1,0 +1,157 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  buildHouseholdRow,
+  matchesFilters,
+  type HouseholdRow,
+  type RollupFamily,
+  type RollupMember,
+} from "@/lib/parking/rollups";
+
+const family: RollupFamily = { id: "f1", hof_its: "10000001", transport_mode: null };
+
+function member(overrides: Partial<RollupMember> = {}): RollupMember {
+  return {
+    hof_its: "10000001",
+    is_head: false,
+    full_name: "Test Member",
+    whatsapp_e164: null,
+    local_mehman: "Local",
+    age: 40,
+    category: null,
+    rahat_seating: false,
+    wheelchair: false,
+    ...overrides,
+  };
+}
+
+describe("buildHouseholdRow", () => {
+  it("uses the head for name, phone, and local/mehman", () => {
+    const row = buildHouseholdRow(family, [
+      member({ full_name: "Spouse", whatsapp_e164: "+1555000222" }),
+      member({ is_head: true, full_name: "Head Name", whatsapp_e164: "+1555000111" }),
+    ], []);
+    expect(row.head_name).toBe("Head Name");
+    expect(row.phone).toBe("+1555000111");
+    expect(row.local_mehman).toBe("Local");
+  });
+
+  it("falls back to any member's phone when the head has none", () => {
+    const row = buildHouseholdRow(family, [
+      member({ is_head: true, whatsapp_e164: null }),
+      member({ whatsapp_e164: "+1555000333" }),
+    ], []);
+    expect(row.phone).toBe("+1555000333");
+  });
+
+  it("marks local households eligible regardless of transport mode", () => {
+    const row = buildHouseholdRow(family, [member({ is_head: true, local_mehman: "Local" })], []);
+    expect(row.eligible).toBe(true);
+  });
+
+  it("marks mehman households eligible only with a rental car", () => {
+    const mehman = member({ is_head: true, local_mehman: "Mehman" });
+    expect(buildHouseholdRow({ ...family, transport_mode: "rental" }, [mehman], []).eligible).toBe(true);
+    expect(buildHouseholdRow({ ...family, transport_mode: "rideshare" }, [mehman], []).eligible).toBe(false);
+    expect(buildHouseholdRow(family, [mehman], []).eligible).toBe(false);
+  });
+
+  it("counts rahat members (rahat_seating or wheelchair) and seniors separately", () => {
+    const row = buildHouseholdRow(family, [
+      member({ is_head: true, rahat_seating: true }),
+      member({ wheelchair: true }),
+      member({ age: 70 }),
+    ], []);
+    expect(row.rahat_count).toBe(2);
+    expect(row.senior_count).toBe(1);
+  });
+
+  it("flags all_65_plus only when every member is 65+, treating null ages as under", () => {
+    expect(buildHouseholdRow(family, [member({ is_head: true, age: 66 }), member({ age: 70 })], []).all_65_plus).toBe(true);
+    expect(buildHouseholdRow(family, [member({ is_head: true, age: 66 }), member({ age: 40 })], []).all_65_plus).toBe(false);
+    expect(buildHouseholdRow(family, [member({ is_head: true, age: 66 }), member({ age: null })], []).all_65_plus).toBe(false);
+  });
+
+  it("counts kids under 7 and ignores null ages", () => {
+    const row = buildHouseholdRow(family, [
+      member({ is_head: true }),
+      member({ age: 3 }),
+      member({ age: 6 }),
+      member({ age: 7 }),
+      member({ age: null }),
+    ], []);
+    expect(row.kids_under_7).toBe(2);
+  });
+
+  it("collects distinct non-null categories", () => {
+    const row = buildHouseholdRow(family, [
+      member({ is_head: true, category: "VIP" }),
+      member({ category: "VIP" }),
+      member({ category: null }),
+    ], []);
+    expect(row.categories).toEqual(["VIP"]);
+  });
+});
+
+describe("matchesFilters", () => {
+  function row(overrides: Partial<HouseholdRow> = {}): HouseholdRow {
+    return {
+      family_id: "f1",
+      hof_its: "10000001",
+      head_name: "Head Name",
+      phone: null,
+      local_mehman: "Local",
+      transport_mode: null,
+      member_count: 2,
+      eligible: true,
+      rahat_count: 0,
+      senior_count: 0,
+      all_65_plus: false,
+      categories: [],
+      kids_under_7: 0,
+      passes: [],
+      ...overrides,
+    };
+  }
+
+  it("eligible filter drops ineligible rows", () => {
+    expect(matchesFilters(row({ eligible: false }), { eligible: true })).toBe(false);
+    expect(matchesFilters(row({ eligible: false }), {})).toBe(true);
+  });
+
+  it("rahat_senior passes when the household has a rahat member OR a senior", () => {
+    expect(matchesFilters(row({ rahat_count: 1 }), { rahat_senior: true })).toBe(true);
+    expect(matchesFilters(row({ senior_count: 1 }), { rahat_senior: true })).toBe(true);
+    expect(matchesFilters(row(), { rahat_senior: true })).toBe(false);
+  });
+
+  it("all_65 requires the whole-household flag", () => {
+    expect(matchesFilters(row({ all_65_plus: true }), { all_65: true })).toBe(true);
+    expect(matchesFilters(row({ senior_count: 1 }), { all_65: true })).toBe(false);
+  });
+
+  it("category filter matches any overlap", () => {
+    expect(matchesFilters(row({ categories: ["VIP"] }), { categories: ["VIP", "Sahebo"] })).toBe(true);
+    expect(matchesFilters(row(), { categories: ["VIP"] })).toBe(false);
+    expect(matchesFilters(row(), { categories: [] })).toBe(true);
+  });
+
+  it("assigned/unassigned filter checks pass count", () => {
+    const pass = { id: "p1", lot_id: "l1", lot_name: "Masjid", lot_color: "Blue", notes: null };
+    expect(matchesFilters(row({ passes: [pass] }), { assigned: "assigned" })).toBe(true);
+    expect(matchesFilters(row({ passes: [pass] }), { assigned: "unassigned" })).toBe(false);
+    expect(matchesFilters(row(), { assigned: "unassigned" })).toBe(true);
+  });
+
+  it("name search is case-insensitive substring on the head name", () => {
+    expect(matchesFilters(row(), { q: "head" })).toBe(true);
+    expect(matchesFilters(row(), { q: "xyz" })).toBe(false);
+  });
+
+  it("kids_under_7 and local_mehman filters", () => {
+    expect(matchesFilters(row({ kids_under_7: 1 }), { kids_under_7: true })).toBe(true);
+    expect(matchesFilters(row(), { kids_under_7: true })).toBe(false);
+    expect(matchesFilters(row(), { local_mehman: "Mehman" })).toBe(false);
+    expect(matchesFilters(row(), { local_mehman: "Local" })).toBe(true);
+  });
+});
