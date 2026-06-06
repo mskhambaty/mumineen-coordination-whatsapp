@@ -96,6 +96,30 @@ export function buildHouseholdRow(
   };
 }
 
+// Does this household fit a lot's designated purposes? Used by the bulk bar to warn
+// (never block) when selected households don't match the target lot's designation.
+// A household qualifies if it matches ANY one of the lot's purposes. early_khidmat
+// isn't data-derivable ("demonstrated need to be early" lives in the team's heads),
+// and unknown/empty purposes accept everyone — the warning only fires on a clear miss.
+export function matchesLotPurposes(row: HouseholdRow, purposes: string[]): boolean {
+  if (purposes.length === 0) return true;
+  return purposes.some((p) => {
+    switch (p) {
+      case "vip_incapacitated":
+        return row.categories.length > 0 || row.rahat_count > 0;
+      case "foreign_mehman":
+        return row.local_mehman === "Mehman";
+      case "all_65_plus":
+        return row.all_65_plus;
+      case "chicago":
+        return row.local_mehman === "Local";
+      default:
+        // early_khidmat and any future purpose: no data check, everyone qualifies.
+        return true;
+    }
+  });
+}
+
 // Picks the first `count` households (in display order) that don't already hold a pass
 // in the given lot — powers the capacity-aware "Select up to remaining" bulk action.
 export function pickAssignable(rows: HouseholdRow[], lotId: string, count: number): string[] {

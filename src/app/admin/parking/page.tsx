@@ -8,6 +8,7 @@ import {
   LOT_PURPOSES,
   PURPOSE_LABELS,
   SUGGESTED_COLORS,
+  matchesLotPurposes,
   pickAssignable,
   type HouseholdRow,
 } from "@/lib/parking/rollups";
@@ -497,6 +498,18 @@ export default function ParkingPage() {
   }, [selected, rowByFamily, bulkLot]);
   const overBy = Math.max(0, effectiveNew - bulkRemaining);
 
+  // Selected households that don't fit the target lot's designated purposes —
+  // surfaced as a warning in the bulk bar, never a block.
+  const unqualified = useMemo(() => {
+    if (!bulkLot || bulkLot.purposes.length === 0) return 0;
+    let n = 0;
+    for (const id of selected) {
+      const row = rowByFamily.get(id);
+      if (row && !matchesLotPurposes(row, bulkLot.purposes)) n++;
+    }
+    return n;
+  }, [selected, rowByFamily, bulkLot]);
+
   async function bulkAssign() {
     if (!bulkLot || selected.size === 0) return;
     if (
@@ -718,6 +731,12 @@ export default function ParkingPage() {
                 >
                   Clear
                 </button>
+              )}
+              {unqualified > 0 && (
+                <span className="font-medium text-amber-600 dark:text-amber-400">
+                  ⚠ {unqualified} of {selected.size} selected {unqualified === 1 ? "doesn't" : "don't"} match this
+                  lot&apos;s purposes ({bulkLot.purposes.map((p) => PURPOSE_LABELS[p] ?? p).join(", ")})
+                </span>
               )}
               <button
                 type="button"

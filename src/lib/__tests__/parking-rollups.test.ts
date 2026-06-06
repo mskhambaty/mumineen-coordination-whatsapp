@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildHouseholdRow,
   matchesFilters,
+  matchesLotPurposes,
   pickAssignable,
   type HouseholdRow,
   type RollupFamily,
@@ -196,6 +197,65 @@ describe("matchesFilters", () => {
     expect(matchesFilters(row(), { kids_under_7: true })).toBe(false);
     expect(matchesFilters(row(), { local_mehman: "Mehman" })).toBe(false);
     expect(matchesFilters(row(), { local_mehman: "Local" })).toBe(true);
+  });
+});
+
+describe("matchesLotPurposes", () => {
+  function row(overrides: Partial<HouseholdRow> = {}): HouseholdRow {
+    return {
+      family_id: "f1",
+      hof_its: "10000001",
+      head_name: "Head Name",
+      phone: null,
+      local_mehman: "Local",
+      transport_mode: null,
+      member_count: 2,
+      eligible: true,
+      rahat_count: 0,
+      wheelchair_count: 0,
+      senior_count: 0,
+      all_65_plus: false,
+      all_rahat: false,
+      categories: [],
+      kids_under_7: 0,
+      passes: [],
+      ...overrides,
+    };
+  }
+
+  it("vip_incapacitated matches a category value or any rahat member", () => {
+    expect(matchesLotPurposes(row({ categories: ["VIP"] }), ["vip_incapacitated"])).toBe(true);
+    expect(matchesLotPurposes(row({ rahat_count: 1 }), ["vip_incapacitated"])).toBe(true);
+    expect(matchesLotPurposes(row(), ["vip_incapacitated"])).toBe(false);
+  });
+
+  it("foreign_mehman matches mehman households regardless of transport", () => {
+    expect(matchesLotPurposes(row({ local_mehman: "Mehman" }), ["foreign_mehman"])).toBe(true);
+    expect(matchesLotPurposes(row({ local_mehman: "Local" }), ["foreign_mehman"])).toBe(false);
+  });
+
+  it("all_65_plus matches the whole-household senior flag", () => {
+    expect(matchesLotPurposes(row({ all_65_plus: true }), ["all_65_plus"])).toBe(true);
+    expect(matchesLotPurposes(row({ senior_count: 1 }), ["all_65_plus"])).toBe(false);
+  });
+
+  it("chicago matches local households", () => {
+    expect(matchesLotPurposes(row({ local_mehman: "Local" }), ["chicago"])).toBe(true);
+    expect(matchesLotPurposes(row({ local_mehman: "Mehman" }), ["chicago"])).toBe(false);
+  });
+
+  it("early_khidmat is not data-derivable, so everyone qualifies", () => {
+    expect(matchesLotPurposes(row(), ["early_khidmat"])).toBe(true);
+  });
+
+  it("a household qualifies when it matches ANY of the lot's purposes", () => {
+    expect(matchesLotPurposes(row({ local_mehman: "Mehman" }), ["chicago", "foreign_mehman"])).toBe(true);
+    expect(matchesLotPurposes(row({ local_mehman: "Mehman" }), ["chicago", "all_65_plus"])).toBe(false);
+  });
+
+  it("a lot with no purposes (or an unknown purpose) accepts everyone", () => {
+    expect(matchesLotPurposes(row(), [])).toBe(true);
+    expect(matchesLotPurposes(row(), ["something_new"])).toBe(true);
   });
 });
 
