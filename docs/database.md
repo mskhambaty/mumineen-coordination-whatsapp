@@ -186,6 +186,8 @@ and religious uploads (`page_url = 'religious://doc/<id>'`).
 | `content` | text | Chunk text |
 | `embedding` | vector(1536) | OpenAI `text-embedding-3-small` |
 | `source_type` | text | `topic_block` \| `uploaded_doc` |
+| `source_url` | text | Citation link, copied from the topic on index (nullable) |
+| `source_label` | text | Optional citation label (nullable) |
 | `indexed_at` | timestamptz | Auto |
 | `is_current` | boolean | Default true |
 
@@ -205,6 +207,8 @@ Guardrails / scope control).
 | `content` | text | Editable Q&A text (entries separated by blank lines) |
 | `chunk_count` | integer | Vectorized chunks from the last save |
 | `sort_order` | integer | Display order |
+| `source_url` | text | Source link the agent cites (e.g. the reflection/tazyeen blog URL); set in the editor (nullable) |
+| `source_label` | text | Optional source label (nullable) |
 | `updated_by` | text | Who last saved (nullable) |
 | `updated_at` | timestamptz | Auto |
 

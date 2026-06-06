@@ -14,12 +14,21 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { id } = await params;
-  const body = (await req.json().catch(() => ({}))) as { content?: unknown; updated_by?: unknown };
+  const body = (await req.json().catch(() => ({}))) as {
+    content?: unknown; updated_by?: unknown; source_url?: unknown; source_label?: unknown;
+  };
   const content = typeof body.content === "string" ? body.content : "";
   const updatedBy = typeof body.updated_by === "string" ? body.updated_by.slice(0, 200) : null;
+  const source =
+    body.source_url !== undefined || body.source_label !== undefined
+      ? {
+          sourceUrl: typeof body.source_url === "string" ? body.source_url.trim() : null,
+          sourceLabel: typeof body.source_label === "string" ? body.source_label.trim() : null,
+        }
+      : undefined;
 
   try {
-    const result = await saveReligiousTopic(id, content, updatedBy);
+    const result = await saveReligiousTopic(id, content, updatedBy, source);
     return NextResponse.json({ id, ...result });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Failed to save" }, { status: 500 });

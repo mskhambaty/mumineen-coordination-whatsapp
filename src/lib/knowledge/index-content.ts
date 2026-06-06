@@ -98,11 +98,14 @@ export function religiousPageUrl(kind: "topic" | "doc", id: string): string {
 
 // Embed chunks and (re)insert them into religious_content under a page_url. Replaces any
 // existing chunks for that page_url first.
+type ReligiousSource = { sourceUrl?: string | null; sourceLabel?: string | null };
+
 async function indexReligiousChunks(
   pageUrl: string,
   title: string,
   chunks: string[],
   sourceType: "topic_block" | "uploaded_doc",
+  source: ReligiousSource = {},
 ): Promise<number> {
   const supabase = getSupabaseAdmin();
   await supabase.from("religious_content").delete().eq("page_url", pageUrl);
@@ -118,6 +121,8 @@ async function indexReligiousChunks(
     content,
     embedding: JSON.stringify(embeddings[i]),
     source_type: sourceType,
+    source_url: source.sourceUrl ?? null,
+    source_label: source.sourceLabel ?? null,
     indexed_at: new Date().toISOString(),
     is_current: true,
   }));
@@ -128,13 +133,13 @@ async function indexReligiousChunks(
 }
 
 // Re-index a religious topic block: replaces its chunks with the current content.
-export async function indexReligiousTopic(topicId: string, title: string, content: string): Promise<number> {
-  return indexReligiousChunks(religiousPageUrl("topic", topicId), title, chunkText(content), "topic_block");
+export async function indexReligiousTopic(topicId: string, title: string, content: string, source: ReligiousSource = {}): Promise<number> {
+  return indexReligiousChunks(religiousPageUrl("topic", topicId), title, chunkText(content), "topic_block", source);
 }
 
 // Embed an uploaded religious document's chunks into religious_content.
-export async function indexReligiousDocument(docId: string, title: string, chunks: string[]): Promise<number> {
-  return indexReligiousChunks(religiousPageUrl("doc", docId), title, chunks, "uploaded_doc");
+export async function indexReligiousDocument(docId: string, title: string, chunks: string[], source: ReligiousSource = {}): Promise<number> {
+  return indexReligiousChunks(religiousPageUrl("doc", docId), title, chunks, "uploaded_doc", source);
 }
 
 // Remove a religious topic's or document's vectorized chunks from religious_content.

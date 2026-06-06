@@ -558,7 +558,9 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
         return {
           status: "ok",
           source: "religious_topic_exact",
-          context: majlis.map((t) => `[${t.title}]\n${t.content}`).join("\n\n---\n\n"),
+          context: majlis
+            .map((t) => `[${t.title}${t.source_url ? ` — Source: ${t.source_url}` : ""}]\n${t.content}`)
+            .join("\n\n---\n\n"),
         };
       }
       return getIndexedInfo(

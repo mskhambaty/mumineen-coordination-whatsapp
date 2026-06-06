@@ -9,6 +9,8 @@ export type ReligiousTopic = {
   chunk_count: number;
   entry_count: number;
   sort_order: number;
+  source_url: string | null;
+  source_label: string | null;
   updated_at: string | null;
 };
 
@@ -35,7 +37,7 @@ export async function listReligiousTopics(): Promise<ReligiousTopic[]> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("religious_topics")
-    .select("id, slug, title, content, chunk_count, sort_order, updated_at")
+    .select("id, slug, title, content, chunk_count, sort_order, source_url, source_label, updated_at")
     .order("sort_order")
     .order("title");
   if (error) throw error;
@@ -75,27 +77,34 @@ export async function createReligiousTopic(title: string): Promise<{ id: string;
   return { id: data.id as string, slug: data.slug as string };
 }
 
-// Save a topic's text and re-index it into the religious_content vector store.
+// Save a topic's text (and optional source link) and re-index it into the vector store.
 export async function saveReligiousTopic(
   topicId: string,
   content: string,
   updatedBy: string | null,
+  source?: { sourceUrl?: string | null; sourceLabel?: string | null },
 ): Promise<{ chunk_count: number }> {
   const supabase = getSupabaseAdmin();
   const { data: topic } = await supabase
     .from("religious_topics")
-    .select("title")
+    .select("title, source_url, source_label")
     .eq("id", topicId)
     .maybeSingle();
   if (!topic) throw new Error("Topic not found");
 
-  const chunkCount = await indexReligiousTopic(topicId, topic.title as string, content);
+  // Keep existing source unless the caller provides a new value.
+  const sourceUrl = source?.sourceUrl !== undefined ? (source.sourceUrl || null) : (topic.source_url as string | null);
+  const sourceLabel = source?.sourceLabel !== undefined ? (source.sourceLabel || null) : (topic.source_label as string | null);
+
+  const chunkCount = await indexReligiousTopic(topicId, topic.title as string, content, { sourceUrl, sourceLabel });
 
   const { error } = await supabase
     .from("religious_topics")
     .update({
       content,
       chunk_count: chunkCount,
+      source_url: sourceUrl,
+      source_label: sourceLabel,
       updated_by: updatedBy,
       updated_at: new Date().toISOString(),
     })
@@ -159,15 +168,15 @@ export function parseMajlisRef(query: string): MajlisRef | null {
 
 // Resolve a parsed majlis reference to the matching topic block(s), preferring the
 // Reflection unless the user asked about Tazyeen. Returns [] if nothing matches.
-export async function findMajlisReflection(query: string): Promise<{ title: string; content: string }[]> {
+export async function findMajlisReflection(query: string): Promise<{ title: string; content: string; source_url: string | null }[]> {
   const ref = parseMajlisRef(query);
   if (!ref) return [];
 
   const { data } = await getSupabaseAdmin()
     .from("religious_topics")
-    .select("title, content")
+    .select("title, content, source_url")
     .order("sort_order");
-  const topics = ((data ?? []) as { title: string; content: string }[]).filter((t) => (t.content ?? "").trim());
+  const topics = ((data ?? []) as { title: string; content: string; source_url: string | null }[]).filter((t) => (t.content ?? "").trim());
 
   const prefix = ref.wantsTazyeen ? /^tazyeen/i : /^reflections/i;
   const matches = topics.filter((t) => {
@@ -179,7 +188,7 @@ export async function findMajlisReflection(query: string): Promise<{ title: stri
     return new RegExp(`majlis\\s*0*${ref.majlisNum}(?!\\d)`).test(title);
   });
 
-  return matches.slice(0, 2).map((t) => ({ title: t.title, content: t.content }));
+  return matches.slice(0, 2).map((t) => ({ title: t.title, content: t.content, source_url: t.source_url ?? null }));
 }
 
 // Delete a topic block and its vectorized chunks.
