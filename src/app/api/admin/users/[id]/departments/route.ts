@@ -11,6 +11,7 @@ function failedWelcomeNotification(error: unknown): WelcomeNotificationResult {
   return {
     email: "failed",
     whatsapp: "failed",
+    already_welcomed: false,
     errors: [message],
   };
 }
