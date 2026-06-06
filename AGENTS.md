@@ -102,16 +102,6 @@ We don't have senior reviewers gating every change, so tests are the safety net.
 - New env vars go in `.env.example` and [`docs/environment.md`](./docs/environment.md).
 - **Conventional commits** — `feat:`, `fix:`, `docs:`, `chore:`.
 
-## 9. Checks before merge
-
-```bash
-npm run lint     # ESLint
-npm run test     # Vitest unit tests
-npm run build    # Next.js production build
-```
-
-All three must pass.
-
 ## Step-by-step recipes
 
 For detailed, scenario-specific steps (adding a route, a tool, a table, an env var, a new doc),
