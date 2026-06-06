@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { canManageInternalTools } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 import { FIXED_MEETING_PROMPT, FIXED_TRANSCRIPT_PROMPT, type TranscriptType } from "@/lib/transcripts/prompts";
 
 type Department = { id: string; name: string };
@@ -116,7 +117,6 @@ export default function UploadPage() {
   const [cutoffTimestamp, setCutoffTimestamp] = useState("");
   const [lastParsedLabel, setLastParsedLabel] = useState("");
 
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
   const promptDepartmentId = promptEditorDepartmentId && selectedDepartmentIds.includes(promptEditorDepartmentId)
     ? promptEditorDepartmentId
     : selectedDepartmentIds[0] ?? "";
@@ -298,17 +298,6 @@ export default function UploadPage() {
     }).filter((d) => d.milestones.length > 0 || d.unassigned.length > 0);
   }, [existingItems, events, departments]);
 
-  async function apiFetch(path: string, init?: RequestInit) {
-    return fetch(path, {
-      ...init,
-      headers: {
-        "x-admin-key": adminKey,
-        ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
-        ...(init?.headers ?? {}),
-      },
-    });
-  }
-
   async function fetchDepartments() {
     const res = await apiFetch("/api/departments");
     if (!res.ok) return;
@@ -335,14 +324,11 @@ export default function UploadPage() {
   }
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    const user = readAdminUser();
+    if (!user) {
       router.push("/admin/login");
       return;
     }
-
-    const userRaw = localStorage.getItem("admin_user");
-    const user = userRaw ? (JSON.parse(userRaw) as { role?: string; global_role?: string; is_manager?: boolean }) : null;
     if (!canManageInternalTools(user)) {
       router.push("/admin/registration");
       return;

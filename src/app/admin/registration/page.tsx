@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import React, { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { canViewRegistrations } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -205,12 +206,10 @@ const SECTIONS = [
 function DetailPanel({
   req,
   filters,
-  adminKey,
   onClose,
 }: {
   req: DetailRequest;
   filters: Filters;
-  adminKey: string;
   onClose: () => void;
 }) {
   const [rows, setRows] = useState<DetailRow[]>([]);
@@ -225,13 +224,11 @@ function DetailPanel({
     if (filters.local_mehman) params.set("local_mehman", filters.local_mehman);
     if (filters.status) params.set("status", filters.status);
     if (filters.attending) params.set("attending", filters.attending);
-    fetch(`/api/admin/registration-analytics/detail?${params}`, {
-      headers: { "x-admin-key": adminKey },
-    })
+    apiFetch(`/api/admin/registration-analytics/detail?${params}`)
       .then((r) => r.json())
       .then((d) => { setRows(d.rows ?? []); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [req.segment, req.value, filters, adminKey]);
+  }, [req.segment, req.value, filters]);
 
   // Close on outside click
   useEffect(() => {
@@ -454,13 +451,11 @@ function RegKhidmatPicker({ departments, selected, onChange }: { departments: Re
 
 function RegEditPanel({
   selected,
-  adminKey,
   departments,
   onClose,
   onSaved,
 }: {
   selected: RegSearchResult;
-  adminKey: string;
   departments: RegDepartment[];
   onClose: () => void;
   onSaved: (updated: RegSearchResult) => void;
@@ -543,9 +538,8 @@ function RegEditPanel({
         transport_mode: form.transport_mode,
         transport_detail: form.transport_detail,
       } : undefined;
-      const res = await fetch("/api/admin/mumineen/update", {
+      const res = await apiFetch("/api/admin/mumineen/update", {
         method: "POST",
-        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
         body: JSON.stringify({ its: selected.its, member, family }),
       });
       const data = await res.json().catch(() => ({})) as { error?: string; member?: Partial<RegSearchResult>; family?: RegFamilyDetail };
@@ -1035,8 +1029,6 @@ export default function RegistrationAnalyticsPage() {
   const [editDepts, setEditDepts] = useState<RegDepartment[]>([]);
   const editTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
-
   const load = useCallback(
     async (f: Filters) => {
       setLoading(true);
@@ -1047,7 +1039,7 @@ export default function RegistrationAnalyticsPage() {
         if (f.status) params.set("status", f.status);
         if (f.attending) params.set("attending", f.attending);
         const url = `/api/admin/registration-analytics${params.toString() ? `?${params}` : ""}`;
-        const res = await fetch(url, { headers: { "x-admin-key": adminKey } });
+        const res = await apiFetch(url);
         const json = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(json.error ?? "Failed to load");
         setData(json as Analytics);
@@ -1057,7 +1049,7 @@ export default function RegistrationAnalyticsPage() {
         setLoading(false);
       }
     },
-    [adminKey],
+    [],
   );
 
   const applyFilter = (patch: Partial<Filters>) => {
@@ -1069,14 +1061,12 @@ export default function RegistrationAnalyticsPage() {
   const drill = (req: DetailRequest) => setDetail(req);
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) { router.push("/admin/login"); return; }
-    const raw = localStorage.getItem("admin_user");
-    const user = raw ? JSON.parse(raw) as { role?: string; global_role?: string; is_master_admin?: boolean } : null;
+    const user = readAdminUser();
+    if (!user) { router.push("/admin/login"); return; }
     if (!canViewRegistrations(user)) { router.push("/admin/conversations"); return; }
-    if (user?.is_master_admin === true) {
+    if (user.is_master_admin === true) {
       setIsMasterAdmin(true);
-      void fetch("/api/admin/mumineen/departments", { headers: { "x-admin-key": adminKey } })
+      void apiFetch("/api/admin/mumineen/departments")
         .then((r) => r.json())
         .then((d) => setEditDepts((d.departments as RegDepartment[]) ?? []))
         .catch(() => undefined);
@@ -1104,7 +1094,7 @@ export default function RegistrationAnalyticsPage() {
   async function runEditSearch(term: string) {
     setEditSearching(true);
     try {
-      const res = await fetch(`/api/admin/mumineen/search?q=${encodeURIComponent(term)}`, { headers: { "x-admin-key": adminKey } });
+      const res = await apiFetch(`/api/admin/mumineen/search?q=${encodeURIComponent(term)}`);
       const data = await res.json().catch(() => ({})) as { results?: RegSearchResult[] };
       setEditResults(res.ok ? (data.results ?? []) : []);
     } catch {
@@ -1185,14 +1175,12 @@ export default function RegistrationAnalyticsPage() {
         <DetailPanel
           req={detail}
           filters={filters}
-          adminKey={adminKey}
           onClose={() => setDetail(null)}
         />
       )}
       {editSelected && (
         <RegEditPanel
           selected={editSelected}
-          adminKey={adminKey}
           departments={editDepts}
           onClose={() => setEditSelected(null)}
           onSaved={(updated) => {
