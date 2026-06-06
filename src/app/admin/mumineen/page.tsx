@@ -514,7 +514,26 @@ export default function MumineenPage() {
   return (
     <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
       <div className="mb-5">
-        <h1 className="text-xl font-bold">Mumineen Roster</h1>
+        <div className="flex items-center justify-between gap-4">
+          <h1 className="text-xl font-bold">Mumineen Roster</h1>
+          <button
+            type="button"
+            onClick={async () => {
+              const res = await fetch("/api/admin/mumineen/export", { headers: { "x-admin-key": adminKey } });
+              if (!res.ok) return;
+              const blob = await res.blob();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `mumineen-roster-${new Date().toISOString().slice(0, 10)}.xlsx`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            className="rounded-md bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+          >
+            ↓ Export current roster
+          </button>
+        </div>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Import the attendee roster (Excel). Re-importing is safe — it refreshes roster fields and never
           overwrites registration details families have submitted.
