@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
 
   // Server-to-server (admin-key) callers have the sentinel id; record null for them.
   const uploaderUserId = auth.caller.user_id === "admin-api" ? null : auth.caller.user_id;
-  const uploaderName = req.headers.get("x-admin-user-name") ?? null;
+  const uploaderName = auth.caller.display_name ?? null;
 
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
