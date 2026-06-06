@@ -10,7 +10,7 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - Production portal: `https://www.chicagorelaycenter.com/admin/login`
 - Email and password authentication
 - Forgot password link that calls `POST /api/auth/forgot-password`; reset emails use Postmark template alias `password-reset`
-- Password setup/reset links open `/admin/reset-password`; after a successful password save, the page stores the returned portal session and routes into `/admin`
+- Password setup/reset links open `/admin/reset-password`; after a successful password save, the page stores the returned user object and routes into `/admin` (the session itself is set as an httpOnly cookie by the server)
 - Legacy fallback password is read from `ADMIN_FALLBACK_PASSWORD` only and must not be committed to the repo
 - Users with admin/leadership, escalation support, department PM/HOD, or IT access can log in
 - Primary admin: mskhambaty@gmail.com (Mufaddal Khambaty)
@@ -131,20 +131,27 @@ Two tabs, each feeding a **separate vector store** so logistics and religious an
 
 ## Authentication
 
-The dashboard uses a simple token-based auth:
-1. User submits email + password to `POST /api/admin/auth`
-2. Server validates credentials and checks role
-3. Token stored in localStorage
-4. Admin API routes require `x-admin-key` header (from `ADMIN_API_KEY` env var)
+The dashboard uses httpOnly session-cookie auth:
+
+1. User submits email + password to `POST /api/admin/auth`.
+2. Server verifies credentials and calls `get_user_permissions_by_id` to check role and active status.
+3. On success, the server sets a `portal_session` httpOnly cookie (HMAC-SHA256-signed, `SameSite=Lax`, `Secure` in production, 7-day TTL). The response body returns `{ user }` only — no token is sent to the client.
+4. Every subsequent admin API request is authenticated by `resolveCallerFromSession` (src/lib/api/auth.ts), which verifies the cookie signature and calls `get_user_permissions_by_id` per request — so role changes and deactivations take effect immediately without requiring a re-login.
+5. Route-level authorization is enforced by `requirePortalCaller` (src/lib/api/portal-auth.ts) using the same predicates as the page gates (src/lib/admin/access.ts): returns 401 for invalid/missing session, 403 for predicate failure, 500 for infra errors.
+6. `POST /api/admin/auth/logout` (public route) clears the `portal_session` cookie. The nav calls this on sign-out, then clears localStorage `admin_user` and redirects to `/admin/login`.
+7. All admin pages share a cookie-based `apiFetch` helper (src/lib/admin/client.ts). A 401 response automatically clears `admin_user` from localStorage and redirects to `/admin/login`, so stale sessions (e.g. after a re-deploy that rotates `SESSION_SECRET`) result in a clean re-login prompt.
+8. The SSE inbox stream (`GET /api/admin/conversations/stream`) and media image proxies authenticate via the session cookie — no `?key=` query params.
+
+`ADMIN_API_KEY` (`x-admin-key` header) is **server-to-server only** — it is used by agent tools and cron jobs, never sent to the browser.
 
 ## Environment Variables
 
-- `ADMIN_API_KEY` — Required for admin API route access
-- `NEXT_PUBLIC_ADMIN_KEY` — Same key, exposed to client for fetch calls
+- `SESSION_SECRET` — Signs portal session cookies (HMAC-SHA256). Falls back to `ADMIN_API_KEY` if unset; set a dedicated value in production.
+- `ADMIN_API_KEY` — Server-to-server auth for agent tools and cron jobs. Never sent to the browser.
 
 ## Security Notes
 
-- The login system uses a simple shared password for initial deployment
-- Admin routes are protected by the `x-admin-key` header
-- The `requireAdminKey()` middleware validates the key against `ADMIN_API_KEY`
-- All database operations use the service role client (bypasses RLS)
+- Admin routes are protected by `requirePortalCaller`, which enforces session-cookie auth and per-route permission predicates mirroring the page gates.
+- Per-request permission resolution via `get_user_permissions_by_id` RPC means role changes and deactivations take effect immediately.
+- `ADMIN_API_KEY` must never be exposed to the client. Rotate it after deploying this migration — the old value was previously bundled as `NEXT_PUBLIC_ADMIN_KEY`.
+- All database operations use the Supabase service role client (bypasses RLS); access is gated at the API layer.
