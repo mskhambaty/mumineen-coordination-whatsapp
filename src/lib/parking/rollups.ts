@@ -58,8 +58,10 @@ export type HouseholdRow = {
   member_count: number;
   eligible: boolean;
   rahat_count: number;
+  wheelchair_count: number;
   senior_count: number;
   all_65_plus: boolean;
+  all_rahat: boolean;
   categories: string[];
   kids_under_7: number;
   passes: PassInfo[];
@@ -83,9 +85,11 @@ export function buildHouseholdRow(
     // Default pass rule: every local household; mehman only if they rented a car.
     eligible: localMehman === "Local" || (localMehman === "Mehman" && family.transport_mode === "rental"),
     rahat_count: members.filter((m) => m.rahat_seating || m.wheelchair).length,
+    wheelchair_count: members.filter((m) => m.wheelchair).length,
     senior_count: members.filter((m) => (m.age ?? -1) >= 65).length,
     // Null ages count as "not 65+" so incomplete data never inflates this whole-household flag.
     all_65_plus: members.length > 0 && members.every((m) => (m.age ?? -1) >= 65),
+    all_rahat: members.length > 0 && members.every((m) => m.rahat_seating || m.wheelchair),
     categories: [...new Set(members.map((m) => m.category).filter((c): c is string => Boolean(c)))],
     kids_under_7: members.filter((m) => m.age !== null && m.age < 7).length,
     passes,
@@ -108,7 +112,10 @@ export type HouseholdFilters = {
   eligible?: boolean;
   local_mehman?: string; // "Local" | "Mehman" | "" (all)
   rahat_senior?: boolean; // any rahat-flagged member OR any member 65+
+  all_rahat?: boolean; // every member rahat-flagged
   all_65?: boolean; // every member 65+
+  wheelchair?: boolean; // any member needing a wheelchair
+  has_phone?: boolean; // household has a contact phone number
   categories?: string[]; // match households holding any of these member categories
   kids_under_7?: boolean;
   assigned?: "assigned" | "unassigned" | "";
@@ -119,7 +126,10 @@ export function matchesFilters(row: HouseholdRow, f: HouseholdFilters): boolean 
   if (f.eligible && !row.eligible) return false;
   if (f.local_mehman && row.local_mehman !== f.local_mehman) return false;
   if (f.rahat_senior && row.rahat_count === 0 && row.senior_count === 0) return false;
+  if (f.all_rahat && !row.all_rahat) return false;
   if (f.all_65 && !row.all_65_plus) return false;
+  if (f.wheelchair && row.wheelchair_count === 0) return false;
+  if (f.has_phone && !row.phone) return false;
   if (f.categories && f.categories.length > 0 && !row.categories.some((c) => f.categories!.includes(c))) {
     return false;
   }

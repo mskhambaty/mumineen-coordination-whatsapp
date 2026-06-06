@@ -30,7 +30,10 @@ type Filters = {
   eligible: boolean;
   local_mehman: string;
   rahat_senior: boolean;
+  all_rahat: boolean;
   all_65: boolean;
+  wheelchair: boolean;
+  has_phone: boolean;
   categories: string[];
   kids_under_7: boolean;
   assigned: string;
@@ -40,7 +43,10 @@ const DEFAULT_FILTERS: Filters = {
   eligible: true,
   local_mehman: "",
   rahat_senior: false,
+  all_rahat: false,
   all_65: false,
+  wheelchair: false,
+  has_phone: false,
   categories: [],
   kids_under_7: false,
   assigned: "",
@@ -68,6 +74,22 @@ function ColorDot({ color }: { color: string | null }) {
       className="inline-block h-2.5 w-2.5 shrink-0 rounded-full border border-gray-300 dark:border-gray-600"
       style={{ backgroundColor: swatch(color) }}
     />
+  );
+}
+
+function FilterChip({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-2.5 py-1 ${
+        active
+          ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+          : "border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-300"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -342,7 +364,10 @@ export default function ParkingPage() {
       if (f.eligible) params.set("eligible", "1");
       if (f.local_mehman) params.set("local_mehman", f.local_mehman);
       if (f.rahat_senior) params.set("rahat_senior", "1");
+      if (f.all_rahat) params.set("all_rahat", "1");
       if (f.all_65) params.set("all_65", "1");
+      if (f.wheelchair) params.set("wheelchair", "1");
+      if (f.has_phone) params.set("has_phone", "1");
       if (f.categories.length > 0) params.set("categories", f.categories.join(","));
       if (f.kids_under_7) params.set("kids_under_7", "1");
       if (f.assigned) params.set("assigned", f.assigned);
@@ -577,17 +602,11 @@ export default function ParkingPage() {
 
       {/* Filter bar */}
       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-        <button
-          type="button"
+        <FilterChip
+          active={filters.eligible}
+          label="Eligible (local or mehman w/ rental)"
           onClick={() => applyFilter({ eligible: !filters.eligible })}
-          className={`rounded-full border px-2.5 py-1 ${
-            filters.eligible
-              ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-              : "border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-300"
-          }`}
-        >
-          Eligible (local or mehman w/ rental)
-        </button>
+        />
         <select
           value={filters.local_mehman}
           onChange={(e) => applyFilter({ local_mehman: e.target.value })}
@@ -597,39 +616,36 @@ export default function ParkingPage() {
           <option value="Local">Local</option>
           <option value="Mehman">Mehman</option>
         </select>
-        <button
-          type="button"
+        <FilterChip
+          active={filters.rahat_senior}
+          label="Any rahat/65+ member"
           onClick={() => applyFilter({ rahat_senior: !filters.rahat_senior })}
-          className={`rounded-full border px-2.5 py-1 ${
-            filters.rahat_senior
-              ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-              : "border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-300"
-          }`}
-        >
-          Rahat / 65+ member
-        </button>
-        <button
-          type="button"
+        />
+        <FilterChip
+          active={filters.all_rahat}
+          label="All rahat members"
+          onClick={() => applyFilter({ all_rahat: !filters.all_rahat })}
+        />
+        <FilterChip
+          active={filters.all_65}
+          label="All members 65+"
           onClick={() => applyFilter({ all_65: !filters.all_65 })}
-          className={`rounded-full border px-2.5 py-1 ${
-            filters.all_65
-              ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-              : "border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-300"
-          }`}
-        >
-          All members 65+
-        </button>
-        <button
-          type="button"
+        />
+        <FilterChip
+          active={filters.wheelchair}
+          label="Needs wheelchair"
+          onClick={() => applyFilter({ wheelchair: !filters.wheelchair })}
+        />
+        <FilterChip
+          active={filters.kids_under_7}
+          label="With kids under 7"
           onClick={() => applyFilter({ kids_under_7: !filters.kids_under_7 })}
-          className={`rounded-full border px-2.5 py-1 ${
-            filters.kids_under_7
-              ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-              : "border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-300"
-          }`}
-        >
-          Kids under 7
-        </button>
+        />
+        <FilterChip
+          active={filters.has_phone}
+          label="Phone available"
+          onClick={() => applyFilter({ has_phone: !filters.has_phone })}
+        />
         <select
           value={filters.categories[0] ?? ""}
           onChange={(e) => applyFilter({ categories: e.target.value ? [e.target.value] : [] })}
@@ -771,7 +787,9 @@ export default function ParkingPage() {
                 <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-300">{r.phone ?? "—"}</td>
                 <td className="px-3 py-2">
                   <div className="flex flex-wrap gap-1">
-                    {r.rahat_count > 0 && <Badge label={`Rahat ×${r.rahat_count}`} tone="blue" />}
+                    {r.rahat_count > 0 && !r.all_rahat && <Badge label={`Rahat ×${r.rahat_count}`} tone="blue" />}
+                    {r.all_rahat && <Badge label="All rahat" tone="blue" />}
+                    {r.wheelchair_count > 0 && <Badge label={`Wheelchair ×${r.wheelchair_count}`} tone="blue" />}
                     {r.senior_count > 0 && !r.all_65_plus && <Badge label={`65+ ×${r.senior_count}`} tone="blue" />}
                     {r.all_65_plus && <Badge label="All 65+" tone="blue" />}
                     {r.categories.map((c) => (

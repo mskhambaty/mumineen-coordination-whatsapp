@@ -67,6 +67,28 @@ describe("buildHouseholdRow", () => {
     expect(row.senior_count).toBe(1);
   });
 
+  it("counts wheelchair members separately from rahat seating", () => {
+    const row = buildHouseholdRow(family, [
+      member({ is_head: true, rahat_seating: true }),
+      member({ wheelchair: true }),
+      member({ wheelchair: true, rahat_seating: true }),
+    ], []);
+    expect(row.wheelchair_count).toBe(2);
+    expect(row.rahat_count).toBe(3);
+  });
+
+  it("flags all_rahat only when every member has rahat seating or a wheelchair", () => {
+    expect(buildHouseholdRow(family, [
+      member({ is_head: true, rahat_seating: true }),
+      member({ wheelchair: true }),
+    ], []).all_rahat).toBe(true);
+    expect(buildHouseholdRow(family, [
+      member({ is_head: true, rahat_seating: true }),
+      member(),
+    ], []).all_rahat).toBe(false);
+    expect(buildHouseholdRow(family, [], []).all_rahat).toBe(false);
+  });
+
   it("flags all_65_plus only when every member is 65+, treating null ages as under", () => {
     expect(buildHouseholdRow(family, [member({ is_head: true, age: 66 }), member({ age: 70 })], []).all_65_plus).toBe(true);
     expect(buildHouseholdRow(family, [member({ is_head: true, age: 66 }), member({ age: 40 })], []).all_65_plus).toBe(false);
@@ -106,8 +128,10 @@ describe("matchesFilters", () => {
       member_count: 2,
       eligible: true,
       rahat_count: 0,
+      wheelchair_count: 0,
       senior_count: 0,
       all_65_plus: false,
+      all_rahat: false,
       categories: [],
       kids_under_7: 0,
       passes: [],
@@ -129,6 +153,23 @@ describe("matchesFilters", () => {
   it("all_65 requires the whole-household flag", () => {
     expect(matchesFilters(row({ all_65_plus: true }), { all_65: true })).toBe(true);
     expect(matchesFilters(row({ senior_count: 1 }), { all_65: true })).toBe(false);
+  });
+
+  it("all_rahat requires the whole-household flag", () => {
+    expect(matchesFilters(row({ all_rahat: true }), { all_rahat: true })).toBe(true);
+    expect(matchesFilters(row({ rahat_count: 1 }), { all_rahat: true })).toBe(false);
+  });
+
+  it("wheelchair filter requires at least one wheelchair member", () => {
+    expect(matchesFilters(row({ wheelchair_count: 1 }), { wheelchair: true })).toBe(true);
+    expect(matchesFilters(row({ rahat_count: 1 }), { wheelchair: true })).toBe(false);
+    expect(matchesFilters(row(), { wheelchair: false })).toBe(true);
+  });
+
+  it("has_phone filter requires a phone number", () => {
+    expect(matchesFilters(row({ phone: "+16305550100" }), { has_phone: true })).toBe(true);
+    expect(matchesFilters(row({ phone: null }), { has_phone: true })).toBe(false);
+    expect(matchesFilters(row({ phone: null }), {})).toBe(true);
   });
 
   it("category filter matches any overlap", () => {
@@ -171,8 +212,10 @@ describe("pickAssignable", () => {
       member_count: 1,
       eligible: true,
       rahat_count: 0,
+      wheelchair_count: 0,
       senior_count: 0,
       all_65_plus: false,
+      all_rahat: false,
       categories: [],
       kids_under_7: 0,
       passes,
