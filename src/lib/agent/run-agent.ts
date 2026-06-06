@@ -2,7 +2,7 @@ import OpenAI from "openai";
 
 import { executeTool, toolDefinitionsFor } from "@/lib/agent/tools";
 import { SYSTEM_PROMPT, loadAgentSystemPrompt } from "@/lib/agent/prompts";
-import { AGENT_TEMPERATURE, AI_MODEL, getAIClient, MAX_AGENT_TOKENS } from "@/lib/ai/model";
+import { AGENT_TEMPERATURE, AI_MODEL, AI_MODEL_HIGH, getAIClient, MAX_AGENT_TOKENS } from "@/lib/ai/model";
 import { resolveCallerFromPhone, type CallerContext } from "@/lib/api/auth";
 import type { AppUser } from "@/lib/permissions";
 import { getRecentMessages, getSupabaseAdmin } from "@/lib/supabase/server";
@@ -165,6 +165,22 @@ type AgentInput = {
   callerContext?: CallerContext;
 };
 
+// Tools whose answers should be generated with the higher-end model.
+export const HIGH_MODEL_TOOLS = new Set(["answer_religious_questions", "get_lisan_word_meaning"]);
+
+// Pick the model for the final answer: the high-end model if the turn used a Waaz Talaqi /
+// Lisan tool, otherwise the standard model. Exported for testing.
+export function pickFinalModel(
+  toolCalls: { type?: string; function?: { name?: string } }[] | undefined | null,
+  standardModel: string,
+  highModel: string,
+): string {
+  const usedHigh = (toolCalls ?? []).some(
+    (tc) => tc.type === "function" && HIGH_MODEL_TOOLS.has(tc.function?.name ?? ""),
+  );
+  return usedHigh ? highModel : standardModel;
+}
+
 export async function runAgent(input: AgentInput) {
   if (!input.message.trim()) {
     return "I received your message, but I cannot read that message type yet. Please send a text message and I will help.";
@@ -279,8 +295,12 @@ export async function runAgent(input: AgentInput) {
     return escalationAck;
   }
 
+  // Waaz Talaqi / Lisan answers are generated with the higher-end model (accuracy + tone
+  // matter most); everything else stays on the standard model.
+  const finalModel = pickFinalModel(firstMessage.tool_calls, AI_MODEL, AI_MODEL_HIGH);
+
   const finalResponse = await client.chat.completions.create({
-    model: AI_MODEL,
+    model: finalModel,
     messages,
     temperature: AGENT_TEMPERATURE,
     max_tokens: MAX_AGENT_TOKENS,

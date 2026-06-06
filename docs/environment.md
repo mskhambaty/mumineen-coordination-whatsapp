@@ -33,6 +33,7 @@ All env var lookups go through `src/lib/env.ts`, which supports mixed-case alias
 | `META_GRAPH_API_VERSION` | `Meta_graph_api_version` | `v23.0` | Meta Graph API version used for sending messages. |
 | `WHATSAPP_TEMPLATE_LANGUAGE` | `Whatsapp_template_language` | `en_US` | Language code for approved Meta WhatsApp utility templates such as `department_ticket_assigned`. |
 | `OPENAI_MODEL` | `OpenAI_model` | `gpt-4o-mini` | Override the centralized chat completion model in `src/lib/ai/model.ts`. |
+| `OPENAI_MODEL_HIGH` | — | falls back to `OPENAI_MODEL` | Higher-end model used **only** for Waaz Talaqi / Lisan answers (the final completion when `answer_religious_questions` or `get_lisan_word_meaning` was used). No-op until set. |
 
 ## Local Development
 
