@@ -2,7 +2,7 @@ import OpenAI from "openai";
 
 import { executeTool, toolDefinitionsFor } from "@/lib/agent/tools";
 import { SYSTEM_PROMPT, loadAgentSystemPrompt } from "@/lib/agent/prompts";
-import { AGENT_TEMPERATURE, AI_MODEL, AI_MODEL_HIGH, chatParams, getAIClient, MAX_AGENT_TOKENS } from "@/lib/ai/model";
+import { AGENT_TEMPERATURE, AI_MODEL, AI_MODEL_HIGH, chatParams, getAIClient, MAX_AGENT_TOKENS, MAX_FINAL_TOKENS } from "@/lib/ai/model";
 import { resolveCallerFromPhone, type CallerContext } from "@/lib/api/auth";
 import type { AppUser } from "@/lib/permissions";
 import { getRecentMessages, getSupabaseAdmin } from "@/lib/supabase/server";
@@ -356,7 +356,7 @@ export async function runAgent(input: AgentInput) {
   let finalResponse;
   try {
     finalResponse = await client.chat.completions.create({
-      ...chatParams(finalModel, { maxTokens: MAX_AGENT_TOKENS, temperature: AGENT_TEMPERATURE }),
+      ...chatParams(finalModel, { maxTokens: MAX_FINAL_TOKENS, temperature: AGENT_TEMPERATURE }),
       messages,
     });
   } catch (err) {
@@ -367,7 +367,7 @@ export async function runAgent(input: AgentInput) {
       err instanceof Error ? err.message : err,
     );
     finalResponse = await client.chat.completions.create({
-      ...chatParams(AI_MODEL, { maxTokens: MAX_AGENT_TOKENS, temperature: AGENT_TEMPERATURE }),
+      ...chatParams(AI_MODEL, { maxTokens: MAX_FINAL_TOKENS, temperature: AGENT_TEMPERATURE }),
       messages,
     });
   }

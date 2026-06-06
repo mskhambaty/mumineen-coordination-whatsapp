@@ -18,6 +18,11 @@ export const PARSE_TEMPERATURE = 0.1;
 export const SUMMARY_TEMPERATURE = 0.4;
 
 export const MAX_AGENT_TOKENS = 1024;
+// Budget for the agent's FINAL answer completion. Larger than MAX_AGENT_TOKENS because, on a
+// reasoning model (AI_MODEL_HIGH / gpt-5.4), `max_completion_tokens` is shared by hidden
+// reasoning AND visible output — too small a cap and reasoning starves the answer to empty
+// (→ fallback message). This is a cap, not a target, so it's billed on actual usage only.
+export const MAX_FINAL_TOKENS = 2048;
 export const MAX_PARSE_TOKENS = 4096;
 export const MAX_SUMMARY_TOKENS = 2048;
 
