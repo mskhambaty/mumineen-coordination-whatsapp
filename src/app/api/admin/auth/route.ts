@@ -69,6 +69,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
+    // Stamp last login. Best-effort: never block sign-in if this fails (e.g.
+    // the column hasn't been migrated yet on an older database).
+    await supabase
+      .from("whatsapp_users")
+      .update({ last_login_at: new Date().toISOString() })
+      .eq("id", user.id)
+      .then(undefined, (err) => {
+        console.error("Failed to stamp last_login_at", err);
+      });
+
     // Return a simple session token (user ID based for simplicity)
     const token = createPortalSessionToken(user);
 

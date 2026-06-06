@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
 
   let query = supabase
     .from("whatsapp_users")
-    .select("id, display_name, phone_e164, email, role, global_role, status")
+    .select("id, display_name, phone_e164, email, role, global_role, status, last_login_at")
     .neq("role", "visitor")
     .order("display_name");
 

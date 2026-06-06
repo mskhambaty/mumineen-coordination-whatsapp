@@ -14,6 +14,7 @@ type User = {
   role: string;
   global_role: string;
   status: string;
+  last_login_at?: string | null;
   department_membership_id?: string | null;
   department_role?: string | null;
 };
@@ -56,6 +57,19 @@ const STATUS_OPTIONS = [
   { value: "inactive", label: "Inactive" },
 ];
 
+function formatLastLogin(value: string | null | undefined): string {
+  if (!value) return "Never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Never";
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 export default function UsersPage() {
   const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
@@ -76,6 +90,9 @@ export default function UsersPage() {
   const [settingPassword, setSettingPassword] = useState(false);
   const [passwordMsg, setPasswordMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [welcomeId, setWelcomeId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [currentUserId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const userRaw = window.localStorage.getItem("admin_user");
@@ -104,6 +121,27 @@ export default function UsersPage() {
       ].some((value) => value?.toLowerCase().includes(query)),
     );
   }, [searchQuery, users]);
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    function handleDismiss(event: MouseEvent | KeyboardEvent) {
+      if (event instanceof KeyboardEvent && event.key !== "Escape") return;
+      if (
+        event instanceof MouseEvent &&
+        event.target instanceof Element &&
+        event.target.closest("[data-user-actions]")
+      ) {
+        return;
+      }
+      setOpenMenuId(null);
+    }
+    document.addEventListener("mousedown", handleDismiss);
+    document.addEventListener("keydown", handleDismiss);
+    return () => {
+      document.removeEventListener("mousedown", handleDismiss);
+      document.removeEventListener("keydown", handleDismiss);
+    };
+  }, [openMenuId]);
 
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
@@ -330,6 +368,45 @@ export default function UsersPage() {
     }
   }
 
+  async function sendWelcome(user: User) {
+    const label = user.display_name || user.email || user.phone_e164;
+    if (!user.email) {
+      if (!window.confirm(`${label} has no email on file — the welcome can only go out over WhatsApp. Continue?`)) {
+        return;
+      }
+    } else if (!window.confirm(`Send a welcome + password-reset link to ${label} (${user.email})?`)) {
+      return;
+    }
+
+    setWelcomeId(user.id);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}/welcome`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({})) as {
+        error?: string;
+        welcome_notification?: { email: string; whatsapp: string; errors: string[] };
+      };
+      if (!res.ok) throw new Error(data.error ?? "Failed to send welcome");
+
+      const wn = data.welcome_notification;
+      if (wn?.errors?.length) {
+        setError(`Welcome to ${label} had issues — email: ${wn.email}, WhatsApp: ${wn.whatsapp}. ${wn.errors.join("; ")}`);
+      } else {
+        setNotice(`Welcome sent to ${label} — email: ${wn?.email ?? "skipped"}, WhatsApp: ${wn?.whatsapp ?? "skipped"}.`);
+      }
+    } catch (err) {
+      console.error("Failed to send welcome:", err);
+      setError(err instanceof Error ? err.message : "Failed to send welcome");
+    } finally {
+      setWelcomeId(null);
+    }
+  }
+
   async function deleteUser(user: User) {
     if (user.id === currentUserId) {
       setError("You cannot delete your own signed-in user.");
@@ -383,6 +460,12 @@ export default function UsersPage() {
         {error && (
           <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
             {error}
+          </div>
+        )}
+
+        {notice && (
+          <div className="mb-4 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+            {notice}
           </div>
         )}
 
@@ -622,6 +705,7 @@ export default function UsersPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Email</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Account Role</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Last Login</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
                 </tr>
               </thead>
@@ -653,34 +737,65 @@ export default function UsersPage() {
                         ))}
                       </select>
                     </td>
+                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                      <span className={user.last_login_at ? "" : "text-gray-400 dark:text-gray-500"}>
+                        {formatLastLogin(user.last_login_at)}
+                      </span>
+                    </td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
+                      <div className="relative inline-block text-left" data-user-actions>
                         <button
                           type="button"
-                          onClick={() => openEditUser(user)}
-                          className="text-sm text-blue-600 hover:underline"
+                          onClick={() => setOpenMenuId((current) => (current === user.id ? null : user.id))}
+                          className="inline-flex items-center gap-1 rounded-md border border-gray-200 dark:border-gray-700 px-2.5 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+                          aria-haspopup="true"
+                          aria-expanded={openMenuId === user.id}
                         >
-                          Edit
+                          Actions
+                          <span aria-hidden className="text-xs">▾</span>
                         </button>
-                        <Link href={`/admin/users/${user.id}/departments`} className="text-blue-600 text-sm hover:underline">
-                          Departments
-                        </Link>
-                        <button
-                          type="button"
-                          onClick={() => void deleteUser(user)}
-                          disabled={deletingId === user.id || user.id === currentUserId}
-                          className="text-sm text-red-600 hover:text-red-700 disabled:cursor-not-allowed disabled:text-gray-300"
-                          title={user.id === currentUserId ? "You cannot delete your own signed-in user" : "Delete user"}
-                        >
-                          {deletingId === user.id ? "Deleting..." : "Delete"}
-                        </button>
+                        {openMenuId === user.id && (
+                          <div className="absolute right-0 z-10 mt-1 w-44 origin-top-right rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg">
+                            <button
+                              type="button"
+                              onClick={() => { setOpenMenuId(null); openEditUser(user); }}
+                              className="block w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+                            >
+                              Edit
+                            </button>
+                            <Link
+                              href={`/admin/users/${user.id}/departments`}
+                              onClick={() => setOpenMenuId(null)}
+                              className="block w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+                            >
+                              Departments
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => { setOpenMenuId(null); void sendWelcome(user); }}
+                              disabled={welcomeId === user.id}
+                              className="block w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:cursor-not-allowed disabled:text-gray-300"
+                            >
+                              {welcomeId === user.id ? "Sending welcome..." : "Send welcome"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setOpenMenuId(null); void deleteUser(user); }}
+                              disabled={deletingId === user.id || user.id === currentUserId}
+                              className="block w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:cursor-not-allowed disabled:text-gray-300"
+                              title={user.id === currentUserId ? "You cannot delete your own signed-in user" : "Delete user"}
+                            >
+                              {deletingId === user.id ? "Deleting..." : "Delete"}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </td>
                   </tr>
                 ))}
                 {filteredUsers.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                    <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                       No users match the current filters.
                     </td>
                   </tr>
