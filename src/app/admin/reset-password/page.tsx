@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 
 type ResetPasswordResponse = {
   error?: string;
-  token?: string;
+  ok?: boolean;
   user?: unknown;
 };
 
@@ -56,8 +56,8 @@ export default function ResetPasswordPage() {
         return;
       }
 
-      if (data.token && data.user) {
-        window.localStorage.setItem("admin_token", data.token);
+      if (data.ok && data.user) {
+        // Session lives in an httpOnly cookie; localStorage keeps only the non-sensitive user object for client-side nav/page gating.
         window.localStorage.setItem("admin_user", JSON.stringify(data.user));
         router.push("/admin");
         return;

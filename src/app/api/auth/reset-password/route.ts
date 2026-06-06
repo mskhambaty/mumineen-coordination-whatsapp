@@ -1,8 +1,10 @@
+import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { hashPassword, hashPasswordResetToken, isValidNewPassword } from "@/lib/admin/passwords";
-import { buildPortalSessionUser, createPortalSessionToken } from "@/lib/admin/session";
+import { buildPortalSessionUser } from "@/lib/admin/session";
+import { SESSION_COOKIE_NAME, sessionCookieOptions, signSessionToken } from "@/lib/admin/session-token";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 type ResetPasswordRequest = {
@@ -66,11 +68,10 @@ export async function POST(req: NextRequest) {
       global_role: user.global_role,
     });
 
-    return NextResponse.json({
-      ok: true,
-      token: createPortalSessionToken(sessionUser),
-      user: sessionUser,
-    });
+    const cookieStore = await cookies();
+    cookieStore.set(SESSION_COOKIE_NAME, signSessionToken(user.id), sessionCookieOptions());
+
+    return NextResponse.json({ ok: true, user: sessionUser });
   } catch (err) {
     console.error("Password reset failed:", err);
     return NextResponse.json({ error: "Unable to reset password right now." }, { status: 500 });

@@ -32,8 +32,7 @@ export default function AdminLoginPage() {
         return;
       }
 
-      // Store token in localStorage
-      localStorage.setItem("admin_token", data.token);
+      // Session lives in an httpOnly cookie; localStorage keeps only the non-sensitive user object for client-side nav/page gating.
       localStorage.setItem("admin_user", JSON.stringify(data.user));
       // Honor a deep-link redirect (e.g. from an escalation email) when present.
       const redirect = new URLSearchParams(window.location.search).get("redirect");
