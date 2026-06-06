@@ -6,6 +6,7 @@
 import {
   ASHARA_CATEGORIES,
   defaultStatus,
+  istibsaarSearchUrl,
   majlisLabel,
   topicTitle,
 } from "@/lib/knowledge/ashara-config";
@@ -39,6 +40,7 @@ export async function seedMajlisDay(
       category: cat.key,
       language: cat.language,
       status: defaultStatus(cat.language),
+      sourceUrl: istibsaarSearchUrl(target.majlisNumber, target.isAshura, year),
       sourceLabel: `Istibsaar — ${cat.label}, ${majlisLabel(target.majlisNumber, target.isAshura)} (${year}H)`,
     });
     created.push(cat.key);
