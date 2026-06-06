@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { canAccessInbox, isAdminOrLeadership } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 import QuickEditModal from "@/components/admin/QuickEditModal";
 
 type HandlingMode = "ai" | "manual";
@@ -76,16 +77,7 @@ export default function ConversationsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagePaneRef = useRef<HTMLDivElement>(null);
   const [showQuickEdit, setShowQuickEdit] = useState(false);
-  const [canQuickEdit] = useState(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      return isAdminOrLeadership(JSON.parse(window.localStorage.getItem("admin_user") ?? "null"));
-    } catch {
-      return false;
-    }
-  });
-
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
+  const [canQuickEdit] = useState(() => isAdminOrLeadership(readAdminUser()));
 
   const escalatedCount = useMemo(
     () => conversations.filter((conversation) => conversation.escalation_status === "pending").length,
@@ -146,15 +138,12 @@ export default function ConversationsPage() {
   }, [selected?.phone_e164, latestMessageId]);
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    const user = readAdminUser();
+    if (!user) {
       const here = window.location.pathname + window.location.search;
       router.push(`/admin/login?redirect=${encodeURIComponent(here)}`);
       return;
     }
-
-    const userRaw = localStorage.getItem("admin_user");
-    const user = userRaw ? JSON.parse(userRaw) as { role?: string; global_role?: string; is_support?: boolean } : null;
     if (!canAccessInbox(user)) {
       // Registration Analytics is the universal internal landing page (tasks is manager-gated).
       router.push("/admin/registration");
@@ -165,18 +154,13 @@ export default function ConversationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
-  // Live updates via Server-Sent Events: the server pushes a "changed" event when
-  // conversation activity changes, instead of the browser polling on a timer.
+  // Live updates via Server-Sent Events; the session cookie rides along automatically.
   useEffect(() => {
-    if (!adminKey) return;
-    const source = new EventSource(`/api/admin/conversations/stream?key=${encodeURIComponent(adminKey)}`);
-    // Refetch on every (re)connect to catch anything missed during a reconnect gap.
+    const source = new EventSource("/api/admin/conversations/stream");
     source.onopen = () => void refreshConversationsSilently();
     source.addEventListener("changed", () => void refreshConversationsSilently());
-    // EventSource reconnects automatically on error/close; just clean up on unmount.
     return () => source.close();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adminKey]);
+  }, []);
 
   // Backstop: refetch when the tab regains focus.
   useEffect(() => {
@@ -185,19 +169,7 @@ export default function ConversationsPage() {
     }
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  async function apiFetch(path: string, init?: RequestInit) {
-    return fetch(path, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        "x-admin-key": adminKey,
-        ...(init?.headers ?? {}),
-      },
-    });
-  }
 
   async function loadConversations() {
     setLoading(true);
@@ -236,11 +208,9 @@ export default function ConversationsPage() {
     setSavingMode(true);
     setError(null);
     try {
-      const userRaw = localStorage.getItem("admin_user");
-      const user = userRaw ? JSON.parse(userRaw) as { id?: string } : {};
       const res = await apiFetch(`/api/admin/conversations/${encodeURIComponent(selected.phone_e164)}/mode`, {
         method: "PUT",
-        body: JSON.stringify({ mode, user_id: user.id }),
+        body: JSON.stringify({ mode }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -302,7 +272,7 @@ export default function ConversationsPage() {
         const form = new FormData();
         form.append("image", attachment);
         if (reply.trim()) form.append("caption", reply.trim());
-        res = await fetch(path, { method: "POST", headers: { "x-admin-key": adminKey }, body: form });
+        res = await apiFetch(path, { method: "POST", body: form });
       } else {
         res = await apiFetch(path, { method: "POST", body: JSON.stringify({ body: reply }) });
       }
@@ -531,7 +501,7 @@ export default function ConversationsPage() {
                           ? "border-green-300 bg-green-50 text-gray-900 ring-2 ring-green-200 dark:border-green-700 dark:bg-green-950/40 dark:text-gray-100 dark:ring-green-900"
                           : "bg-white text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
                     }`}>
-                      <MessageContent message={message} adminKey={adminKey} />
+                      <MessageContent message={message} />
                       <div className={`mt-2 flex items-center gap-2 text-xs ${message.direction === "outbound" ? "text-blue-100" : isNewInbound ? "text-green-700 dark:text-green-300" : "text-gray-400 dark:text-gray-500"}`}>
                         <span>{formatDate(message.created_at)}</span>
                         {isNewInbound && <span className="rounded-full bg-green-100 px-2 py-0.5 font-medium text-green-700 dark:bg-green-900 dark:text-green-200">New</span>}
@@ -669,15 +639,16 @@ function reactionEmoji(m: Message): string | null {
 }
 
 // Renders a message bubble's content: a reaction emoji, an image (proxied from
-// Meta), or plain text.
-function MessageContent({ message, adminKey }: { message: Message; adminKey: string }) {
+// Meta), or plain text. The media route authenticates via the session cookie which
+// the browser attaches to same-origin requests automatically.
+function MessageContent({ message }: { message: Message }) {
   const emoji = reactionEmoji(message);
   if (emoji) {
     return <p className="text-sm">Reacted with {emoji}</p>;
   }
 
   if (isImageMessage(message)) {
-    const src = `/api/admin/conversations/media/${message.id}?key=${encodeURIComponent(adminKey)}`;
+    const src = `/api/admin/conversations/media/${message.id}`;
     const caption = message.body && message.body !== "[image]" ? message.body : null;
     return (
       <div>

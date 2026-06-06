@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import React, { useEffect, useRef, useState } from "react";
 
 import { canAccessMumineen } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type Stats = { mumineen: number; adults: number; families: number; registered_families: number; cancelled_families: number; mehmaan: number; local: number };
 
@@ -248,18 +249,15 @@ export default function MumineenPage() {
   const [saving, setSaving] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
   const [displayName, setDisplayName] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    const user = readAdminUser();
+    if (!user) {
       router.push("/admin/login");
       return;
     }
-    const raw = localStorage.getItem("admin_user");
-    const user = raw ? JSON.parse(raw) as { role?: string; global_role?: string; is_it?: boolean; display_name?: string; is_master_admin?: boolean } : null;
-    setDisplayName(user?.is_master_admin === true ? "__master__" : null);
+    setDisplayName(user.is_master_admin === true ? "__master__" : null);
     if (!canAccessMumineen(user)) {
       router.push("/admin/conversations");
       return;
@@ -268,7 +266,6 @@ export default function MumineenPage() {
     void loadGate();
     void loadDepartments();
     void loadHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   useEffect(() => {
@@ -355,9 +352,8 @@ export default function MumineenPage() {
             transport_detail: form.transport_detail,
           }
         : undefined;
-      const res = await fetch("/api/admin/mumineen/update", {
+      const res = await apiFetch("/api/admin/mumineen/update", {
         method: "POST",
-        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
         body: JSON.stringify({ its: selected.its, member, family }),
       });
       const data = await res.json().catch(() => ({}));
@@ -375,23 +371,23 @@ export default function MumineenPage() {
   }
 
   async function loadStats() {
-    const res = await fetch("/api/admin/mumineen", { headers: { "x-admin-key": adminKey } });
+    const res = await apiFetch("/api/admin/mumineen");
     if (res.ok) setStats((await res.json()) as Stats);
   }
 
   async function loadGate() {
-    const res = await fetch("/api/admin/registration-gate", { headers: { "x-admin-key": adminKey } });
+    const res = await apiFetch("/api/admin/registration-gate");
     if (res.ok) setGate(Boolean((await res.json()).enabled));
   }
 
   async function loadDepartments() {
-    const res = await fetch("/api/admin/mumineen/departments", { headers: { "x-admin-key": adminKey } });
+    const res = await apiFetch("/api/admin/mumineen/departments");
     if (res.ok) setDepartments(((await res.json()).departments as Department[]) ?? []);
   }
 
   async function loadHistory() {
     setHistoryLoading(true);
-    const res = await fetch("/api/admin/mumineen/import", { headers: { "x-admin-key": adminKey } });
+    const res = await apiFetch("/api/admin/mumineen/import");
     if (res.ok) setImportHistory((await res.json()) as ImportLogEntry[]);
     setHistoryLoading(false);
   }
@@ -400,9 +396,8 @@ export default function MumineenPage() {
     setGateBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/registration-gate", {
+      const res = await apiFetch("/api/admin/registration-gate", {
         method: "POST",
-        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
         body: JSON.stringify({ enabled: next }),
       });
       const data = await res.json().catch(() => ({}));
@@ -424,12 +419,7 @@ export default function MumineenPage() {
     try {
       const body = new FormData();
       body.append("file", file);
-      const adminUserRaw = localStorage.getItem("admin_user");
-      const adminUser = adminUserRaw ? JSON.parse(adminUserRaw) as { id?: string; display_name?: string } : null;
-      const importHeaders: Record<string, string> = { "x-admin-key": adminKey };
-      if (adminUser?.id) importHeaders["x-admin-user-id"] = adminUser.id;
-      if (adminUser?.display_name) importHeaders["x-admin-user-name"] = adminUser.display_name;
-      const res = await fetch("/api/admin/mumineen/import", { method: "POST", headers: importHeaders, body });
+      const res = await apiFetch("/api/admin/mumineen/import", { method: "POST", body });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Import failed");
       const extras: string[] = [];
@@ -457,9 +447,7 @@ export default function MumineenPage() {
   async function runSearch(term: string) {
     setSearching(true);
     try {
-      const res = await fetch(`/api/admin/mumineen/search?q=${encodeURIComponent(term)}`, {
-        headers: { "x-admin-key": adminKey },
-      });
+      const res = await apiFetch(`/api/admin/mumineen/search?q=${encodeURIComponent(term)}`);
       const data = await res.json().catch(() => ({}));
       setResults(res.ok ? ((data.results as SearchResult[]) ?? []) : []);
     } catch {
@@ -490,9 +478,8 @@ export default function MumineenPage() {
     if (action === "reopen" && !window.confirm(`Reopen registration for family ${hofIts}? They will be able to submit the form again.`)) return;
     setError(null);
     try {
-      const res = await fetch("/api/admin/mumineen/registration", {
+      const res = await apiFetch("/api/admin/mumineen/registration", {
         method: "POST",
-        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
         body: JSON.stringify({ hof_its: hofIts, action, reason }),
       });
       const data = await res.json().catch(() => ({}));
@@ -522,7 +509,7 @@ export default function MumineenPage() {
             <button
               type="button"
               onClick={async () => {
-                const res = await fetch("/api/admin/mumineen/export", { headers: { "x-admin-key": adminKey } });
+                const res = await apiFetch("/api/admin/mumineen/export");
                 if (!res.ok) return;
                 const blob = await res.blob();
                 const url = URL.createObjectURL(blob);
