@@ -275,6 +275,7 @@ export async function runAgent(input: AgentInput) {
   messages.push(firstMessage);
 
   let escalationAck: string | null = null;
+  const sources = newSourceCollector();
 
   for (const toolCall of firstMessage.tool_calls) {
     if (toolCall.type !== "function") {
@@ -291,6 +292,8 @@ export async function runAgent(input: AgentInput) {
     if (toolCall.function.name === "move_to_escalation" && isEscalated(toolResult)) {
       escalationAck = escalationAcknowledgment(toolResult);
     }
+
+    collectSources(sources, toolCall.function.name, toolResult);
 
     messages.push({
       role: "tool",
@@ -317,7 +320,54 @@ export async function runAgent(input: AgentInput) {
     max_tokens: MAX_AGENT_TOKENS,
   });
 
-  return finalResponse.choices[0]?.message?.content?.trim() || fallbackReply();
+  const reply = finalResponse.choices[0]?.message?.content?.trim() || fallbackReply();
+  // Guarantee the show-source rule: if a Waaz Talaqi / Lisan tool returned a source and the
+  // model's reply didn't cite it, append the source line deterministically.
+  return ensureSourcesCited(reply, sources);
+}
+
+// --- Deterministic source citation (Issue #43) ---
+// The prompt asks the model to cite the source; this enforces it server-side so a model that
+// ignores the instruction can't drop the citation. Sources come straight from the tool results.
+type SourceCollector = { religious: { title: string; url: string }[]; lisanDictionary: boolean };
+export function newSourceCollector(): SourceCollector {
+  return { religious: [], lisanDictionary: false };
+}
+
+// Pull citations out of a tool result: religious tool context carries "[Title — Source: <url>]";
+// a successful Lisan word lookup is cited to the dictionary.
+export function collectSources(into: SourceCollector, toolName: string, toolResult: unknown): void {
+  if (!toolResult || typeof toolResult !== "object") return;
+  const r = toolResult as { status?: unknown; context?: unknown };
+  if (toolName === "answer_religious_questions" && typeof r.context === "string") {
+    const re = /\[([^\]]*?)\s+—\s+Source:\s+(https?:\/\/[^\]\s]+)\]/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(r.context)) !== null) {
+      const title = m[1].trim();
+      const url = m[2].trim();
+      if (!into.religious.some((s) => s.url === url)) into.religious.push({ title, url });
+    }
+  } else if (toolName === "get_lisan_word_meaning" && r.status === "ok") {
+    into.lisanDictionary = true;
+  }
+}
+
+// Append any missing source lines to the reply. Skips when the reply is empty/no-reply, or
+// when the model already included the link / dictionary mention.
+export function ensureSourcesCited(reply: string, sources: SourceCollector): string {
+  const trimmed = reply.trim();
+  if (!trimmed || /\bno[_\s]?reply\b/i.test(trimmed.replace(/[^a-z_\s]/gi, ""))) return reply;
+
+  const lines: string[] = [];
+  if (sources.religious.length > 0) {
+    for (const s of sources.religious) {
+      if (!trimmed.includes(s.url)) lines.push(`Source: ${s.title} — ${s.url}`);
+    }
+  } else if (sources.lisanDictionary && !/lisan ud dawat dictionary/i.test(trimmed)) {
+    lines.push("Source: Lisan ud Dawat dictionary");
+  }
+
+  return lines.length ? `${trimmed}\n\n${lines.join("\n")}` : reply;
 }
 
 function parseToolArguments(rawArguments: string): Record<string, unknown> {
