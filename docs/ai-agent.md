@@ -75,11 +75,22 @@ When site content is available from the RAG scraper, it is appended to the syste
 All OpenAI model and client configuration lives in `src/lib/ai/model.ts`.
 
 - Chat model: `AI_MODEL` (`OPENAI_MODEL` override, default `gpt-4o-mini`)
+- High-end model: `AI_MODEL_HIGH` (`OPENAI_MODEL_HIGH` override, falls back to `AI_MODEL`)
 - Agent temperature: `AGENT_TEMPERATURE`
 - Token cap: `MAX_AGENT_TOKENS`
+- Request builder: `chatParams(model, { maxTokens, temperature })`
 - OpenAI client: `getAIClient()`
 
-No agent file should instantiate `OpenAI` or hardcode model names directly.
+No agent file should instantiate `OpenAI` or hardcode model names directly. Every
+`chat.completions.create` call spreads `chatParams(...)` so the request shape stays valid across
+model families (GPT-5.x / o-series reject custom `temperature` and `max_tokens`; `chatParams`
+emits `max_completion_tokens` and drops `temperature` for those models).
+
+**High-model routing.** When a turn calls `answer_religious_questions` or `get_lisan_word_meaning`,
+the *second* completion is generated with `AI_MODEL_HIGH` (`pickFinalModel`); all other turns use
+`AI_MODEL`. The high-model completion is wrapped in a try/catch that **falls back to `AI_MODEL`** if
+the high model errors — a thrown error here would otherwise be swallowed by the coalesce layer and
+the user would get no reply at all.
 
 ## Tools
 
