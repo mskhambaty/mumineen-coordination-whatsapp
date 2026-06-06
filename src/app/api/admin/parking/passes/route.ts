@@ -29,7 +29,8 @@ export async function POST(req: NextRequest) {
       family_id: familyId,
       lot_id: lotId,
       notes: typeof body.notes === "string" && body.notes.trim() ? body.notes.trim() : null,
-      assigned_by: auth.caller.user_id,
+      // Server-to-server (admin-key) callers have a sentinel id, not a user row.
+      assigned_by: auth.caller.user_id === "admin-api" ? null : auth.caller.user_id,
     })
     .select("id, family_id, lot_id, notes, created_at")
     .single();

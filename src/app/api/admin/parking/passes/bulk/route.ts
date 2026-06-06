@@ -48,7 +48,8 @@ export async function POST(req: NextRequest) {
       toInsert.map((familyId) => ({
         family_id: familyId,
         lot_id: lotId,
-        assigned_by: auth.caller.user_id,
+        // Server-to-server (admin-key) callers have a sentinel id, not a user row.
+        assigned_by: auth.caller.user_id === "admin-api" ? null : auth.caller.user_id,
       })),
     );
     if (error) {
