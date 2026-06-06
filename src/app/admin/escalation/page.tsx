@@ -54,7 +54,7 @@ export default function EscalationSupportPage() {
       return;
     }
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [router]);
 
   async function load() {

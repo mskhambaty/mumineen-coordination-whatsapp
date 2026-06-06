@@ -59,7 +59,7 @@ export default function MilestonesPage() {
     if (!user) { router.push("/admin/login"); return; }
     if (!canManageInternalTools(user)) { router.push("/admin/registration"); return; }
     void loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [router]);
 
   async function loadData() {

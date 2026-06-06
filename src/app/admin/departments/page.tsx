@@ -81,13 +81,13 @@ export default function DepartmentsPage() {
     }
 
     void loadInitialData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [router]);
 
   useEffect(() => {
     if (!selectedDepartmentId) return;
     void loadDepartmentUsers(selectedDepartmentId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [selectedDepartmentId]);
 
   useEffect(() => {

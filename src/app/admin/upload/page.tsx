@@ -349,7 +349,7 @@ export default function UploadPage() {
     if (selectedDepartmentIds.length === 0) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setCutoffTimestamp("");
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+
       setLastParsedLabel("");
       return;
     }
@@ -368,7 +368,7 @@ export default function UploadPage() {
         }
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [selectedDepartmentIds]);
 
   function toggleDepartment(departmentId: string) {

@@ -28,7 +28,7 @@ export default function LisanDictionaryUploader() {
       const c = await fetchCount();
       if (c !== null) setCount(c);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, []);
 
   async function upload(e: React.FormEvent) {

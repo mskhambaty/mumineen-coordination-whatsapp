@@ -43,7 +43,7 @@ export default function QuickEditModal({ onClose }: { onClose: () => void }) {
       const res = await apiFetch("/api/admin/faq-buckets");
       if (res.ok) setBuckets(((await res.json()).buckets ?? []) as Bucket[]);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [mode]);
 
   useEffect(() => {
@@ -52,7 +52,7 @@ export default function QuickEditModal({ onClose }: { onClose: () => void }) {
       const res = await apiFetch("/api/admin/religious-topics");
       if (res.ok) setTopics(((await res.json()).topics ?? []) as Topic[]);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [mode]);
 
   useEffect(() => {
@@ -64,7 +64,7 @@ export default function QuickEditModal({ onClose }: { onClose: () => void }) {
       if (res.ok) setPromptText(((await res.json()) as { prompt_text: string }).prompt_text ?? "");
       setPromptLoading(false);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [mode, promptKey]);
 
   async function savePrompt() {
