@@ -131,6 +131,26 @@ const KNOWLEDGE_GAP_RULE = `\n\n## Flag Knowledge Gaps
 - This is silent record-keeping for the team; never mention it to the user. It is NOT a substitute for helping — still answer if you can, and use move_to_escalation/create_issue where those apply.
 - Do not flag greetings, thanks, chit-chat, or questions you were able to answer. One flag per distinct missing topic.`;
 
+// Single source of truth for the always-on rule blocks appended to every system prompt.
+// runAgent() loops over this, and the admin Prompt page reads it (read-only) so the UI can
+// never drift from what's actually applied. These are code-managed (edited via deploy),
+// unlike the editable base prompt stored in `system_prompts`.
+export type AlwaysOnRule = { name: string; label: string; text: string };
+export const ALWAYS_ON_RULES: AlwaysOnRule[] = [
+  { name: "ESCALATION_POLICY", label: "Escalation Policy (last resort)", text: ESCALATION_POLICY },
+  { name: "GREETING_RULE", label: "Greeting Style — greet exactly once", text: GREETING_RULE },
+  { name: "ACCURACY_RULE", label: "Accuracy First — never hallucinate", text: ACCURACY_RULE },
+  { name: "NO_DEAD_END_RULE", label: "Never Leave the User Without Help", text: NO_DEAD_END_RULE },
+  { name: "TONE_RULE", label: "Tone — natural and human", text: TONE_RULE },
+  { name: "LANGUAGE_RULE", label: "Language — understand any, reply in English", text: LANGUAGE_RULE },
+  { name: "COMMON_REQUESTS_RULE", label: "Common Requests (hotels, utaro, visa, etc.)", text: COMMON_REQUESTS_RULE },
+  { name: "CONVERSATION_FLOW_RULE", label: "Conversation Flow — know when to stop", text: CONVERSATION_FLOW_RULE },
+  { name: "RELIGIOUS_GUIDANCE_RULE", label: "Waaz Talaqi — routing, citations, reverent tone", text: RELIGIOUS_GUIDANCE_RULE },
+  { name: "REGISTRATION_CHANGE_RULE", label: "Registration Cancellations & Changes", text: REGISTRATION_CHANGE_RULE },
+  { name: "ITS_HELPLINE_RULE", label: "ITS Helpline guidance", text: ITS_HELPLINE_RULE },
+  { name: "KNOWLEDGE_GAP_RULE", label: "Flag Knowledge Gaps", text: KNOWLEDGE_GAP_RULE },
+];
+
 const DEPT_CACHE_TTL_MS = 5 * 60_000;
 let cachedDepartments: { list: Array<{ name: string; description: string | null }>; fetchedAt: number } | null = null;
 
@@ -213,18 +233,9 @@ export async function runAgent(input: AgentInput) {
     systemContent += departmentSection;
   }
 
-  systemContent += ESCALATION_POLICY;
-  systemContent += GREETING_RULE;
-  systemContent += ACCURACY_RULE;
-  systemContent += NO_DEAD_END_RULE;
-  systemContent += TONE_RULE;
-  systemContent += LANGUAGE_RULE;
-  systemContent += COMMON_REQUESTS_RULE;
-  systemContent += CONVERSATION_FLOW_RULE;
-  systemContent += RELIGIOUS_GUIDANCE_RULE;
-  systemContent += REGISTRATION_CHANGE_RULE;
-  systemContent += ITS_HELPLINE_RULE;
-  systemContent += KNOWLEDGE_GAP_RULE;
+  for (const rule of ALWAYS_ON_RULES) {
+    systemContent += rule.text;
+  }
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemContent },

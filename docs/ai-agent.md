@@ -124,10 +124,19 @@ clears the similarity threshold). `move_to_escalation` is live and gated server-
 committee tools (`get_volunteer_assignment`, etc.) still return `not_connected` placeholders.
 Task tools are wired to the internal task APIs and are permission-gated by account/department role.
 
-An always-on **Escalation Policy** block is appended to the system prompt in `run-agent.ts`
-so it can't be edited away: escalation is a last resort, never on a premature "talk to a
-human", and emergencies (lost child/passport, medical, security) escalate immediately as
-`urgent`. The hard turn-gate (min. inbound messages, emergency bypass) lives in
+### Always-on rule blocks
+
+Beyond the editable base prompt (`agent_system` in `system_prompts`), `run-agent.ts` appends a
+fixed set of **always-on rule blocks** to every system prompt (Escalation, Greeting, Accuracy,
+Tone, Language, Common Requests, Conversation Flow, Waaz Talaqi, Registration, ITS Helpline,
+Knowledge Gap). They're a single exported registry, `ALWAYS_ON_RULES`, that `runAgent` loops
+over — so they can't be edited from the admin UI (only via deploy). The **AI Prompt Management**
+page renders them **read-only** (via `GET /api/admin/prompts/rules`) so admins can see the full
+effective prompt, not just the editable base.
+
+For example, the always-on **Escalation Policy** block makes escalation a last resort, never on a
+premature "talk to a human"; emergencies (lost child/passport, medical, security) escalate
+immediately as `urgent`. The hard turn-gate (min. inbound messages, emergency bypass) lives in
 `/api/escalations`. On a successful escalation the agent replies with a deterministic
 acknowledgment and skips the second completion.
 

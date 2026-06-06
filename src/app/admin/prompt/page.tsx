@@ -183,6 +183,9 @@ export default function PromptPage() {
   const [editText, setEditText] = useState("");
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [expandedTool, setExpandedTool] = useState<string | null>(null);
+  const [alwaysOnRules, setAlwaysOnRules] = useState<Array<{ name: string; label: string; text: string }>>([]);
+  const [dynamicContext, setDynamicContext] = useState<string[]>([]);
+  const [expandedRule, setExpandedRule] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -221,9 +224,10 @@ export default function PromptPage() {
 
   async function loadData() {
     try {
-      const [promptRes, toolsRes] = await Promise.all([
+      const [promptRes, toolsRes, rulesRes] = await Promise.all([
         apiFetch("/api/admin/prompts/agent_system"),
         apiFetch("/api/admin/prompts/tools"),
+        apiFetch("/api/admin/prompts/rules"),
       ]);
 
       if (promptRes.ok) {
@@ -235,6 +239,12 @@ export default function PromptPage() {
       if (toolsRes.ok) {
         const data = (await toolsRes.json()) as { tools: ToolInfo[] };
         setTools(data.tools);
+      }
+
+      if (rulesRes.ok) {
+        const data = (await rulesRes.json()) as { rules: typeof alwaysOnRules; dynamic: string[] };
+        setAlwaysOnRules(data.rules ?? []);
+        setDynamicContext(data.dynamic ?? []);
       }
 
       await Promise.all([loadSuggestions(), loadQualityPrompt(), loadCronLogs()]);
@@ -643,6 +653,49 @@ export default function PromptPage() {
             ))
           )}
         </div>
+      </section>
+
+      <section className="mt-8 rounded-lg border bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <div className="flex items-center justify-between border-b px-6 py-4 dark:border-gray-800">
+          <div>
+            <h2 className="text-lg font-semibold">Always-on Rules</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              These rule blocks are appended to <strong>every</strong> system prompt, after the editable
+              base prompt above. They&apos;re code-managed (changed via deploy), so they can&apos;t be edited here.
+            </p>
+          </div>
+          <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+            {alwaysOnRules.length} rules &middot; Read-only
+          </span>
+        </div>
+        <div className="divide-y dark:divide-gray-800">
+          {alwaysOnRules.map((rule, i) => (
+            <div key={rule.name}>
+              <button
+                type="button"
+                onClick={() => setExpandedRule(expandedRule === rule.name ? null : rule.name)}
+                className="flex w-full items-center justify-between px-6 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50"
+              >
+                <span className="flex items-center gap-3">
+                  <span className="text-xs text-gray-400">{i + 1}</span>
+                  <span className="text-sm font-medium">{rule.label}</span>
+                  <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400">{rule.name}</code>
+                </span>
+                <span aria-label={expandedRule === rule.name ? "Collapse" : "Expand"}>{expandedRule === rule.name ? "▲" : "▼"}</span>
+              </button>
+              {expandedRule === rule.name && (
+                <pre className="overflow-x-auto whitespace-pre-wrap border-t bg-gray-50 px-6 py-3 text-xs leading-5 text-gray-700 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
+                  {rule.text.trim()}
+                </pre>
+              )}
+            </div>
+          ))}
+        </div>
+        {dynamicContext.length > 0 && (
+          <div className="border-t px-6 py-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
+            Plus per-message dynamic context: {dynamicContext.join(" · ")}.
+          </div>
+        )}
       </section>
 
       <section className="mt-8 rounded-lg border bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
