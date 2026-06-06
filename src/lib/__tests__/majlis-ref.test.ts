@@ -21,7 +21,19 @@ describe("parseMajlisRef", () => {
 
   it("routes Tazyeen/decoration questions to the Tazyeen block", () => {
     const r = parseMajlisRef("What was the Tazyeen / decoration for Majlis 5?");
-    expect(r).toMatchObject({ majlisNum: 5, wantsTazyeen: true });
+    expect(r).toMatchObject({ majlisNum: 5, wantsTazyeen: true, wantsDars: false });
+  });
+
+  it("routes Al-Dars / duroos / chapter questions to the Al-Dars block", () => {
+    expect(parseMajlisRef("al-dars majlis 1")).toMatchObject({ majlisNum: 1, wantsDars: true });
+    expect(parseMajlisRef("what were the 5 duroos of majlis 1")).toMatchObject({ majlisNum: 1, wantsDars: true });
+    expect(parseMajlisRef("majlis 1 chapter 2 learning canvas")).toMatchObject({ majlisNum: 1, wantsDars: true });
+  });
+
+  it("does not flag wantsDars for plain reflection/tazyeen queries", () => {
+    expect(parseMajlisRef("topic of Majlis 3")?.wantsDars).toBe(false);
+    expect(parseMajlisRef("the second waaz of 1447 ashara")?.wantsDars).toBe(false);
+    expect(parseMajlisRef("Tazyeen for Majlis 5")?.wantsDars).toBe(false);
   });
 
   it("maps Lailat / Ashura / Majlis 9-10 to the combined block", () => {
