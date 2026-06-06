@@ -4,6 +4,7 @@ import {
   isDepartmentMember,
   isEscalationSupportMember,
   isItMember,
+  isTransportMember,
 } from "@/lib/supabase/server";
 
 export type PortalSessionSourceUser = {
@@ -23,6 +24,7 @@ export type PortalSessionUser = {
   is_support: boolean;
   is_manager: boolean;
   is_it: boolean;
+  is_transport: boolean;
   is_internal: boolean;
 };
 
@@ -31,8 +33,9 @@ export async function buildPortalSessionUser(user: PortalSessionSourceUser): Pro
   const isManager =
     user.global_role === "pm" || user.global_role === "hod" || (await isDepartmentManager(user.id));
   const isIt = await isItMember(user.id);
+  const isTransport = await isTransportMember(user.id);
   // Internal = assigned to any department (managers/IT are internal by definition).
-  const isInternal = isManager || isIt || (await isDepartmentMember(user.id));
+  const isInternal = isManager || isIt || isTransport || (await isDepartmentMember(user.id));
 
   return {
     id: user.id,
@@ -43,6 +46,7 @@ export async function buildPortalSessionUser(user: PortalSessionSourceUser): Pro
     is_support: isSupport,
     is_manager: isManager,
     is_it: isIt,
+    is_transport: isTransport,
     is_internal: isInternal,
   };
 }
