@@ -90,9 +90,10 @@ function LotCard({
 }: {
   lot: Lot;
   canManage: boolean;
-  onSave: (patch: { id: string; capacity: number; color: string; purposes: string[] }) => Promise<void>;
+  onSave: (patch: { id: string; name: string; capacity: number; color: string; purposes: string[] }) => Promise<boolean>;
 }) {
   const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(lot.name);
   const [capacity, setCapacity] = useState(String(lot.capacity));
   const [color, setColor] = useState(lot.color ?? "");
   const [purposes, setPurposes] = useState<string[]>(lot.purposes);
@@ -104,8 +105,9 @@ function LotCard({
   async function save() {
     setSaving(true);
     try {
-      await onSave({ id: lot.id, capacity: Number(capacity) || 0, color, purposes });
-      setEditing(false);
+      // Stay in edit mode on failure (e.g. duplicate name) so the input isn't lost.
+      const ok = await onSave({ id: lot.id, name: name.trim(), capacity: Number(capacity) || 0, color, purposes });
+      if (ok) setEditing(false);
     } finally {
       setSaving(false);
     }
@@ -137,6 +139,7 @@ function LotCard({
         <button
           type="button"
           onClick={() => {
+            setName(lot.name);
             setCapacity(String(lot.capacity));
             setColor(lot.color ?? "");
             setPurposes(lot.purposes);
@@ -149,6 +152,15 @@ function LotCard({
       )}
       {editing && (
         <div className="mt-2 space-y-2 border-t border-gray-100 pt-2 dark:border-gray-700">
+          <label className="block text-[11px] text-gray-500 dark:text-gray-400">
+            Name
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="mt-0.5 w-full rounded border border-gray-200 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+            />
+          </label>
           <label className="block text-[11px] text-gray-500 dark:text-gray-400">
             Capacity
             <input
@@ -191,7 +203,7 @@ function LotCard({
             <button
               type="button"
               onClick={save}
-              disabled={saving}
+              disabled={saving || !name.trim()}
               className="rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
               {saving ? "Saving…" : "Save"}
@@ -413,7 +425,7 @@ export default function ParkingPage() {
     await loadAll(filters);
   }
 
-  async function saveLot(patch: { id: string; capacity: number; color: string; purposes: string[] }) {
+  async function saveLot(patch: { id: string; name: string; capacity: number; color: string; purposes: string[] }) {
     const res = await fetch("/api/admin/parking/lots", {
       method: "PATCH",
       headers: { ...headers, "Content-Type": "application/json" },
@@ -422,9 +434,12 @@ export default function ParkingPage() {
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
       setError(json.error ?? "Failed to save lot");
-      return;
+      return false;
     }
-    await loadLots();
+    setError(null);
+    // Reload households too — pass chips display the lot name, which may have changed.
+    await loadAll(filters);
+    return true;
   }
 
   // Rows shown in the table: server-filtered set, narrowed by the client-side name search.

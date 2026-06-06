@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-// PATCH /api/admin/parking/lots — edit one lot's capacity/color/purposes (no add/delete; lots are seeded).
+// PATCH /api/admin/parking/lots — edit one lot's name/capacity/color/purposes (no add/delete; lots are seeded).
 export async function PATCH(req: NextRequest) {
   if (!requireAdminKey(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -50,6 +50,7 @@ export async function PATCH(req: NextRequest) {
 
   const body = (await req.json().catch(() => ({}))) as {
     id?: unknown;
+    name?: unknown;
     capacity?: unknown;
     color?: unknown;
     purposes?: unknown;
@@ -60,6 +61,13 @@ export async function PATCH(req: NextRequest) {
   }
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (body.name !== undefined) {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (!name) {
+      return NextResponse.json({ error: "Lot name cannot be empty." }, { status: 400 });
+    }
+    patch.name = name;
+  }
   if (body.capacity !== undefined) {
     const capacity = Number(body.capacity);
     if (!Number.isInteger(capacity) || capacity < 0) {
@@ -85,6 +93,10 @@ export async function PATCH(req: NextRequest) {
     .select(LOT_COLS)
     .maybeSingle();
   if (error) {
+    // parking_lots.name is unique at the DB level — surface a friendly 400 on collision.
+    if (error.code === "23505") {
+      return NextResponse.json({ error: "A lot with that name already exists." }, { status: 400 });
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
   if (!lot) {
