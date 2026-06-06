@@ -765,9 +765,9 @@ export default function ParkingPage() {
               )}
               {unqualified > 0 && (
                 <span className="font-medium text-amber-600 dark:text-amber-400">
-                  ⚠ {unqualified} of {selected.size} selected{" "}
-                  {unqualified === 1 ? "doesn't match" : "don't match"} this lot&apos;s purposes (
-                  {bulkLot.purposes.map((p) => PURPOSE_LABELS[p] ?? p).join(", ")})
+                  {`⚠ ${unqualified} of ${selected.size} selected ${
+                    unqualified === 1 ? "doesn't" : "don't"
+                  } match this lot's purposes (${bulkLot.purposes.map((p) => PURPOSE_LABELS[p] ?? p).join(", ")})`}
                 </span>
               )}
               <button
