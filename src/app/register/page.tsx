@@ -515,7 +515,7 @@ export default function RegisterPage() {
                     <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-emerald-950/80">
                       <label className="flex items-center gap-2">
                         <input type="checkbox" className="accent-amber-500" checked={m.rahat_seating} onChange={(e) => setMember(m.its, { rahat_seating: e.target.checked })} />
-                        Needs rahat seating
+                        Rahat/Chair seating
                       </label>
                       {m.rahat_seating && (
                         <label className="flex items-center gap-2">
