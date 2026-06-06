@@ -6,6 +6,7 @@ import {
   CallerContext,
   requireAdminKey,
   resolveCallerFromSession,
+  UnauthorizedError,
 } from "@/lib/api/auth";
 
 // Route-level portal guard. Pass the same predicate the page gate uses
@@ -23,8 +24,14 @@ export async function requirePortalCaller(
   let caller: CallerContext;
   try {
     caller = await resolveCallerFromSession(req);
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    // Infra failure (e.g. permissions RPC) — don't masquerade as an auth failure,
+    // or the client would clear the session and bounce the user to login.
+    console.error("requirePortalCaller: failed to resolve session caller", error);
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 
   if (!caller.portal || !predicate(caller.portal)) {

@@ -40,6 +40,13 @@ describe("requirePortalCaller", () => {
     expect((result as NextResponse).status).toBe(401);
   });
 
+  it("500s (not 401) when the permissions RPC fails", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { message: "db unavailable" } });
+    const cookie = `portal_session=${signSessionToken("u1")}`;
+    const result = await requirePortalCaller(reqWith({ cookie }), isAdminOrLeadership);
+    expect((result as NextResponse).status).toBe(500);
+  });
+
   it("403s when the session role fails the predicate", async () => {
     rpcMock.mockResolvedValue({
       data: {
