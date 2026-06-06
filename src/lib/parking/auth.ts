@@ -23,6 +23,9 @@ export async function resolveParkingCaller(req: Request): Promise<ParkingCaller>
 
   const isAdmin = user.role === "admin" || user.global_role === "leadership_admin";
   const canManage = isAdmin || (await isItMember(userId)) || (await isTransportMember(userId));
-  const canView = canManage || (await isDepartmentManager(userId));
+  // Mirror buildPortalSessionUser's manager rule: global_role pm/hod counts even
+  // without a department_members row, so the client and server gates agree.
+  const isGlobalManager = user.global_role === "pm" || user.global_role === "hod";
+  const canView = canManage || isGlobalManager || (await isDepartmentManager(userId));
   return { userId, canView, canManage };
 }
