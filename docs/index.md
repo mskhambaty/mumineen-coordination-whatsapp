@@ -46,6 +46,9 @@ src/lib/agent/tools.ts                   — Tool definitions + execution
 src/lib/permissions.ts                   — Role types + canUseTool()
 src/lib/supabase/server.ts               — All Supabase operations
 src/lib/meta/whatsapp.ts                 — Meta Graph API calls + signature verification
+src/lib/whatsapp/send-template.ts        — Standardized template-send pipeline (resolve→validate→send→log) for all notifications
+src/lib/whatsapp/templates.ts            — Template descriptor + components builder + body preview
+src/lib/escalation/notify.ts             — On-call escalation email + WhatsApp template notifications
 src/lib/whatsapp/parser.ts               — Incoming webhook payload parsing
 src/lib/scraper/scrape-site.ts           — Cheerio scraper + OpenAI embedding
 src/lib/scraper/retrieve-site-context.ts — RAG vector search

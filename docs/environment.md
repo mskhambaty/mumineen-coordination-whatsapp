@@ -31,7 +31,8 @@ All env var lookups go through `src/lib/env.ts`, which supports mixed-case alias
 |------|-----------------|---------|-------|
 | `META_APP_SECRET` | `Meta_app_secret` | (unset) | If set, validates `X-Hub-Signature-256` on webhook POSTs. Strongly recommended in production. |
 | `META_GRAPH_API_VERSION` | `Meta_graph_api_version` | `v23.0` | Meta Graph API version used for sending messages. |
-| `WHATSAPP_TEMPLATE_LANGUAGE` | `Whatsapp_template_language` | `en_US` | Language code for approved Meta WhatsApp utility templates such as `department_ticket_assigned`. |
+| `WHATSAPP_TEMPLATE_LANGUAGE` | `Whatsapp_template_language` | `en_US` | Fallback language code for approved Meta WhatsApp utility templates. Template notifications now resolve the live template (incl. its real language) from Meta, so this is only a fallback. |
+| `WHATSAPP_BUSINESS_ACCOUNT_ID` | `Whatsapp_business_account_id` | (unset) | WhatsApp Business Account ID. **Required for every template notification** (welcome `committee_platform_access_created`, issue `department_ticket_assigned`, escalation `escalation_ticket_assigned`) — `listMessageTemplates()` reads it to resolve the approved template. Without it, template sends fail gracefully and only the email channel goes out. |
 | `OPENAI_MODEL` | `OpenAI_model` | `gpt-4o-mini` | Override the centralized chat completion model in `src/lib/ai/model.ts`. |
 | `OPENAI_MODEL_HIGH` | — | falls back to `OPENAI_MODEL` | Higher-end model used **only** for Waaz Talaqi / Lisan answers (the final completion when `answer_religious_questions` or `get_lisan_word_meaning` was used). No-op until set. |
 

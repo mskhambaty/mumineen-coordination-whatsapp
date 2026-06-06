@@ -172,8 +172,13 @@ leadership, not committee, no one else.
   - An HTML template will be authored to paste into Postmark.
 - **WhatsApp** — the 24h session window is **per recipient**. Guest A's window does **not**
   authorize messaging a staff member; the staff number has no open window, so a cold alert
-  **requires a pre-approved Meta template message** (free-form returns error 131047). Use an
-  approved utility template, or treat WhatsApp as best-effort on top of the guaranteed email.
+  **requires a pre-approved Meta template message** (free-form returns error 131047). Sent
+  best-effort on top of the guaranteed email via the approved utility template
+  `escalation_ticket_assigned`. Body variables: `{{1}}` request summary
+  (`"<Category>"`, prefixed `"URGENT — "` for urgent escalations), `{{2}}` the escalation
+  reason/details, `{{3}}` the portal deep link. Only on-call members who have a phone number
+  are messaged. All template sends route through `src/lib/whatsapp/send-template.ts` so logging
+  is uniform with the welcome and issue-contact notifications.
 - **Deep link** in both → opens the app → prompts login if needed → lands directly on that
   conversation in the Escalations tab (redirect-after-login preserves the target).
 
@@ -195,13 +200,14 @@ All notification sends are fire-and-forget (failures never block the agent reply
    showing the membership on the user's profile page is a small follow-up.
 3. **Notifications** — on-call evaluation, Postmark email (`escalation-request` template) +
    HTML template, deep link + redirect-after-login. **Email ships first (guaranteed channel).**
-   WhatsApp push is deferred until a Meta utility template is approved (separate follow-up).
-   ✅ **Done (email)** — `/api/escalations` now emails every currently on-call support member
-   (evaluated in America/Chicago via `src/lib/escalation/notify.ts`) using the
-   `escalation-request` Postmark template (`POSTMARK_ESCALATION_REQUEST_TEMPLATE`; HTML in
-   `docs/postmark-escalation-template.html`). The email deep-links to
-   `/admin/conversations?phone=...&tab=escalations`; unauthenticated users are sent to login
-   with a `?redirect=` and returned to the thread after signing in. WhatsApp still pending.
+   ✅ **Done (email + WhatsApp)** — `/api/escalations` notifies every currently on-call support
+   member (evaluated in America/Chicago via `src/lib/escalation/notify.ts`) over both channels:
+   the `escalation-request` Postmark email (`POSTMARK_ESCALATION_REQUEST_TEMPLATE`; HTML in
+   `docs/postmark-escalation-template.html`) and the approved Meta utility template
+   `escalation_ticket_assigned` (best-effort, on-call members with a phone only). Both deep-link
+   to `/admin/conversations?phone=...&tab=escalations`; unauthenticated users are sent to login
+   with a `?redirect=` and returned to the thread after signing in. WhatsApp sends go through the
+   shared `src/lib/whatsapp/send-template.ts` pipeline (requires `WHATSAPP_BUSINESS_ACCOUNT_ID`).
 4. **Issues** — `create_issue` tool + external/internal distinction on the Kanban board.
    ✅ **Done** — `create_issue` tool (audience external) → `POST /api/issues` creates an
    `item_type='issue'`, `origin='external'`, department-less task linked to the reporting
@@ -215,5 +221,6 @@ All notification sends are fire-and-forget (failures never block the agent reply
 ## Build-time / config items
 - Confirm the issues table schema and Kanban external/internal rendering.
 - Postmark: escalation template ID + Supabase var (owner to provide); author HTML template.
-- WhatsApp: submit and approve the staff-alert message template with Meta.
+- WhatsApp: staff-alert template `escalation_ticket_assigned` approved and wired up
+  (set `WHATSAPP_BUSINESS_ACCOUNT_ID`). ✅
 - Env: deep-link base URL (`NEXT_PUBLIC_APP_URL`) for notification links.

@@ -1,7 +1,8 @@
 import { sendAssignmentNotificationEmail } from "@/lib/email/postmark";
 import { optionalEnv } from "@/lib/env";
-import { sendWhatsAppTemplate } from "@/lib/meta/whatsapp";
-import { getSupabaseAdmin, recordOutboundMessage, touchConversationSession } from "@/lib/supabase/server";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { resolveApprovedTemplate, sendTemplateNotification } from "@/lib/whatsapp/send-template";
+import type { TemplateDescriptor } from "@/lib/whatsapp/templates";
 
 const ISSUE_TEMPLATE_NAME = "department_ticket_assigned";
 
@@ -45,18 +46,6 @@ function firstRelation<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
-function templateBody(issue: DepartmentIssueNotice, url: string) {
-  return [
-    "A new Ashara 1448H support ticket has been assigned to your department.",
-    "",
-    `Issue: ${issue.title}`,
-    `Description: ${issue.description?.trim() || "No description provided."}`,
-    `View ticket in portal: ${url}`,
-    "",
-    "You can reply here to ask questions about this ticket, request more details, or close the ticket once it is resolved.",
-  ].join("\n");
-}
-
 export async function notifyDepartmentIssueContacts(issue: DepartmentIssueNotice): Promise<number> {
   if (!issue.departmentId) return 0;
 
@@ -76,6 +65,15 @@ export async function notifyDepartmentIssueContacts(issue: DepartmentIssueNotice
   const url = issueUrl(issue);
   const description = issue.description?.trim() || "No description provided.";
   const notifiedUsers = new Set<string>();
+
+  // Resolve the approved template once for the whole fan-out; if it's missing we
+  // still send the emails below and just skip WhatsApp (best-effort second channel).
+  let descriptor: TemplateDescriptor | null = null;
+  try {
+    descriptor = await resolveApprovedTemplate(ISSUE_TEMPLATE_NAME);
+  } catch (err) {
+    console.error("Issue WhatsApp template unavailable; sending email only:", err);
+  }
 
   await Promise.all(
     (data as unknown as IssueContactRow[]).map(async (row) => {
@@ -98,23 +96,16 @@ export async function notifyDepartmentIssueContacts(issue: DepartmentIssueNotice
         );
       }
 
-      if (user.phone_e164) {
-        await sendWhatsAppTemplate(user.phone_e164, ISSUE_TEMPLATE_NAME, [issue.title, description, url])
-          .then(async (metaResponse) => {
-            await recordOutboundMessage({
-              phoneE164: user.phone_e164 as string,
-              body: templateBody(issue, url),
-              whatsappMessageId: metaResponse.messages?.[0]?.id,
-              rawPayload: {
-                source: "department_issue_contact",
-                template: ISSUE_TEMPLATE_NAME,
-                issue_id: issue.issueId,
-                meta_response: metaResponse,
-              },
-            });
-            await touchConversationSession({ phoneE164: user.phone_e164 as string, userId: user.id });
-          })
-          .catch((err) => console.error(`Issue WhatsApp template to ${user.phone_e164} failed:`, err));
+      if (user.phone_e164 && descriptor) {
+        await sendTemplateNotification({
+          phoneE164: user.phone_e164,
+          userId: user.id,
+          templateName: ISSUE_TEMPLATE_NAME,
+          bodyParams: [issue.title, description, url],
+          source: "department_issue_contact",
+          rawPayloadExtra: { issue_id: issue.issueId },
+          descriptor,
+        });
       }
     }),
   );
