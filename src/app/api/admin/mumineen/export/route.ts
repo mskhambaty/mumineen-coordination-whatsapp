@@ -86,6 +86,8 @@ export async function GET(req: NextRequest) {
     "Daily Trans": m.daily_trans ?? "",
     "Acc Arranged At": "",
     "Acc. Zone": "",
+    whatsapp_e164: m.whatsapp_e164 ?? "",
+    email: m.email ?? "",
   }));
 
   const wb = XLSX.utils.book_new();
@@ -113,6 +115,8 @@ export async function GET(req: NextRequest) {
     { wch: 14 }, // Daily Trans
     { wch: 18 }, // Acc Arranged At
     { wch: 14 }, // Acc. Zone
+    { wch: 18 }, // whatsapp_e164
+    { wch: 28 }, // email
   ];
 
   XLSX.utils.book_append_sheet(wb, ws, "Roster");
