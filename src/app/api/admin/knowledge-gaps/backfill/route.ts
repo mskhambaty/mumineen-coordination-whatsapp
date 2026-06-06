@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdminKey } from "@/lib/api/auth";
-import { AI_MODEL, getAIClient, PARSE_TEMPERATURE } from "@/lib/ai/model";
+import { AI_MODEL, chatParams, getAIClient, PARSE_TEMPERATURE } from "@/lib/ai/model";
 import { recordKnowledgeGap } from "@/lib/knowledge/knowledge-gaps";
 import { getRecentMessages, getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -49,9 +49,7 @@ export async function POST(req: NextRequest) {
 
     try {
       const res = await client.chat.completions.create({
-        model: AI_MODEL,
-        temperature: PARSE_TEMPERATURE,
-        max_tokens: 400,
+        ...chatParams(AI_MODEL, { maxTokens: 400, temperature: PARSE_TEMPERATURE }),
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: ANALYZE_PROMPT },

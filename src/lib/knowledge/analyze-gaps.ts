@@ -1,4 +1,4 @@
-import { AI_MODEL, getAIClient } from "@/lib/ai/model";
+import { AI_MODEL, chatParams, getAIClient } from "@/lib/ai/model";
 import { classifyToDepartments } from "@/lib/knowledge/faq-buckets";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -116,13 +116,11 @@ async function analyzeOne(phone: string): Promise<GapSuggestion[]> {
 
   const client = getAIClient();
   const res = await client.chat.completions.create({
-    model: AI_MODEL,
+    ...chatParams(AI_MODEL, { maxTokens: 800, temperature: 0.1 }),
     messages: [
       { role: "system", content: ANALYZE_SYSTEM_PROMPT },
       { role: "user", content: `Conversation:\n${transcript}` },
     ],
-    temperature: 0.1,
-    max_tokens: 800,
     response_format: { type: "json_object" },
   });
 
@@ -276,7 +274,7 @@ async function filterAgainstBucket(
   const client = getAIClient();
   try {
     const res = await client.chat.completions.create({
-      model: AI_MODEL,
+      ...chatParams(AI_MODEL, { maxTokens: 500, temperature: 0 }),
       messages: [
         {
           role: "system",
@@ -292,8 +290,6 @@ async function filterAgainstBucket(
             candidates.map((c, i) => `${i}. Q: ${c.question}\n   A: ${c.answer}`).join("\n"),
         },
       ],
-      temperature: 0,
-      max_tokens: 500,
       response_format: { type: "json_object" },
     });
     const parsed = JSON.parse(res.choices[0]?.message?.content ?? "{}") as { new?: number[] };

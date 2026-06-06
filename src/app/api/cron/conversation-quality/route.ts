@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { loadPromptByKey } from "@/lib/agent/prompts";
-import { getAIClient, AI_MODEL, SUMMARY_TEMPERATURE, MAX_SUMMARY_TOKENS } from "@/lib/ai/model";
+import { getAIClient, AI_MODEL, chatParams, SUMMARY_TEMPERATURE, MAX_SUMMARY_TOKENS } from "@/lib/ai/model";
 import { requireEnv } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -130,13 +130,11 @@ async function run(req: NextRequest) {
 
       try {
         const response = await client.chat.completions.create({
-          model: AI_MODEL,
+          ...chatParams(AI_MODEL, { maxTokens: MAX_SUMMARY_TOKENS, temperature: SUMMARY_TEMPERATURE }),
           messages: [
             { role: "system", content: qualityPrompt },
             { role: "user", content: userContent },
           ],
-          temperature: SUMMARY_TEMPERATURE,
-          max_tokens: MAX_SUMMARY_TOKENS,
           response_format: { type: "json_object" },
         });
 

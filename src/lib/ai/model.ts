@@ -21,6 +21,31 @@ export const MAX_AGENT_TOKENS = 1024;
 export const MAX_PARSE_TOKENS = 4096;
 export const MAX_SUMMARY_TOKENS = 2048;
 
+// GPT-5.x and o-series are reasoning models: they reject a custom `temperature` (only the
+// default is allowed) and reject the deprecated `max_tokens` parameter — they require
+// `max_completion_tokens`. Sending the old params returns a 400 "Unsupported parameter" error.
+export function isReasoningModel(model: string): boolean {
+  return /^(gpt-5|o\d)/i.test(model);
+}
+
+// Build the model-specific chat-completion parameters so a model swap stays a pure env-var
+// change and never a code change. `max_completion_tokens` is used for ALL models (gpt-4o*
+// accept it too), and `temperature` is only attached for models that allow a custom value.
+// Spread the result into a chat.completions.create() call alongside messages/tools/etc.
+export function chatParams(
+  model: string,
+  tuning: { maxTokens: number; temperature?: number },
+): { model: string; max_completion_tokens: number; temperature?: number } {
+  const params: { model: string; max_completion_tokens: number; temperature?: number } = {
+    model,
+    max_completion_tokens: tuning.maxTokens,
+  };
+  if (tuning.temperature !== undefined && !isReasoningModel(model)) {
+    params.temperature = tuning.temperature;
+  }
+  return params;
+}
+
 let client: OpenAI | null = null;
 
 export function getAIClient(): OpenAI {

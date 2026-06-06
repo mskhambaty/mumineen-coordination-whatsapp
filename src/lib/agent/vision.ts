@@ -1,4 +1,4 @@
-import { AI_VISION_MODEL, getAIClient } from "@/lib/ai/model";
+import { AI_VISION_MODEL, chatParams, getAIClient } from "@/lib/ai/model";
 
 // Answer a visitor's question about the image they sent — grounded ONLY on what is
 // visible in this one image. Deliberately isolated from conversation history and site
@@ -22,7 +22,7 @@ export async function answerImageQuestion(input: {
       `Base it ONLY on what is visible in THIS image. Do NOT mention being an AI or that an image was read.`;
 
   const res = await client.chat.completions.create({
-    model: AI_VISION_MODEL,
+    ...chatParams(AI_VISION_MODEL, { maxTokens: 500, temperature: 0.2 }),
     messages: [
       {
         role: "user",
@@ -32,8 +32,6 @@ export async function answerImageQuestion(input: {
         ],
       },
     ],
-    temperature: 0.2,
-    max_tokens: 500,
   });
 
   return res.choices[0]?.message?.content?.trim() ?? "";

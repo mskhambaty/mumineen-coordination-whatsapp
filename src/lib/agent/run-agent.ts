@@ -2,7 +2,7 @@ import OpenAI from "openai";
 
 import { executeTool, toolDefinitionsFor } from "@/lib/agent/tools";
 import { SYSTEM_PROMPT, loadAgentSystemPrompt } from "@/lib/agent/prompts";
-import { AGENT_TEMPERATURE, AI_MODEL, getAIClient, MAX_AGENT_TOKENS } from "@/lib/ai/model";
+import { AGENT_TEMPERATURE, AI_MODEL, AI_MODEL_HIGH, chatParams, getAIClient, MAX_AGENT_TOKENS } from "@/lib/ai/model";
 import { resolveCallerFromPhone, type CallerContext } from "@/lib/api/auth";
 import type { AppUser } from "@/lib/permissions";
 import { getRecentMessages, getSupabaseAdmin } from "@/lib/supabase/server";
@@ -206,6 +206,50 @@ export function pickFinalModel(
   return usedHigh ? highModel : standardModel;
 }
 
+// Assemble the system prompt. Ordering is deliberate and matters for OpenAI prompt
+// caching, which reuses the longest common PREFIX of the input. Everything that is
+// identical across users — the base prompt, the global departments list, and the
+// always-on rules — goes FIRST so it forms one stable, shareable prefix the cache
+// can reuse across every user and every turn. The only per-user text, Sender
+// Context, trails it, so it never poisons that prefix. Pure (no I/O) so it can be
+// unit-tested directly, and the natural home for future per-turn rule gating.
+export function buildSystemPrompt(params: {
+  basePrompt: string;
+  departmentSection: string;
+  callerContext: CallerContext | undefined;
+  phoneE164: string;
+  role: AppUser["role"];
+}): string {
+  const { basePrompt, departmentSection, callerContext, phoneE164, role } = params;
+
+  let systemContent = basePrompt;
+
+  // Global departments list (same for every user, 5-min cached). Lives in the
+  // static prefix and is needed at the first completion so move_to_escalation /
+  // create_issue / create_task can route to a valid department.
+  if (departmentSection) {
+    systemContent += departmentSection;
+  }
+
+  // Code-managed always-on rule blocks — identical for every user.
+  for (const rule of ALWAYS_ON_RULES) {
+    systemContent += rule.text;
+  }
+
+  // Per-user sender/caller context goes LAST so the static prefix above stays
+  // byte-identical across users and remains cacheable. It belongs in the system
+  // prompt (not a user turn) so the message history can replay cleanly.
+  systemContent += `\n\n## Sender Context\nPhone: ${phoneE164}\nBackend role: ${role}\nGlobal access: ${callerContext?.global_role ?? "unknown"}`;
+  if (callerContext) {
+    const deptNames = callerContext.departments
+      .map((d: { department_name: string; dept_role: string }) => `${d.department_name} (${d.dept_role})`)
+      .join(", ");
+    systemContent += `\nDepartments: ${deptNames || "none"}\nCan read all: ${callerContext.can_read_all}\nCan write all: ${callerContext.can_write_all}`;
+  }
+
+  return systemContent;
+}
+
 export async function runAgent(input: AgentInput) {
   if (!input.message.trim()) {
     return "I received your message, but I cannot read that message type yet. Please send a text message and I will help.";
@@ -224,23 +268,13 @@ export async function runAgent(input: AgentInput) {
     loadDepartmentsForPrompt(),
   ]);
 
-  let systemContent = systemPromptText;
-
-  // Sender + caller context belongs in the system prompt, not a user turn,
-  // so the message history can replay cleanly as the conversation.
-  systemContent += `\n\n## Sender Context\nPhone: ${input.phoneE164}\nBackend role: ${input.user.role}\nGlobal access: ${callerContext?.global_role ?? "unknown"}`;
-  if (callerContext) {
-    const deptNames = callerContext.departments.map((d: { department_name: string; dept_role: string }) => `${d.department_name} (${d.dept_role})`).join(", ");
-    systemContent += `\nDepartments: ${deptNames || "none"}\nCan read all: ${callerContext.can_read_all}\nCan write all: ${callerContext.can_write_all}`;
-  }
-
-  if (departmentSection) {
-    systemContent += departmentSection;
-  }
-
-  for (const rule of ALWAYS_ON_RULES) {
-    systemContent += rule.text;
-  }
+  const systemContent = buildSystemPrompt({
+    basePrompt: systemPromptText,
+    departmentSection,
+    callerContext,
+    phoneE164: input.phoneE164,
+    role: input.user.role,
+  });
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemContent },
@@ -263,12 +297,10 @@ export async function runAgent(input: AgentInput) {
   }
 
   const firstResponse = await client.chat.completions.create({
-    model: AI_MODEL,
+    ...chatParams(AI_MODEL, { maxTokens: MAX_AGENT_TOKENS, temperature: AGENT_TEMPERATURE }),
     messages,
     tools: toolDefinitionsFor(input.user),
     tool_choice: "auto",
-    temperature: AGENT_TEMPERATURE,
-    max_tokens: MAX_AGENT_TOKENS,
   });
 
   const firstMessage = firstResponse.choices[0]?.message;
@@ -314,18 +346,31 @@ export async function runAgent(input: AgentInput) {
     return escalationAck;
   }
 
-  // NOTE: High-model routing for Waaz Talaqi / Lisan answers is temporarily DISABLED.
-  // OPENAI_MODEL_HIGH had been set to an invalid model (gpt-5.4) which made every religious
-  // answer's final completion throw → no reply. Every answer now uses the standard AI_MODEL.
-  // To re-enable: set OPENAI_MODEL_HIGH to a VALID model and switch the model below back to
-  // `pickFinalModel(firstMessage.tool_calls, AI_MODEL, AI_MODEL_HIGH)` (ideally with a
-  // try/catch fallback to AI_MODEL so a bad value can never cause an outage).
-  const finalResponse = await client.chat.completions.create({
-    model: AI_MODEL,
-    messages,
-    temperature: AGENT_TEMPERATURE,
-    max_tokens: MAX_AGENT_TOKENS,
-  });
+  // High-model routing for Waaz Talaqi / Lisan answers (PR #82): generate the final answer with
+  // AI_MODEL_HIGH when the turn used a religious tool, otherwise the standard model. `chatParams`
+  // keeps this GPT-5-safe (max_completion_tokens, no unsupported temperature). The try/catch is
+  // the safety net the earlier outage lacked: if the high model is misconfigured/unavailable, we
+  // fall back to AI_MODEL instead of throwing — a thrown error here is swallowed by the coalesce
+  // layer and the user gets total silence, which is exactly how the religious answers went dark.
+  const finalModel = pickFinalModel(firstMessage.tool_calls, AI_MODEL, AI_MODEL_HIGH);
+  let finalResponse;
+  try {
+    finalResponse = await client.chat.completions.create({
+      ...chatParams(finalModel, { maxTokens: MAX_AGENT_TOKENS, temperature: AGENT_TEMPERATURE }),
+      messages,
+    });
+  } catch (err) {
+    if (finalModel === AI_MODEL) throw err;
+    // Log the opaque model id + error message only (never the messages, which carry PII).
+    console.error(
+      `[run-agent] high model "${finalModel}" completion failed; falling back to standard model:`,
+      err instanceof Error ? err.message : err,
+    );
+    finalResponse = await client.chat.completions.create({
+      ...chatParams(AI_MODEL, { maxTokens: MAX_AGENT_TOKENS, temperature: AGENT_TEMPERATURE }),
+      messages,
+    });
+  }
 
   const reply = finalResponse.choices[0]?.message?.content?.trim() || fallbackReply();
   // Guarantee the show-source rule: if a Waaz Talaqi / Lisan tool returned a source and the

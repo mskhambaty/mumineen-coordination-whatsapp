@@ -15,8 +15,9 @@ runAgent(user, phoneE164, message)
     │       retrieveSiteContext(message)       → RAG content for system prompt
     │       getRecentMessages(phoneE164)       → recent conversation turns
     │
-    ├─ Build messages: [ system prompt (+ site + sender context),
-    │                    ...replayed history turns ]
+    ├─ buildSystemPrompt(): [ base + departments + always-on rules | sender context ]
+    │                        (static prefix first, per-user context last — see below)
+    ├─ Build messages: [ system prompt, ...replayed history turns ]
     │
     ├─ First completion (tools enabled)
     │       if tool_calls present → executeTool() for each
@@ -139,6 +140,24 @@ premature "talk to a human"; emergencies (lost child/passport, medical, security
 immediately as `urgent`. The hard turn-gate (min. inbound messages, emergency bypass) lives in
 `/api/escalations`. On a successful escalation the agent replies with a deterministic
 acknowledgment and skips the second completion.
+
+### Assembly order (prompt-cache prefix)
+
+`buildSystemPrompt()` (exported, pure, in `run-agent.ts`) concatenates the pieces in a deliberate
+order, because OpenAI prompt caching reuses the **longest common prefix** of the input:
+
+1. **Base prompt** (editable, from `system_prompts`) — static
+2. **Available Departments** list — global, 5-min cached, identical for every user
+3. **Always-on rule blocks** (`ALWAYS_ON_RULES`) — static
+   — *end of the cacheable, cross-user-shared prefix* —
+4. **`## Sender Context`** (phone, role, departments, permissions) — the only per-user text
+
+Putting all user-independent content first makes `[base + departments + rules]` byte-identical
+across users, so OpenAI caches it once and reuses it across every user and turn; a byte-stable
+system prefix also lets the earlier replayed history turns cache. The per-user Sender Context
+trails it so it never poisons the prefix. The departments list stays always-on (not gated)
+because `move_to_escalation` / `create_issue` / `create_task` need valid department names at the
+first completion. Ordering is locked by `src/lib/__tests__/system-prompt-order.test.ts`.
 
 ## Tool Execution
 
