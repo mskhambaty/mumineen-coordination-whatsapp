@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { canManageKnowledge } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type Gap = {
   id: string;
@@ -32,14 +33,12 @@ export default function KnowledgeGapsPage() {
   const [exporting, setExporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
-
   const load = useCallback(
     async (status: StatusFilter) => {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/admin/knowledge-gaps?status=${status}`, { headers: { "x-admin-key": adminKey } });
+        const res = await apiFetch(`/api/admin/knowledge-gaps?status=${status}`);
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error ?? "Failed to load");
         setGaps((data.gaps as Gap[]) ?? []);
@@ -50,14 +49,12 @@ export default function KnowledgeGapsPage() {
         setLoading(false);
       }
     },
-    [adminKey],
+    [],
   );
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) { router.push("/admin/login"); return; }
-    const raw = localStorage.getItem("admin_user");
-    const user = raw ? (JSON.parse(raw) as { role?: string; global_role?: string; is_manager?: boolean }) : null;
+    const user = readAdminUser();
+    if (!user) { router.push("/admin/login"); return; }
     if (!canManageKnowledge(user)) { router.push("/admin/conversations"); return; }
     void load(filter);
   }, [router, filter, load]);
@@ -69,9 +66,8 @@ export default function KnowledgeGapsPage() {
       const form = new FormData();
       if (referenceFile) form.append("reference", referenceFile);
 
-      const res = await fetch("/api/admin/knowledge-gaps/export", {
+      const res = await apiFetch("/api/admin/knowledge-gaps/export", {
         method: "POST",
-        headers: { "x-admin-key": adminKey },
         body: form,
       });
 

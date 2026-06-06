@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type PromptData = {
   prompt_key: string;
@@ -209,19 +210,6 @@ export default function PromptPage() {
   const [runningQualityCron, setRunningQualityCron] = useState(false);
   const [qualityCronMsg, setQualityCronMsg] = useState<string | null>(null);
 
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
-
-  async function apiFetch(path: string, init?: RequestInit) {
-    return fetch(path, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        "x-admin-key": adminKey,
-        ...(init?.headers ?? {}),
-      },
-    });
-  }
-
   async function loadData() {
     try {
       const [promptRes, toolsRes, rulesRes] = await Promise.all([
@@ -285,14 +273,12 @@ export default function PromptPage() {
   }
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    const user = readAdminUser();
+    if (!user) {
       router.push("/admin/login");
       return;
     }
 
-    const userRaw = localStorage.getItem("admin_user");
-    const user = userRaw ? JSON.parse(userRaw) as { role?: string; global_role?: string } : null;
     if (!isAdminOrLeadership(user)) {
       router.push("/admin/tasks");
       return;

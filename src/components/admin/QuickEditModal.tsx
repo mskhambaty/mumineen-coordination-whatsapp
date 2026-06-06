@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import ContentBucketEditor from "@/components/admin/ContentBucketEditor";
 import FaqBucketEditor from "@/components/admin/FaqBucketEditor";
+import { apiFetch } from "@/lib/admin/client";
 
 type Bucket = { department_id: string; department_name: string; content: string };
 type Topic = { id: string; title: string; content: string; source_url?: string | null };
@@ -15,7 +16,7 @@ const PROMPTS = [
 
 // Quick-edit launcher used from the inbox: pick FAQ (a department bucket) or Prompt,
 // then edit it inline. Reuses FaqBucketEditor for the FAQ path.
-export default function QuickEditModal({ adminKey, onClose }: { adminKey: string; onClose: () => void }) {
+export default function QuickEditModal({ onClose }: { onClose: () => void }) {
   const [mode, setMode] = useState<"choose" | "faq" | "religious" | "prompt">("choose");
 
   // FAQ path
@@ -36,17 +37,10 @@ export default function QuickEditModal({ adminKey, onClose }: { adminKey: string
   const [promptSaved, setPromptSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function api(path: string, init?: RequestInit) {
-    return fetch(path, {
-      ...init,
-      headers: { "Content-Type": "application/json", "x-admin-key": adminKey, ...(init?.headers ?? {}) },
-    });
-  }
-
   useEffect(() => {
     if (mode !== "faq") return;
     void (async () => {
-      const res = await api("/api/admin/faq-buckets");
+      const res = await apiFetch("/api/admin/faq-buckets");
       if (res.ok) setBuckets(((await res.json()).buckets ?? []) as Bucket[]);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -55,7 +49,7 @@ export default function QuickEditModal({ adminKey, onClose }: { adminKey: string
   useEffect(() => {
     if (mode !== "religious") return;
     void (async () => {
-      const res = await api("/api/admin/religious-topics");
+      const res = await apiFetch("/api/admin/religious-topics");
       if (res.ok) setTopics(((await res.json()).topics ?? []) as Topic[]);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -66,7 +60,7 @@ export default function QuickEditModal({ adminKey, onClose }: { adminKey: string
     void (async () => {
       setPromptLoading(true);
       setPromptSaved(false);
-      const res = await api(`/api/admin/prompts/${promptKey}`);
+      const res = await apiFetch(`/api/admin/prompts/${promptKey}`);
       if (res.ok) setPromptText(((await res.json()) as { prompt_text: string }).prompt_text ?? "");
       setPromptLoading(false);
     })();
@@ -78,7 +72,7 @@ export default function QuickEditModal({ adminKey, onClose }: { adminKey: string
     setError(null);
     setPromptSaved(false);
     try {
-      const res = await api(`/api/admin/prompts/${promptKey}`, {
+      const res = await apiFetch(`/api/admin/prompts/${promptKey}`, {
         method: "PUT",
         body: JSON.stringify({ prompt_text: promptText }),
       });
@@ -98,7 +92,6 @@ export default function QuickEditModal({ adminKey, onClose }: { adminKey: string
         departmentId={openBucket.department_id}
         departmentName={openBucket.department_name}
         initialContent={openBucket.content}
-        adminKey={adminKey}
         onClose={() => { setOpenBucket(null); onClose(); }}
       />
     );
@@ -112,7 +105,6 @@ export default function QuickEditModal({ adminKey, onClose }: { adminKey: string
         subtitle="Waaz Talaqi content — keep a respectful, sourced tone. Separate entries with a blank line. Saving re-indexes this for the agent."
         initialContent={openTopic.content}
         endpoint={`/api/admin/religious-topics/${openTopic.id}`}
-        adminKey={adminKey}
         showSource
         initialSourceUrl={openTopic.source_url ?? null}
         onClose={() => { setOpenTopic(null); onClose(); }}

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type Department = {
   id: string;
@@ -40,7 +41,6 @@ const DEPT_ROLE_OPTIONS = [
 
 export default function DepartmentsPage() {
   const router = useRouter();
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
   const [departments, setDepartments] = useState<Department[]>([]);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<string | null>(null);
   const [departmentUsers, setDepartmentUsers] = useState<User[]>([]);
@@ -69,14 +69,12 @@ export default function DepartmentsPage() {
   }, [departmentUsers, searchQuery]);
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    const currentUser = readAdminUser();
+    if (!currentUser) {
       router.push("/admin/login");
       return;
     }
 
-    const userRaw = localStorage.getItem("admin_user");
-    const currentUser = userRaw ? JSON.parse(userRaw) as { role?: string; global_role?: string } : null;
     if (!isAdminOrLeadership(currentUser)) {
       router.push("/admin/conversations");
       return;
@@ -95,17 +93,6 @@ export default function DepartmentsPage() {
   useEffect(() => {
     setDescriptionDraft(selectedDepartment?.description ?? "");
   }, [selectedDepartment]);
-
-  async function apiFetch(path: string, init?: RequestInit) {
-    return fetch(path, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        "x-admin-key": adminKey,
-        ...(init?.headers ?? {}),
-      },
-    });
-  }
 
   async function loadInitialData() {
     setLoading(true);

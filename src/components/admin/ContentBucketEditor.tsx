@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { apiFetch } from "@/lib/admin/client";
 
 const DEFAULT_PLACEHOLDER =
   "Q: When will the accommodation team contact me?\nA: After you submit the request form, the team reviews it and reaches out as arrangements are finalized.\n\nQ: ...\nA: ...";
@@ -14,7 +15,6 @@ export default function ContentBucketEditor({
   placeholder,
   initialContent,
   endpoint,
-  adminKey,
   showSource = false,
   initialSourceUrl = null,
   onClose,
@@ -25,7 +25,6 @@ export default function ContentBucketEditor({
   placeholder?: string;
   initialContent: string;
   endpoint: string;
-  adminKey: string;
   showSource?: boolean;
   initialSourceUrl?: string | null;
   onClose: () => void;
@@ -50,9 +49,8 @@ export default function ContentBucketEditor({
       } catch {
         updatedBy = null;
       }
-      const res = await fetch(endpoint, {
+      const res = await apiFetch(endpoint, {
         method: "PUT",
-        headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
         body: JSON.stringify({ content, updated_by: updatedBy, ...(showSource ? { source_url: sourceUrl.trim() } : {}) }),
       });
       const data = await res.json().catch(() => ({}));

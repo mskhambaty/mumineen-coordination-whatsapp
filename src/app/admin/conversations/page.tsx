@@ -650,7 +650,7 @@ export default function ConversationsPage() {
           </aside>
         </div>
       </main>
-      {showQuickEdit && <QuickEditModal adminKey={adminKey} onClose={() => setShowQuickEdit(false)} />}
+      {showQuickEdit && <QuickEditModal onClose={() => setShowQuickEdit(false)} />}
     </>
   );
 }

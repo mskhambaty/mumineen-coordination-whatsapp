@@ -8,14 +8,12 @@ export default function FaqBucketEditor({
   departmentId,
   departmentName,
   initialContent,
-  adminKey,
   onClose,
   onSaved,
 }: {
   departmentId: string;
   departmentName: string;
   initialContent: string;
-  adminKey: string;
   onClose: () => void;
   onSaved?: (chunkCount: number) => void;
 }) {
@@ -24,7 +22,6 @@ export default function FaqBucketEditor({
       title={`${departmentName} — FAQ`}
       initialContent={initialContent}
       endpoint={`/api/admin/faq-buckets/${departmentId}`}
-      adminKey={adminKey}
       onClose={onClose}
       onSaved={onSaved}
     />

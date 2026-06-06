@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type Department = { id: string; name: string };
 
@@ -75,8 +76,6 @@ export default function AnalyticsPage() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"external" | "internal">("external");
 
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
-
   async function loadAnalytics() {
     setLoading(true);
     setError(null);
@@ -84,9 +83,7 @@ export default function AnalyticsPage() {
     if (departmentId !== "all") params.set("department_id", departmentId);
 
     try {
-      const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
-        headers: { "x-admin-key": adminKey },
-      });
+      const res = await apiFetch(`/api/admin/analytics?${params.toString()}`);
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Failed to load analytics");
       setData(json as AnalyticsData);
@@ -98,14 +95,12 @@ export default function AnalyticsPage() {
   }
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    const user = readAdminUser();
+    if (!user) {
       router.push("/admin/login");
       return;
     }
 
-    const userRaw = localStorage.getItem("admin_user");
-    const user = userRaw ? JSON.parse(userRaw) as { role?: string; global_role?: string } : null;
     if (!isAdminOrLeadership(user)) {
       router.push("/admin/tasks");
       return;

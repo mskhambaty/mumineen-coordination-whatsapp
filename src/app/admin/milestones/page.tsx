@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { canManageInternalTools } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type Department = { id: string; name: string };
 type User = { id: string; display_name: string | null; phone_e164: string };
@@ -53,20 +54,9 @@ export default function MilestonesPage() {
   const [filterDept, setFilterDept] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
 
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
-
-  async function apiFetch(path: string, init?: RequestInit) {
-    return fetch(path, {
-      ...init,
-      headers: { "Content-Type": "application/json", "x-admin-key": adminKey, ...(init?.headers ?? {}) },
-    });
-  }
-
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) { router.push("/admin/login"); return; }
-    const raw = localStorage.getItem("admin_user");
-    const user = raw ? (JSON.parse(raw) as { role?: string; global_role?: string; is_manager?: boolean }) : null;
+    const user = readAdminUser();
+    if (!user) { router.push("/admin/login"); return; }
     if (!canManageInternalTools(user)) { router.push("/admin/registration"); return; }
     void loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps

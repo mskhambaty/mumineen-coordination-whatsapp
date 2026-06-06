@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { canManageKnowledge } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 import ContentBucketEditor from "@/components/admin/ContentBucketEditor";
 import FaqBucketEditor from "@/components/admin/FaqBucketEditor";
 import LisanDictionaryUploader from "@/components/admin/LisanDictionaryUploader";
@@ -79,19 +80,15 @@ export default function KnowledgePage() {
   const [newTopicTitle, setNewTopicTitle] = useState("");
   const [addingTopic, setAddingTopic] = useState(false);
 
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
-
   const learnedFaqCount = logisticsDocs.filter((d) => d.file_type === "faq").length;
   const documents = tab === "faq" ? logisticsDocs : religiousDocs;
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    const user = readAdminUser();
+    if (!user) {
       router.push("/admin/login");
       return;
     }
-    const userRaw = localStorage.getItem("admin_user");
-    const user = userRaw ? JSON.parse(userRaw) as { role?: string; global_role?: string; is_manager?: boolean } : null;
     if (!canManageKnowledge(user)) {
       router.push("/admin/conversations");
       return;
@@ -104,13 +101,12 @@ export default function KnowledgePage() {
     setLoading(true);
     setError(null);
     try {
-      const headers = { "x-admin-key": adminKey };
       const [logRes, relRes, deptRes, bucketsRes, topicsRes] = await Promise.all([
-        fetch("/api/knowledge?store=logistics", { headers }),
-        fetch("/api/knowledge?store=religious", { headers }),
-        fetch("/api/departments", { headers }),
-        fetch("/api/admin/faq-buckets", { headers }),
-        fetch("/api/admin/religious-topics", { headers }),
+        apiFetch("/api/knowledge?store=logistics"),
+        apiFetch("/api/knowledge?store=religious"),
+        apiFetch("/api/departments"),
+        apiFetch("/api/admin/faq-buckets"),
+        apiFetch("/api/admin/religious-topics"),
       ]);
       const logData = await logRes.json().catch(() => ({}));
       if (!logRes.ok) throw new Error(logData.error ?? "Failed to load documents");
@@ -131,9 +127,8 @@ export default function KnowledgePage() {
     setMigrateMsg(null);
     setError(null);
     try {
-      const res = await fetch("/api/admin/faq-buckets", {
+      const res = await apiFetch("/api/admin/faq-buckets", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
         body: JSON.stringify({ action: "migrate" }),
       });
       const data = await res.json().catch(() => ({}));
@@ -173,9 +168,8 @@ export default function KnowledgePage() {
         // no stored user id; upload without attribution
       }
 
-      const res = await fetch("/api/knowledge", {
+      const res = await apiFetch("/api/knowledge", {
         method: "POST",
-        headers: { "x-admin-key": adminKey },
         body,
       });
       const data = await res.json().catch(() => ({}));
@@ -196,9 +190,8 @@ export default function KnowledgePage() {
     if (!window.confirm(`Delete "${doc.title}"? Its content will be removed from the AI's knowledge.`)) return;
     setError(null);
     try {
-      const res = await fetch(`/api/knowledge/${doc.id}`, {
+      const res = await apiFetch(`/api/knowledge/${doc.id}`, {
         method: "DELETE",
-        headers: { "x-admin-key": adminKey },
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -217,9 +210,8 @@ export default function KnowledgePage() {
     setAddingTopic(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/religious-topics", {
+      const res = await apiFetch("/api/admin/religious-topics", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
         body: JSON.stringify({ title: titleText }),
       });
       const data = await res.json().catch(() => ({}));
@@ -237,9 +229,8 @@ export default function KnowledgePage() {
     if (!window.confirm(`Delete the "${topic.title}" topic? Its content will be removed from the AI's knowledge.`)) return;
     setError(null);
     try {
-      const res = await fetch(`/api/admin/religious-topics/${topic.id}`, {
+      const res = await apiFetch(`/api/admin/religious-topics/${topic.id}`, {
         method: "DELETE",
-        headers: { "x-admin-key": adminKey },
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -496,14 +487,13 @@ export default function KnowledgePage() {
         </section>
       )}
 
-      {tab === "religious" && <LisanDictionaryUploader adminKey={adminKey} />}
+      {tab === "religious" && <LisanDictionaryUploader />}
 
       {editing && (
         <FaqBucketEditor
           departmentId={editing.department_id}
           departmentName={editing.department_name}
           initialContent={editing.content}
-          adminKey={adminKey}
           onClose={() => setEditing(null)}
           onSaved={() => void load()}
         />
@@ -516,7 +506,6 @@ export default function KnowledgePage() {
           placeholder={"Q: What was the theme of Majlis 1?\nA: ...\n\nQ: What does \"aaeen\" mean?\nA: ..."}
           initialContent={editingTopic.content}
           endpoint={`/api/admin/religious-topics/${editingTopic.id}`}
-          adminKey={adminKey}
           showSource
           initialSourceUrl={editingTopic.source_url ?? null}
           onClose={() => setEditingTopic(null)}
