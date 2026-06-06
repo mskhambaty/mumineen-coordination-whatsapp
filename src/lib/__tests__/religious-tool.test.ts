@@ -96,4 +96,12 @@ describe("RELIGIOUS_GUIDANCE_RULE", () => {
     expect(RELIGIOUS_GUIDANCE_RULE).toContain("blogs.jameasaifiyah.edu");
     expect(RELIGIOUS_GUIDANCE_RULE).toContain("Lisan ud Dawat dictionary");
   });
+
+  it("instructs WhatsApp formatting (bold/italic/lists) for Waaz Talaqi answers only", () => {
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("*bold*");
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("_italic_");
+    expect(RELIGIOUS_GUIDANCE_RULE.toLowerCase()).toContain("list");
+    // Still no emojis, and logistics stays plain.
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("never for logistics");
+  });
 });
