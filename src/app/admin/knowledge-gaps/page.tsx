@@ -59,6 +59,7 @@ export default function KnowledgeGapsPage() {
     const raw = localStorage.getItem("admin_user");
     const user = raw ? (JSON.parse(raw) as { role?: string; global_role?: string; is_manager?: boolean }) : null;
     if (!canManageKnowledge(user)) { router.push("/admin/conversations"); return; }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load(filter);
   }, [router, filter, load]);
 

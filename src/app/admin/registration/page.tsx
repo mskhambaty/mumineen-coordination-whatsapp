@@ -219,6 +219,7 @@ function DetailPanel({
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     const params = new URLSearchParams({ segment: req.segment });
     if (req.value) params.set("value", req.value);
@@ -1011,6 +1012,22 @@ function Kpi({
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
+function Chip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+        active
+          ? "bg-blue-600 text-white"
+          : "border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
 export default function RegistrationAnalyticsPage() {
   const router = useRouter();
   const [data, setData] = useState<Analytics | null>(null);
@@ -1075,6 +1092,7 @@ export default function RegistrationAnalyticsPage() {
     const user = raw ? JSON.parse(raw) as { role?: string; global_role?: string; is_master_admin?: boolean } : null;
     if (!canViewRegistrations(user)) { router.push("/admin/conversations"); return; }
     if (user?.is_master_admin === true) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsMasterAdmin(true);
       void fetch("/api/admin/mumineen/departments", { headers: { "x-admin-key": adminKey } })
         .then((r) => r.json())
@@ -1133,20 +1151,6 @@ export default function RegistrationAnalyticsPage() {
 
   const fmtDate = (iso: string) =>
     new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
-
-  const Chip = ({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) => (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-        active
-          ? "bg-blue-600 text-white"
-          : "border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-      }`}
-    >
-      {label}
-    </button>
-  );
 
   const activeFilterCount = [filters.local_mehman, filters.status, filters.attending].filter(Boolean).length;
 

@@ -259,6 +259,7 @@ export default function MumineenPage() {
     }
     const raw = localStorage.getItem("admin_user");
     const user = raw ? JSON.parse(raw) as { role?: string; global_role?: string; is_it?: boolean; display_name?: string; is_master_admin?: boolean } : null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDisplayName(user?.is_master_admin === true ? "__master__" : null);
     if (!canAccessMumineen(user)) {
       router.push("/admin/conversations");

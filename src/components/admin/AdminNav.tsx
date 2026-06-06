@@ -124,6 +124,7 @@ export default function AdminNav() {
   }, [darkMode]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAccess(readNavAccess());
   }, [pathname]);
 

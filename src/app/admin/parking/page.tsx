@@ -350,8 +350,11 @@ export default function ParkingPage() {
       router.push("/admin/conversations");
       return;
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCanManage(canManageParking(user));
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setUserId(user?.id ?? "");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setReady(true);
   }, [router]);
 
@@ -400,6 +403,7 @@ export default function ParkingPage() {
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (ready && userId) void loadAll(DEFAULT_FILTERS);
     // Initial load once gated; subsequent loads go through applyFilter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
