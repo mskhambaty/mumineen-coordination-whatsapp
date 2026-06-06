@@ -34,7 +34,7 @@ type Filters = {
   all_65: boolean;
   wheelchair: boolean;
   has_phone: boolean;
-  categories: string[];
+  has_category: boolean;
   kids_under_7: boolean;
   assigned: string;
 };
@@ -47,7 +47,7 @@ const DEFAULT_FILTERS: Filters = {
   all_65: false,
   wheelchair: false,
   has_phone: false,
-  categories: [],
+  has_category: false,
   kids_under_7: false,
   assigned: "",
 };
@@ -313,7 +313,6 @@ export default function ParkingPage() {
   const [lots, setLots] = useState<Lot[]>([]);
   const [rows, setRows] = useState<HouseholdRow[]>([]);
   const [total, setTotal] = useState(0);
-  const [categories, setCategories] = useState<string[]>([]);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [search, setSearch] = useState(""); // client-side head-name filter, no refetch
   const [loading, setLoading] = useState(true);
@@ -368,7 +367,7 @@ export default function ParkingPage() {
       if (f.all_65) params.set("all_65", "1");
       if (f.wheelchair) params.set("wheelchair", "1");
       if (f.has_phone) params.set("has_phone", "1");
-      if (f.categories.length > 0) params.set("categories", f.categories.join(","));
+      if (f.has_category) params.set("has_category", "1");
       if (f.kids_under_7) params.set("kids_under_7", "1");
       if (f.assigned) params.set("assigned", f.assigned);
       const res = await fetch(`/api/admin/parking/households?${params}`, { headers });
@@ -376,7 +375,6 @@ export default function ParkingPage() {
       if (!res.ok) throw new Error(json.error ?? "Failed to load households");
       setRows(json.rows ?? []);
       setTotal(json.total ?? 0);
-      setCategories(json.categories ?? []);
     },
     [headers],
   );
@@ -646,18 +644,11 @@ export default function ParkingPage() {
           label="Phone available"
           onClick={() => applyFilter({ has_phone: !filters.has_phone })}
         />
-        <select
-          value={filters.categories[0] ?? ""}
-          onChange={(e) => applyFilter({ categories: e.target.value ? [e.target.value] : [] })}
-          className="rounded-md border border-gray-300 bg-white px-2 py-1 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
-        >
-          <option value="">Any category</option>
-          {categories.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
+        <FilterChip
+          active={filters.has_category}
+          label="VIP"
+          onClick={() => applyFilter({ has_category: !filters.has_category })}
+        />
         <select
           value={filters.assigned}
           onChange={(e) => applyFilter({ assigned: e.target.value })}

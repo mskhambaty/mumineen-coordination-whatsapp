@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
     all_65: searchParams.get("all_65") === "1",
     wheelchair: searchParams.get("wheelchair") === "1",
     has_phone: searchParams.get("has_phone") === "1",
-    categories: (searchParams.get("categories") ?? "").split(",").filter(Boolean),
+    has_category: searchParams.get("has_category") === "1",
     kids_under_7: searchParams.get("kids_under_7") === "1",
     assigned: (searchParams.get("assigned") ?? "") as HouseholdFilters["assigned"],
     q: searchParams.get("q") ?? "",
@@ -121,15 +121,11 @@ export async function GET(req: NextRequest) {
     .map((f) => buildHouseholdRow(f, membersByHof.get(f.hof_its) ?? [], passesByFamily.get(f.id) ?? []))
     .filter((r) => r.member_count > 0);
 
-  // Distinct category values across ALL households (pre-filter) so the dropdown is stable.
-  const categories = [...new Set(rows.flatMap((r) => r.categories))].sort();
-
   const filtered = rows.filter((r) => matchesFilters(r, filters)).sort((a, b) => a.head_name.localeCompare(b.head_name));
 
   return NextResponse.json({
     rows: filtered,
     total: rows.length,
-    categories,
     can_manage: caller.canManage,
   });
 }

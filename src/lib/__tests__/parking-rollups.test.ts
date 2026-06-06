@@ -172,10 +172,11 @@ describe("matchesFilters", () => {
     expect(matchesFilters(row({ phone: null }), {})).toBe(true);
   });
 
-  it("category filter matches any overlap", () => {
-    expect(matchesFilters(row({ categories: ["VIP"] }), { categories: ["VIP", "Sahebo"] })).toBe(true);
-    expect(matchesFilters(row(), { categories: ["VIP"] })).toBe(false);
-    expect(matchesFilters(row(), { categories: [] })).toBe(true);
+  it("has_category filter requires any member category value", () => {
+    expect(matchesFilters(row({ categories: ["VIP"] }), { has_category: true })).toBe(true);
+    expect(matchesFilters(row({ categories: ["Sahebo"] }), { has_category: true })).toBe(true);
+    expect(matchesFilters(row(), { has_category: true })).toBe(false);
+    expect(matchesFilters(row(), {})).toBe(true);
   });
 
   it("assigned/unassigned filter checks pass count", () => {

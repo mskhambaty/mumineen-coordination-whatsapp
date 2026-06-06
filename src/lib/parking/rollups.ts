@@ -116,7 +116,7 @@ export type HouseholdFilters = {
   all_65?: boolean; // every member 65+
   wheelchair?: boolean; // any member needing a wheelchair
   has_phone?: boolean; // household has a contact phone number
-  categories?: string[]; // match households holding any of these member categories
+  has_category?: boolean; // any member carries a roster category value (e.g. VIP)
   kids_under_7?: boolean;
   assigned?: "assigned" | "unassigned" | "";
   q?: string; // head-name substring, case-insensitive
@@ -130,9 +130,7 @@ export function matchesFilters(row: HouseholdRow, f: HouseholdFilters): boolean 
   if (f.all_65 && !row.all_65_plus) return false;
   if (f.wheelchair && row.wheelchair_count === 0) return false;
   if (f.has_phone && !row.phone) return false;
-  if (f.categories && f.categories.length > 0 && !row.categories.some((c) => f.categories!.includes(c))) {
-    return false;
-  }
+  if (f.has_category && row.categories.length === 0) return false;
   if (f.kids_under_7 && row.kids_under_7 === 0) return false;
   if (f.assigned === "assigned" && row.passes.length === 0) return false;
   if (f.assigned === "unassigned" && row.passes.length > 0) return false;
