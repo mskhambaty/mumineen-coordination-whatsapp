@@ -113,16 +113,22 @@ export async function GET(req: NextRequest) {
         .range(from, to),
     );
 
-    // Fetch HoF names
-    const allHofs = await fetchAll<{ its: string; full_name: string | null; whatsapp_e164: string | null; local_mehman: string | null }>((from, to) =>
+    // Fetch names for all roster members so families whose head isn't imported still get a name.
+    // Prefer the head (is_head=true) — if absent, fall back to any member of that family.
+    const allHofs = await fetchAll<{ its: string; hof_its: string; full_name: string | null; whatsapp_e164: string | null; local_mehman: string | null; is_head: boolean }>((from, to) =>
       supabase
         .from("mumineen")
-        .select("its, full_name, whatsapp_e164, local_mehman")
+        .select("its, hof_its, full_name, whatsapp_e164, local_mehman, is_head")
         .eq("roster_active", true)
-        .eq("is_head", true)
         .range(from, to),
     );
-    const hofMap = new Map(allHofs.map((h) => [h.its, h]));
+    // Build map keyed by hof_its; head wins over non-head.
+    const hofMap = new Map<string, { full_name: string | null; whatsapp_e164: string | null; local_mehman: string | null }>();
+    for (const m of allHofs) {
+      if (!hofMap.has(m.hof_its) || m.is_head) {
+        hofMap.set(m.hof_its, { full_name: m.full_name, whatsapp_e164: m.whatsapp_e164, local_mehman: m.local_mehman });
+      }
+    }
 
     let fams = allFams;
 
@@ -137,7 +143,7 @@ export async function GET(req: NextRequest) {
 
     if (localMehmanFilter) {
       const mehmanHofs = new Set(
-        allHofs.filter((h) => h.local_mehman === localMehmanFilter).map((h) => h.its),
+        allHofs.filter((h) => h.local_mehman === localMehmanFilter).map((h) => h.hof_its),
       );
       fams = fams.filter((f) => mehmanHofs.has(f.hof_its));
     }

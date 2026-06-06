@@ -63,10 +63,12 @@ export async function GET(req: NextRequest) {
       .range(from, to),
   );
 
-  // Map to the exact column headers the importer expects.
+  const MIQAAT = "Relay Centers - Ashara Mubaraka";
+
   const sheetRows = rows.map((m) => ({
-    "Mumin Id": m.its,
+    Miqaat: MIQAAT,
     "Hof Id": m.hof_its,
+    "Mumin Id": m.its,
     Fullname: m.full_name ?? "",
     Gender: m.gender ?? "",
     Age: m.age ?? "",
@@ -80,20 +82,20 @@ export async function GET(req: NextRequest) {
     "Local/Mehman": m.local_mehman ?? "",
     "Arr Place Date": m.roster_arrival_raw ?? "",
     "Flight Code": m.roster_flight_code ?? "",
-    "Daily Trans": m.daily_trans ?? "",
     "Whatsapp Link Clicked?": m.whatsapp_link_clicked === true ? "Yes" : m.whatsapp_link_clicked === false ? "No" : "",
-    whatsapp_e164: m.whatsapp_e164 ?? "",
-    email: m.email ?? "",
+    "Daily Trans": m.daily_trans ?? "",
+    "Acc Arranged At": "",
+    "Acc. Zone": "",
   }));
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(sheetRows);
 
-  // Freeze the header row and set column widths for readability.
   ws["!freeze"] = { xSplit: 0, ySplit: 1 };
   ws["!cols"] = [
-    { wch: 12 }, // Mumin Id
+    { wch: 36 }, // Miqaat
     { wch: 12 }, // Hof Id
+    { wch: 12 }, // Mumin Id
     { wch: 30 }, // Fullname
     { wch: 8 },  // Gender
     { wch: 6 },  // Age
@@ -107,10 +109,10 @@ export async function GET(req: NextRequest) {
     { wch: 14 }, // Local/Mehman
     { wch: 20 }, // Arr Place Date
     { wch: 14 }, // Flight Code
-    { wch: 14 }, // Daily Trans
     { wch: 22 }, // Whatsapp Link Clicked?
-    { wch: 18 }, // whatsapp_e164
-    { wch: 28 }, // email
+    { wch: 14 }, // Daily Trans
+    { wch: 18 }, // Acc Arranged At
+    { wch: 14 }, // Acc. Zone
   ];
 
   XLSX.utils.book_append_sheet(wb, ws, "Roster");
