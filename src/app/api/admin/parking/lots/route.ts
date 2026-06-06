@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
-import { resolveParkingCaller } from "@/lib/parking/auth";
+import { canManageParking, canViewParking } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { LOT_PURPOSES } from "@/lib/parking/rollups";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -11,13 +11,9 @@ const LOT_COLS = "id, name, capacity, color, purposes, sort_order";
 
 // GET /api/admin/parking/lots — all lots with live assigned-pass counts.
 export async function GET(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const caller = await resolveParkingCaller(req);
-  if (!caller.canView) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requirePortalCaller(req, canViewParking);
+  if (auth instanceof NextResponse) return auth;
+  const canManage = auth.caller.portal ? canManageParking(auth.caller.portal) : false;
 
   const supabase = getSupabaseAdmin();
   const { data: lots, error } = await supabase.from("parking_lots").select(LOT_COLS).order("sort_order");
@@ -34,19 +30,14 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     lots: (lots ?? []).map((l) => ({ ...l, assigned: counts.get(l.id) ?? 0 })),
-    can_manage: caller.canManage,
+    can_manage: canManage,
   });
 }
 
 // PATCH /api/admin/parking/lots — edit one lot's name/capacity/color/purposes (no add/delete; lots are seeded).
 export async function PATCH(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const caller = await resolveParkingCaller(req);
-  if (!caller.canManage) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requirePortalCaller(req, canManageParking);
+  if (auth instanceof NextResponse) return auth;
 
   const body = (await req.json().catch(() => ({}))) as {
     id?: unknown;
