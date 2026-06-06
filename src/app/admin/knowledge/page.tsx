@@ -29,8 +29,18 @@ type ReligiousTopic = {
   sort_order: number;
   source_url: string | null;
   source_label: string | null;
+  category: string | null;
+  majlis_number: number | null;
+  is_ashura: boolean;
   updated_at: string | null;
 };
+
+// Per-majlis Ashara content is managed in the dedicated /admin/ashara dashboard, so we
+// hide those blocks here to keep this list focused on the few standalone helper topics.
+const MAJLIS_CATEGORIES = new Set(["reflection", "tazyeen", "al_dars", "jumla", "kalema", "unwaan"]);
+function isMajlisBlock(t: ReligiousTopic): boolean {
+  return !!t.category && MAJLIS_CATEGORIES.has(t.category) && (t.majlis_number != null || t.is_ashura);
+}
 
 type KnowledgeDoc = {
   id: string;
@@ -448,8 +458,8 @@ export default function KnowledgePage() {
             <div>
               <h2 className="text-lg font-semibold">FAQ by Topic</h2>
               <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
-                Organized, editable blocks for Waaz Talaqi content (reflections, Tazyeen, Iqtibasaat, Lisan ud Dawat word
-                meanings). Click a topic to edit it; saving re-indexes it for the agent.
+                Standalone editable blocks (Vaaz Talaqi help, Lisan ud Dawat meanings, guardrails). Click a topic to
+                edit it; saving re-indexes it for the agent.
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -470,8 +480,16 @@ export default function KnowledgePage() {
             </div>
           </div>
 
+          <a
+            href="/admin/ashara"
+            className="mt-4 flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 hover:border-blue-400 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200"
+          >
+            <span><span className="font-semibold">Ashara majlis content</span> (Reflections, Tazyeen, Al-Dars, Jumla, Kalema, Unwaan — per majlis) is managed in the Ashara Daily Content dashboard.</span>
+            <span className="ml-3 shrink-0 font-medium">Open dashboard →</span>
+          </a>
+
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {topics.map((topic) => (
+            {topics.filter((t) => !isMajlisBlock(t)).map((topic) => (
               <div
                 key={topic.id}
                 className="group relative flex flex-col items-start rounded-lg border border-gray-200 bg-gray-50 p-3 text-left transition hover:border-blue-400 hover:bg-blue-50 dark:border-gray-700 dark:bg-gray-800/60 dark:hover:border-blue-500 dark:hover:bg-blue-900/20"

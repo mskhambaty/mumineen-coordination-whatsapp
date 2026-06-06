@@ -92,7 +92,19 @@ export default function ContentBucketEditor({
           )}
           {showSource && (
             <label className="mb-3 block text-sm text-gray-700 dark:text-gray-300">
-              Source URL (cited in the bot&apos;s answers)
+              <span className="flex items-center justify-between">
+                <span>Source URL (cited in the bot&apos;s answers)</span>
+                {sourceUrl.trim() && (
+                  <a
+                    href={sourceUrl.trim()}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+                  >
+                    Open source ↗
+                  </a>
+                )}
+              </span>
               <input
                 type="url"
                 value={sourceUrl}

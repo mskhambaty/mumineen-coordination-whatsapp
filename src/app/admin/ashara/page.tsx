@@ -10,7 +10,9 @@ import {
   ASHARA_ROWS,
   DEFAULT_ACTIVE_YEAR,
   defaultStatus,
+  istibsaarSearchUrl,
   majlisLabel,
+  majlisRowForToday,
   topicTitle,
   type AsharaCategory,
   type AsharaRow,
@@ -110,6 +112,22 @@ export default function AsharaDashboardPage() {
   const cellKey = (cat: AsharaCategory, row: AsharaRow) =>
     `${cat.key}:${row.isAshura ? "ashura" : row.majlisNumber}`;
 
+  // Today's majlis row (for the highlight), if today is an Ashara day this year.
+  const todayRowIdx = useMemo(() => {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    return majlisRowForToday(year, todayIso);
+  }, [year]);
+
+  // Overall progress: how many of the 6 categories × 9 majalis are indexed.
+  const progress = useMemo(() => {
+    let indexed = 0;
+    for (const t of cellMap.values()) if (t.status === "indexed") indexed++;
+    return { indexed, total: ASHARA_ROWS.length * ASHARA_CATEGORIES.length };
+  }, [cellMap]);
+
+  const rowDone = (row: AsharaRow) =>
+    ASHARA_CATEGORIES.filter((c) => cellMap.get(cellKey(c, row))?.status === "indexed").length;
+
   const pendingQueue = useMemo(() => {
     return topics
       .filter((t) => t.year_hijri === year && t.status === "pending_translation")
@@ -160,6 +178,7 @@ export default function AsharaDashboardPage() {
           category: cat.key,
           language: cat.language,
           status: defaultStatus(cat.language),
+          source_url: istibsaarSearchUrl(row.majlisNumber, row.isAshura, year),
           source_label: `Istibsaar — ${cat.label}, ${majlisLabel(row.majlisNumber, row.isAshura)} (${year}H)`,
         }),
       });
@@ -181,10 +200,8 @@ export default function AsharaDashboardPage() {
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-xl font-bold">Ashara Daily Content</h1>
-          <p className="mt-1 max-w-3xl text-sm text-gray-500 dark:text-gray-400">
-            Per-majlis content grid. English categories (Reflections, Tazyeen, Al-Dars) are indexed directly;
-            Lisan ud Dawat categories (Jumla, Kalema, Unwaan) wait in the translation queue until you paste the
-            English. Click a cell to add or edit that majlis&apos;s content; saving re-indexes it for the agent.
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            One row per majlis, one column per type. Click any cell to add its content.
           </p>
         </div>
         <label className="text-sm text-gray-700 dark:text-gray-300">
@@ -200,6 +217,42 @@ export default function AsharaDashboardPage() {
           </select>
         </label>
       </div>
+
+      {/* How it works + status legend + progress */}
+      <div className="mb-4 rounded-lg border border-gray-200 bg-white p-4 text-sm shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <div className="grid gap-4 md:grid-cols-[1fr_auto]">
+          <div>
+            <p className="font-medium">How to fill this in</p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-5 text-gray-600 dark:text-gray-400">
+              <li><span className="font-medium text-gray-800 dark:text-gray-200">English</span> (Reflections, Tazyeen, Al-Dars): open the cell, click <span className="font-medium">↗ source</span> to read the article, paste it in, Save.</li>
+              <li><span className="font-medium text-gray-800 dark:text-gray-200">Lisan</span> (Jumla, Kalema, Unwaan): open the cell, read the original via <span className="font-medium">↗ source</span>, type the <span className="font-medium">English translation</span>, Save.</li>
+              <li>Saving indexes it for the WhatsApp agent and turns the chip green.</li>
+            </ul>
+          </div>
+          <div className="flex flex-col gap-2 md:items-end">
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span className={`rounded-full px-2 py-0.5 font-medium ${STATUS_STYLE.indexed}`}>Indexed</span>
+              <span className={`rounded-full px-2 py-0.5 font-medium ${STATUS_STYLE.pending_translation}`}>Needs translation</span>
+              <span className={`rounded-full px-2 py-0.5 font-medium ${STATUS_STYLE.placeholder}`}>Awaiting content</span>
+            </div>
+            <div className="w-full md:w-56">
+              <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                <span>Progress</span>
+                <span>{progress.indexed} / {progress.total} indexed</span>
+              </div>
+              <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                <div className="h-full rounded-full bg-green-500" style={{ width: `${progress.total ? (progress.indexed / progress.total) * 100 : 0}%` }} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {todayRowIdx != null && (
+        <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+          <span className="font-semibold">Today is {ASHARA_ROWS[todayRowIdx].label}.</span> Fill in its content below (highlighted row).
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
@@ -226,10 +279,17 @@ export default function AsharaDashboardPage() {
               {loading ? (
                 <tr><td colSpan={ASHARA_CATEGORIES.length + 1} className="px-3 py-8 text-center text-gray-500">Loading…</td></tr>
               ) : (
-                ASHARA_ROWS.map((row) => (
-                  <tr key={row.label}>
-                    <td className="whitespace-nowrap px-3 py-3 font-medium text-gray-700 dark:text-gray-200">
-                      <div>{row.label}</div>
+                ASHARA_ROWS.map((row, rowIdx) => {
+                  const isToday = rowIdx === todayRowIdx;
+                  const done = rowDone(row);
+                  return (
+                  <tr key={row.label} className={isToday ? "bg-blue-50/60 dark:bg-blue-950/30" : undefined}>
+                    <td className={`whitespace-nowrap px-3 py-3 align-top font-medium text-gray-700 dark:text-gray-200 ${isToday ? "border-l-2 border-blue-500" : ""}`}>
+                      <div className="flex items-center gap-2">
+                        {row.label}
+                        {isToday && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">Today</span>}
+                      </div>
+                      <div className="mt-0.5 text-[11px] font-normal text-gray-400">{done}/{ASHARA_CATEGORIES.length} done</div>
                       <button
                         type="button"
                         disabled={busyCell === `seed:${row.label}`}
@@ -243,7 +303,7 @@ export default function AsharaDashboardPage() {
                       const t = cellMap.get(cellKey(cat, row));
                       const key = cellKey(cat, row);
                       return (
-                        <td key={cat.key} className="px-2 py-2">
+                        <td key={cat.key} className="px-2 py-2 align-top">
                           <button
                             type="button"
                             disabled={busyCell === key}
@@ -265,11 +325,23 @@ export default function AsharaDashboardPage() {
                               <span className="text-xs">{busyCell === key ? "Creating…" : "+ Add"}</span>
                             )}
                           </button>
+                          {t?.source_url && (
+                            <a
+                              href={t.source_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="mt-1 block text-[11px] text-blue-600 hover:underline dark:text-blue-400"
+                            >
+                              ↗ source
+                            </a>
+                          )}
                         </td>
                       );
                     })}
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
