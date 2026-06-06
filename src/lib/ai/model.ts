@@ -35,13 +35,31 @@ export function isReasoningModel(model: string): boolean {
 export function chatParams(
   model: string,
   tuning: { maxTokens: number; temperature?: number },
-): { model: string; max_completion_tokens: number; temperature?: number } {
-  const params: { model: string; max_completion_tokens: number; temperature?: number } = {
+): {
+  model: string;
+  max_completion_tokens: number;
+  temperature?: number;
+  reasoning_effort?: "minimal" | "low" | "medium" | "high";
+} {
+  const reasoning = isReasoningModel(model);
+  const params: {
+    model: string;
+    max_completion_tokens: number;
+    temperature?: number;
+    reasoning_effort?: "minimal" | "low" | "medium" | "high";
+  } = {
     model,
     max_completion_tokens: tuning.maxTokens,
   };
-  if (tuning.temperature !== undefined && !isReasoningModel(model)) {
+  if (tuning.temperature !== undefined && !reasoning) {
     params.temperature = tuning.temperature;
+  }
+  // Reasoning models default to heavier reasoning, which (a) makes each WhatsApp reply slow
+  // enough to risk the function timeout and (b) spends much of `max_completion_tokens` on hidden
+  // reasoning, leaving little/no budget for the visible answer (→ empty reply). `low` keeps
+  // these short, grounded RAG answers fast and ensures real visible output.
+  if (reasoning) {
+    params.reasoning_effort = "low";
   }
   return params;
 }

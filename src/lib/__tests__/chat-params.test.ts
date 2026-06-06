@@ -19,17 +19,24 @@ describe("isReasoningModel", () => {
 describe("chatParams", () => {
   // Regression: GPT-5.x models 400 on `max_tokens` and on a custom `temperature`. The final
   // religious-answer completion sent both, so every Waaz Talaqi reply threw → silent outage.
-  it("omits temperature and uses max_completion_tokens for reasoning models", () => {
+  // They also default to heavy reasoning that eats the token budget / blows the timeout, so we
+  // pin `reasoning_effort: "low"` for visible, fast answers.
+  it("omits temperature, uses max_completion_tokens, and pins low reasoning for reasoning models", () => {
     const params = chatParams("gpt-5.4", { maxTokens: 1024, temperature: 0.2 });
-    expect(params).toEqual({ model: "gpt-5.4", max_completion_tokens: 1024 });
+    expect(params).toEqual({
+      model: "gpt-5.4",
+      max_completion_tokens: 1024,
+      reasoning_effort: "low",
+    });
     expect(params).not.toHaveProperty("temperature");
     expect(params).not.toHaveProperty("max_tokens");
   });
 
-  it("keeps temperature for non-reasoning models, still on max_completion_tokens", () => {
+  it("keeps temperature and sends no reasoning_effort for non-reasoning models", () => {
     const params = chatParams("gpt-4o-mini", { maxTokens: 500, temperature: 0.1 });
     expect(params).toEqual({ model: "gpt-4o-mini", max_completion_tokens: 500, temperature: 0.1 });
     expect(params).not.toHaveProperty("max_tokens");
+    expect(params).not.toHaveProperty("reasoning_effort");
   });
 
   it("omits temperature when none is requested", () => {
