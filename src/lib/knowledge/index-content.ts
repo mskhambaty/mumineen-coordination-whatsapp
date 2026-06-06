@@ -99,6 +99,14 @@ export function religiousPageUrl(kind: "topic" | "doc", id: string): string {
 // Embed chunks and (re)insert them into religious_content under a page_url. Replaces any
 // existing chunks for that page_url first.
 type ReligiousSource = { sourceUrl?: string | null; sourceLabel?: string | null };
+// Per-majlis/category metadata denormalized onto each chunk so retrieval + the
+// match RPC can cite "from the <category> of Majlis N" and filter by majlis/year.
+export type ReligiousMeta = {
+  yearHijri?: string | null;
+  majlisNumber?: number | null;
+  isAshura?: boolean | null;
+  category?: string | null;
+};
 
 async function indexReligiousChunks(
   pageUrl: string,
@@ -106,6 +114,7 @@ async function indexReligiousChunks(
   chunks: string[],
   sourceType: "topic_block" | "uploaded_doc",
   source: ReligiousSource = {},
+  meta: ReligiousMeta = {},
 ): Promise<number> {
   const supabase = getSupabaseAdmin();
   await supabase.from("religious_content").delete().eq("page_url", pageUrl);
@@ -123,6 +132,10 @@ async function indexReligiousChunks(
     source_type: sourceType,
     source_url: source.sourceUrl ?? null,
     source_label: source.sourceLabel ?? null,
+    year_hijri: meta.yearHijri ?? null,
+    majlis_number: meta.majlisNumber ?? null,
+    is_ashura: meta.isAshura ?? false,
+    category: meta.category ?? null,
     indexed_at: new Date().toISOString(),
     is_current: true,
   }));
@@ -133,8 +146,8 @@ async function indexReligiousChunks(
 }
 
 // Re-index a religious topic block: replaces its chunks with the current content.
-export async function indexReligiousTopic(topicId: string, title: string, content: string, source: ReligiousSource = {}): Promise<number> {
-  return indexReligiousChunks(religiousPageUrl("topic", topicId), title, chunkText(content), "topic_block", source);
+export async function indexReligiousTopic(topicId: string, title: string, content: string, source: ReligiousSource = {}, meta: ReligiousMeta = {}): Promise<number> {
+  return indexReligiousChunks(religiousPageUrl("topic", topicId), title, chunkText(content), "topic_block", source, meta);
 }
 
 // Embed an uploaded religious document's chunks into religious_content.

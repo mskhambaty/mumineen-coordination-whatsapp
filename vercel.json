@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/sync-gaps-sheet",
       "schedule": "0 */2 * * *"
+    },
+    {
+      "path": "/api/cron/seed-majlis-day",
+      "schedule": "0 3 * * *"
     }
   ]
 }
