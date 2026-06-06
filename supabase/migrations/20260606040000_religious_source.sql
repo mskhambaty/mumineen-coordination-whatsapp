@@ -11,7 +11,8 @@ alter table public.religious_content
   add column if not exists source_url text,
   add column if not exists source_label text;
 
--- Recreate the match RPC to also return the source columns.
+-- Recreate the match RPC to also return the source columns (return type changed, so drop first).
+drop function if exists public.match_religious_content(extensions.vector, float, int);
 create or replace function public.match_religious_content(query_embedding extensions.vector(1536), match_threshold float, match_count int)
 returns table (
   id bigint,
