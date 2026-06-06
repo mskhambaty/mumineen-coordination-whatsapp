@@ -352,9 +352,7 @@ export default function ParkingPage() {
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setCanManage(canManageParking(user));
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setUserId(user?.id ?? "");
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setReady(true);
   }, [router]);
 

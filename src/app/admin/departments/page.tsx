@@ -82,12 +82,14 @@ export default function DepartmentsPage() {
       return;
     }
 
+    // eslint-disable-next-line react-hooks/immutability
     void loadInitialData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   useEffect(() => {
     if (!selectedDepartmentId) return;
+    // eslint-disable-next-line react-hooks/immutability
     void loadDepartmentUsers(selectedDepartmentId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDepartmentId]);
