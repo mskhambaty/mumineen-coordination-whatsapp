@@ -158,6 +158,9 @@ export async function resolveCallerFromSession(req: Request): Promise<CallerCont
 }
 
 // Full-access caller for server-to-server x-admin-key requests (agent, cron).
+// portal is a blanket allow so every page-gate predicate passes — the flags do
+// NOT mean real department membership. is_master_admin stays false: that gate
+// is for specific human accounts, not the shared server key.
 export const ADMIN_API_CALLER: CallerContext = {
   user_id: "admin-api",
   display_name: "Admin API",
