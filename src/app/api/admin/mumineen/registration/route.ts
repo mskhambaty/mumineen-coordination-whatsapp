@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { canAccessMumineen } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -9,9 +10,8 @@ export const runtime = "nodejs";
 // Soft delete: cancelling preserves all family + member data and just flips the status so the
 // record drops out of "registered" counts and the form unlocks for a fresh submission on reopen.
 export async function POST(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canAccessMumineen);
+  if (auth instanceof NextResponse) return auth;
   const body = (await req.json().catch(() => ({}))) as { hof_its?: unknown; action?: unknown; reason?: unknown };
   const hofIts = typeof body.hof_its === "string" ? body.hof_its.trim() : "";
   const action = body.action === "reopen" ? "reopen" : body.action === "cancel" ? "cancel" : null;

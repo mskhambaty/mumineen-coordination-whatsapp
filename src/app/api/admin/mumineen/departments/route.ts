@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { canAccessMumineen } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -9,9 +10,8 @@ export const runtime = "nodejs";
 // Unlike /api/departments (bearer auth, scoped to the caller's own departments), this returns
 // every department so an admin can assign any of them when editing a member.
 export async function GET(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canAccessMumineen);
+  if (auth instanceof NextResponse) return auth;
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase.from("departments").select("id, name").order("name");
   if (error) {
