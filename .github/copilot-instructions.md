@@ -1,17 +1,13 @@
-## Coding Rules
+# Copilot Instructions
 
-Always read `docs/index.md` before starting to write or modify any code in this repository. The index tells you what exists, where it lives, and which feature doc to consult before making changes.
+The contributor rules for this repository are maintained in a single place: **[`AGENTS.md`](../AGENTS.md)**.
+Read it (and the files it links) before writing or modifying any code.
 
-## API-First Rule
+In short:
 
-Every data access or action MUST go through `src/app/api/**` route handlers. No page, component, or server action may query the database directly.
+1. **Read [`docs/index.md`](../docs/index.md) first** — it maps what exists and which doc to consult.
+2. **API-first** — all data access goes through `src/app/api/**` route handlers; keep `docs/openapi.yaml` in sync.
+3. **One place for the LLM** — import `getAIClient()` and model constants from `src/lib/ai/model.ts`; never hardcode model names.
+4. **Docs ship with the code** — update the relevant feature doc and `docs/index.md` after every change.
 
-The API contract is defined in `docs/openapi.yaml`. Update it for every API route addition or behavior change.
-
-## LLM Rule
-
-All OpenAI calls MUST import `getAIClient()` and model constants from `src/lib/ai/model.ts`. Never hardcode model names outside that file.
-
-## Documentation Rule
-
-Always update the relevant feature doc and `docs/index.md` after implementing a feature.
+See [`AGENTS.md`](../AGENTS.md) for the full rules and [`docs/contributing.md`](../docs/contributing.md) for step-by-step recipes.
