@@ -90,4 +90,10 @@ describe("RELIGIOUS_GUIDANCE_RULE", () => {
     // Out-of-scope redirect names a concrete path.
     expect(RELIGIOUS_GUIDANCE_RULE).toContain("Aamil Saheb");
   });
+
+  it("requires citing the source (with the blog-link allowance)", () => {
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("Source:");
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("blogs.jameasaifiyah.edu");
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("Lisan ud Dawat dictionary");
+  });
 });

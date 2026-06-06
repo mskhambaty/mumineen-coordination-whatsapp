@@ -15,6 +15,8 @@ export default function ContentBucketEditor({
   initialContent,
   endpoint,
   adminKey,
+  showSource = false,
+  initialSourceUrl = null,
   onClose,
   onSaved,
 }: {
@@ -24,10 +26,13 @@ export default function ContentBucketEditor({
   initialContent: string;
   endpoint: string;
   adminKey: string;
+  showSource?: boolean;
+  initialSourceUrl?: string | null;
   onClose: () => void;
   onSaved?: (chunkCount: number) => void;
 }) {
   const [content, setContent] = useState(initialContent);
+  const [sourceUrl, setSourceUrl] = useState(initialSourceUrl ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -48,7 +53,7 @@ export default function ContentBucketEditor({
       const res = await fetch(endpoint, {
         method: "PUT",
         headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
-        body: JSON.stringify({ content, updated_by: updatedBy }),
+        body: JSON.stringify({ content, updated_by: updatedBy, ...(showSource ? { source_url: sourceUrl.trim() } : {}) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Failed to save");
@@ -84,6 +89,18 @@ export default function ContentBucketEditor({
             <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
               {error}
             </div>
+          )}
+          {showSource && (
+            <label className="mb-3 block text-sm text-gray-700 dark:text-gray-300">
+              Source URL (cited in the bot&apos;s answers)
+              <input
+                type="url"
+                value={sourceUrl}
+                onChange={(e) => { setSourceUrl(e.target.value); setSaved(false); }}
+                placeholder="https://blogs.jameasaifiyah.edu/reflection/ashara/1447h/reflections-majlis-2-5/"
+                className="mt-1 block w-full rounded-md border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+              />
+            </label>
           )}
           <textarea
             value={content}

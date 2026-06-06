@@ -27,6 +27,8 @@ type ReligiousTopic = {
   chunk_count: number;
   entry_count: number;
   sort_order: number;
+  source_url: string | null;
+  source_label: string | null;
   updated_at: string | null;
 };
 
@@ -269,13 +271,13 @@ export default function KnowledgePage() {
         <h1 className="text-xl font-bold">Vectorized Data for Agent</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Content the WhatsApp agent retrieves from. Each tab feeds a separate vector store so
-          logistics and religious answers never mix.
+          logistics and Waaz Talaqi answers never mix.
         </p>
       </div>
 
       <div className="mb-6 flex gap-2 border-b border-gray-200 dark:border-gray-800">
         {tabBtn("faq", "FAQ & Guides")}
-        {tabBtn("religious", "Religious Content")}
+        {tabBtn("religious", "Waaz Talaqi")}
       </div>
 
       {error && (
@@ -289,7 +291,7 @@ export default function KnowledgePage() {
         className="mb-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900"
       >
         <h2 className="text-lg font-semibold">
-          {tab === "faq" ? "Upload a document" : "Upload religious content"}
+          {tab === "faq" ? "Upload a document" : "Upload Waaz Talaqi content"}
         </h2>
         <div className="mt-3 grid gap-4 md:grid-cols-2">
           <label className="text-sm text-gray-700 dark:text-gray-300">
@@ -446,7 +448,7 @@ export default function KnowledgePage() {
             <div>
               <h2 className="text-lg font-semibold">FAQ by Topic</h2>
               <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
-                Organized, editable blocks for religious content (Vaaz Talaqi, Iqtibasaat, Lisan ud Dawat word
+                Organized, editable blocks for Waaz Talaqi content (reflections, Tazyeen, Iqtibasaat, Lisan ud Dawat word
                 meanings). Click a topic to edit it; saving re-indexes it for the agent.
               </p>
             </div>
@@ -510,11 +512,13 @@ export default function KnowledgePage() {
       {editingTopic && (
         <ContentBucketEditor
           title={editingTopic.title}
-          subtitle="Religious content — keep a respectful, sourced tone. Separate entries with a blank line. Saving re-indexes this for the agent."
+          subtitle="Waaz Talaqi content — keep a respectful, sourced tone. Separate entries with a blank line. Saving re-indexes this for the agent."
           placeholder={"Q: What was the theme of Majlis 1?\nA: ...\n\nQ: What does \"aaeen\" mean?\nA: ..."}
           initialContent={editingTopic.content}
           endpoint={`/api/admin/religious-topics/${editingTopic.id}`}
           adminKey={adminKey}
+          showSource
+          initialSourceUrl={editingTopic.source_url ?? null}
           onClose={() => setEditingTopic(null)}
           onSaved={() => void load()}
         />

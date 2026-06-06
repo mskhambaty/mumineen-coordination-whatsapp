@@ -6,7 +6,7 @@ import ContentBucketEditor from "@/components/admin/ContentBucketEditor";
 import FaqBucketEditor from "@/components/admin/FaqBucketEditor";
 
 type Bucket = { department_id: string; department_name: string; content: string };
-type Topic = { id: string; title: string; content: string };
+type Topic = { id: string; title: string; content: string; source_url?: string | null };
 
 const PROMPTS = [
   { key: "agent_system", label: "Agent System Prompt" },
@@ -109,10 +109,12 @@ export default function QuickEditModal({ adminKey, onClose }: { adminKey: string
     return (
       <ContentBucketEditor
         title={openTopic.title}
-        subtitle="Religious content — keep a respectful, sourced tone. Separate entries with a blank line. Saving re-indexes this for the agent."
+        subtitle="Waaz Talaqi content — keep a respectful, sourced tone. Separate entries with a blank line. Saving re-indexes this for the agent."
         initialContent={openTopic.content}
         endpoint={`/api/admin/religious-topics/${openTopic.id}`}
         adminKey={adminKey}
+        showSource
+        initialSourceUrl={openTopic.source_url ?? null}
         onClose={() => { setOpenTopic(null); onClose(); }}
       />
     );
@@ -131,7 +133,7 @@ export default function QuickEditModal({ adminKey, onClose }: { adminKey: string
               : mode === "faq"
                 ? "Edit a department FAQ"
                 : mode === "religious"
-                  ? "Edit religious content"
+                  ? "Edit Waaz Talaqi content"
                   : "Edit a prompt"}
           </h2>
           <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200" aria-label="Close">✕</button>
@@ -157,7 +159,7 @@ export default function QuickEditModal({ adminKey, onClose }: { adminKey: string
                 onClick={() => setMode("religious")}
                 className="rounded-lg border p-5 text-left hover:border-blue-400 hover:bg-blue-50 dark:border-gray-700 dark:hover:border-blue-500 dark:hover:bg-blue-900/20"
               >
-                <p className="font-medium">Religious Content</p>
+                <p className="font-medium">Waaz Talaqi</p>
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Edit a Vaaz / Iqtibasaat / Lisan topic block.</p>
               </button>
               <button
