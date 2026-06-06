@@ -10,8 +10,9 @@ import { useEffect, useRef, useState } from "react";
 //  manage        = admin/leadership or department PM/HOD
 //  mumineen      = admin/leadership or IT department members
 //  registrations = admin/leadership or any internal (department-assigned) user
+//  parking       = admin/leadership, IT, Transport members, or department PM/HOD (read-only)
 //  any           = any signed-in user
-type Access = "admin" | "inbox" | "manage" | "mumineen" | "registrations" | "any";
+type Access = "admin" | "inbox" | "manage" | "mumineen" | "registrations" | "parking" | "any";
 
 type NavLink = { href: string; label: string; access: Access; exact?: boolean };
 
@@ -26,6 +27,7 @@ type NavAccess = {
   isManager: boolean;
   isIt: boolean;
   isInternal: boolean;
+  isTransport: boolean;
 };
 
 const dropdownGroups: DropdownGroup[] = [
@@ -49,6 +51,7 @@ const dropdownGroups: DropdownGroup[] = [
     links: [
       { href: "/admin/milestones", label: "Milestones", access: "manage" },
       { href: "/admin/tasks", label: "Task Management", access: "manage" },
+      { href: "/admin/parking", label: "Parking Passes", access: "parking" },
       { href: "/admin/departments", label: "Departments", access: "admin" },
       { href: "/admin/users", label: "Users", access: "admin" },
       { href: "/admin/upload", label: "Upload Transcripts", access: "manage" },
@@ -71,12 +74,12 @@ const trailingLinks: NavLink[] = [
 ];
 
 function readNavAccess(): NavAccess {
-  const empty = { isAdmin: false, isSupport: false, isManager: false, isIt: false, isInternal: false };
+  const empty = { isAdmin: false, isSupport: false, isManager: false, isIt: false, isInternal: false, isTransport: false };
   if (typeof window === "undefined") return empty;
 
   try {
     const user = JSON.parse(window.localStorage.getItem("admin_user") ?? "null") as
-      | { role?: string; global_role?: string; is_support?: boolean; is_manager?: boolean; is_it?: boolean; is_internal?: boolean }
+      | { role?: string; global_role?: string; is_support?: boolean; is_manager?: boolean; is_it?: boolean; is_internal?: boolean; is_transport?: boolean }
       | null;
     return {
       isAdmin: user?.role === "admin" || user?.global_role === "leadership_admin",
@@ -84,6 +87,7 @@ function readNavAccess(): NavAccess {
       isManager: user?.is_manager === true,
       isIt: user?.is_it === true,
       isInternal: user?.is_internal === true,
+      isTransport: user?.is_transport === true,
     };
   } catch {
     return empty;
@@ -111,6 +115,7 @@ export default function AdminNav() {
     if (itemAccess === "inbox") return access.isAdmin || access.isSupport;
     if (itemAccess === "mumineen") return access.isAdmin || access.isIt;
     if (itemAccess === "registrations") return access.isAdmin || access.isInternal || access.isManager || access.isIt;
+    if (itemAccess === "parking") return access.isAdmin || access.isIt || access.isTransport || access.isManager;
     return access.isAdmin || access.isManager; // manage
   }
 
