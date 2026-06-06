@@ -96,6 +96,17 @@ export function buildHouseholdRow(
   };
 }
 
+// Purposes with a household-level data check (see matchesLotPurposes). early_khidmat
+// and unknown purposes accept everyone by design.
+const DATA_CHECKED_PURPOSES = ["vip_incapacitated", "foreign_mehman", "all_65_plus", "chicago"];
+
+// Can this purpose set actually exclude anyone? Because matchesLotPurposes is an OR,
+// one always-true purpose (early_khidmat, unknown, or none) makes everyone qualify —
+// in that case the auto "Fits lot purposes" narrowing chip would be noise, so hide it.
+export function lotPurposesNarrow(purposes: string[]): boolean {
+  return purposes.length > 0 && purposes.every((p) => DATA_CHECKED_PURPOSES.includes(p));
+}
+
 // Does this household fit a lot's designated purposes? Used by the bulk bar to warn
 // (never block) when selected households don't match the target lot's designation.
 // A household qualifies if it matches ANY one of the lot's purposes. early_khidmat

@@ -8,6 +8,7 @@ import {
   LOT_PURPOSES,
   PURPOSE_LABELS,
   SUGGESTED_COLORS,
+  lotPurposesNarrow,
   matchesLotPurposes,
   pickAssignable,
   type HouseholdRow,
@@ -326,6 +327,9 @@ export default function ParkingPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkLotId, setBulkLotId] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
+  // Auto-narrow the list to households fitting the target lot's purposes. Turned on
+  // when a narrowable lot is picked; the chip stays toggleable for deliberate overrides.
+  const [purposeFit, setPurposeFit] = useState(false);
 
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
   const headers = useMemo(
@@ -466,11 +470,22 @@ export default function ParkingPage() {
     return true;
   }
 
-  // Rows shown in the table: server-filtered set, narrowed by the client-side name search.
-  const visible = useMemo(
-    () => (search ? rows.filter((r) => r.head_name.toLowerCase().includes(search.toLowerCase())) : rows),
-    [rows, search],
-  );
+  const bulkLot = lots.find((l) => l.id === bulkLotId) ?? null;
+  const bulkRemaining = bulkLot ? Math.max(0, bulkLot.capacity - bulkLot.assigned) : 0;
+  const bulkLotNarrows = bulkLot !== null && lotPurposesNarrow(bulkLot.purposes);
+
+  // Rows shown in the table: server-filtered set, narrowed client-side by the name
+  // search and (when active) the target lot's purpose fit — both AND with the chips.
+  const visible = useMemo(() => {
+    let v = rows;
+    if (purposeFit && bulkLot && bulkLot.purposes.length > 0) {
+      v = v.filter((r) => matchesLotPurposes(r, bulkLot.purposes));
+    }
+    if (search) {
+      v = v.filter((r) => r.head_name.toLowerCase().includes(search.toLowerCase()));
+    }
+    return v;
+  }, [rows, search, purposeFit, bulkLot]);
 
   // Pagination is purely visual — selection, the capacity meter, and CSV export all
   // operate on the full filtered set. safePage derives the clamp (e.g. when a search
@@ -482,10 +497,19 @@ export default function ParkingPage() {
     [visible, safePage],
   );
 
+  // Picking a target lot kicks off the fill-lot flow: default the list to unassigned
+  // households and (when the lot's purposes can narrow) auto-enable the purpose-fit chip.
+  function chooseBulkLot(lotId: string) {
+    setBulkLotId(lotId);
+    const lot = lots.find((l) => l.id === lotId) ?? null;
+    setPurposeFit(Boolean(lot && lotPurposesNarrow(lot.purposes)));
+    if (lot) {
+      applyFilter({ assigned: "unassigned" });
+    }
+  }
+
   // Bulk flow derived state. effectiveNew counts only selections that would consume a
   // space in the chosen lot (already-in-lot households get skipped server-side too).
-  const bulkLot = lots.find((l) => l.id === bulkLotId) ?? null;
-  const bulkRemaining = bulkLot ? Math.max(0, bulkLot.capacity - bulkLot.assigned) : 0;
   const rowByFamily = useMemo(() => new Map(rows.map((r) => [r.family_id, r])), [rows]);
   const effectiveNew = useMemo(() => {
     if (!bulkLot) return 0;
@@ -692,7 +716,7 @@ export default function ParkingPage() {
           <span className="font-semibold text-gray-700 dark:text-gray-200">Bulk assign</span>
           <select
             value={bulkLotId}
-            onChange={(e) => setBulkLotId(e.target.value)}
+            onChange={(e) => chooseBulkLot(e.target.value)}
             className="rounded-md border border-gray-300 bg-white px-2 py-1 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
           >
             <option value="">Choose lot…</option>
@@ -702,6 +726,13 @@ export default function ParkingPage() {
               </option>
             ))}
           </select>
+          {bulkLotNarrows && bulkLot && (
+            <FilterChip
+              active={purposeFit}
+              label={`Fits lot purposes (${bulkLot.purposes.map((p) => PURPOSE_LABELS[p] ?? p).join(", ")})`}
+              onClick={() => setPurposeFit(!purposeFit)}
+            />
+          )}
           {bulkLot && (
             <>
               <button

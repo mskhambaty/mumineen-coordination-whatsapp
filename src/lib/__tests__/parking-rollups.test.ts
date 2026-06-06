@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildHouseholdRow,
+  lotPurposesNarrow,
   matchesFilters,
   matchesLotPurposes,
   pickAssignable,
@@ -256,6 +257,21 @@ describe("matchesLotPurposes", () => {
   it("a lot with no purposes (or an unknown purpose) accepts everyone", () => {
     expect(matchesLotPurposes(row(), [])).toBe(true);
     expect(matchesLotPurposes(row(), ["something_new"])).toBe(true);
+  });
+});
+
+describe("lotPurposesNarrow", () => {
+  it("is true only when every purpose carries a data check", () => {
+    expect(lotPurposesNarrow(["chicago"])).toBe(true);
+    expect(lotPurposesNarrow(["vip_incapacitated", "all_65_plus"])).toBe(true);
+    expect(lotPurposesNarrow(["foreign_mehman"])).toBe(true);
+  });
+
+  it("is false when any purpose accepts everyone (OR semantics)", () => {
+    expect(lotPurposesNarrow([])).toBe(false);
+    expect(lotPurposesNarrow(["early_khidmat"])).toBe(false);
+    expect(lotPurposesNarrow(["chicago", "early_khidmat"])).toBe(false);
+    expect(lotPurposesNarrow(["something_new"])).toBe(false);
   });
 });
 
