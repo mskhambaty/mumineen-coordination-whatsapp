@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { clearAdminSession } from "@/lib/admin/client";
 
 // access controls who sees a link, matching each page's gate:
 //  admin         = admin/leadership only
@@ -158,6 +159,16 @@ export default function AdminNav() {
     });
   }
 
+  async function handleLogout() {
+    try {
+      await fetch("/api/admin/auth/logout", { method: "POST" });
+    } catch {
+      // best-effort; local state is cleared regardless
+    }
+    clearAdminSession();
+    router.push("/admin/login");
+  }
+
   function isActive(href: string, exact?: boolean) {
     if (exact) return pathname === href;
     return pathname === href || pathname.startsWith(href + "/");
@@ -253,7 +264,7 @@ export default function AdminNav() {
             ))}
 
             <button
-              onClick={() => { localStorage.clear(); router.push("/admin/login"); }}
+              onClick={handleLogout}
               className="text-gray-600 hover:text-red-600 dark:text-gray-300 dark:hover:text-red-400"
             >
               Logout
