@@ -59,6 +59,6 @@ src/app/api/relay-updates/route.ts       — Public relay updates JSON feed
 
 1. Read this index.
 2. Read the doc for the relevant feature area.
-3. Read [contributing.md](./contributing.md) for file and doc conventions.
+3. Read [contributing.md](./contributing.md) for file and doc conventions.  Then when building always work API first.
 4. Add or update the matching doc when your feature is done.
 5. Update [openapi.yaml](./openapi.yaml) whenever an API route changes.
