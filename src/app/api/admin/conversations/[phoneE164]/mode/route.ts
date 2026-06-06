@@ -14,7 +14,7 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
 
   const { phoneE164 } = await params;
   const phone = decodeURIComponent(phoneE164);
-  const body = (await req.json().catch(() => ({}))) as { mode?: unknown; user_id?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { mode?: unknown };
   const mode = body.mode === "manual" ? "manual" : body.mode === "ai" ? "ai" : null;
 
   if (!mode) {
@@ -27,8 +27,10 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
     handling_mode_at: new Date().toISOString(),
   };
 
-  if (typeof body.user_id === "string" && /^[0-9a-f-]{36}$/i.test(body.user_id)) {
-    updates.handling_mode_by = body.user_id;
+  // Attribute the toggle to the authenticated session user (the old client-claimed
+  // body.user_id was spoofable). Server-to-server callers have no user row.
+  if (auth.caller.user_id !== "admin-api") {
+    updates.handling_mode_by = auth.caller.user_id;
   }
 
   const { data, error } = await supabase
