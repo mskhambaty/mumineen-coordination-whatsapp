@@ -31,46 +31,59 @@ type NavAccess = {
   isTransport: boolean;
 };
 
+// Groups are organized by domain (the job a user shows up to do), not by whether a
+// page touches the WhatsApp agent. Routes (href) and per-item access are unchanged.
 const dropdownGroups: DropdownGroup[] = [
   {
-    label: "External",
+    label: "Mumineen",
     links: [
-      { href: "/admin/conversations", label: "Inbox", access: "inbox" },
-      { href: "/admin/prompt", label: "AI Prompt Management", access: "admin" },
-      { href: "/admin/escalation", label: "Escalation/Support", access: "admin" },
-      { href: "/admin/knowledge", label: "Vectorized Data for Agent", access: "manage" },
-      { href: "/admin/ashara", label: "Ashara Daily Content", access: "manage" },
-      { href: "/admin/knowledge-gaps", label: "Knowledge Gaps", access: "manage" },
-      { href: "/admin/mumineen", label: "Mumineen", access: "mumineen" },
+      { href: "/admin/mumineen", label: "Roster", access: "mumineen" },
       { href: "/admin/registration", label: "Registration Analytics", access: "registrations" },
-      { href: "/admin/relay-updates", label: "Relay Updates", access: "admin" },
-      { href: "/admin/niyaz", label: "Niyaz Registration", access: "admin" },
-      { href: "/admin/department-digest", label: "Daily Digest", access: "registrations" },
-      { href: "/admin/whatsapp-templates", label: "Send Templates", access: "admin" },
+      { href: "/admin/accommodations", label: "Accommodations", access: "parking" },
+      { href: "/admin/parking", label: "Parking Passes", access: "parking" },
+      { href: "/admin/niyaz", label: "Niyaz", access: "admin" },
     ],
   },
   {
-    label: "Internal",
+    label: "Messaging",
     links: [
+      { href: "/admin/relay-updates", label: "Relay Updates", access: "admin" },
+      { href: "/admin/whatsapp-templates", label: "WhatsApp Templates", access: "admin" },
+    ],
+  },
+  {
+    label: "AI Agent",
+    links: [
+      { href: "/admin/prompt", label: "Prompts", access: "admin" },
+      { href: "/admin/knowledge", label: "Knowledge Base", access: "manage" },
+      { href: "/admin/knowledge-gaps", label: "Knowledge Gaps", access: "manage" },
+      { href: "/admin/ashara", label: "Ashara Daily Content", access: "manage" },
+      { href: "/admin/ollama-test", label: "Model Testing", access: "admin" },
+    ],
+  },
+  {
+    label: "Workspace",
+    links: [
+      { href: "/admin/tasks", label: "Tasks", access: "manage" },
       { href: "/admin/milestones", label: "Milestones", access: "manage" },
-      { href: "/admin/tasks", label: "Task Management", access: "manage" },
-      { href: "/admin/parking", label: "Parking Passes", access: "parking" },
-      { href: "/admin/accommodations", label: "Accommodations", access: "parking" },
-      { href: "/admin/departments", label: "Departments", access: "admin" },
-      { href: "/admin/users", label: "Users", access: "admin" },
+      { href: "/admin/department-digest", label: "Daily Digest", access: "registrations" },
       { href: "/admin/upload", label: "Upload Transcripts", access: "manage" },
     ],
   },
   {
-    label: "Admin Settings",
+    label: "Settings",
     links: [
-      { href: "/admin/ollama-test", label: "Ollama Test", access: "admin" },
+      { href: "/admin/users", label: "Users", access: "admin" },
+      { href: "/admin/departments", label: "Departments", access: "admin" },
+      { href: "/admin/escalation", label: "Escalation & On-call", access: "admin" },
     ],
   },
 ];
 
+// Inbox is the daily driver — promoted out of a dropdown to a top-level link.
 const standaloneLinks: NavLink[] = [
   { href: "/admin", label: "Home", access: "admin", exact: true },
+  { href: "/admin/conversations", label: "Inbox", access: "inbox" },
 ];
 
 const trailingLinks: NavLink[] = [
