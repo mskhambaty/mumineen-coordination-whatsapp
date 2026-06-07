@@ -195,6 +195,85 @@ export const allToolDefinitions: ToolDefinition[] = [
       },
     },
   },
+  // --- Meal RSVP & Feedback (public) ---
+  {
+    type: "function",
+    function: {
+      name: "get_family_meal_rsvps",
+      description:
+        "Get the caller's family's current jaman (meal) RSVP grid for Ashara — every lunch (thaal) and dinner (packets) day, with whether the family is down as attending and the head count. Use this to show the user what you already have on file before confirming or changing it, and to see which days are still unanswered. RSVP is tracked for the whole family.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "set_family_meal_rsvps",
+      description:
+        "Record or update the caller's family's jaman (meal) RSVP. Use when the user tells you which days/meals they will attend and how many. Always confirm the parsed result back to the user. Each entry sets one meal (lunch or dinner) for either specific dates or ALL days of that meal (omit dates or set all=true). Examples: 'lunch all days, 5 of us' -> {meal:'lunch', attending:true, head_count:5, all:true}; 'no dinners' -> {meal:'dinner', attending:false, all:true}; 'lunch on the 16th and 17th, 3 people' -> {meal:'lunch', attending:true, head_count:3, dates:['2026-06-16','2026-06-17']}. RSVP applies to the whole family.",
+      parameters: {
+        type: "object",
+        properties: {
+          entries: {
+            type: "array",
+            description: "One or more meal instructions to apply.",
+            items: {
+              type: "object",
+              properties: {
+                meal: { type: "string", enum: ["lunch", "dinner"], description: "Which meal." },
+                attending: { type: "boolean", description: "true if the family will attend this meal, false if not." },
+                head_count: { type: "number", description: "Number of family members attending this meal (omit when not attending)." },
+                dates: {
+                  type: "array",
+                  items: { type: "string", description: "A date in YYYY-MM-DD." },
+                  description: "Specific days to apply to. Omit to apply to every day of this meal.",
+                },
+                all: { type: "boolean", description: "Set true to apply to every day of this meal (same as omitting dates)." },
+              },
+              required: ["meal", "attending"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["entries"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "submit_feedback",
+      description:
+        "Record a visitor's feedback about their experience so the right committee sees it in the nightly summary. Use when a user shares how something went — good or bad — about jaman/mawaid, flow/crowd management, parking or transport, audio/video, accommodation, or seating/rahat. One call can carry several areas. If the feedback is an actionable problem to fix (e.g. 'the AC was broken'), ALSO use create_issue; for an emergency or a request for a person, use move_to_escalation. This tool is for capturing sentiment, not a substitute for helping.",
+      parameters: {
+        type: "object",
+        properties: {
+          entries: {
+            type: "array",
+            description: "One entry per area the user gave feedback on.",
+            items: {
+              type: "object",
+              properties: {
+                area: {
+                  type: "string",
+                  enum: ["mawaid", "flow", "parking_transport", "audio_video", "accommodation", "seating", "general"],
+                  description: "Which area the feedback is about.",
+                },
+                sentiment: { type: "string", enum: ["positive", "neutral", "negative"], description: "Overall tone of this feedback." },
+                rating: { type: "number", description: "Optional 1-5 rating if the user gave one." },
+                comment: { type: "string", description: "A short, cleaned-up summary of what they said." },
+              },
+              required: ["area"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["entries"],
+        additionalProperties: false,
+      },
+    },
+  },
   // --- Task Management Tools ---
   {
     type: "function",
@@ -637,6 +716,20 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       });
     case "flag_knowledge_gap":
       return flagKnowledgeGap(String(args.topic ?? "").trim(), args.question != null ? String(args.question) : null, context.phoneE164);
+    case "get_family_meal_rsvps":
+      return callInternalApi("/api/rsvp/meals", { phone: context.phoneE164 });
+    case "set_family_meal_rsvps":
+      return callInternalApi("/api/rsvp/meals", {
+        method: "POST",
+        phone: context.phoneE164,
+        body: { entries: args.entries ?? [] },
+      });
+    case "submit_feedback":
+      return callInternalApi("/api/feedback", {
+        method: "POST",
+        phone: context.phoneE164,
+        body: { entries: args.entries ?? [] },
+      });
     case "get_volunteer_assignment":
       return {
         status: "unavailable_to_agent",
