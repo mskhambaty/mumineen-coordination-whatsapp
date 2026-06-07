@@ -51,7 +51,7 @@ export function scoreMatch(
 
   // 3. Demographics/mobility: wheelchair/special needs families get bonus for accessible hosts (max 15 points)
   if (opts.demographics !== false && (guest.has_wheelchair || guest.has_special_needs)) {
-    if (host.effective_capacity >= guest.member_count * 2) {
+    if (host.effective_capacity >= guest.attending_count * 2) {
       score += 10;
       reasons.push("Spacious for accessibility");
     }
@@ -114,8 +114,8 @@ export async function suggestMatches(opts?: ScoringOptions): Promise<MatchSugges
   for (let fifoRank = 0; fifoRank < sortedGuests.length; fifoRank++) {
     const guest = sortedGuests[fifoRank];
 
-    // Hard constraint: host must fit entire family
-    const eligibleHosts = availableHosts.filter((h) => h.remaining_capacity >= guest.member_count);
+    // Hard constraint: host must fit attending family members
+    const eligibleHosts = availableHosts.filter((h) => h.remaining_capacity >= guest.attending_count);
 
     for (const host of eligibleHosts) {
       const { score, reasons } = scoreMatch(guest, host, fifoRank, sortedGuests.length, opts);
@@ -148,7 +148,7 @@ export async function suggestBestAllocation(opts?: ScoringOptions): Promise<Allo
   const unmatchedGuests = guests.filter((g) => g.current_match_status == null);
 
   // Sort smallest families first to maximize families matched (bin-packing heuristic)
-  const sortedGuests = [...unmatchedGuests].sort((a, b) => a.member_count - b.member_count);
+  const sortedGuests = [...unmatchedGuests].sort((a, b) => a.attending_count - b.attending_count);
 
   // Track remaining capacity during allocation
   const capacityLeft = new Map<string, number>();
@@ -165,7 +165,7 @@ export async function suggestBestAllocation(opts?: ScoringOptions): Promise<Allo
 
   for (const guest of sortedGuests) {
     // Find hosts that still have capacity for this family
-    const eligible = availableHosts.filter((h) => (capacityLeft.get(h.id) ?? 0) >= guest.member_count);
+    const eligible = availableHosts.filter((h) => (capacityLeft.get(h.id) ?? 0) >= guest.attending_count);
 
     if (eligible.length === 0) {
       unmatchedFamilies.push(guest);
@@ -183,7 +183,7 @@ export async function suggestBestAllocation(opts?: ScoringOptions): Promise<Allo
 
     if (best) {
       matched.push({ guest, host: best.host, score: best.score, reasons: best.reasons });
-      capacityLeft.set(best.host.id, (capacityLeft.get(best.host.id) ?? 0) - guest.member_count);
+      capacityLeft.set(best.host.id, (capacityLeft.get(best.host.id) ?? 0) - guest.attending_count);
     } else {
       unmatchedFamilies.push(guest);
     }

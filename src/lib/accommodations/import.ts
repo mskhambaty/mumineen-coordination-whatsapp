@@ -23,7 +23,7 @@ const intOrNull = (v: unknown): number | null => {
  */
 function yesNormalize(v: unknown): boolean {
   const s = text(v);
-  return s != null && /^y(es)?$/i.test(s);
+  return s != null && /^y(es)?\b/i.test(s);
 }
 
 // Map spreadsheet headers → DB columns with typed parsers.
