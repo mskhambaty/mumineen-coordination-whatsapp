@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
 
     const { data: newFam, error: famErr } = await supabase
       .from("families")
-      .insert({ hof_its: body.its, head_in_roster: true, roster_active: true, registration_status: "not_started" })
+      .insert({ hof_its: body.its, roster_active: true, registration_status: "not_started" })
       .select("id")
       .single();
     if (famErr || !newFam) {
@@ -113,10 +113,6 @@ export async function POST(req: NextRequest) {
       await supabase.from("families").delete().eq("hof_its", body.its);
     }
     return NextResponse.json({ error: muminErr?.message ?? "Failed to create mumin record" }, { status: 500 });
-  }
-
-  if (body.is_head) {
-    await supabase.from("families").update({ head_mumin_id: newMumin.id }).eq("hof_its", body.its);
   }
 
   return NextResponse.json({ ok: true, member: newMumin }, { status: 201 });
