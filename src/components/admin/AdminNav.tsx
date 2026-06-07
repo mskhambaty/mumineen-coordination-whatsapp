@@ -47,6 +47,7 @@ const dropdownGroups: DropdownGroup[] = [
       { href: "/admin/niyaz", label: "Niyaz Registration", access: "admin" },
       { href: "/admin/department-digest", label: "Daily Digest", access: "manage" },
       { href: "/admin/whatsapp-templates", label: "Send Templates", access: "admin" },
+      { href: "/admin/whatsapp", label: "WhatsApp Composer", access: "admin" },
     ],
   },
   {

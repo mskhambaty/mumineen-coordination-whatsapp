@@ -1383,6 +1383,172 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/rsvp/meals:
+    get:
+      tags: [rsvp]
+      summary: Get the caller's family meal-RSVP grid
+      description: Self-scoped via x-whatsapp-from. Returns every meal slot with the family's latest answer. Used by the get_family_meal_rsvps agent tool.
+      responses:
+        "200": { description: "Grid (or status=no_family when the number isn't on the roster)." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+    post:
+      tags: [rsvp]
+      summary: Set the caller's family meal RSVP
+      description: Self-scoped via x-whatsapp-from. Each entry sets one meal for specific dates or all days. Used by set_family_meal_rsvps.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entries]
+              properties:
+                entries:
+                  type: array
+                  items:
+                    type: object
+                    required: [meal, attending]
+                    properties:
+                      meal: { type: string, enum: [lunch, dinner] }
+                      attending: { type: boolean }
+                      head_count: { type: integer, minimum: 0, maximum: 99 }
+                      dates: { type: array, items: { type: string, format: date } }
+                      all: { type: boolean }
+      responses:
+        "200": { description: Updated count + refreshed grid. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/feedback:
+    post:
+      tags: [feedback]
+      summary: Submit experience feedback
+      description: Append-only, self-scoped via x-whatsapp-from. One call may carry several areas; each is tagged to its owning department. Used by the submit_feedback agent tool.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entries]
+              properties:
+                entries:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items:
+                    type: object
+                    required: [area]
+                    properties:
+                      area: { type: string, enum: [mawaid, flow, parking_transport, audio_video, accommodation, seating, general] }
+                      sentiment: { type: string, enum: [positive, neutral, negative] }
+                      rating: { type: integer, minimum: 1, maximum: 5 }
+                      comment: { type: string, maxLength: 2000 }
+      responses:
+        "200": { description: Recorded count. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/admin/templates:
+    get:
+      tags: [admin, templates]
+      summary: Approved templates + selectable test users for the send console
+      description: Admin/leadership only (requireAdminLeadership — admin key + DB-verified role via x-portal-user-id). No phone numbers returned.
+      responses:
+        "200": { description: templates[] + selectable_users[] (id + name only). }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/admin/templates/preview:
+    post:
+      tags: [admin, templates]
+      summary: Preview an audience (free/paid counts + cost)
+      description: Admin/leadership only. Returns counts only — never the phone list.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [audience_key]
+              properties:
+                audience_key: { type: string, enum: [selected_users, chicago_committee, arrived_hof, registered_hof, all_members] }
+                selected_user_ids: { type: array, items: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ total, in_window, out_window, est_cost_usd }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/admin/templates/send:
+    post:
+      tags: [admin, templates]
+      summary: Start a manual template broadcast
+      description: Admin/leadership only. Creates a broadcast, enqueues recipients, kicks the first drain batch; a cron drains the rest. Manual — no auto-scheduling.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [template_code, audience_key]
+              properties:
+                template_code: { type: string }
+                template_language: { type: string }
+                audience_key: { type: string, enum: [selected_users, chicago_committee, arrived_hof, registered_hof, all_members] }
+                selected_user_ids: { type: array, items: { type: string, format: uuid } }
+      responses:
+        "200": { description: "status=started + broadcastId + counts." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/admin/templates/broadcasts:
+    get:
+      tags: [admin, templates]
+      summary: Broadcast send log with metrics
+      description: Admin/leadership only.
+      responses:
+        "200": { description: broadcasts[] (most recent first). }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/admin/templates/broadcasts/{id}:
+    get:
+      tags: [admin, templates]
+      summary: One broadcast + delivery-status rollup
+      description: Admin/leadership only. Aggregate status counts only — no phone numbers.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: broadcast + status_counts. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/admin/department-digest:
+    get:
+      tags: [admin, digest]
+      summary: Stored department + all-up daily briefings
+      description: Admin-portal gated (requireAdminKey). Defaults to the most recent day with summaries.
+      parameters:
+        - { name: date, in: query, required: false, schema: { type: string, format: date } }
+      responses:
+        "200": { description: "{ date, summaries[] }." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/cron/department-digest:
+    get:
+      tags: [cron]
+      summary: Nightly department digest (22:00 UTC)
+      description: Aggregate→AI briefing→store→distribute (email + free in-window WhatsApp). Auth via CRON_SECRET bearer or admin key. Optional ?date= override.
+      responses:
+        "200": { description: Run result. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/cron/broadcast-drain:
+    get:
+      tags: [cron]
+      summary: Drain queued template-broadcast recipients (throttled batch)
+      description: Runs every minute. Auth via CRON_SECRET bearer or admin key.
+      responses:
+        "200": { description: "{ processed, broadcastsTouched }." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
 components:
   securitySchemes:
     whatsappPhone:
