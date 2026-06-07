@@ -33,10 +33,15 @@ describe("POST /api/feedback", () => {
     expect(recordFeedback).not.toHaveBeenCalled();
   });
 
-  it("rejects an invalid area", async () => {
-    const out = await POST(req({ entries: [{ area: "weather" }] }));
-    expect(out.status).toBe(400);
-    expect(recordFeedback).not.toHaveBeenCalled();
+  it("coerces an unknown area to general instead of dropping the feedback", async () => {
+    recordFeedback.mockResolvedValue({ recorded: 1 });
+    const out = await POST(req({ entries: [{ area: "facilities", comment: "AC broken" }] }));
+    expect(out.status).toBe(200);
+    expect(recordFeedback).toHaveBeenCalledWith(
+      PHONE,
+      [{ area: "general", sentiment: null, rating: null, comment: "AC broken", rawMessage: null }],
+      { source: "whatsapp" },
+    );
   });
 
   it("records valid multi-area feedback", async () => {

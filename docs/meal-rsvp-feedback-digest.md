@@ -23,12 +23,25 @@ record, `applyMealRsvps` with date-range expansion). API: `GET/POST /api/rsvp/me
 ## 2. Feedback
 
 Append-only, department-tagged, sentiment-scored — `feedback_entries`
-(`supabase/migrations/20260606100200_*`). Areas map to owning departments by name (environment
-independent): `src/lib/feedback/areas.ts`. Capture: `src/lib/feedback/record.ts`, API
-`POST /api/feedback`, agent tool `submit_feedback`. Actionable problems still route to
-`create_issue` / `move_to_escalation`.
+(`supabase/migrations/20260606100200_*`). Feedback is captured by the **nightly conversation-mining
+batch** (see §3), which is the single source — the agent does **not** log feedback in real time
+(that caused double-counting and fired rarely). Each entry is associated with a department by an
+LLM classifier against the **live department list + descriptions** (`src/lib/departments/classify.ts`),
+falling back to a static area→department map (`src/lib/feedback/areas.ts`). The `create_issue` path
+uses the same classifier to route issues to the right department when the agent doesn't name one,
+so they don't sit untriaged. (`POST /api/feedback` + `recordFeedback` remain as a programmatic
+insert path for future admin/manual entry, but are no longer wired to the agent.)
 
 ## 3. Nightly department digest (22:00 UTC)
+
+Before aggregating, the cron **mines the last 24h of raw conversations** for feedback
+(`src/lib/digest/mine-conversations.ts`) — the single source of digest feedback. This is **batched** —
+~10-15 conversations per LLM call, a handful of calls per night — so it uses the higher-end
+`OPENAI_MODEL_HIGH` preset (better extraction) rather than looping the cheap model per conversation.
+Each call extracts feedback items, assigns sentiment, and routes to a department (live catalog) in
+one shot; results are written to `feedback_entries` (`source = 'mined'`, idempotent per day). The
+aggregation below then picks them up alongside real-time and admin feedback.
+
 
 `src/lib/digest/aggregate.ts` rolls up a day's feedback / issues (`tasks`) / escalations
 (`conversation_sessions`) per department, plus an all-up view with flagged knowledge gaps and the

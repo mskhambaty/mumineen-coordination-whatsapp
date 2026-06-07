@@ -15,13 +15,30 @@ export type DeptMetrics = {
 
 export type AllUpExtras = {
   questions_flagged: number; // knowledge gaps seen today
+  untriaged_issues: number; // agent-raised issues with no department assigned
   meals_next_day: { date: string | null; lunch_attending: number; dinner_attending: number };
 };
 
+// America/Chicago UTC offset (minutes) for a given calendar date — DST-aware.
+function chicagoOffsetMinutes(date: string): number {
+  const probe = new Date(`${date}T12:00:00Z`);
+  const name =
+    new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", timeZoneName: "shortOffset" })
+      .formatToParts(probe)
+      .find((p) => p.type === "timeZoneName")?.value ?? "GMT-5";
+  const m = name.match(/GMT([+-]\d+)(?::(\d+))?/);
+  const hours = m ? parseInt(m[1], 10) : -5;
+  const mins = m && m[2] ? parseInt(m[2], 10) : 0;
+  return hours * 60 + (hours < 0 ? -mins : mins);
+}
+
+// UTC bounds for one America/Chicago calendar day, so timestamptz columns (created_at,
+// escalated_at) are matched against the same day the cron and feedback event_date use.
 function dayBounds(date: string): { start: string; end: string } {
-  // date = YYYY-MM-DD (treated as a UTC day window; good enough for a nightly rollup).
-  const start = new Date(`${date}T00:00:00.000Z`).toISOString();
-  const end = new Date(`${date}T23:59:59.999Z`).toISOString();
+  const offsetMin = chicagoOffsetMinutes(date);
+  const startMs = new Date(`${date}T00:00:00.000Z`).getTime() - offsetMin * 60000;
+  const start = new Date(startMs).toISOString();
+  const end = new Date(startMs + 24 * 60 * 60 * 1000 - 1).toISOString();
   return { start, end };
 }
 
@@ -100,6 +117,15 @@ export async function aggregateAllUpExtras(date: string): Promise<AllUpExtras> {
     .gte("last_seen_at", start)
     .lte("last_seen_at", end);
 
+  // Agent-raised issues that landed with no department (untriaged) — surfaced to leadership.
+  const { count: untriagedCount } = await supabase
+    .from("tasks")
+    .select("id", { count: "exact", head: true })
+    .eq("source", "whatsapp_agent")
+    .is("department_id", null)
+    .gte("created_at", start)
+    .lte("created_at", end);
+
   // Next day's meals.
   const next = new Date(`${date}T00:00:00.000Z`);
   next.setUTCDate(next.getUTCDate() + 1);
@@ -120,6 +146,7 @@ export async function aggregateAllUpExtras(date: string): Promise<AllUpExtras> {
 
   return {
     questions_flagged: gapsCount ?? 0,
+    untriaged_issues: untriagedCount ?? 0,
     meals_next_day: { date: (slots ?? []).length ? nextDate : null, lunch_attending: lunch, dinner_attending: dinner },
   };
 }

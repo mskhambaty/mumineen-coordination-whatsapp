@@ -1,17 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { FEEDBACK_AREAS } from "@/lib/feedback/areas";
+import { normalizeArea } from "@/lib/feedback/areas";
 import { recordFeedback } from "@/lib/feedback/record";
 
 export const runtime = "nodejs";
 
-// Append-only feedback intake from the WhatsApp agent's submit_feedback tool. Identified by
-// x-whatsapp-from; low-stakes like create_issue, so any identified caller may submit feedback
-// about their own experience. One call may carry feedback for several areas.
+// Append-only feedback intake. NOTE: the agent no longer logs feedback in real time — the nightly
+// digest mines it from conversations instead (src/lib/digest/mine-conversations.ts), avoiding
+// double-counting. Retained as a programmatic insert path (e.g. future admin/manual entry).
+// Identified by x-whatsapp-from; `area` accepts any string and is normalized (default "general").
 
 const entrySchema = z.object({
-  area: z.enum(FEEDBACK_AREAS),
+  area: z.string().min(1),
   sentiment: z.enum(["positive", "neutral", "negative"]).nullish(),
   rating: z.number().int().min(1).max(5).nullish(),
   comment: z.string().max(2000).nullish(),
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
   const result = await recordFeedback(
     phone.trim(),
     parsed.data.entries.map((e) => ({
-      area: e.area,
+      area: normalizeArea(e.area),
       sentiment: e.sentiment ?? null,
       rating: e.rating ?? null,
       comment: e.comment ?? null,

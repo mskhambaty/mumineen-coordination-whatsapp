@@ -23,6 +23,7 @@ type User = {
   department_membership_id?: string | null;
   department_role?: string | null;
   contact_for_issues?: boolean;
+  daily_feedback_digest?: boolean;
 };
 
 type DepartmentMembership = {
@@ -31,6 +32,7 @@ type DepartmentMembership = {
   dept_role: string;
   is_active: boolean;
   contact_for_issues: boolean;
+  daily_feedback_digest: boolean;
 };
 
 const DEPT_ROLE_OPTIONS = [
@@ -223,6 +225,7 @@ export default function DepartmentsPage() {
             department_membership_id: membership.id,
             department_role: membership.dept_role,
             contact_for_issues: membership.contact_for_issues,
+            daily_feedback_digest: membership.daily_feedback_digest,
           }].sort(sortUsers),
         );
       }
@@ -258,6 +261,7 @@ export default function DepartmentsPage() {
               ...item,
               department_role: typeof updates.dept_role === "string" ? updates.dept_role : item.department_role,
               contact_for_issues: typeof updates.contact_for_issues === "boolean" ? updates.contact_for_issues : item.contact_for_issues,
+              daily_feedback_digest: typeof updates.daily_feedback_digest === "boolean" ? updates.daily_feedback_digest : item.daily_feedback_digest,
             }
           : item,
       ),
@@ -430,6 +434,7 @@ export default function DepartmentsPage() {
                   <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Email</th>
                   <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Role</th>
                   <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Contact for Issues</th>
+                  <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Received Daily Digest</th>
                   <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Actions</th>
                 </tr>
               </thead>
@@ -458,6 +463,16 @@ export default function DepartmentsPage() {
                           onChange={(event) => void updateMembership(user, { contact_for_issues: event.target.checked })}
                         />
                         Notify
+                      </label>
+                    </td>
+                    <td className="px-5 py-4">
+                      <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                        <input
+                          type="checkbox"
+                          checked={user.daily_feedback_digest !== false}
+                          onChange={(event) => void updateMembership(user, { daily_feedback_digest: event.target.checked })}
+                        />
+                        On
                       </label>
                     </td>
                     <td className="px-5 py-4">

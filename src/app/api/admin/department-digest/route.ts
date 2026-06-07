@@ -63,5 +63,20 @@ export async function GET(req: NextRequest) {
   // All-up first, then departments alphabetically.
   rows.sort((a, b) => (a.department_id === null ? -1 : b.department_id === null ? 1 : a.department_name.localeCompare(b.department_name)));
 
-  return NextResponse.json({ date, summaries: rows, sees_all: seesAll });
+  // Day tabs: distinct dates the caller can see (scoped to their departments unless see-all).
+  let datesQuery = supabase.from("department_daily_summaries").select("summary_date").order("summary_date", { ascending: false });
+  if (!seesAll) datesQuery = datesQuery.in("department_id", [...myDeptIds]);
+  const { data: dateRows } = await datesQuery;
+  const availableDates = [...new Set(((dateRows ?? []) as { summary_date: string }[]).map((r) => r.summary_date))];
+
+  // Full list of departments the caller can see — used to list "no feedback today" departments.
+  let visibleDepartments: { id: string; name: string }[];
+  if (seesAll) {
+    const { data: all } = await supabase.from("departments").select("id, name").order("name");
+    visibleDepartments = (all ?? []) as { id: string; name: string }[];
+  } else {
+    visibleDepartments = caller.departments.map((d) => ({ id: d.department_id, name: d.department_name }));
+  }
+
+  return NextResponse.json({ date, summaries: rows, sees_all: seesAll, available_dates: availableDates, departments: visibleDepartments });
 }

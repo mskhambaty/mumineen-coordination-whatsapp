@@ -38,7 +38,7 @@ All env var lookups go through `src/lib/env.ts`, which supports mixed-case alias
 | `DEPARTMENT_SUMMARY_WA_TEMPLATE` | — | `daily_department_issue_confirmation` | Approved Meta template for the nightly department digest WhatsApp message. Two body vars: `{{1}}` department name, `{{2}}` short summary. |
 | `POSTMARK_DEPARTMENT_SUMMARY_TEMPLATE` | — | `daily-department-summary` | Postmark template alias for the nightly department digest email. Model: `department_name`, `feedback_html`, `feedback_text`. |
 | `OPENAI_MODEL` | `OpenAI_model` | `gpt-4o-mini` | Override the centralized chat completion model in `src/lib/ai/model.ts`. Any model id valid for the Chat Completions API works, including GPT-5.x (e.g. `gpt-5.4-mini`) — `chatParams()` adapts the request shape automatically (see note below). |
-| `OPENAI_MODEL_HIGH` | — | falls back to `OPENAI_MODEL` | Higher-end model used **only** for Waaz Talaqi / Lisan answers (the final completion when `answer_religious_questions` or `get_lisan_word_meaning` was used), e.g. `gpt-5.4`. No-op until set. If the configured model is unavailable/misconfigured, the agent **falls back to `OPENAI_MODEL`** rather than failing the reply. |
+| `OPENAI_MODEL_HIGH` | — | falls back to `OPENAI_MODEL` | Higher-end model for Waaz Talaqi / Lisan answers AND the nightly digest conversation-mining batch (e.g. `gpt-5.4`). Falls back to `OPENAI_MODEL` when unset or on error. |
 | `SESSION_SECRET` | — | falls back to `ADMIN_API_KEY` | Signs portal session cookies (HMAC-SHA256). Set a dedicated random value in production to isolate cookie signing from the server-to-server API key. |
 
 > **Model compatibility (GPT-5.x / o-series).** These are reasoning models: they reject a custom

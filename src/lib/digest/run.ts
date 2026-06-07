@@ -43,7 +43,8 @@ const DEPT_SYSTEM =
   "You write an end-of-day committee briefing for one department of a Dawoodi Bohra Ashara relay center, using ONLY the JSON metrics provided. " +
   'Reply with STRICT JSON: {"short": string, "bullets": string[]}. ' +
   '"short" = ONE plain sentence (max 160 chars) capturing the single most important feedback/issue for that department today (for a WhatsApp message). ' +
-  '"bullets" = 3-6 concise bullet strings covering sentiment, top feedback themes, issues/escalations, and one improvement suggestion. No markdown, no preamble.';
+  '"bullets" = 3-6 concise bullet strings covering sentiment, top feedback themes, issues/escalations, and one improvement suggestion. ' +
+  "If there is feedback, lead with it; if there is no feedback but there ARE issues, summarize the issues instead — NEVER output \"no feedback\" as the message. No markdown, no preamble.";
 
 const ALLUP_SYSTEM =
   "You write a short leadership end-of-day summary ACROSS ALL departments of a Dawoodi Bohra Ashara relay center, using ONLY the JSON provided. " +
@@ -171,7 +172,9 @@ export async function runDepartmentDigest(date: string): Promise<DigestRunResult
 
   for (const m of deptMetrics) {
     if (!m.department_id) continue;
-    if (m.feedback.total + m.issues + m.escalations === 0) continue;
+    // Only digest a department that has something to report — feedback or issues. Escalation-only
+    // departments already received real-time on-call alerts, so a "no feedback" digest is noise.
+    if (m.feedback.total === 0 && m.issues === 0) continue;
 
     const fallback = `${m.department_name}: ${metricsLine(m)}`;
     const summary = await generateSummary(DEPT_SYSTEM, m, fallback);
@@ -183,14 +186,17 @@ export async function runDepartmentDigest(date: string): Promise<DigestRunResult
     await distribute(await deptRecipients(m.department_id), m.department_name, summary, result);
   }
 
-  // All-up.
-  const allUpPayload = { date, departments: deptMetrics.map((m) => ({ name: m.department_name, ...m, summary: metricsLine(m) })), ...extras };
-  const allUpFallback = `Next-day meals: lunch ${extras.meals_next_day.lunch_attending}, dinner ${extras.meals_next_day.dinner_attending}.`;
-  const allUpSummary = await generateSummary(ALLUP_SYSTEM, allUpPayload, allUpFallback);
-  if (allUpSummary.bullets.length === 0) allUpSummary.bullets = deptMetrics.map((m) => `${m.department_name}: ${metricsLine(m)}`);
-  await upsertSummary(null, date, allUpPayload, allUpSummary);
-
-  await distribute(await allUpRecipients(), ALL_UP_LABEL, allUpSummary, result);
+  // All-up — only when there is any activity at all (feedback, issues, escalations, untriaged).
+  const anyActivity =
+    deptMetrics.some((m) => m.feedback.total + m.issues + m.escalations > 0) || extras.untriaged_issues > 0;
+  if (anyActivity) {
+    const allUpPayload = { date, departments: deptMetrics.map((m) => ({ name: m.department_name, ...m, summary: metricsLine(m) })), ...extras };
+    const allUpFallback = `Next-day meals: lunch ${extras.meals_next_day.lunch_attending}, dinner ${extras.meals_next_day.dinner_attending}.`;
+    const allUpSummary = await generateSummary(ALLUP_SYSTEM, allUpPayload, allUpFallback);
+    if (allUpSummary.bullets.length === 0) allUpSummary.bullets = deptMetrics.map((m) => `${m.department_name}: ${metricsLine(m)}`);
+    await upsertSummary(null, date, allUpPayload, allUpSummary);
+    await distribute(await allUpRecipients(), ALL_UP_LABEL, allUpSummary, result);
+  }
 
   return result;
 }

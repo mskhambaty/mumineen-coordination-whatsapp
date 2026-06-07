@@ -1,4 +1,5 @@
-import { resolveDepartmentIdForArea, type FeedbackArea } from "@/lib/feedback/areas";
+import { AREA_LABEL, resolveDepartmentIdForArea, type FeedbackArea } from "@/lib/feedback/areas";
+import { classifyDepartment } from "@/lib/departments/classify";
 import { resolveFamilyForPhone } from "@/lib/rsvp/family";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -28,16 +29,24 @@ export async function recordFeedback(
   // Best-effort family resolution — feedback is still worth capturing even if the number
   // isn't on the roster, so a missing family does not block the insert.
   const family = await resolveFamilyForPhone(phone);
-  const eventDate = opts.eventDate ?? new Date().toISOString().slice(0, 10);
+  // Stamp the event_date in the event's timezone (America/Chicago) so it lines up with the nightly
+  // digest, which aggregates by the Chicago calendar day.
+  const eventDate =
+    opts.eventDate ??
+    new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
   const rows = [];
   for (const entry of entries) {
+    // Associate the feedback with a department using the LIVE department list + descriptions
+    // (classifier), falling back to the static area→department map when nothing clearly fits.
+    const classifyText = `${AREA_LABEL[entry.area]}: ${entry.comment ?? entry.rawMessage ?? ""}`;
+    const departmentId = (await classifyDepartment(classifyText)) ?? (await resolveDepartmentIdForArea(entry.area));
     rows.push({
       family_id: family?.familyId ?? null,
       mumin_id: family?.muminId ?? null,
       phone_e164: phone,
       area: entry.area,
-      department_id: await resolveDepartmentIdForArea(entry.area),
+      department_id: departmentId,
       sentiment: entry.sentiment ?? null,
       rating: entry.rating ?? null,
       comment_text: entry.comment ?? null,
