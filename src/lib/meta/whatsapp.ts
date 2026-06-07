@@ -67,55 +67,6 @@ export async function sendWhatsAppText(to: string, body: string): Promise<MetaMe
   return responseBody;
 }
 
-export async function sendWhatsAppTemplate(
-  to: string,
-  templateName: string,
-  bodyParameters: string[],
-): Promise<MetaMessageResponse> {
-  const phoneNumberId = requireEnv("WHATSAPP_PHONE_NUMBER_ID");
-  const accessToken = requireEnv("WHATSAPP_ACCESS_TOKEN");
-  const languageCode = optionalEnv("WHATSAPP_TEMPLATE_LANGUAGE") ?? "en_US";
-
-  const response = await fetch(`${graphBase()}/${phoneNumberId}/messages`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      to,
-      type: "template",
-      template: {
-        name: templateName,
-        language: { code: languageCode },
-        components: [
-          {
-            type: "body",
-            parameters: bodyParameters.map((text) => ({
-              type: "text",
-              text,
-            })),
-          },
-        ],
-      },
-    }),
-  });
-
-  const responseBody = (await response.json().catch(() => ({}))) as MetaMessageResponse;
-
-  if (!response.ok) {
-    console.error("Meta send-template error", {
-      status: response.status,
-      responseBody,
-      templateName,
-    });
-    throw new Error(`Meta send-template failed with status ${response.status}`);
-  }
-
-  return responseBody;
-}
-
 export type WaTemplateButton = { type: string; text?: string; url?: string };
 export type WaTemplateComponent = {
   type: string; // HEADER | BODY | FOOTER | BUTTONS

@@ -15,8 +15,9 @@ runAgent(user, phoneE164, message)
     │       retrieveSiteContext(message)       → RAG content for system prompt
     │       getRecentMessages(phoneE164)       → recent conversation turns
     │
-    ├─ Build messages: [ system prompt (+ site + sender context),
-    │                    ...replayed history turns ]
+    ├─ buildSystemPrompt(): [ base + departments + always-on rules | sender context ]
+    │                        (static prefix first, per-user context last — see below)
+    ├─ Build messages: [ system prompt, ...replayed history turns ]
     │
     ├─ First completion (tools enabled)
     │       if tool_calls present → executeTool() for each
@@ -74,11 +75,22 @@ When site content is available from the RAG scraper, it is appended to the syste
 All OpenAI model and client configuration lives in `src/lib/ai/model.ts`.
 
 - Chat model: `AI_MODEL` (`OPENAI_MODEL` override, default `gpt-4o-mini`)
+- High-end model: `AI_MODEL_HIGH` (`OPENAI_MODEL_HIGH` override, falls back to `AI_MODEL`)
 - Agent temperature: `AGENT_TEMPERATURE`
 - Token cap: `MAX_AGENT_TOKENS`
+- Request builder: `chatParams(model, { maxTokens, temperature })`
 - OpenAI client: `getAIClient()`
 
-No agent file should instantiate `OpenAI` or hardcode model names directly.
+No agent file should instantiate `OpenAI` or hardcode model names directly. Every
+`chat.completions.create` call spreads `chatParams(...)` so the request shape stays valid across
+model families (GPT-5.x / o-series reject custom `temperature` and `max_tokens`; `chatParams`
+emits `max_completion_tokens` and drops `temperature` for those models).
+
+**High-model routing.** When a turn calls `answer_religious_questions` or `get_lisan_word_meaning`,
+the *second* completion is generated with `AI_MODEL_HIGH` (`pickFinalModel`); all other turns use
+`AI_MODEL`. The high-model completion is wrapped in a try/catch that **falls back to `AI_MODEL`** if
+the high model errors — a thrown error here would otherwise be swallowed by the coalesce layer and
+the user would get no reply at all.
 
 ## Tools
 
@@ -139,6 +151,42 @@ premature "talk to a human"; emergencies (lost child/passport, medical, security
 immediately as `urgent`. The hard turn-gate (min. inbound messages, emergency bypass) lives in
 `/api/escalations`. On a successful escalation the agent replies with a deterministic
 acknowledgment and skips the second completion.
+
+### Assembly order (prompt-cache prefix)
+
+`buildSystemPrompt()` (exported, pure, in `run-agent.ts`) concatenates the pieces in a deliberate
+order, because OpenAI prompt caching reuses the **longest common prefix** of the input:
+
+1. **Base prompt** (editable, from `system_prompts`) — static
+2. **Available Departments** list — global, 5-min cached, identical for every user
+3. **Always-on rule blocks** (`ALWAYS_ON_RULES`) — static
+   — *end of the cacheable, cross-user-shared prefix* —
+4. **`## Sender Context`** (phone, role, departments, permissions) — the only per-user text
+5. **Registration profile lines** — appended to Sender Context for registered roster members
+   (see below); empty string for everyone else, so the cache prefix is unaffected.
+
+Putting all user-independent content first makes `[base + departments + rules]` byte-identical
+across users, so OpenAI caches it once and reuses it across every user and turn; a byte-stable
+system prefix also lets the earlier replayed history turns cache. The per-user Sender Context
+trails it so it never poisons the prefix. The departments list stays always-on (not gated)
+because `move_to_escalation` / `create_issue` / `create_task` need valid department names at the
+first completion. Ordering is locked by `src/lib/__tests__/system-prompt-order.test.ts`.
+
+### Sender registration profile (personalization)
+
+For senders who are registered roster members, `runAgent()` calls `getSenderProfile(phone)`
+(`src/lib/mumineen/sender-profile.ts`) and `formatSenderProfileForPrompt()` appends a short
+bullet block under `## Sender Context`: registration status + family size, name/age/gender,
+origin (city/jamaat) and Mehman/Local, accommodation (hotel name or utaro/host), transport mode,
+arrival/departure (date + flight + airport), accessibility (wheelchair / rahat seating), special
+needs, and khidmat interest. It lets the agent personalize replies (e.g. reference their hotel).
+
+The block is **PII-minimal**: it carries age and logistics but never email, ITS, or host
+contacts. It resolves a phone to a member via `mumin_phone_links → mumineen → families` (primary
+link, else head of family, else first member) and returns `""` for non-roster senders, so the
+cache prefix never changes. The same profile (minus age and all contacts) powers the inbox
+**User Profile** panel — see [admin-dashboard.md](./admin-dashboard.md). Pure formatting +
+PII-stripping are covered by `src/lib/__tests__/sender-profile.test.ts`.
 
 ## Tool Execution
 

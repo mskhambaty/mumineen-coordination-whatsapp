@@ -1,8 +1,7 @@
 import { issuePasswordResetLink, getAppUrl } from "@/lib/admin/password-reset";
 import { sendWelcomeAdminEmail } from "@/lib/email/postmark";
-import { listMessageTemplates, sendWhatsAppTemplateComponents } from "@/lib/meta/whatsapp";
-import { getSupabaseAdmin, recordOutboundMessage, touchConversationSession } from "@/lib/supabase/server";
-import { buildSendComponents, describeTemplate, previewBody } from "@/lib/whatsapp/templates";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { sendTemplateNotification } from "@/lib/whatsapp/send-template";
 
 // Approved WhatsApp template used to welcome a new committee member. A template
 // (unlike a free-text send) delivers whether or not the recipient has an open
@@ -127,39 +126,16 @@ export async function sendAdminWelcomeNotification(input: SendWelcomeInput): Pro
   }
 
   if (typedUser.phone_e164) {
-    try {
-      const templates = await listMessageTemplates();
-      const raw = templates.find(
-        (t) => t.name === WELCOME_TEMPLATE_NAME && t.status?.toUpperCase() === "APPROVED",
-      );
-      if (!raw) {
-        throw new Error(`Approved WhatsApp template "${WELCOME_TEMPLATE_NAME}" was not found.`);
-      }
-      const desc = describeTemplate(raw);
-      const bodyParams = [memberName, committees, resetLink.url, ADMIN_LOGIN_URL];
-      if (bodyParams.length < desc.bodyVarCount) {
-        throw new Error(`Template "${raw.name}" expects ${desc.bodyVarCount} variables.`);
-      }
-      const components = buildSendComponents({ bodyParams }, desc);
-      const metaResponse = await sendWhatsAppTemplateComponents(typedUser.phone_e164, raw.name, raw.language, components);
-      await recordOutboundMessage({
-        phoneE164: typedUser.phone_e164,
-        body: `[template:${raw.name}] ${previewBody(desc.bodyText, bodyParams)}`.trim(),
-        whatsappMessageId: metaResponse.messages?.[0]?.id,
-        rawPayload: {
-          source: "admin_welcome",
-          template: raw.name,
-          department_id: typedDepartment.id,
-          meta_response: metaResponse,
-        },
-      });
-      await touchConversationSession({ phoneE164: typedUser.phone_e164, userId: typedUser.id });
-      result.whatsapp = "sent";
-    } catch (err) {
-      result.whatsapp = "failed";
-      result.errors.push(err instanceof Error ? err.message : "Welcome WhatsApp message failed.");
-      console.error(`Failed to send welcome WhatsApp template to user ${typedUser.id}:`, err);
-    }
+    const whatsapp = await sendTemplateNotification({
+      phoneE164: typedUser.phone_e164,
+      userId: typedUser.id,
+      templateName: WELCOME_TEMPLATE_NAME,
+      bodyParams: [memberName, committees, resetLink.url, ADMIN_LOGIN_URL],
+      source: "admin_welcome",
+      rawPayloadExtra: { department_id: typedDepartment.id },
+    });
+    result.whatsapp = whatsapp.status;
+    if (whatsapp.error) result.errors.push(whatsapp.error);
   }
 
   // Stamp the welcome only once at least one channel actually delivered, so a

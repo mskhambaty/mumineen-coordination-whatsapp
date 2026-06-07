@@ -36,6 +36,13 @@ describe("parseMajlisRef", () => {
     expect(parseMajlisRef("Tazyeen for Majlis 5")?.wantsDars).toBe(false);
   });
 
+  it("detects the daily micro-categories (jumla / kalema / unwaan)", () => {
+    expect(parseMajlisRef("jumla of majlis 2")).toMatchObject({ majlisNum: 2, wantsCategory: "jumla" });
+    expect(parseMajlisRef("majlis 3 kalema")).toMatchObject({ majlisNum: 3, wantsCategory: "kalema" });
+    expect(parseMajlisRef("unwaan for majlis 4")).toMatchObject({ majlisNum: 4, wantsCategory: "unwaan" });
+    expect(parseMajlisRef("reflection of majlis 1")?.wantsCategory).toBeNull();
+  });
+
   it("maps Lailat / Ashura / Majlis 9-10 to the combined block", () => {
     expect(parseMajlisRef("Lailat al-Aashura reflection")?.lailat).toBe(true);
     const m910 = parseMajlisRef("Majlis 9");

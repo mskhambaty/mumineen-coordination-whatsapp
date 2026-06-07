@@ -200,10 +200,16 @@ export default function RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [wasEdit, setWasEdit] = useState(false);
   const [locked, setLocked] = useState(false);
   const [errorField, setErrorField] = useState<string | null>(null);
   // ITS of non-head members whose flight details mirror the head's.
   const [sameAsHead, setSameAsHead] = useState<Set<string>>(new Set());
+  // OTP edit flow
+  const [otpPhase, setOtpPhase] = useState<"idle" | "sending" | "pending" | "verifying">("idle");
+  const [otpMaskedEmail, setOtpMaskedEmail] = useState<string | null>(null);
+  const [otpInput, setOtpInput] = useState("");
+  const [editToken, setEditToken] = useState<string | null>(null);
 
   const fieldClass = (id: string) =>
     errorField === id ? `${inputClass} border-red-400 ring-2 ring-red-300` : inputClass;
@@ -312,6 +318,60 @@ export default function RegisterPage() {
     return null;
   }
 
+  async function requestOtp() {
+    setOtpPhase("sending");
+    setError(null);
+    try {
+      const res = await fetch("/api/register/otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ its: hofInput.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Could not send code");
+      setOtpMaskedEmail(data.masked_email ?? null);
+      setOtpPhase("pending");
+      setOtpInput("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send code");
+      setOtpPhase("idle");
+    }
+  }
+
+  async function verifyOtp(event: React.FormEvent) {
+    event.preventDefault();
+    setOtpPhase("verifying");
+    setError(null);
+    try {
+      const res = await fetch("/api/register/otp/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ its: hofInput.trim(), otp: otpInput.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Invalid code");
+      // OTP verified — load the prefilled form
+      const loaded = (data.members as Member[]).map((m) => ({
+        ...m,
+        arrival_at: toLocalInput(m.arrival_at),
+        departure_at: toLocalInput(m.departure_at),
+        wants_khidmat: m.wants_khidmat,
+      }));
+      setIsLocal(Boolean(data.is_local));
+      setFamily(data.family as Family);
+      setAcc(data.family as Family);
+      setDepartments((data.departments as Department[]) ?? []);
+      setMembers(loaded);
+      setEditToken(data.edit_token as string);
+      setLocked(false);
+      setOtpPhase("idle");
+      setSameAsHead(new Set());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invalid code");
+      setOtpPhase("pending");
+    }
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!family) return;
@@ -335,6 +395,7 @@ export default function RegisterPage() {
           hof_its: family.hof_its,
           submitted_by_its: members[0]?.its ?? null,
           members: effectiveMembers(),
+          ...(editToken ? { edit_token: editToken } : {}),
           accommodation: {
             acc_type: acc.acc_type,
             hotel_name: acc.hotel_name,
@@ -355,6 +416,7 @@ export default function RegisterPage() {
         return;
       }
       if (!res.ok) throw new Error(data.error ?? "Could not submit");
+      setWasEdit(Boolean(editToken));
       setDone(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not submit");
@@ -385,26 +447,76 @@ export default function RegisterPage() {
 
         {done ? (
           <div className={`${cardClass} text-center`}>
-            <h2 className="font-serif text-2xl font-bold text-emerald-800">Registration received</h2>
+            <h2 className="font-serif text-2xl font-bold text-emerald-800">
+              {wasEdit ? "Registration updated" : "Registration received"}
+            </h2>
             <p className="mt-3 text-sm text-emerald-950/70">
-              Jazakallahu Khairan. Your family&apos;s details have been recorded. This is a one-time submission — to make any
-              changes, please message our helpline on WhatsApp at{" "}
-              <a href="https://wa.me/16308190250" className="font-semibold text-emerald-800 underline">+1 630 819 0250</a>.
+              Jazakallahu Khairan. Your family&apos;s details have been {wasEdit ? "updated" : "recorded"}.
+              {" "}To make changes, return to this page and enter your ITS number again.
             </p>
           </div>
+        ) : locked && (otpPhase === "pending" || otpPhase === "verifying") ? (
+          <form onSubmit={verifyOtp} className={`${cardClass} mx-auto max-w-md`}>
+            <h2 className={sectionHeading}>Enter your code</h2>
+            <p className="mt-2 text-sm text-emerald-950/70">
+              A 6-digit code was sent to <span className="font-medium text-emerald-900">{otpMaskedEmail}</span>. It expires in 10 minutes.
+            </p>
+            <label className="mt-4 block text-sm font-medium text-emerald-950/80">
+              Verification code
+              <input
+                value={otpInput}
+                onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                required
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="123456"
+                className={`${inputClass} mt-1 text-center text-xl tracking-widest`}
+                maxLength={6}
+                disabled={otpPhase === "verifying"}
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={otpInput.length !== 6 || otpPhase === "verifying"}
+              className={`${goldBtn} mt-5 w-full`}
+            >
+              {otpPhase === "verifying" ? "Verifying…" : "Verify & open form"}
+            </button>
+            <button
+              type="button"
+              disabled={otpPhase === "verifying"}
+              onClick={() => { setOtpPhase("idle"); setError(null); }}
+              className="mt-3 block w-full text-center text-sm text-emerald-800 underline disabled:opacity-50"
+            >
+              Back
+            </button>
+            <p className="mt-4 text-center text-xs text-emerald-950/50">
+              Didn&apos;t receive it?{" "}
+              <button type="button" disabled={otpPhase === "verifying"} onClick={requestOtp} className="underline disabled:opacity-50">
+                Resend code
+              </button>
+            </p>
+          </form>
         ) : locked ? (
           <div className={`${cardClass} mx-auto max-w-md text-center`}>
             <h2 className="font-serif text-2xl font-bold text-emerald-800">Already registered</h2>
             <p className="mt-3 text-sm text-emerald-950/70">
-              This family&apos;s registration has already been submitted. Registration is a one-time submission.
+              This family&apos;s registration has already been submitted.
             </p>
-            <div className="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-              To make any changes or updates, please message our helpline on WhatsApp:{" "}
-              <a href="https://wa.me/16308190250" className="font-semibold text-emerald-800 underline">+1 630 819 0250</a>
-            </div>
             <button
               type="button"
-              onClick={() => { setLocked(false); setHofInput(""); setError(null); }}
+              onClick={requestOtp}
+              disabled={otpPhase === "sending"}
+              className={`${goldBtn} mt-5 w-full`}
+            >
+              {otpPhase === "sending" ? "Sending code…" : "Edit my registration"}
+            </button>
+            <p className="mt-3 text-xs text-emerald-950/55">
+              We&apos;ll email a one-time code to the head of family to verify your identity.
+            </p>
+            <button
+              type="button"
+              onClick={() => { setLocked(false); setHofInput(""); setError(null); setOtpPhase("idle"); }}
               className="mt-5 text-sm text-emerald-800 underline"
             >
               Enter a different ITS number
@@ -439,9 +551,9 @@ export default function RegisterPage() {
             {/* Members */}
             <section className={cardClass}>
               <h2 className={sectionHeading}>Family members</h2>
-              <p className="mt-1 text-sm text-emerald-950/60">
-                This is a one-time submission.
-              </p>
+              {editToken && (
+                <p className="mt-1 text-sm text-emerald-950/60">Review and update your family&apos;s details below.</p>
+              )}
               <div className="mt-4 space-y-5">
                 {members.map((m, idx) => (
                   <div key={m.its} className="rounded-xl border border-emerald-950/10 bg-white/70 p-4">

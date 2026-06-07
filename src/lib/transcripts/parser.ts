@@ -1,4 +1,4 @@
-import { AI_MODEL, getAIClient, MAX_PARSE_TOKENS, PARSE_TEMPERATURE } from "@/lib/ai/model";
+import { AI_MODEL, chatParams, getAIClient, MAX_PARSE_TOKENS, PARSE_TEMPERATURE } from "@/lib/ai/model";
 import {
   EXTRACT_PROJECT_EVENTS_FUNCTION_NAME,
   EXTRACT_PROJECT_EVENTS_TOOL,
@@ -152,15 +152,13 @@ ${existingContext}`;
   for (const chunk of chunks) {
     try {
       const response = await client.chat.completions.create({
-        model: AI_MODEL,
+        ...chatParams(AI_MODEL, { maxTokens: MAX_PARSE_TOKENS, temperature: PARSE_TEMPERATURE }),
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: chunk },
         ],
         tools: [EXTRACT_PROJECT_EVENTS_TOOL],
         tool_choice: { type: "function", function: { name: EXTRACT_PROJECT_EVENTS_FUNCTION_NAME } },
-        temperature: PARSE_TEMPERATURE,
-        max_tokens: MAX_PARSE_TOKENS,
       });
 
       const message = response.choices[0]?.message;

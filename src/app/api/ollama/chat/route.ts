@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { Ollama } from "ollama";
 
-import { AGENT_TEMPERATURE, AI_MODEL, getAIClient, MAX_AGENT_TOKENS } from "@/lib/ai/model";
+import { AGENT_TEMPERATURE, AI_MODEL, chatParams, getAIClient, MAX_AGENT_TOKENS } from "@/lib/ai/model";
 import { loadAgentSystemPrompt } from "@/lib/agent/prompts";
 
 export const runtime = "nodejs";
@@ -102,10 +102,8 @@ export async function POST(req: NextRequest) {
       const openaiClient = getAIClient();
       const start = Date.now();
       const openaiResponse = await openaiClient.chat.completions.create({
-        model: AI_MODEL,
+        ...chatParams(AI_MODEL, { maxTokens: MAX_AGENT_TOKENS, temperature: AGENT_TEMPERATURE }),
         messages: fullMessages,
-        temperature: AGENT_TEMPERATURE,
-        max_tokens: MAX_AGENT_TOKENS,
       });
       const latencyMs = Date.now() - start;
 

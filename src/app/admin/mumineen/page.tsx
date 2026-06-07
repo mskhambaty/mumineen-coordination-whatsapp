@@ -257,6 +257,7 @@ export default function MumineenPage() {
       router.push("/admin/login");
       return;
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDisplayName(user.is_master_admin === true ? "__master__" : null);
     if (!canAccessMumineen(user)) {
       router.push("/admin/conversations");

@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       rules: ALWAYS_ON_RULES,
       // Dynamic, per-message context that's also injected but varies each turn.
-      dynamic: ["Current Site Information (RAG)", "Sender Context (phone, role, access)", "Available Departments"],
+      dynamic: ["Current Site Information (RAG)", "Sender Context (phone, role, access, registration profile)", "Available Departments"],
       base_default: SYSTEM_PROMPT,
     });
   } catch (err) {

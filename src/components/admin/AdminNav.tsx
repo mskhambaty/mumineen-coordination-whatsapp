@@ -39,6 +39,7 @@ const dropdownGroups: DropdownGroup[] = [
       { href: "/admin/prompt", label: "AI Prompt Management", access: "admin" },
       { href: "/admin/escalation", label: "Escalation/Support", access: "admin" },
       { href: "/admin/knowledge", label: "Vectorized Data for Agent", access: "manage" },
+      { href: "/admin/ashara", label: "Ashara Daily Content", access: "manage" },
       { href: "/admin/knowledge-gaps", label: "Knowledge Gaps", access: "manage" },
       { href: "/admin/mumineen", label: "Mumineen", access: "mumineen" },
       { href: "/admin/registration", label: "Registration Analytics", access: "registrations" },
@@ -125,6 +126,7 @@ export default function AdminNav() {
   }, [darkMode]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAccess(readNavAccess());
   }, [pathname]);
 

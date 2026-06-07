@@ -115,6 +115,7 @@ type RegisterBody = {
   members?: unknown;
   accommodation?: Record<string, unknown>;
   transport?: Record<string, unknown>;
+  edit_token?: unknown;
 };
 
 // One-time submission: everything is required except flight numbers and the rahat/same-flight
@@ -158,15 +159,38 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing HOF ITS." }, { status: 400 });
   }
   const members = Array.isArray(body.members) ? (body.members as MemberInput[]) : [];
+  const editToken = typeof body.edit_token === "string" ? body.edit_token.trim() : null;
 
   const supabase = getSupabaseAdmin();
   const { data: family } = await supabase.from("families").select("id, registration_status").eq("hof_its", hofIts).eq("roster_active", true).maybeSingle();
   if (!family) {
     return NextResponse.json({ error: "Family not found." }, { status: 404 });
   }
-  // One-time submission — reject a second submit (e.g. a form left open before another member submitted).
+
+  let isEdit = false;
+  let otpRecordId: string | null = null;
+
   if (family.registration_status === "submitted" || family.registration_status === "confirmed") {
-    return NextResponse.json({ error: "This registration has already been submitted. Please contact the helpline to make changes.", locked: true }, { status: 409 });
+    if (!editToken) {
+      return NextResponse.json({ error: "This registration has already been submitted. Please contact the helpline to make changes.", locked: true }, { status: 409 });
+    }
+    // Validate the edit token: must be verified, unused, and not expired
+    const now = new Date().toISOString();
+    const { data: otpRecord } = await supabase
+      .from("registration_otps")
+      .select("id")
+      .eq("edit_token", editToken)
+      .eq("hof_its", hofIts)
+      .is("edit_used_at", null)
+      .not("verified_at", "is", null)
+      .gt("edit_token_expires_at", now)
+      .limit(1)
+      .maybeSingle();
+    if (!otpRecord) {
+      return NextResponse.json({ error: "Edit session has expired. Please request a new code.", locked: true }, { status: 409 });
+    }
+    isEdit = true;
+    otpRecordId = otpRecord.id;
   }
 
   // Local families skip travel/accommodation/in-app khidmat on the form, so validation differs.
@@ -223,32 +247,39 @@ export async function POST(req: NextRequest) {
   // Family-level accommodation + transport + status (idempotent update).
   const acc = body.accommodation ?? {};
   const tr = body.transport ?? {};
-  const { error: famError } = await supabase
-    .from("families")
-    .update({
-      acc_type: oneOf(acc.acc_type, ACC_TYPES),
-      hotel_name: str(acc.hotel_name),
-      hotel_address: str(acc.hotel_address),
-      hotel_lat: num(acc.hotel_lat),
-      hotel_lon: num(acc.hotel_lon),
-      open_to_utaro: bool(acc.open_to_utaro),
-      utaro_host_name: str(acc.utaro_host_name),
-      utaro_host_its: str(acc.utaro_host_its),
-      utaro_host_address: str(acc.utaro_host_address),
-      utaro_host_whatsapp_e164: str(acc.utaro_host_whatsapp_e164),
-      utaro_host_email: str(acc.utaro_host_email),
-      transport_mode: oneOf(tr.transport_mode, TRANSPORT_MODES),
-      transport_detail: str(tr.transport_detail),
-      registration_status: "submitted",
-      submitted_at: new Date().toISOString(),
-      submitted_by_its: str(body.submitted_by_its),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("hof_its", hofIts);
+  const nowIso = new Date().toISOString();
+  const familyUpdate: Record<string, unknown> = {
+    acc_type: oneOf(acc.acc_type, ACC_TYPES),
+    hotel_name: str(acc.hotel_name),
+    hotel_address: str(acc.hotel_address),
+    hotel_lat: num(acc.hotel_lat),
+    hotel_lon: num(acc.hotel_lon),
+    open_to_utaro: bool(acc.open_to_utaro),
+    utaro_host_name: str(acc.utaro_host_name),
+    utaro_host_its: str(acc.utaro_host_its),
+    utaro_host_address: str(acc.utaro_host_address),
+    utaro_host_whatsapp_e164: str(acc.utaro_host_whatsapp_e164),
+    utaro_host_email: str(acc.utaro_host_email),
+    transport_mode: oneOf(tr.transport_mode, TRANSPORT_MODES),
+    transport_detail: str(tr.transport_detail),
+    updated_at: nowIso,
+  };
+  if (!isEdit) {
+    familyUpdate.registration_status = "submitted";
+    familyUpdate.submitted_at = nowIso;
+    familyUpdate.submitted_by_its = str(body.submitted_by_its);
+  }
+
+  const { error: famError } = await supabase.from("families").update(familyUpdate).eq("hof_its", hofIts);
 
   if (famError) {
     return NextResponse.json({ error: famError.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, members_updated: ids.length });
+  // Consume the edit token so it can't be reused
+  if (isEdit && otpRecordId) {
+    await supabase.from("registration_otps").update({ edit_used_at: nowIso }).eq("id", otpRecordId);
+  }
+
+  return NextResponse.json({ ok: true, members_updated: ids.length, edited: isEdit });
 }

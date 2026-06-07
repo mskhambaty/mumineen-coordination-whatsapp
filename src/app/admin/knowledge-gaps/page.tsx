@@ -56,6 +56,7 @@ export default function KnowledgeGapsPage() {
     const user = readAdminUser();
     if (!user) { router.push("/admin/login"); return; }
     if (!canManageKnowledge(user)) { router.push("/admin/conversations"); return; }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load(filter);
   }, [router, filter, load]);
 

@@ -1,4 +1,4 @@
-import { AI_MODEL, getAIClient } from "@/lib/ai/model";
+import { AI_MODEL, chatParams, getAIClient } from "@/lib/ai/model";
 import { deleteKnowledgeChunks, indexFaqBucket, knowledgePageUrl } from "@/lib/knowledge/index-content";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -143,7 +143,7 @@ export async function classifyToDepartments(questions: string[], departmentNames
   if (questions.length === 0) return [];
   const client = getAIClient();
   const res = await client.chat.completions.create({
-    model: AI_MODEL,
+    ...chatParams(AI_MODEL, { maxTokens: 1000, temperature: 0 }),
     messages: [
       {
         role: "system",
@@ -159,8 +159,6 @@ export async function classifyToDepartments(questions: string[], departmentNames
           questions.map((q, i) => `${i}. ${q}`).join("\n"),
       },
     ],
-    temperature: 0,
-    max_tokens: 1000,
     response_format: { type: "json_object" },
   });
 

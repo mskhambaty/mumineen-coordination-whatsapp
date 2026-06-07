@@ -80,17 +80,20 @@ export default function DepartmentsPage() {
       return;
     }
 
+    // eslint-disable-next-line react-hooks/immutability
     void loadInitialData();
 
   }, [router]);
 
   useEffect(() => {
     if (!selectedDepartmentId) return;
+    // eslint-disable-next-line react-hooks/immutability
     void loadDepartmentUsers(selectedDepartmentId);
 
   }, [selectedDepartmentId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDescriptionDraft(selectedDepartment?.description ?? "");
   }, [selectedDepartment]);
 

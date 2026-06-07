@@ -1,0 +1,385 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+
+import { canManageKnowledge } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
+import ContentBucketEditor from "@/components/admin/ContentBucketEditor";
+import {
+  ASHARA_CATEGORIES,
+  ASHARA_ROWS,
+  DEFAULT_ACTIVE_YEAR,
+  defaultStatus,
+  istibsaarSearchUrl,
+  majlisLabel,
+  majlisRowForToday,
+  topicTitle,
+  type AsharaCategory,
+  type AsharaRow,
+} from "@/lib/knowledge/ashara-config";
+
+type Topic = {
+  id: string;
+  title: string;
+  content: string;
+  entry_count: number;
+  chunk_count: number;
+  source_url: string | null;
+  year_hijri: string | null;
+  majlis_number: number | null;
+  is_ashura: boolean;
+  category: string | null;
+  language: string;
+  status: string;
+};
+
+const STATUS_STYLE: Record<string, string> = {
+  indexed: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+  pending_translation: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+  placeholder: "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
+};
+const STATUS_LABEL: Record<string, string> = {
+  indexed: "Indexed",
+  pending_translation: "Needs translation",
+  placeholder: "Awaiting content",
+};
+
+export default function AsharaDashboardPage() {
+  const router = useRouter();
+
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [year, setYear] = useState(DEFAULT_ACTIVE_YEAR);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busyCell, setBusyCell] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Topic | null>(null);
+
+  useEffect(() => {
+    const user = readAdminUser();
+    if (!user) {
+      router.push("/admin/login");
+      return;
+    }
+    if (!canManageKnowledge(user)) {
+      router.push("/admin/conversations");
+      return;
+    }
+    void load();
+
+  }, [router]);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await apiFetch("/api/admin/religious-topics");
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to load");
+      setTopics(((await res.json()).topics ?? []) as Topic[]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const years = useMemo(() => {
+    const set = new Set<string>([DEFAULT_ACTIVE_YEAR]);
+    for (const t of topics) if (t.year_hijri) set.add(t.year_hijri);
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  }, [topics]);
+
+  // Index topics for the active year by category + majlis/ashura for O(1) cell lookup.
+  const cellMap = useMemo(() => {
+    const m = new Map<string, Topic>();
+    for (const t of topics) {
+      if (t.year_hijri !== year || !t.category) continue;
+      const key = `${t.category}:${t.is_ashura ? "ashura" : t.majlis_number}`;
+      m.set(key, t);
+    }
+    return m;
+  }, [topics, year]);
+
+  const cellKey = (cat: AsharaCategory, row: AsharaRow) =>
+    `${cat.key}:${row.isAshura ? "ashura" : row.majlisNumber}`;
+
+  // Today's majlis row (for the highlight), if today is an Ashara day this year.
+  const todayRowIdx = useMemo(() => {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    return majlisRowForToday(year, todayIso);
+  }, [year]);
+
+  // Overall progress: how many of the 6 categories × 9 majalis are indexed.
+  const progress = useMemo(() => {
+    let indexed = 0;
+    for (const t of cellMap.values()) if (t.status === "indexed") indexed++;
+    return { indexed, total: ASHARA_ROWS.length * ASHARA_CATEGORIES.length };
+  }, [cellMap]);
+
+  const rowDone = (row: AsharaRow) =>
+    ASHARA_CATEGORIES.filter((c) => cellMap.get(cellKey(c, row))?.status === "indexed").length;
+
+  const pendingQueue = useMemo(() => {
+    return topics
+      .filter((t) => t.year_hijri === year && t.status === "pending_translation")
+      .sort((a, b) => {
+        const aSame = ASHARA_CATEGORIES.find((c) => c.key === a.category)?.sameDayTranslate ? 0 : 1;
+        const bSame = ASHARA_CATEGORIES.find((c) => c.key === b.category)?.sameDayTranslate ? 0 : 1;
+        if (aSame !== bSame) return aSame - bSame;
+        return (a.majlis_number ?? 99) - (b.majlis_number ?? 99);
+      });
+  }, [topics, year]);
+
+  async function seedRow(row: AsharaRow) {
+    const key = `seed:${row.label}`;
+    setBusyCell(key);
+    setError(null);
+    try {
+      const res = await apiFetch("/api/admin/ashara/seed", {
+        method: "POST",
+        body: JSON.stringify({ year, majlis_number: row.majlisNumber, is_ashura: row.isAshura }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to seed");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to seed");
+    } finally {
+      setBusyCell(null);
+    }
+  }
+
+  async function openCell(cat: AsharaCategory, row: AsharaRow) {
+    const existing = cellMap.get(cellKey(cat, row));
+    if (existing) {
+      setEditing(existing);
+      return;
+    }
+    // Create the slot with its per-majlis metadata, then open the editor.
+    const key = cellKey(cat, row);
+    setBusyCell(key);
+    setError(null);
+    try {
+      const res = await apiFetch("/api/admin/religious-topics", {
+        method: "POST",
+        body: JSON.stringify({
+          title: topicTitle(cat.label, year, row.majlisNumber, row.isAshura),
+          year_hijri: year,
+          majlis_number: row.majlisNumber,
+          is_ashura: row.isAshura,
+          category: cat.key,
+          language: cat.language,
+          status: defaultStatus(cat.language),
+          source_url: istibsaarSearchUrl(row.majlisNumber, row.isAshura, year),
+          source_label: `Istibsaar — ${cat.label}, ${majlisLabel(row.majlisNumber, row.isAshura)} (${year}H)`,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to create");
+      const created = (await res.json()) as { id: string };
+      // Reload so the new cell shows, then open its editor.
+      const fresh = (await (await apiFetch("/api/admin/religious-topics")).json()).topics as Topic[];
+      setTopics(fresh);
+      setEditing(fresh.find((t) => t.id === created.id) ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create");
+    } finally {
+      setBusyCell(null);
+    }
+  }
+
+  return (
+    <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-xl font-bold">Ashara Daily Content</h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            One row per majlis, one column per type. Click any cell to add its content.
+          </p>
+        </div>
+        <label className="text-sm text-gray-700 dark:text-gray-300">
+          Ashara year (Hijri)
+          <select
+            value={year}
+            onChange={(e) => setYear(e.target.value)}
+            className="mt-1 block rounded-md border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+          >
+            {years.map((y) => (
+              <option key={y} value={y}>{y}H</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {/* How it works + status legend + progress */}
+      <div className="mb-4 rounded-lg border border-gray-200 bg-white p-4 text-sm shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <div className="grid gap-4 md:grid-cols-[1fr_auto]">
+          <div>
+            <p className="font-medium">How to fill this in</p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-5 text-gray-600 dark:text-gray-400">
+              <li><span className="font-medium text-gray-800 dark:text-gray-200">English</span> (Reflections, Tazyeen, Al-Dars): open the cell, click <span className="font-medium">↗ source</span> to read the article, paste it in, Save.</li>
+              <li><span className="font-medium text-gray-800 dark:text-gray-200">Lisan</span> (Jumla, Kalema, Unwaan): open the cell, read the original via <span className="font-medium">↗ source</span>, type the <span className="font-medium">English translation</span>, Save.</li>
+              <li>Saving indexes it for the WhatsApp agent and turns the chip green.</li>
+            </ul>
+          </div>
+          <div className="flex flex-col gap-2 md:items-end">
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span className={`rounded-full px-2 py-0.5 font-medium ${STATUS_STYLE.indexed}`}>Indexed</span>
+              <span className={`rounded-full px-2 py-0.5 font-medium ${STATUS_STYLE.pending_translation}`}>Needs translation</span>
+              <span className={`rounded-full px-2 py-0.5 font-medium ${STATUS_STYLE.placeholder}`}>Awaiting content</span>
+            </div>
+            <div className="w-full md:w-56">
+              <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                <span>Progress</span>
+                <span>{progress.indexed} / {progress.total} indexed</span>
+              </div>
+              <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                <div className="h-full rounded-full bg-green-500" style={{ width: `${progress.total ? (progress.indexed / progress.total) * 100 : 0}%` }} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {todayRowIdx != null && (
+        <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+          <span className="font-semibold">Today is {ASHARA_ROWS[todayRowIdx].label}.</span> Fill in its content below (highlighted row).
+        </div>
+      )}
+
+      {error && (
+        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
+      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+        {/* Grid */}
+        <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+          <table className="min-w-full border-collapse text-sm">
+            <thead className="bg-gray-50 dark:bg-gray-800/60">
+              <tr>
+                <th className="px-3 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Majlis</th>
+                {ASHARA_CATEGORIES.map((c) => (
+                  <th key={c.key} className="px-3 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                    {c.label}
+                    {c.language === "lisan" && <span className="ml-1 text-[10px] font-normal lowercase text-amber-600">(lisan)</span>}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
+              {loading ? (
+                <tr><td colSpan={ASHARA_CATEGORIES.length + 1} className="px-3 py-8 text-center text-gray-500">Loading…</td></tr>
+              ) : (
+                ASHARA_ROWS.map((row, rowIdx) => {
+                  const isToday = rowIdx === todayRowIdx;
+                  const done = rowDone(row);
+                  return (
+                  <tr key={row.label} className={isToday ? "bg-blue-50/60 dark:bg-blue-950/30" : undefined}>
+                    <td className={`whitespace-nowrap px-3 py-3 align-top font-medium text-gray-700 dark:text-gray-200 ${isToday ? "border-l-2 border-blue-500" : ""}`}>
+                      <div className="flex items-center gap-2">
+                        {row.label}
+                        {isToday && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">Today</span>}
+                      </div>
+                      <div className="mt-0.5 text-[11px] font-normal text-gray-400">{done}/{ASHARA_CATEGORIES.length} done</div>
+                      <button
+                        type="button"
+                        disabled={busyCell === `seed:${row.label}`}
+                        onClick={() => void seedRow(row)}
+                        className="mt-1 text-[11px] font-normal text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
+                      >
+                        {busyCell === `seed:${row.label}` ? "Seeding…" : "Seed all 6"}
+                      </button>
+                    </td>
+                    {ASHARA_CATEGORIES.map((cat) => {
+                      const t = cellMap.get(cellKey(cat, row));
+                      const key = cellKey(cat, row);
+                      return (
+                        <td key={cat.key} className="px-2 py-2 align-top">
+                          <button
+                            type="button"
+                            disabled={busyCell === key}
+                            onClick={() => void openCell(cat, row)}
+                            className={`flex w-full min-w-[120px] flex-col items-start gap-1 rounded-md border p-2 text-left transition hover:border-blue-400 dark:border-gray-700 ${
+                              t ? "bg-gray-50 dark:bg-gray-800/60" : "border-dashed text-gray-400"
+                            }`}
+                          >
+                            {t ? (
+                              <>
+                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_STYLE[t.status] ?? ""}`}>
+                                  {STATUS_LABEL[t.status] ?? t.status}
+                                </span>
+                                <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                                  {t.entry_count > 0 ? `${t.entry_count} entr${t.entry_count !== 1 ? "ies" : "y"}` : "empty"} · {t.chunk_count} chunks
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-xs">{busyCell === key ? "Creating…" : "+ Add"}</span>
+                            )}
+                          </button>
+                          {t?.source_url && (
+                            <a
+                              href={t.source_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="mt-1 block text-[11px] text-blue-600 hover:underline dark:text-blue-400"
+                            >
+                              ↗ source
+                            </a>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Translation queue */}
+        <aside className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+          <h2 className="text-sm font-semibold">Needs translation</h2>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Lisan ud Dawat items awaiting English. Same-day items (Jumla / Kalema / Unwaan) are listed first.
+          </p>
+          <div className="mt-3 space-y-2">
+            {pendingQueue.length === 0 ? (
+              <p className="text-xs text-gray-400">Nothing pending for {year}H.</p>
+            ) : (
+              pendingQueue.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setEditing(t)}
+                  className="block w-full rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-left text-xs hover:border-amber-400 dark:border-amber-900 dark:bg-amber-950/40"
+                >
+                  <span className="font-medium">{t.title}</span>
+                  {t.source_url && <span className="mt-0.5 block truncate text-[11px] text-blue-600 dark:text-blue-400">{t.source_url}</span>}
+                </button>
+              ))
+            )}
+          </div>
+        </aside>
+      </div>
+
+      {editing && (
+        <ContentBucketEditor
+          title={editing.title}
+          subtitle={
+            ASHARA_CATEGORIES.find((c) => c.key === editing.category)?.language === "lisan"
+              ? "Lisan ud Dawat content — paste the English translation here. Saving indexes it and clears it from the translation queue."
+              : "Waaz Talaqi content — keep a respectful, sourced tone. Separate entries with a blank line. Saving re-indexes it for the agent."
+          }
+          initialContent={editing.content}
+          endpoint={`/api/admin/religious-topics/${editing.id}`}
+          showSource
+          initialSourceUrl={editing.source_url}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); void load(); }}
+        />
+      )}
+    </main>
+  );
+}

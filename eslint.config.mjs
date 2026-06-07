@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Standalone Node.js scripts — not Next.js, React hooks rules don't apply.
+    "claw-ingester/**",
   ]),
 ]);
 

@@ -12,6 +12,24 @@ const LOCKS = "whatsapp_inbound_locks";
 const PENDING = "whatsapp_pending_messages";
 
 type ClaimBatch = Array<{ id: string; body: string; received_at: string; inbound_msg_id: string | null }>;
+type MockRow = Record<string, unknown>;
+type MockResult = { data: unknown; error: { code?: string; message?: string } | null };
+
+// Self-referential builder type that mirrors the Supabase fluent query API used in coalesce.
+type QB = {
+  select(): QB;
+  insert(rows: unknown): QB;
+  update(): QB;
+  delete(): QB;
+  eq(...args: unknown[]): QB;
+  lt(...args: unknown[]): QB;
+  is(...args: unknown[]): QB;
+  in(...args: unknown[]): QB;
+  or(...args: unknown[]): QB;
+  maybeSingle(): Promise<MockResult>;
+  single(): Promise<MockResult>;
+  then(onF: (v: MockResult) => unknown, onR?: (e: unknown) => unknown): Promise<unknown>;
+};
 
 function makeMock(opts: { acquire: boolean; claimBatches: ClaimBatch[]; owner: boolean }) {
   let lockOwnerToken: string | null = null;
@@ -23,11 +41,12 @@ function makeMock(opts: { acquire: boolean; claimBatches: ClaimBatch[]; owner: b
       selected: false,
       isNull: false,
     };
-    const builder: any = {
+    const builder: QB = {
       select() { ctx.selected = true; return builder; },
-      insert(rows: any) {
+      insert(rows: unknown) {
         ctx.op = "insert";
-        if (name === LOCKS) lockOwnerToken = (Array.isArray(rows) ? rows[0] : rows)?.owner_token ?? null;
+        const row = Array.isArray(rows) ? rows[0] : rows;
+        if (name === LOCKS) lockOwnerToken = (row as MockRow)?.owner_token as string ?? null;
         return builder;
       },
       update() { ctx.op = "update"; return builder; },
@@ -49,8 +68,8 @@ function makeMock(opts: { acquire: boolean; claimBatches: ClaimBatch[]; owner: b
         return Promise.resolve({ data: null, error: null });
       },
       single: () => Promise.resolve({ data: { id: "msg-1" }, error: null }),
-      then(onF: (v: any) => unknown, onR?: (e: unknown) => unknown) {
-        let result: any = { error: null };
+      then(onF: (v: MockResult) => unknown, onR?: (e: unknown) => unknown) {
+        let result: MockResult = { data: null, error: null };
         if (name === LOCKS && ctx.op === "insert") {
           result = opts.acquire
             ? { data: [{ lock_key: "k" }], error: null }
