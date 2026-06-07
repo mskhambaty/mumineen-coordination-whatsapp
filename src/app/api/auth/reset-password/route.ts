@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { hashPassword, hashPasswordResetToken, isValidNewPassword } from "@/lib/admin/passwords";
 import { buildPortalSessionUser } from "@/lib/admin/session";
 import { SESSION_COOKIE_NAME, sessionCookieOptions, signSessionToken } from "@/lib/admin/session-token";
@@ -40,7 +40,9 @@ export async function POST(req: NextRequest) {
       ? new Date(user.password_reset_expires_at as string).getTime()
       : 0;
 
-    if (!user || user.status !== "active" || !isAdminOrLeadership(user) || expiresAt <= Date.now()) {
+    // Any active portal user (any non-visitor, with or without a department) may
+    // complete a reset — this is also the path the welcome "set password" link uses.
+    if (!user || user.status !== "active" || expiresAt <= Date.now() || !canAccessPortal(user)) {
       return NextResponse.json({ error: "This reset link is invalid or expired." }, { status: 400 });
     }
 

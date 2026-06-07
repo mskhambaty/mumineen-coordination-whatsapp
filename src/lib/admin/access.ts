@@ -12,6 +12,16 @@ export function isAdminOrLeadership(user: PortalUser | null | undefined) {
   return user?.role === "admin" || user?.global_role === "leadership_admin";
 }
 
+// Front-door check for the staff portal: who may sign in / reset a password at
+// all. Any user that was *added as a portal user* qualifies — role "committee"
+// or "admin" — even if they aren't assigned to any department yet. Visitors are
+// the public/mumineen and must never reach internal portal data, so they are
+// excluded here regardless of any other flag. Per-feature access (inbox, tasks,
+// parking, etc.) is still gated by the more specific predicates below.
+export function canAccessPortal(user: PortalUser | null | undefined): boolean {
+  return user?.role === "committee" || user?.role === "admin";
+}
+
 // Who may open the Mumineen roster page: admins/leadership plus IT department members.
 export function canAccessMumineen(user: PortalUser | null | undefined) {
   return isAdminOrLeadership(user) || user?.is_it === true;

@@ -1,6 +1,8 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
+import { canAccessPortal } from "@/lib/admin/access";
+import { emailMatchPattern } from "@/lib/admin/email";
 import { verifyPassword } from "@/lib/admin/passwords";
 import { buildPortalSessionUser } from "@/lib/admin/session";
 import { SESSION_COOKIE_NAME, sessionCookieOptions, signSessionToken } from "@/lib/admin/session-token";
@@ -17,18 +19,20 @@ export async function POST(req: NextRequest) {
 
     const supabase = getSupabaseAdmin();
 
-    // Check if user exists and has admin/leadership_admin role
+    // Look up the user case-insensitively: stored emails may be mixed-case, and
+    // an exact match would lock those members out of sign-in entirely.
+    const emailPattern = emailMatchPattern(email);
     let { data: user, error } = await supabase
       .from("whatsapp_users")
       .select("id, display_name, email, global_role, role, password_hash")
-      .eq("email", email)
+      .ilike("email", emailPattern)
       .maybeSingle();
 
     if (error?.message.includes("password_hash")) {
       const fallbackResult = await supabase
         .from("whatsapp_users")
         .select("id, display_name, email, global_role, role")
-        .eq("email", email)
+        .ilike("email", emailPattern)
         .maybeSingle();
       user = fallbackResult.data ? { ...fallbackResult.data, password_hash: null } : null;
       error = fallbackResult.error;
@@ -50,14 +54,9 @@ export async function POST(req: NextRequest) {
       global_role: user.global_role,
     });
 
-    if (
-      sessionUser.role !== "admin" &&
-      sessionUser.global_role !== "leadership_admin" &&
-      !sessionUser.is_support &&
-      !sessionUser.is_manager &&
-      !sessionUser.is_it &&
-      !sessionUser.is_internal
-    ) {
+    // Any non-visitor portal user may sign in, including those not yet assigned
+    // to a department. Visitors (the public/mumineen) are rejected.
+    if (!canAccessPortal(sessionUser)) {
       return NextResponse.json({ error: "Access denied. Internal team access required." }, { status: 403 });
     }
 

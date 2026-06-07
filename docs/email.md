@@ -17,6 +17,8 @@ Postmark sends all portal email through `src/lib/email/postmark.ts`. The module 
 
 `POST /api/auth/forgot-password` accepts `{ "email": "user@example.com" }`, creates an app-owned one-hour reset token on `whatsapp_users`, and sends the reset link through Postmark. The route always returns `{ "ok": true }` so callers cannot enumerate users.
 
+**Eligibility:** the email is sent to any active user who can sign in to the portal — i.e. anyone for whom `canAccessPortal()` (in `src/lib/admin/access.ts`) is true. That is **any non-visitor user** (`role` of `committee` or `admin`), including users who have not yet been assigned to any department. Visitors are the public/mumineen and are excluded. The same `canAccessPortal()` check gates portal sign-in (`POST /api/admin/auth`) and reset completion (`POST /api/auth/reset-password`), so the token issued by the onboarding welcome ("set password") link works for regular members too. The email lookup (and portal sign-in) is **case-insensitive** so mixed-case stored addresses still match — see `src/lib/admin/email.ts`.
+
 Password reset template alias: `password-reset`
 
 No template change is required for the role/department updates. The template model is still:

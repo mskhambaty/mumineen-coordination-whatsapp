@@ -1,4 +1,3 @@
-import { isAdminOrLeadership } from "@/lib/admin/access";
 import {
   isDepartmentManager,
   isDepartmentMember,
@@ -49,16 +48,5 @@ export async function buildPortalSessionUser(user: PortalSessionSourceUser): Pro
     is_transport: isTransport,
     is_internal: isInternal,
   };
-}
-
-export async function canAccessPortal(user: PortalSessionSourceUser): Promise<boolean> {
-  const sessionUser = await buildPortalSessionUser(user);
-  return (
-    isAdminOrLeadership(user) ||
-    sessionUser.is_support ||
-    sessionUser.is_manager ||
-    sessionUser.is_it ||
-    sessionUser.is_internal
-  );
 }
 

@@ -89,7 +89,8 @@ See [database.md](./database.md) for the full schema.
 The admin dashboard enforces permissions server-side using the same `CallerContext` and permission engine as the WhatsApp agent:
 
 - **Cookie auth:** every `src/app/api/admin/**` route resolves the caller via `resolveCallerFromSession` (src/lib/api/auth.ts), which verifies the HMAC-signed `portal_session` cookie and calls `get_user_permissions_by_id` per request. Role changes and deactivations take effect immediately.
-- **Route guard:** `requirePortalCaller(req, predicate)` (src/lib/api/portal-auth.ts) enforces the same predicates defined in the page gate (src/lib/admin/access.ts): `canAccessInbox`, `canAccessMumineen`, `isAdminOrLeadership`, `isMasterAdmin`, etc. Returns 401 for invalid/missing session, 403 for predicate failure.
+- **Route guard:** `requirePortalCaller(req, predicate)` (src/lib/api/portal-auth.ts) enforces the same predicates defined in the page gate (src/lib/admin/access.ts): `canAccessInbox`, `canAccessMumineen`, `isAdminOrLeadership`, etc. Returns 401 for invalid/missing session, 403 for predicate failure.
+- **Front door (`canAccessPortal`):** sign-in (`POST /api/admin/auth`), `forgot-password`, and `reset-password` gate on `canAccessPortal(user)` — true for **any non-visitor user** (`role` `committee` or `admin`), regardless of department assignment. Visitors (the public/mumineen) are rejected. This is intentionally broader than `isAdminOrLeadership`: every added portal user can sign in and reset their own password; per-feature predicates above still restrict what they can do once inside.
 - **`x-admin-key` is server-to-server only:** agent tools and cron jobs send `x-admin-key` (from `ADMIN_API_KEY`), which bypasses the cookie check and passes every guard. This header must never be sent by browser clients.
 
 ## Adding a New Permission Level

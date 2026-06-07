@@ -40,7 +40,8 @@ src/app/api/cron/scrape/route.ts         — Daily scrape cron endpoint
 src/app/api/cron/daily-digest/route.ts   — Daily task digest email cron endpoint
 src/app/api/ollama/models/route.ts       — Ollama model list proxy
 src/app/api/ollama/chat/route.ts         — Ollama A/B chat completion endpoint
-src/app/api/auth/forgot-password/route.ts — Password reset email endpoint
+src/app/api/auth/forgot-password/route.ts — Password reset email endpoint (any non-visitor user, via canAccessPortal)
+src/lib/admin/email.ts                   — Case-insensitive email normalization/matching for auth lookups
 src/lib/agent/run-agent.ts               — AI agent orchestration
 src/lib/mumineen/sender-profile.ts       — Phone→registration profile for Sender Context + inbox User Profile panel
 src/lib/ai/model.ts                      — Central OpenAI model/client configuration

@@ -29,7 +29,9 @@ paths:
         (HMAC-SHA256-signed, SameSite=Lax, Secure in production, 7-day TTL).
         Returns `{ user }` in the response body — no token. The cookie is used
         by all subsequent admin API requests. 401 if credentials are invalid;
-        403 if the user lacks portal access.
+        403 if the user lacks portal access (i.e. a visitor — any non-visitor
+        user may sign in, with or without a department). The email lookup is
+        case-insensitive.
       security: []
       requestBody:
         required: true
@@ -77,7 +79,12 @@ paths:
     post:
       tags: [auth, email]
       summary: Request a password reset email.
-      description: Always returns a generic 200 response so user existence is not leaked.
+      description: >
+        Emails a reset link to any active user who can sign in to the portal —
+        any non-visitor user (role "committee" or "admin"), including those not
+        yet assigned to a department. Visitors (the public/mumineen) are
+        excluded. The email lookup is case-insensitive. Always returns a generic
+        200 response so user existence is not leaked.
       security: []
       requestBody:
         required: true
@@ -102,7 +109,11 @@ paths:
     post:
       tags: [auth]
       summary: Set a password from a reset or welcome setup link.
-      description: Stores the new password, clears the reset token, and returns a portal session so the caller can be logged in immediately.
+      description: >
+        Stores the new password, clears the reset token, and returns a portal
+        session so the caller can be logged in immediately. Accepts any active
+        non-visitor portal user (with or without a department) — this is also the
+        path the welcome "set password" link uses for new members.
       security: []
       requestBody:
         required: true
