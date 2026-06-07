@@ -1092,7 +1092,7 @@ export default function MumineenPage() {
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Prefix</label>
-                  <input value={addForm.prefix} onChange={(e) => setAddForm((f) => ({ ...f, prefix: e.target.value }))} className={inputCls} placeholder="e.g. Moulai" />
+                  <input value={addForm.prefix} onChange={(e) => setAddForm((f) => ({ ...f, prefix: e.target.value }))} className={inputCls} placeholder="e.g. Shaikh" />
                 </div>
                 <div className="col-span-2">
                   <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Full name *</label>
