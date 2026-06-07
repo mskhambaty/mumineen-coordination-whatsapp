@@ -212,6 +212,26 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 const yesOrNull = (v: boolean | null | undefined) => (v ? "Yes" : null);
 
+type AddMuminForm = {
+  its: string;
+  full_name: string;
+  is_head: boolean;
+  hof_its: string;
+  gender: string;
+  local_mehman: string;
+  age: string;
+  is_adult: boolean;
+  whatsapp_e164: string;
+  email: string;
+  jamaat: string;
+};
+
+const emptyAddForm: AddMuminForm = {
+  its: "", full_name: "", is_head: true, hof_its: "",
+  gender: "", local_mehman: "", age: "", is_adult: false,
+  whatsapp_e164: "", email: "", jamaat: "",
+};
+
 type ImportLogEntry = {
   id: string;
   imported_by_name: string | null;
@@ -246,6 +266,10 @@ export default function MumineenPage() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<EditForm | null>(null);
   const [saving, setSaving] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addForm, setAddForm] = useState(emptyAddForm);
+  const [addSaving, setAddSaving] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
@@ -504,6 +528,44 @@ export default function MumineenPage() {
     }
   }
 
+  async function submitAddMumin(e: React.FormEvent) {
+    e.preventDefault();
+    if (addSaving) return;
+    setAddSaving(true);
+    setAddError(null);
+    try {
+      const body = {
+        its: addForm.its.trim(),
+        full_name: addForm.full_name.trim(),
+        is_head: addForm.is_head,
+        ...(addForm.is_head ? {} : { hof_its: addForm.hof_its.trim() }),
+        gender: addForm.gender || null,
+        local_mehman: addForm.local_mehman || null,
+        age: addForm.age ? parseInt(addForm.age, 10) : null,
+        is_adult: addForm.age ? parseInt(addForm.age, 10) >= 18 : addForm.is_adult,
+        whatsapp_e164: addForm.whatsapp_e164.trim() || null,
+        email: addForm.email.trim() || null,
+        jamaat: addForm.jamaat.trim() || null,
+      };
+      const res = await fetch("/api/admin/mumineen/create", {
+        method: "POST",
+        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to create mumin");
+      setAddOpen(false);
+      setAddForm(emptyAddForm);
+      await loadStats();
+      setQuery(addForm.its.trim());
+      await runSearch(addForm.its.trim());
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : "Failed to create mumin");
+    } finally {
+      setAddSaving(false);
+    }
+  }
+
   const cards: { label: string; value: number | undefined }[] = [
     { label: "Mumineen", value: stats?.mumineen },
     { label: "Mehmaan", value: stats?.mehmaan },
@@ -559,7 +621,16 @@ export default function MumineenPage() {
       </div>
 
       <div className="mb-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-        <h2 className="text-lg font-semibold">Lookup mumin</h2>
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-lg font-semibold">Lookup mumin</h2>
+          <button
+            type="button"
+            onClick={() => { setAddOpen(true); setAddError(null); setAddForm(emptyAddForm); }}
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            + Add mumin
+          </button>
+        </div>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Search by ITS, name, WhatsApp number, HOF ITS, jamaat, or category.</p>
         <input
           value={query}
@@ -998,6 +1069,77 @@ export default function MumineenPage() {
                 </>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {addOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+            <h2 className="mb-4 text-lg font-semibold">Add mumin</h2>
+            <form onSubmit={(e) => { void submitAddMumin(e); }} className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">ITS number *</label>
+                <input required value={addForm.its} onChange={(e) => setAddForm((f) => ({ ...f, its: e.target.value }))} className={inputCls} placeholder="e.g. 1234567" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Full name *</label>
+                <input required value={addForm.full_name} onChange={(e) => setAddForm((f) => ({ ...f, full_name: e.target.value }))} className={inputCls} placeholder="e.g. Murtaza Hussain" />
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="is_head" checked={addForm.is_head} onChange={(e) => setAddForm((f) => ({ ...f, is_head: e.target.checked, hof_its: "" }))} className="h-4 w-4" />
+                <label htmlFor="is_head" className="text-sm text-gray-700 dark:text-gray-300">This person is the Head of a new family</label>
+              </div>
+              {!addForm.is_head && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Head of Family ITS *</label>
+                  <input required value={addForm.hof_its} onChange={(e) => setAddForm((f) => ({ ...f, hof_its: e.target.value }))} className={inputCls} placeholder="Existing HoF ITS" />
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Gender</label>
+                  <select value={addForm.gender} onChange={(e) => setAddForm((f) => ({ ...f, gender: e.target.value }))} className={inputCls}>
+                    <option value="">—</option>
+                    <option value="M">Male</option>
+                    <option value="F">Female</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Type</label>
+                  <select value={addForm.local_mehman} onChange={(e) => setAddForm((f) => ({ ...f, local_mehman: e.target.value }))} className={inputCls}>
+                    <option value="">—</option>
+                    <option value="Local">Local</option>
+                    <option value="Mehman">Mehman</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Age</label>
+                  <input type="number" min={0} max={150} value={addForm.age} onChange={(e) => setAddForm((f) => ({ ...f, age: e.target.value }))} className={inputCls} placeholder="e.g. 35" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Jamaat</label>
+                  <input value={addForm.jamaat} onChange={(e) => setAddForm((f) => ({ ...f, jamaat: e.target.value }))} className={inputCls} placeholder="e.g. Chicago" />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">WhatsApp</label>
+                <input value={addForm.whatsapp_e164} onChange={(e) => setAddForm((f) => ({ ...f, whatsapp_e164: e.target.value }))} className={inputCls} placeholder="+1..." />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Email</label>
+                <input type="email" value={addForm.email} onChange={(e) => setAddForm((f) => ({ ...f, email: e.target.value }))} className={inputCls} />
+              </div>
+              {addError && <p className="text-sm text-red-600 dark:text-red-400">{addError}</p>}
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" onClick={() => setAddOpen(false)} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600">Cancel</button>
+                <button type="submit" disabled={addSaving} className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+                  {addSaving ? "Saving…" : "Add mumin"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
