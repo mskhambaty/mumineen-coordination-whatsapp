@@ -215,10 +215,10 @@ const yesOrNull = (v: boolean | null | undefined) => (v ? "Yes" : null);
 type AddMuminForm = {
   its: string;
   full_name: string;
+  prefix: string;
   is_head: boolean;
   hof_its: string;
   gender: string;
-  local_mehman: string;
   age: string;
   is_adult: boolean;
   whatsapp_e164: string;
@@ -227,8 +227,8 @@ type AddMuminForm = {
 };
 
 const emptyAddForm: AddMuminForm = {
-  its: "", full_name: "", is_head: true, hof_its: "",
-  gender: "", local_mehman: "", age: "", is_adult: false,
+  its: "", full_name: "", prefix: "", is_head: true, hof_its: "",
+  gender: "", age: "", is_adult: false,
   whatsapp_e164: "", email: "", jamaat: "",
 };
 
@@ -537,10 +537,11 @@ export default function MumineenPage() {
       const body = {
         its: addForm.its.trim(),
         full_name: addForm.full_name.trim(),
+        prefix: addForm.prefix.trim() || null,
         is_head: addForm.is_head,
         ...(addForm.is_head ? {} : { hof_its: addForm.hof_its.trim() }),
         gender: addForm.gender || null,
-        local_mehman: addForm.local_mehman || null,
+        local_mehman: "Mehman",
         age: addForm.age ? parseInt(addForm.age, 10) : null,
         is_adult: addForm.age ? parseInt(addForm.age, 10) >= 18 : addForm.is_adult,
         whatsapp_e164: addForm.whatsapp_e164.trim() || null,
@@ -1088,9 +1089,15 @@ export default function MumineenPage() {
                 <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">ITS number *</label>
                 <input required value={addForm.its} onChange={(e) => setAddForm((f) => ({ ...f, its: e.target.value }))} className={inputCls} placeholder="e.g. 1234567" />
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Full name *</label>
-                <input required value={addForm.full_name} onChange={(e) => setAddForm((f) => ({ ...f, full_name: e.target.value }))} className={inputCls} placeholder="e.g. Murtaza Hussain" />
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Prefix</label>
+                  <input value={addForm.prefix} onChange={(e) => setAddForm((f) => ({ ...f, prefix: e.target.value }))} className={inputCls} placeholder="e.g. Moulai" />
+                </div>
+                <div className="col-span-2">
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Full name *</label>
+                  <input required value={addForm.full_name} onChange={(e) => setAddForm((f) => ({ ...f, full_name: e.target.value }))} className={inputCls} placeholder="e.g. Murtaza Hussain" />
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <input type="checkbox" id="is_head" checked={addForm.is_head} onChange={(e) => setAddForm((f) => ({ ...f, is_head: e.target.checked, hof_its: "" }))} className="h-4 w-4" />
@@ -1113,11 +1120,7 @@ export default function MumineenPage() {
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Type</label>
-                  <select value={addForm.local_mehman} onChange={(e) => setAddForm((f) => ({ ...f, local_mehman: e.target.value }))} className={inputCls}>
-                    <option value="">—</option>
-                    <option value="Local">Local</option>
-                    <option value="Mehman">Mehman</option>
-                  </select>
+                  <p className="mt-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">Mehman</p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">

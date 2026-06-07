@@ -9,6 +9,7 @@ export const runtime = "nodejs";
 const Body = z.object({
   its: z.string().min(1).max(20),
   full_name: z.string().min(1).max(200),
+  prefix: z.string().max(50).nullable().optional(),
   is_head: z.boolean(),
   hof_its: z.string().min(1).max(20).optional(),
   gender: z.enum(["M", "F"]).nullable().optional(),
@@ -96,6 +97,7 @@ export async function POST(req: NextRequest) {
       family_id: familyId,
       is_head: body.is_head,
       full_name: body.full_name,
+      prefix: body.prefix ?? null,
       gender: body.gender ?? null,
       local_mehman: body.local_mehman ?? null,
       age: body.age ?? null,
