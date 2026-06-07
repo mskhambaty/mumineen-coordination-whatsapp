@@ -201,7 +201,7 @@ export default function EscalationSupportPage() {
   return (
     <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
       <div className="mb-5">
-        <h1 className="text-xl font-bold">Escalation/Support</h1>
+        <h1 className="text-xl font-bold">Escalation &amp; On-call</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Escalation members are alerted <strong>per department</strong> while on call (America/Chicago): when a chat or issue is escalated, the agent routes it to its department and only that department&apos;s on-call members are notified. Membership grants Lead Inbox access.
         </p>

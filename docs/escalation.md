@@ -1,4 +1,4 @@
-# Escalation/Support
+# Escalation & On-call
 
 > **Status: design spec — not yet implemented.** This captures the agreed design for
 > escalating WhatsApp conversations to a human support team. Build in phases (see end).
@@ -151,7 +151,7 @@ section on their profile (same page as department memberships), with on-call hou
 
 ## Admin UI
 
-- **New WhatsApp dropdown: "Escalation/Support"** — management screen with a **user
+- **Admin nav entry (under Settings): "Escalation & On-call"** — management screen with a **user
   table** + **Add** button. Add picks from the **existing user list**; adding a user inserts
   an `escalation_support_members` row (= assigns the role) and lets them set **on-call hours**
   (weekday × time ranges).

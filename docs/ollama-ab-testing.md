@@ -2,7 +2,7 @@
 
 ## Overview
 
-Admin-only test page that lets you compare Ollama cloud model responses against OpenAI using the same system prompt and agent parameters. This enables cost/quality evaluation of open-source models as potential alternatives to OpenAI.
+Admin-only test page (**Model Testing** in the admin nav, under **AI Agent**) that lets you compare Ollama cloud model responses against OpenAI using the same system prompt and agent parameters. This enables cost/quality evaluation of open-source models as potential alternatives to OpenAI.
 
 ## How It Works
 
