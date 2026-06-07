@@ -1612,8 +1612,8 @@ export default function RegistrationAnalyticsPage() {
                     onClick={() => drill({ segment: "transport", value: "other", label: "Transport: Other", detailLabel: "Transport" })}
                   />
                   {data.transport.not_set > 0 && (
-                    <HBar label="Not set" value={data.transport.not_set} total={transportTotal} color="bg-gray-200"
-                      onClick={() => drill({ segment: "transport", value: "", label: "Transport: Not Set", detailLabel: "Transport" })}
+                    <HBar label="Local" value={data.transport.not_set} total={transportTotal} color="bg-gray-200"
+                      onClick={() => drill({ segment: "transport", value: "", label: "Local — No Transport Needed", detailLabel: "Transport" })}
                     />
                   )}
                 </SectionCard>
