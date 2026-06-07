@@ -118,8 +118,12 @@ export async function GET(req: NextRequest) {
   if (statusFilter) {
     if (statusFilter === "submitted") {
       fams = fams.filter((f) => f.registration_status === "submitted" || f.registration_status === "confirmed");
+    } else if (statusFilter === "pending") {
+      fams = fams.filter(
+        (f) => !f.registration_status || f.registration_status === "pending" || f.registration_status === "not_started",
+      );
     } else {
-      fams = fams.filter((f) => (f.registration_status ?? "pending") === statusFilter);
+      fams = fams.filter((f) => f.registration_status === statusFilter);
     }
   }
 
@@ -137,7 +141,7 @@ export async function GET(req: NextRequest) {
   ).length;
   const confirmedFamilies = fams.filter((f) => f.registration_status === "confirmed").length;
   const pendingFamilies = fams.filter(
-    (f) => !f.registration_status || f.registration_status === "pending",
+    (f) => !f.registration_status || f.registration_status === "pending" || f.registration_status === "not_started",
   ).length;
   const cancelledFamilies = fams.filter((f) => f.registration_status === "cancelled").length;
 
