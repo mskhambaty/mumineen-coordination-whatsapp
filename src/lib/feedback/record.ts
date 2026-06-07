@@ -28,7 +28,11 @@ export async function recordFeedback(
   // Best-effort family resolution — feedback is still worth capturing even if the number
   // isn't on the roster, so a missing family does not block the insert.
   const family = await resolveFamilyForPhone(phone);
-  const eventDate = opts.eventDate ?? new Date().toISOString().slice(0, 10);
+  // Stamp the event_date in the event's timezone (America/Chicago) so it lines up with the nightly
+  // digest, which aggregates by the Chicago calendar day.
+  const eventDate =
+    opts.eventDate ??
+    new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
   const rows = [];
   for (const entry of entries) {

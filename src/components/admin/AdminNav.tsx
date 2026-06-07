@@ -71,7 +71,7 @@ const dropdownGroups: DropdownGroup[] = [
     ],
   },
   {
-    label: "Settings",
+    label: "Member Management",
     links: [
       { href: "/admin/users", label: "Users", access: "admin" },
       { href: "/admin/departments", label: "Departments", access: "admin" },

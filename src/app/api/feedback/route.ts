@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { FEEDBACK_AREAS } from "@/lib/feedback/areas";
+import { normalizeArea } from "@/lib/feedback/areas";
 import { recordFeedback } from "@/lib/feedback/record";
 
 export const runtime = "nodejs";
@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 // about their own experience. One call may carry feedback for several areas.
 
 const entrySchema = z.object({
-  area: z.enum(FEEDBACK_AREAS),
+  area: z.string().min(1),
   sentiment: z.enum(["positive", "neutral", "negative"]).nullish(),
   rating: z.number().int().min(1).max(5).nullish(),
   comment: z.string().max(2000).nullish(),
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   const result = await recordFeedback(
     phone.trim(),
     parsed.data.entries.map((e) => ({
-      area: e.area,
+      area: normalizeArea(e.area),
       sentiment: e.sentiment ?? null,
       rating: e.rating ?? null,
       comment: e.comment ?? null,

@@ -19,15 +19,34 @@ const SUMMARY_ROWS = [
   { department_id: "d2", ai_briefing: "mawaid", ai_briefing_short: "m", metrics: {}, departments: { name: "Mawaid" } },
 ];
 
-// Minimal supabase stub: one chained select().eq() that resolves to the rows.
+const DATE_ROWS = [{ summary_date: "2026-06-15" }];
+const DEPTS = [
+  { id: "d1", name: "Parking" },
+  { id: "d2", name: "Mawaid" },
+];
+
+// Chainable thenable stub: resolves based on table + whether a summary_date eq was used.
 function stubSupabase(rows: unknown[]) {
-  return {
-    from: () => ({
-      select: () => ({
-        eq: () => Promise.resolve({ data: rows }),
-      }),
-    }),
-  };
+  function from(table: string) {
+    const state = { hadSummaryDateEq: false };
+    const b = {
+      select: () => b,
+      eq: (col: string) => {
+        if (col === "summary_date") state.hadSummaryDateEq = true;
+        return b;
+      },
+      order: () => b,
+      in: () => b,
+      limit: () => b,
+      maybeSingle: () => Promise.resolve({ data: null }),
+      then: (resolve: (v: { data: unknown[] }) => unknown) => {
+        const data = table === "departments" ? DEPTS : state.hadSummaryDateEq ? rows : DATE_ROWS;
+        return Promise.resolve({ data }).then(resolve);
+      },
+    };
+    return b;
+  }
+  return { from };
 }
 
 function callerWith(portal: Record<string, unknown>, departments: { department_id: string; department_name: string; dept_role: string }[]) {
