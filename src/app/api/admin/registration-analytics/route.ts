@@ -295,7 +295,11 @@ export async function GET(req: NextRequest) {
 
   // ── Khidmat ──────────────────────────────────────────────────────────────────
 
-  const khidmatPool = members.filter((m) => !m.not_attending && m.local_mehman === "Mehman");
+  // Scope to submitted families only — unregistered mehman default to wants_khidmat=false
+  // from roster import, which would otherwise inflate the "not wants" count.
+  const khidmatPool = members.filter(
+    (m) => !m.not_attending && m.local_mehman === "Mehman" && isSubmitted(m.hof_its),
+  );
   const wantsKhidmat = khidmatPool.filter((m) => m.wants_khidmat === true).length;
   const notKhidmat = khidmatPool.filter((m) => m.wants_khidmat === false).length;
   const khidmatNotSet = khidmatPool.filter((m) => m.wants_khidmat === null).length;
