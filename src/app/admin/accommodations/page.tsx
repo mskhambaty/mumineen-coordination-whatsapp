@@ -61,7 +61,7 @@ type Suggestion = {
 
 function adminKey(): string {
   if (typeof window === "undefined") return "";
-  return window.localStorage.getItem("admin_key") ?? "";
+  return process.env.NEXT_PUBLIC_ADMIN_KEY ?? window.localStorage.getItem("admin_key") ?? "";
 }
 
 function headers(): HeadersInit {
