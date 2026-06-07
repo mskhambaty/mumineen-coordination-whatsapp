@@ -15,6 +15,7 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 | [architecture.md](./architecture.md) | Full system overview: request flow, layers, external services |
 | [whatsapp-webhook.md](./whatsapp-webhook.md) | Meta webhook setup, inbound/outbound flow, deduplication |
 | [ai-agent.md](./ai-agent.md) | OpenAI agent loop, system prompt, tool-calling, model config |
+| [ashara-religious-content.md](./ashara-religious-content.md) | Waaz Talaqi: per-majlis content model, `/admin/ashara` dashboard, daily seed + Lisan translate, theme index, answer routing & length budget |
 | [ollama-ab-testing.md](./ollama-ab-testing.md) | Ollama cloud A/B testing page for model comparison |
 | [permissions.md](./permissions.md) | User roles (`visitor`, `committee`, `admin`), tool access matrix |
 | [database.md](./database.md) | Supabase schema: all tables, RLS policies, migrations |
@@ -53,6 +54,8 @@ src/lib/escalation/notify.ts             — On-call escalation email + WhatsApp
 src/lib/whatsapp/parser.ts               — Incoming webhook payload parsing
 src/lib/scraper/scrape-site.ts           — Cheerio scraper + OpenAI embedding
 src/lib/scraper/retrieve-site-context.ts — RAG vector search
+src/lib/knowledge/religious-topics.ts    — Waaz Talaqi topics: routing, themes, overview/facets
+src/app/admin/ashara/page.tsx            — Ashara Daily Content dashboard (per-majlis grid)
 src/lib/env.ts                           — Env var lookup with alias support
 public/templates/mumineen-roster-template.xlsx — Downloadable Mumineen roster import template
 supabase/migrations/                     — All database migrations
