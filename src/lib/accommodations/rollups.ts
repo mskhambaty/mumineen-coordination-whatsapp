@@ -7,6 +7,7 @@ export type GuestRow = {
   hof_its: string;
   head_name: string | null;
   member_count: number;
+  attending_count: number;
   adult_count: number;
   child_count: number;
   male_count: number;
@@ -105,6 +106,7 @@ type MuminDbRow = {
   is_head: boolean;
   wheelchair: boolean;
   special_needs: string | null;
+  not_attending: boolean | null;
 };
 
 /**
@@ -133,7 +135,7 @@ export async function buildGuestRollups(): Promise<GuestRow[]> {
   const allMembers = await fetchAll<MuminDbRow>((from, to) =>
     supabase
       .from("mumineen")
-      .select("hof_its, full_name, gender, age, is_head, wheelchair, special_needs")
+      .select("hof_its, full_name, gender, age, is_head, wheelchair, special_needs, not_attending")
       .eq("roster_active", true)
       .in("hof_its", hofItsList)
       .range(from, to),
@@ -169,7 +171,8 @@ export async function buildGuestRollups(): Promise<GuestRow[]> {
 
   return families.map((f) => {
     const members = membersByHof.get(f.hof_its) ?? [];
-    const ages = members.map((m) => m.age).filter((a): a is number => a != null);
+    const attending = members.filter((m) => !m.not_attending);
+    const ages = attending.map((m) => m.age).filter((a): a is number => a != null);
     const head = members.find((m) => m.is_head);
     const resolvedName = head?.full_name ?? members[0]?.full_name ?? f.hof_its;
 
@@ -178,13 +181,14 @@ export async function buildGuestRollups(): Promise<GuestRow[]> {
       hof_its: f.hof_its,
       head_name: resolvedName,
       member_count: members.length,
-      adult_count: members.filter((m) => m.age != null && m.age >= 18).length,
-      child_count: members.filter((m) => m.age != null && m.age < 18).length,
-      male_count: members.filter((m) => m.gender === "M").length,
-      female_count: members.filter((m) => m.gender === "F").length,
+      attending_count: attending.length,
+      adult_count: attending.filter((m) => m.age != null && m.age >= 18).length,
+      child_count: attending.filter((m) => m.age != null && m.age < 18).length,
+      male_count: attending.filter((m) => m.gender === "M").length,
+      female_count: attending.filter((m) => m.gender === "F").length,
       ages: ages.sort((a, b) => a - b).join(", "),
-      has_wheelchair: members.some((m) => m.wheelchair),
-      has_special_needs: members.some((m) => m.special_needs != null && m.special_needs.length > 0),
+      has_wheelchair: attending.some((m) => m.wheelchair),
+      has_special_needs: attending.some((m) => m.special_needs != null && m.special_needs.length > 0),
       submitted_at: f.submitted_at,
       hotel_name: f.hotel_name,
       hotel_lat: f.hotel_lat ?? null,

@@ -55,16 +55,50 @@ const COLUMN_MAP: { header: RegExp; col: string; parse: (v: unknown) => unknown 
 type GeoResult = { lat: number; lon: number } | null;
 
 /**
- * Geocode an address via Nominatim. Returns null if geocoding fails.
+ * Geocode an address via Nominatim. Tries structured query first, then free-form fallback.
+ * Returns null if geocoding fails.
  */
 export async function geocodeAddress(address: string, city: string | null): Promise<GeoResult> {
-  const query = [address, city, "IL", "USA"].filter(Boolean).join(", ");
-  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
+  const headers = { "User-Agent": "MumineenAccommodations/1.0" };
 
+  // Clean address: strip apt/unit/suite numbers that confuse geocoders
+  const cleanAddr = address.replace(/\b(apt|unit|suite|ste|#)\s*\S+/gi, "").trim();
+
+  // Attempt 1: Structured query (most accurate)
+  const structuredParams = new URLSearchParams({
+    format: "json",
+    limit: "1",
+    street: cleanAddr,
+    city: city || "",
+    state: "Illinois",
+    country: "USA",
+  });
+  const result = await nominatimFetch(`https://nominatim.openstreetmap.org/search?${structuredParams}`, headers);
+  if (result) return result;
+
+  // Attempt 2: Free-form with full address + city + state
+  const freeQuery = [cleanAddr, city, "IL", "USA"].filter(Boolean).join(", ");
+  const freeResult = await nominatimFetch(
+    `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(freeQuery)}`,
+    headers,
+  );
+  if (freeResult) return freeResult;
+
+  // Attempt 3: Just city + state (neighborhood-level fallback)
+  if (city) {
+    const cityQuery = [city, "IL", "USA"].join(", ");
+    return nominatimFetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(cityQuery)}`,
+      headers,
+    );
+  }
+
+  return null;
+}
+
+async function nominatimFetch(url: string, headers: Record<string, string>): Promise<GeoResult> {
   try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": "MumineenAccommodations/1.0" },
-    });
+    const res = await fetch(url, { headers });
     if (!res.ok) return null;
     const data = await res.json();
     if (Array.isArray(data) && data.length > 0) {

@@ -64,13 +64,18 @@ export function scoreMatch(
   // 4. Gender preference alignment (always on, max 15 points)
   if (host.gender_preference) {
     const pref = host.gender_preference.toLowerCase();
-    if (pref.includes("mardo") && guest.male_count > guest.female_count) {
-      score += 15;
-      reasons.push("Gender preference match (mardo)");
-    } else if (pref.includes("bairo") && guest.female_count > guest.male_count) {
-      score += 15;
-      reasons.push("Gender preference match (bairo)");
-    } else if (pref.includes("no preference") || pref.includes("either")) {
+    if (pref.includes("mardo")) {
+      if (guest.male_count > guest.female_count) {
+        score += 15;
+        reasons.push("Gender preference match (mardo)");
+      }
+    } else if (pref.includes("bairo")) {
+      if (guest.female_count > guest.male_count) {
+        score += 15;
+        reasons.push("Gender preference match (bairo)");
+      }
+    } else {
+      // "No", "No preference", "Either", "Either / Both", or anything else = flexible
       score += 10;
       reasons.push("Host has no gender preference");
     }
@@ -305,8 +310,9 @@ export async function createPendingMatch(
 
 /**
  * Reject or cancel a match. If it was confirmed, revert the guest family's utaro fields.
+ * Deletes the match row so both host and guest return to the pool.
  */
-export async function rejectMatch(matchId: string, newStatus: "rejected" | "cancelled"): Promise<void> {
+export async function rejectMatch(matchId: string): Promise<void> {
   const supabase = getSupabaseAdmin();
 
   const { data: match, error: matchErr } = await supabase
@@ -333,10 +339,11 @@ export async function rejectMatch(matchId: string, newStatus: "rejected" | "canc
     if (revertErr) throw new Error(`Failed to revert family: ${revertErr.message}`);
   }
 
-  const { error: updateErr } = await supabase
+  // Delete the match row entirely
+  const { error: deleteErr } = await supabase
     .from("accommodation_matches")
-    .update({ status: newStatus, updated_at: new Date().toISOString() })
+    .delete()
     .eq("id", matchId);
 
-  if (updateErr) throw new Error(`Failed to update match: ${updateErr.message}`);
+  if (deleteErr) throw new Error(`Failed to delete match: ${deleteErr.message}`);
 }
