@@ -152,6 +152,8 @@ export async function GET(req: NextRequest) {
   const notAttending = members.filter((m) => m.not_attending).length;
   const localCount = members.filter((m) => m.local_mehman === "Local").length;
   const mehmanCount = members.filter((m) => m.local_mehman === "Mehman").length;
+  const submittedMumineen = members.filter((m) => isSubmitted(m.hof_its)).length;
+  const pendingMumineen = members.length - submittedMumineen;
 
   // ── Registration timeline ────────────────────────────────────────────────────
 
@@ -356,6 +358,8 @@ export async function GET(req: NextRequest) {
       pending_families: pendingFamilies,
       cancelled_families: cancelledFamilies,
       total_mumineen: members.length,
+      submitted_mumineen: submittedMumineen,
+      pending_mumineen: pendingMumineen,
       attending: attending.length,
       not_attending: notAttending,
       local: localCount,

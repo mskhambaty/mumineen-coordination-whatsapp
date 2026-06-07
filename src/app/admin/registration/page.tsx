@@ -18,6 +18,8 @@ type Analytics = {
     pending_families: number;
     cancelled_families: number;
     total_mumineen: number;
+    submitted_mumineen: number;
+    pending_mumineen: number;
     attending: number;
     not_attending: number;
     local: number;
@@ -1161,6 +1163,9 @@ export default function RegistrationAnalyticsPage() {
   const mehmanPct =
     summary && summary.total_mumineen > 0
       ? Math.round((summary.mehman / summary.total_mumineen) * 100) : 0;
+  const submittedMuminPct =
+    summary && summary.total_mumineen > 0
+      ? Math.round((summary.submitted_mumineen / summary.total_mumineen) * 100) : 0;
 
   const transportTotal = data
     ? data.transport.rideshare + data.transport.rental + data.transport.commute_with_utaro + data.transport.other + data.transport.not_set
@@ -1296,7 +1301,7 @@ export default function RegistrationAnalyticsPage() {
           <>
             {/* ════ 01 Overview ════ */}
             <section id="overview" className="scroll-mt-16">
-              <div className="grid gap-3.5 lg:grid-cols-[1fr_1.1fr]">
+              <div className="grid gap-3.5 lg:grid-cols-2">
                 <KpiCluster label="Families · Registration Funnel">
                   <Kpi
                     value={summary.total_families}
@@ -1315,11 +1320,25 @@ export default function RegistrationAnalyticsPage() {
                     onClick={() => drill({ segment: "registration_status", value: "pending", label: "Pending Families — Not Yet Submitted", detailLabel: "Status" })}
                   />
                 </KpiCluster>
+                <KpiCluster label="Mumineen · Registration Funnel">
+                  <Kpi value={summary.total_mumineen} label="total in roster" />
+                  <Kpi
+                    value={summary.submitted_mumineen}
+                    suffix={`${submittedMuminPct}%`}
+                    label="from registered families"
+                    tone="highlight"
+                  />
+                  <Kpi
+                    value={summary.pending_mumineen}
+                    label="pending submission"
+                  />
+                </KpiCluster>
+              </div>
+              <div className="mt-3.5 grid gap-3.5 lg:grid-cols-2">
                 <KpiCluster label="People · Headcount">
-                  <Kpi value={summary.total_mumineen} label="total mumineen" />
                   <Kpi
                     value={summary.attending}
-                    label="attending"
+                    label="attending (roster)"
                     onClick={() => drill({ segment: "attending", label: "Attending mumineen" })}
                   />
                   <Kpi
@@ -1334,6 +1353,7 @@ export default function RegistrationAnalyticsPage() {
                     label="mehman"
                     onClick={() => drill({ segment: "local_mehman", value: "Mehman", label: "Mehman (attending)" })}
                   />
+                  <Kpi value={summary.local} label="local" onClick={() => drill({ segment: "local_mehman", value: "Local", label: "Local (attending)" })} />
                 </KpiCluster>
               </div>
 
@@ -1347,6 +1367,7 @@ export default function RegistrationAnalyticsPage() {
                       <div className="h-3 rounded-full bg-green-500 transition-all duration-700" style={{ width: `${regRate}%` }} />
                     </div>
                   </div>
+                  <p className="mb-1 text-xs font-medium text-gray-400 uppercase tracking-wide">Families</p>
                   <HBar label="Submitted" value={summary.submitted_families} total={summary.total_families} color="bg-green-500" />
                   <HBar label="Pending" value={summary.pending_families} total={summary.total_families} color="bg-amber-400" />
                   {summary.confirmed_families > 0 && (
@@ -1355,6 +1376,9 @@ export default function RegistrationAnalyticsPage() {
                   {summary.cancelled_families > 0 && (
                     <HBar label="Cancelled" value={summary.cancelled_families} total={summary.total_families} color="bg-red-400" />
                   )}
+                  <p className="mb-1 mt-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Mumineen</p>
+                  <HBar label="From registered" value={summary.submitted_mumineen} total={summary.total_mumineen} color="bg-green-500" />
+                  <HBar label="Pending" value={summary.pending_mumineen} total={summary.total_mumineen} color="bg-amber-400" />
                 </SectionCard>
 
                 {data.timeline.length > 0 && (
