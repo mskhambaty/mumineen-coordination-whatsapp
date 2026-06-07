@@ -49,3 +49,5 @@ memory/
 
 # local mcp config backup
 *.localbak
+
+.vs/*
