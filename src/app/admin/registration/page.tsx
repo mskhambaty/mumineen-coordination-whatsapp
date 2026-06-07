@@ -1497,8 +1497,8 @@ export default function RegistrationAnalyticsPage() {
                                 onClick: () => drill({ segment: "acc_type", value: "utaro", label: "Utaro / Host Families", detailLabel: "Accommodation" }),
                               },
                               {
-                                key: "not_set", label: "Not set", value: data.accommodation.not_set, people: null, color: "bg-gray-300",
-                                onClick: () => drill({ segment: "acc_type", value: "", label: "Families — Accommodation Not Set" }),
+                                key: "not_set", label: "Local (no acc.)", value: data.accommodation.not_set, people: null, color: "bg-gray-300",
+                                onClick: () => drill({ segment: "acc_type", value: "", label: "Local Families — No Accommodation Needed", detailLabel: "Accommodation" }),
                               },
                             ]}
                           />
