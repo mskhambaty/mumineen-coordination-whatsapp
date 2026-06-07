@@ -166,7 +166,12 @@ export default function KnowledgePage() {
         skipped?: number;
         deleted?: number;
         errors?: unknown[];
+        note?: string;
       };
+      if (s.note) {
+        setDriveSyncMsg(s.note);
+        return;
+      }
       const parts = [`${s.added ?? 0} added`, `${s.updated ?? 0} updated`, `${s.skipped ?? 0} skipped`];
       if (s.deleted) parts.push(`${s.deleted} removed`);
       let msg = `${s.dryRun ? "Dry run — would apply:" : "Synced:"} ${parts.join(", ")} (scanned ${s.scanned ?? 0}).`;

@@ -75,6 +75,8 @@ export type DriveSyncStats = {
   errors: Array<{ file: string; error: string }>;
   // Per-file planned/performed action — useful for dry-run previews.
   plan: Array<{ file: string; action: DriveSyncAction }>;
+  // Set when the sync was skipped (e.g. not configured yet).
+  note?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -223,7 +225,24 @@ export function sameInstant(a: string | null, b: string | null): boolean {
 // ---------------------------------------------------------------------------
 export async function syncDriveFaqFolder(options: { dryRun?: boolean } = {}): Promise<DriveSyncStats> {
   const dryRun = options.dryRun ?? false;
-  const folderId = requireEnv("GDRIVE_FAQ_FOLDER_ID");
+
+  // Not configured yet → skip cleanly so the daily cron is a harmless no-op
+  // (returns ok) rather than a 500 failure before setup is done.
+  const folderId = optionalEnv("GDRIVE_FAQ_FOLDER_ID");
+  if (!folderId || !optionalEnv("GOOGLE_SERVICE_ACCOUNT_JSON")) {
+    return {
+      dryRun,
+      scanned: 0,
+      added: 0,
+      updated: 0,
+      skipped: 0,
+      deleted: 0,
+      errors: [],
+      plan: [],
+      note: "Drive sync is not configured yet (set GOOGLE_SERVICE_ACCOUNT_JSON and GDRIVE_FAQ_FOLDER_ID). Skipped.",
+    };
+  }
+
   // Default OFF for safety: removed Drive files are left in place unless deletion
   // is explicitly opted into with GDRIVE_SYNC_DELETE_REMOVED=true.
   const deleteRemoved = optionalEnv("GDRIVE_SYNC_DELETE_REMOVED") === "true";
