@@ -5,6 +5,7 @@ import { SYSTEM_PROMPT, loadAgentSystemPrompt } from "@/lib/agent/prompts";
 import { AGENT_TEMPERATURE, AI_MODEL, AI_MODEL_HIGH, chatParams, getAIClient, MAX_AGENT_TOKENS, MAX_FINAL_TOKENS } from "@/lib/ai/model";
 import { resolveCallerFromPhone, type CallerContext } from "@/lib/api/auth";
 import type { AppUser } from "@/lib/permissions";
+import { formatSenderProfileForPrompt, getSenderProfile, type SenderProfile } from "@/lib/mumineen/sender-profile";
 import { getRecentMessages, getSupabaseAdmin } from "@/lib/supabase/server";
 
 export { SYSTEM_PROMPT };
@@ -219,8 +220,9 @@ export function buildSystemPrompt(params: {
   callerContext: CallerContext | undefined;
   phoneE164: string;
   role: AppUser["role"];
+  senderProfile?: SenderProfile | null;
 }): string {
-  const { basePrompt, departmentSection, callerContext, phoneE164, role } = params;
+  const { basePrompt, departmentSection, callerContext, phoneE164, role, senderProfile } = params;
 
   let systemContent = basePrompt;
 
@@ -247,6 +249,11 @@ export function buildSystemPrompt(params: {
     systemContent += `\nDepartments: ${deptNames || "none"}\nCan read all: ${callerContext.can_read_all}\nCan write all: ${callerContext.can_write_all}`;
   }
 
+  // Registration profile (hotel, travel, accessibility, etc.) — lets the agent
+  // personalize replies. PII-minimal (no email/ITS); empty string when the sender
+  // isn't a registered roster member, so the static prefix above stays cacheable.
+  systemContent += formatSenderProfileForPrompt(senderProfile);
+
   return systemContent;
 }
 
@@ -261,11 +268,12 @@ export async function runAgent(input: AgentInput) {
     ? Promise.resolve(input.callerContext)
     : resolveCallerFromPhone(input.phoneE164).catch(() => undefined);
 
-  const [callerContext, history, systemPromptText, departmentSection] = await Promise.all([
+  const [callerContext, history, systemPromptText, departmentSection, senderProfile] = await Promise.all([
     callerPromise,
     getRecentMessages(input.phoneE164, HISTORY_MESSAGE_LIMIT).catch(() => []),
     loadAgentSystemPrompt(),
     loadDepartmentsForPrompt(),
+    getSenderProfile(input.phoneE164).catch(() => null),
   ]);
 
   const systemContent = buildSystemPrompt({
@@ -274,6 +282,7 @@ export async function runAgent(input: AgentInput) {
     callerContext,
     phoneE164: input.phoneE164,
     role: input.user.role,
+    senderProfile,
   });
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [

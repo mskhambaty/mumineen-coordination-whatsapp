@@ -271,6 +271,42 @@ paths:
       responses:
         "200": { description: "text/event-stream of ready/changed/ping events." }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/conversations/{phoneE164}/profile:
+    get:
+      tags: [conversations]
+      summary: Sender registration profile for the inbox User Profile panel (PII stripped).
+      description: >
+        Internal-only. Returns the sender's roster/registration profile with PII removed
+        (age, phone, email, and ITS are never included) plus their committee department
+        assignments. The full profile (with age) powers the agent's Sender Context.
+      security: [{ adminKey: [] }]
+      parameters:
+        - name: phoneE164
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Profile (null when the sender isn't a registered roster member) and departments.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profile:
+                    nullable: true
+                    type: object
+                    description: PublicSenderProfile — registration fields with age and contacts stripped.
+                  global_role: { type: string, nullable: true }
+                  departments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        role: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /admin/conversations/{phoneE164}/mode:
     put:
       tags: [conversations]

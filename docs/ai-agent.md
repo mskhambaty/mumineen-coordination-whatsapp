@@ -162,6 +162,8 @@ order, because OpenAI prompt caching reuses the **longest common prefix** of the
 3. **Always-on rule blocks** (`ALWAYS_ON_RULES`) — static
    — *end of the cacheable, cross-user-shared prefix* —
 4. **`## Sender Context`** (phone, role, departments, permissions) — the only per-user text
+5. **Registration profile lines** — appended to Sender Context for registered roster members
+   (see below); empty string for everyone else, so the cache prefix is unaffected.
 
 Putting all user-independent content first makes `[base + departments + rules]` byte-identical
 across users, so OpenAI caches it once and reuses it across every user and turn; a byte-stable
@@ -169,6 +171,22 @@ system prefix also lets the earlier replayed history turns cache. The per-user S
 trails it so it never poisons the prefix. The departments list stays always-on (not gated)
 because `move_to_escalation` / `create_issue` / `create_task` need valid department names at the
 first completion. Ordering is locked by `src/lib/__tests__/system-prompt-order.test.ts`.
+
+### Sender registration profile (personalization)
+
+For senders who are registered roster members, `runAgent()` calls `getSenderProfile(phone)`
+(`src/lib/mumineen/sender-profile.ts`) and `formatSenderProfileForPrompt()` appends a short
+bullet block under `## Sender Context`: registration status + family size, name/age/gender,
+origin (city/jamaat) and Mehman/Local, accommodation (hotel name or utaro/host), transport mode,
+arrival/departure (date + flight + airport), accessibility (wheelchair / rahat seating), special
+needs, and khidmat interest. It lets the agent personalize replies (e.g. reference their hotel).
+
+The block is **PII-minimal**: it carries age and logistics but never email, ITS, or host
+contacts. It resolves a phone to a member via `mumin_phone_links → mumineen → families` (primary
+link, else head of family, else first member) and returns `""` for non-roster senders, so the
+cache prefix never changes. The same profile (minus age and all contacts) powers the inbox
+**User Profile** panel — see [admin-dashboard.md](./admin-dashboard.md). Pure formatting +
+PII-stripping are covered by `src/lib/__tests__/sender-profile.test.ts`.
 
 ## Tool Execution
 

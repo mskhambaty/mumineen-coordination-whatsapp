@@ -27,6 +27,51 @@ type ToolCall = {
   created_at: string;
 };
 
+// Mirrors PublicSenderProfile from @/lib/mumineen/sender-profile (age + contacts stripped).
+type SenderProfileMember = {
+  full_name: string | null;
+  gender: string | null;
+  jamaat: string | null;
+  city: string | null;
+  local_mehman: string | null;
+  category: string | null;
+  title: string | null;
+  not_attending: boolean;
+  arrival_at: string | null;
+  arrival_flight_no: string | null;
+  airport: string | null;
+  departure_at: string | null;
+  rahat_seating: boolean;
+  wheelchair: boolean;
+  special_needs: string | null;
+  wants_khidmat: boolean | null;
+};
+
+type SenderProfile = {
+  in_roster: boolean;
+  registration_status: string | null;
+  member_count: number;
+  member: SenderProfileMember | null;
+  family: {
+    acc_type: string | null;
+    hotel_name: string | null;
+    utaro_host_name: string | null;
+    open_to_utaro: boolean | null;
+    transport_mode: string | null;
+    transport_detail: string | null;
+  } | null;
+};
+
+type ProfileResponse = {
+  profile: SenderProfile | null;
+  global_role: string | null;
+  departments: { name: string; role: string }[];
+};
+
+// Tool calls older than this fall behind the "historic" toggle so active
+// troubleshooting only surfaces the recent ones.
+const RECENT_TOOL_CALL_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 type Conversation = {
   id: string;
   phone_e164: string;
@@ -76,6 +121,9 @@ export default function ConversationsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagePaneRef = useRef<HTMLDivElement>(null);
   const [showQuickEdit, setShowQuickEdit] = useState(false);
+  const [profile, setProfile] = useState<ProfileResponse | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [showHistoricToolCalls, setShowHistoricToolCalls] = useState(false);
   const [canQuickEdit] = useState(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -134,6 +182,21 @@ export default function ConversationsPage() {
     ? Math.max(selected.messages.length - unreadInboundCount, 0)
     : Number.POSITIVE_INFINITY;
 
+  // Split tool calls into recent (last 24h) and historic. The list is chronological
+  // (oldest→newest); we render newest-first in each group.
+  const { recentToolCalls, historicToolCalls } = useMemo(() => {
+    const calls = selected?.tool_calls ?? [];
+    const cutoff = Date.now() - RECENT_TOOL_CALL_WINDOW_MS;
+    const recent: ToolCall[] = [];
+    const historic: ToolCall[] = [];
+    for (const call of calls) {
+      (new Date(call.created_at).getTime() >= cutoff ? recent : historic).push(call);
+    }
+    recent.reverse();
+    historic.reverse();
+    return { recentToolCalls: recent, historicToolCalls: historic };
+  }, [selected?.tool_calls]);
+
   useEffect(() => {
     const pane = messagePaneRef.current;
     if (!pane) return;
@@ -144,6 +207,38 @@ export default function ConversationsPage() {
 
     return () => cancelAnimationFrame(frame);
   }, [selected?.phone_e164, latestMessageId]);
+
+  // Load the selected sender's registration profile for the right-rail panel.
+  // Reset the historic tool-call toggle whenever the conversation changes.
+  useEffect(() => {
+    const phone = selected?.phone_e164;
+    let cancelled = false;
+
+    async function loadProfile() {
+      setShowHistoricToolCalls(false);
+      if (!phone || !adminKey) {
+        setProfile(null);
+        return;
+      }
+      setProfileLoading(true);
+      setProfile(null);
+      try {
+        const res = await apiFetch(`/api/admin/conversations/${encodeURIComponent(phone)}/profile`);
+        const data = (await res.json().catch(() => null)) as ProfileResponse | null;
+        if (!cancelled && res.ok) setProfile(data);
+      } catch {
+        // Non-critical panel; leave it empty on failure.
+      } finally {
+        if (!cancelled) setProfileLoading(false);
+      }
+    }
+
+    void loadProfile();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.phone_e164, adminKey]);
 
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
@@ -608,6 +703,7 @@ export default function ConversationsPage() {
                 </button>
               </div>
             )}
+            <ProfilePanel profile={profile} loading={profileLoading} />
             {selected?.quality_score && (
               <div className="shrink-0 border-b px-4 py-3 dark:border-gray-800">
                 <h2 className="font-semibold">Conversation Quality</h2>
@@ -629,29 +725,139 @@ export default function ConversationsPage() {
             )}
             <div className="shrink-0 border-b px-4 py-3 dark:border-gray-800">
               <h2 className="font-semibold">Tool Calls</h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Agent actions for this thread</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Last 24 hours · older behind toggle</p>
             </div>
             <div className="max-h-[60vh] flex-1 space-y-3 overflow-y-auto p-4 lg:max-h-none lg:min-h-0">
-              {selected?.tool_calls.map((call) => (
-                <div key={call.id} className="rounded-lg border bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="truncate text-sm font-medium">{call.tool_name}</p>
-                    <span className={`rounded-full px-2 py-0.5 text-xs ${call.allowed ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"}`}>
-                      {call.allowed ? "Allowed" : "Blocked"}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{formatDate(call.created_at)}</p>
-                  {call.result_summary && <p className="mt-2 break-words text-sm text-gray-600 dark:text-gray-300">{call.result_summary}</p>}
-                  <pre className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded bg-white p-2 text-xs text-gray-500 dark:bg-gray-900 dark:text-gray-400">{stringify(call.arguments)}</pre>
-                </div>
+              {recentToolCalls.map((call) => (
+                <ToolCallCard key={call.id} call={call} />
               ))}
-              {selected && selected.tool_calls.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">No tool calls for this conversation yet.</p>}
+              {selected && recentToolCalls.length === 0 && historicToolCalls.length === 0 && (
+                <p className="text-sm text-gray-500 dark:text-gray-400">No tool calls for this conversation yet.</p>
+              )}
+              {selected && recentToolCalls.length === 0 && historicToolCalls.length > 0 && (
+                <p className="text-sm text-gray-500 dark:text-gray-400">No tool calls in the last 24 hours.</p>
+              )}
+              {historicToolCalls.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowHistoricToolCalls((v) => !v)}
+                  className="w-full rounded-md border border-dashed px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                >
+                  {showHistoricToolCalls
+                    ? "Hide historic tool calls"
+                    : `Show ${historicToolCalls.length} historic tool call${historicToolCalls.length !== 1 ? "s" : ""}`}
+                </button>
+              )}
+              {showHistoricToolCalls && historicToolCalls.map((call) => (
+                <ToolCallCard key={call.id} call={call} />
+              ))}
             </div>
           </aside>
         </div>
       </main>
       {showQuickEdit && <QuickEditModal adminKey={adminKey} onClose={() => setShowQuickEdit(false)} />}
     </>
+  );
+}
+
+function ToolCallCard({ call }: { call: ToolCall }) {
+  return (
+    <div className="rounded-lg border bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
+      <div className="flex items-center justify-between gap-2">
+        <p className="truncate text-sm font-medium">{call.tool_name}</p>
+        <span className={`rounded-full px-2 py-0.5 text-xs ${call.allowed ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"}`}>
+          {call.allowed ? "Allowed" : "Blocked"}
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{formatDate(call.created_at)}</p>
+      {call.result_summary && <p className="mt-2 break-words text-sm text-gray-600 dark:text-gray-300">{call.result_summary}</p>}
+      <pre className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded bg-white p-2 text-xs text-gray-500 dark:bg-gray-900 dark:text-gray-400">{stringify(call.arguments)}</pre>
+    </div>
+  );
+}
+
+function titleCase(value: string): string {
+  return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function ProfileRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-3 text-sm">
+      <span className="shrink-0 text-gray-500 dark:text-gray-400">{label}</span>
+      <span className="text-right font-medium text-gray-800 dark:text-gray-200">{value}</span>
+    </div>
+  );
+}
+
+// Right-rail registration profile. PII (age, phone, email, ITS) is already stripped
+// server-side by /profile, so anything here is safe to show internal staff.
+function ProfilePanel({ profile, loading }: { profile: ProfileResponse | null; loading: boolean }) {
+  const hasDepartments = (profile?.departments?.length ?? 0) > 0;
+  const p = profile?.profile;
+  const hasProfile = !!p?.in_roster;
+
+  // Nothing to show: not in roster and no committee departments.
+  if (!loading && !hasProfile && !hasDepartments) return null;
+
+  const m = p?.member ?? null;
+  const f = p?.family ?? null;
+  const accessibility = [m?.wheelchair ? "Wheelchair" : null, m?.rahat_seating ? "Rahat seating" : null]
+    .filter(Boolean)
+    .join(", ");
+  const travelIn = m
+    ? [m.arrival_at?.slice(0, 10), m.arrival_flight_no, m.airport].filter(Boolean).join(" · ")
+    : "";
+
+  return (
+    <div className="shrink-0 border-b px-4 py-3 dark:border-gray-800">
+      <h2 className="font-semibold">User Profile</h2>
+      {loading ? (
+        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading…</p>
+      ) : (
+        <div className="mt-2 space-y-1.5">
+          {hasProfile ? (
+            <>
+              {p?.registration_status && (
+                <ProfileRow
+                  label="Registration"
+                  value={`${titleCase(p.registration_status)}${p.member_count > 1 ? ` · family of ${p.member_count}` : ""}`}
+                />
+              )}
+              {m?.local_mehman && <ProfileRow label="Type" value={m.local_mehman} />}
+              {(m?.city || m?.jamaat) && (
+                <ProfileRow label="From" value={[m?.city, m?.jamaat].filter(Boolean).join(", ")} />
+              )}
+              {m?.not_attending && <ProfileRow label="Attending" value="Not attending" />}
+              {f?.acc_type === "hotel" && (
+                <ProfileRow label="Accommodation" value={`Hotel${f.hotel_name ? ` · ${f.hotel_name}` : ""}`} />
+              )}
+              {f?.acc_type === "utaro" && (
+                <ProfileRow label="Accommodation" value={`Utaro${f.utaro_host_name ? ` · ${f.utaro_host_name}` : ""}`} />
+              )}
+              {f?.acc_type === "hotel" && f?.open_to_utaro && (
+                <ProfileRow label="Utaro" value="Open to matching" />
+              )}
+              {f?.transport_mode && (
+                <ProfileRow label="Transport" value={[f.transport_mode, f.transport_detail].filter(Boolean).join(" — ")} />
+              )}
+              {travelIn && <ProfileRow label="Arrival" value={travelIn} />}
+              {m?.departure_at && <ProfileRow label="Departure" value={m.departure_at.slice(0, 10)} />}
+              {accessibility && <ProfileRow label="Accessibility" value={accessibility} />}
+              {m?.special_needs?.trim() && <ProfileRow label="Special needs" value={m.special_needs.trim()} />}
+              {m?.wants_khidmat && <ProfileRow label="Khidmat" value="Interested" />}
+            </>
+          ) : (
+            !hasDepartments && <p className="text-sm text-gray-500 dark:text-gray-400">No registration on file.</p>
+          )}
+          {hasDepartments && (
+            <ProfileRow
+              label="Departments"
+              value={profile!.departments.map((d) => `${d.name} (${d.role})`).join(", ")}
+            />
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
