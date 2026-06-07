@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireEnv } from "@/lib/env";
+import { mineConversationsForFeedback } from "@/lib/digest/mine-conversations";
 import { runDepartmentDigest } from "@/lib/digest/run";
 
 export const runtime = "nodejs";
@@ -28,8 +29,14 @@ async function run(req: NextRequest) {
   }
   const dateParam = req.nextUrl.searchParams.get("date");
   const date = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : chicagoToday();
+  // Mine the last 24h of raw conversations for feedback first (batched, high model), so the digest
+  // aggregation that follows includes everything the agent's live tool didn't catch.
+  const mined = await mineConversationsForFeedback(date).catch((err) => {
+    console.error("Conversation mining failed:", err);
+    return { conversations: 0, chunks: 0, feedback: 0 };
+  });
   const result = await runDepartmentDigest(date);
-  return NextResponse.json({ ok: true, ...result });
+  return NextResponse.json({ ok: true, mined, ...result });
 }
 
 export async function GET(req: NextRequest) {

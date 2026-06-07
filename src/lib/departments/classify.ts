@@ -5,12 +5,14 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 // LIVE department list + descriptions (not a hardcoded map) so routing stays correct as the
 // committee structure evolves. One small, cached LLM call per item.
 
-type Dept = { id: string; name: string; description: string | null };
+export type Dept = { id: string; name: string; description: string | null };
 
 const CATALOG_TTL_MS = 5 * 60_000;
 let catalogCache: { depts: Dept[]; at: number } | null = null;
 
-async function getCatalog(): Promise<Dept[]> {
+// Cached live department list (name + description) — shared by the classifier and the nightly
+// conversation-mining job so both route against the same source of truth.
+export async function getDepartmentCatalog(): Promise<Dept[]> {
   if (catalogCache && Date.now() - catalogCache.at < CATALOG_TTL_MS) return catalogCache.depts;
   const { data } = await getSupabaseAdmin().from("departments").select("id, name, description").order("name");
   const depts = (data ?? []) as Dept[];
@@ -18,15 +20,20 @@ async function getCatalog(): Promise<Dept[]> {
   return depts;
 }
 
+// Render the catalog as a numbered list for an LLM prompt.
+export function renderCatalog(depts: Dept[]): string {
+  return depts.map((d, i) => `${i + 1}. ${d.name}${d.description ? ` — ${d.description}` : ""}`).join("\n");
+}
+
 // Classify free text to the single best-matching department id, or null when nothing clearly fits
 // (caller decides the fallback). Never throws — returns null on any error.
 export async function classifyDepartment(text: string): Promise<string | null> {
   const trimmed = text.trim();
   if (!trimmed) return null;
-  const depts = await getCatalog();
+  const depts = await getDepartmentCatalog();
   if (depts.length === 0) return null;
 
-  const catalog = depts.map((d, i) => `${i + 1}. ${d.name}${d.description ? ` — ${d.description}` : ""}`).join("\n");
+  const catalog = renderCatalog(depts);
   const system =
     "You route a visitor message, issue, or feedback to ONE owning department for a Dawoodi Bohra " +
     "Ashara relay center, using the department names and descriptions provided. Reply with STRICT " +

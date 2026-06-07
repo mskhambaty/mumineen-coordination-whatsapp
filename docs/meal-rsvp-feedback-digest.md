@@ -33,6 +33,15 @@ issues to the right department when the agent doesn't name one, so they don't si
 
 ## 3. Nightly department digest (22:00 UTC)
 
+Before aggregating, the cron **mines the last 24h of raw conversations** for feedback the agent's
+live `submit_feedback` tool missed (`src/lib/digest/mine-conversations.ts`). This is **batched** —
+~10-15 conversations per LLM call, a handful of calls per night — so it uses the higher-end
+`OPENAI_MODEL_HIGH` preset (better extraction) rather than looping the cheap model per conversation.
+Each call extracts feedback items, assigns sentiment, and routes to a department (live catalog) in
+one shot; results are written to `feedback_entries` (`source = 'mined'`, idempotent per day). The
+aggregation below then picks them up alongside real-time and admin feedback.
+
+
 `src/lib/digest/aggregate.ts` rolls up a day's feedback / issues (`tasks`) / escalations
 (`conversation_sessions`) per department, plus an all-up view with flagged knowledge gaps and the
 next day's meal RSVP totals. `src/lib/digest/run.ts` generates **two** summaries per active
