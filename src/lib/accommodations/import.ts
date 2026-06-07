@@ -118,7 +118,7 @@ export async function importAccommodationHosts(
   const importId = importRow.id as string;
 
   // 2. Build host records and upsert.
-  const hostRows = validRows.map((r) => {
+  const parsedHostRows = validRows.map((r) => {
     const row: Record<string, unknown> = { import_id: importId, updated_at: new Date().toISOString() };
     for (const m of mappings) {
       const val = m.parse(r[m.header]);
@@ -133,6 +133,27 @@ export async function importAccommodationHosts(
     }
     return row;
   });
+
+  // A single upsert statement cannot contain the same conflict key twice.
+  // Deduplicate by hof_its and merge duplicates by preferring non-null values.
+  const byHof = new Map<string, Record<string, unknown>>();
+  for (const row of parsedHostRows) {
+    const hof = text(row.hof_its);
+    if (!hof) continue;
+    const existing = byHof.get(hof);
+    if (!existing) {
+      byHof.set(hof, row);
+      continue;
+    }
+
+    const merged = { ...existing };
+    for (const [k, v] of Object.entries(row)) {
+      if (v !== null && v !== "") merged[k] = v;
+    }
+    merged.updated_at = new Date().toISOString();
+    byHof.set(hof, merged);
+  }
+  const hostRows = [...byHof.values()];
 
   // Chunk upsert by hof_its.
   const CHUNK = 500;
