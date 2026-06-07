@@ -126,7 +126,7 @@ export async function PATCH(req: NextRequest) {
     if (action === "confirm") {
       await confirmMatch(matchId, confirmedBy ?? "admin");
     } else if (action === "reject" || action === "cancel") {
-      await rejectMatch(matchId, action === "reject" ? "rejected" : "cancelled");
+      await rejectMatch(matchId);
     } else {
       return NextResponse.json({ error: "Invalid action. Use: confirm, reject, cancel" }, { status: 400 });
     }

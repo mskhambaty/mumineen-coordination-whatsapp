@@ -29,6 +29,7 @@ type GuestRow = {
   hof_its: string;
   head_name: string | null;
   member_count: number;
+  attending_count: number;
   adult_count: number;
   child_count: number;
   male_count: number;
@@ -521,6 +522,7 @@ export default function AccommodationsPage() {
                 <tr className="border-b dark:border-gray-700 text-left">
                   <th className="p-2">HOF Name</th>
                   <th className="p-2">ITS</th>
+                  <th className="p-2">Attending</th>
                   <th className="p-2">Members</th>
                   <th className="p-2">Adults/Kids</th>
                   <th className="p-2">M/F</th>
@@ -536,6 +538,11 @@ export default function AccommodationsPage() {
                   <tr key={g.family_id} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
                     <td className="p-2">{g.head_name ?? "—"}</td>
                     <td className="p-2 font-mono text-xs">{g.hof_its}</td>
+                    <td className="p-2 text-center">
+                      <span className={g.attending_count < g.member_count ? "text-yellow-600 dark:text-yellow-400" : "text-green-600 dark:text-green-400"}>
+                        {g.attending_count}/{g.member_count}
+                      </span>
+                    </td>
                     <td className="p-2 text-center">{g.member_count}</td>
                     <td className="p-2 text-center">{g.adult_count}/{g.child_count}</td>
                     <td className="p-2 text-center">{g.male_count}M/{g.female_count}F</td>
