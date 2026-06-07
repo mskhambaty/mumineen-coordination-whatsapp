@@ -73,6 +73,8 @@ export type DetailRow = {
   email: string;
   detail: string; // segment-specific field(s)
   hof_its: string;
+  head?: string; // "Head" (roster HoF) | "Acting head" (registrant when HoF unregistered) | "" — only set for individual-level segments
+  attending?: string; // "Yes" | "No" — only set for individual-level segments
   utaro_host_name?: string;
   utaro_host_its?: string;
   utaro_host_whatsapp?: string;
@@ -99,9 +101,99 @@ export async function GET(req: NextRequest) {
   const FAMILY_SELECT =
     "hof_its, registration_status, acc_type, hotel_name, open_to_utaro, transport_mode, transport_detail, submitted_at, utaro_host_name, utaro_host_its, utaro_host_address, utaro_host_whatsapp_e164, utaro_host_email";
 
-  const isFamilySegment = ["hotel", "transport", "acc_type", "registration_status", "open_to_utaro", "host"].includes(segment);
+  const isFamilySegment = ["hotel", "transport", "acc_type", "registration_status", "host"].includes(segment);
 
   let rows: DetailRow[] = [];
+
+  if (segment === "open_to_utaro") {
+    // The awaiting-utaro matching pool, exported at the INDIVIDUAL level so the accommodation
+    // team sees every member's gender/age and can pivot families themselves via hof_its.
+    // Registered (submitted/confirmed) + hotel-booked + open to a host. Optional value narrows to one hotel.
+    const fams = await fetchAll<{
+      hof_its: string;
+      registration_status: string | null;
+      acc_type: string | null;
+      hotel_name: string | null;
+      open_to_utaro: boolean | null;
+      submitted_by_its: string | null;
+    }>((from, to) =>
+      supabase
+        .from("families")
+        .select("hof_its, registration_status, acc_type, hotel_name, open_to_utaro, submitted_by_its")
+        .eq("roster_active", true)
+        .range(from, to),
+    );
+
+    const qualifying = new Map(
+      fams
+        .filter(
+          (f) =>
+            (f.registration_status === "submitted" || f.registration_status === "confirmed") &&
+            f.acc_type === "hotel" &&
+            f.open_to_utaro &&
+            (value === "" || f.hotel_name?.trim().toLowerCase() === value.toLowerCase()),
+        )
+        .map((f) => [f.hof_its, f] as const),
+    );
+
+    const allMembers = await fetchAll<MuminDetail>((from, to) =>
+      supabase.from("mumineen").select(MUMIN_SELECT).eq("roster_active", true).range(from, to),
+    );
+    const pool = allMembers.filter((m) => qualifying.has(m.hof_its));
+
+    // Resolve the head per family from the full pool (before display filters): the roster HoF
+    // (is_head) wins; otherwise the registrant (submitted_by_its) is the acting head — ~430
+    // families have no roster HoF, so is_head alone would leave them headless.
+    const headItsByHof = new Map<string, string>();
+    for (const m of pool) {
+      if (m.is_head) {
+        headItsByHof.set(m.hof_its, m.its);
+      }
+    }
+    for (const [hof, f] of qualifying) {
+      if (!headItsByHof.has(hof) && f.submitted_by_its) {
+        headItsByHof.set(hof, f.submitted_by_its);
+      }
+    }
+
+    // Honor the page's global filters.
+    let display = pool;
+    if (localMehmanFilter) {
+      display = display.filter((m) => m.local_mehman === localMehmanFilter);
+    }
+    if (attendingFilter === "true") {
+      display = display.filter((m) => !m.not_attending);
+    }
+
+    // Group families together (by hof_its), head first within each, then by name.
+    display = display.slice().sort((a, b) => {
+      if (a.hof_its !== b.hof_its) return a.hof_its.localeCompare(b.hof_its);
+      const aHead = headItsByHof.get(a.hof_its) === a.its ? 0 : 1;
+      const bHead = headItsByHof.get(b.hof_its) === b.its ? 0 : 1;
+      if (aHead !== bHead) return aHead - bHead;
+      return (a.full_name ?? "").localeCompare(b.full_name ?? "");
+    });
+
+    rows = display.map((m) => {
+      const fam = qualifying.get(m.hof_its)!;
+      const isHeadRow = headItsByHof.get(m.hof_its) === m.its;
+      return {
+        its: m.its,
+        name: m.full_name ?? m.its,
+        gender: m.gender?.trim() ?? "—",
+        age: m.age !== null ? String(m.age) : "—",
+        local_mehman: m.local_mehman ?? "—",
+        whatsapp: m.whatsapp_e164 ?? "",
+        email: m.email ?? "",
+        detail: fam.hotel_name?.trim() ?? "—",
+        hof_its: m.hof_its,
+        head: isHeadRow ? (m.is_head ? "Head" : "Acting head") : "",
+        attending: m.not_attending ? "No" : "Yes",
+      };
+    });
+
+    return NextResponse.json({ segment, value, count: rows.length, rows });
+  }
 
   if (isFamilySegment) {
     // Family-level segment — fetch families + their HoF name
@@ -161,16 +253,6 @@ export async function GET(req: NextRequest) {
       } else {
         fams = fams.filter((f) => (f.registration_status ?? "pending") === value);
       }
-    } else if (segment === "open_to_utaro") {
-      // The awaiting-utaro matching pool: registered, hotel-booked, open to a host.
-      // Optional value narrows to one hotel (per-hotel awaiting badge).
-      fams = fams.filter(
-        (f) =>
-          (f.registration_status === "submitted" || f.registration_status === "confirmed") &&
-          f.acc_type === "hotel" &&
-          f.open_to_utaro &&
-          (value === "" || f.hotel_name?.trim().toLowerCase() === value.toLowerCase()),
-      );
     } else if (segment === "host") {
       // value is the host key from the analytics response: "its:<its>" or "name:<normalized name>".
       fams = fams.filter((f) => {
@@ -196,7 +278,6 @@ export async function GET(req: NextRequest) {
       else if (segment === "acc_type") detail = f.acc_type ?? "—";
       else if (segment === "transport") detail = [f.transport_mode, f.transport_detail].filter(Boolean).join(" — ");
       else if (segment === "registration_status") detail = f.submitted_at ? `Submitted ${f.submitted_at.slice(0, 10)}` : "Not submitted";
-      else if (segment === "open_to_utaro") detail = f.hotel_name?.trim() ?? "—";
       else if (segment === "host")
         detail = [f.utaro_host_name?.trim(), f.utaro_host_its?.trim() ? `ITS ${f.utaro_host_its.trim()}` : null]
           .filter(Boolean)

@@ -1,0 +1,105 @@
+import { NextRequest, NextResponse } from "next/server";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const requirePortalCaller = vi.fn();
+const getSupabaseAdmin = vi.fn();
+
+vi.mock("@/lib/api/portal-auth", () => ({
+  requirePortalCaller: (...a: unknown[]) => requirePortalCaller(...a),
+}));
+vi.mock("@/lib/supabase/server", () => ({
+  getSupabaseAdmin: () => getSupabaseAdmin(),
+}));
+
+import { GET } from "@/app/api/admin/registration-analytics/detail/route";
+
+// A chainable stub for `from(table).select(...).eq(...).range(from,to)` used by fetchAll.
+// fetchAll requests range(0, 999) first and stops once a page returns < 1000 rows, so we
+// return the full row set on the first page and an empty page afterwards.
+function makeChain(rows: unknown[]) {
+  const chain = {
+    select: () => chain,
+    eq: () => chain,
+    in: () => chain,
+    range: (from: number) => Promise.resolve({ data: from === 0 ? rows : [] }),
+  };
+  return chain;
+}
+
+function stubSupabase(tables: Record<string, unknown[]>) {
+  return { from: (table: string) => makeChain(tables[table] ?? []) };
+}
+
+const FAMILIES = [
+  // Registered + hotel + open: included. HoF (100) is in the roster → natural head.
+  { hof_its: "100", registration_status: "submitted", acc_type: "hotel", hotel_name: "Hyatt", open_to_utaro: true, submitted_by_its: "100" },
+  // Registered + hotel + open: included. HoF (200) NOT in roster → registrant 201 is acting head.
+  { hof_its: "200", registration_status: "confirmed", acc_type: "hotel", hotel_name: "Hilton", open_to_utaro: true, submitted_by_its: "201" },
+  // Not open to a host → excluded.
+  { hof_its: "300", registration_status: "submitted", acc_type: "hotel", hotel_name: "Westin", open_to_utaro: false, submitted_by_its: "300" },
+  // Not registered → excluded.
+  { hof_its: "400", registration_status: "pending", acc_type: "hotel", hotel_name: "Marriott", open_to_utaro: true, submitted_by_its: null },
+];
+
+const MUMINEEN = [
+  { its: "100", hof_its: "100", is_head: true, gender: "M", age: 40, not_attending: false, full_name: "Head One", local_mehman: "Mehman", whatsapp_e164: "+15550000100", email: "h1@x.com" },
+  { its: "101", hof_its: "100", is_head: false, gender: "F", age: 38, not_attending: false, full_name: "Spouse One", local_mehman: "Mehman", whatsapp_e164: null, email: null },
+  { its: "102", hof_its: "100", is_head: false, gender: "M", age: 10, not_attending: true, full_name: "Child One", local_mehman: "Mehman", whatsapp_e164: null, email: null },
+  { its: "201", hof_its: "200", is_head: false, gender: "F", age: 35, not_attending: false, full_name: "Acting Two", local_mehman: "Mehman", whatsapp_e164: null, email: null },
+  { its: "202", hof_its: "200", is_head: false, gender: "M", age: 5, not_attending: false, full_name: "Child Two", local_mehman: "Mehman", whatsapp_e164: null, email: null },
+  { its: "300", hof_its: "300", is_head: true, gender: "M", age: 50, not_attending: false, full_name: "Head Three", local_mehman: "Local", whatsapp_e164: null, email: null },
+  { its: "401", hof_its: "400", is_head: false, gender: "F", age: 30, not_attending: false, full_name: "Member Four", local_mehman: "Mehman", whatsapp_e164: null, email: null },
+];
+
+function req(query = "segment=open_to_utaro") {
+  return new NextRequest(`http://localhost/api/admin/registration-analytics/detail?${query}`);
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  getSupabaseAdmin.mockReturnValue(stubSupabase({ families: FAMILIES, mumineen: MUMINEEN }));
+  requirePortalCaller.mockResolvedValue({ role: "admin" });
+});
+
+describe("GET /api/admin/registration-analytics/detail — open_to_utaro", () => {
+  it("returns individual rows for every member of qualifying families, with gender/age populated", async () => {
+    const json = await (await GET(req())).json();
+
+    // Only families 100 (3 members) and 200 (2 members) qualify; 300 (not open) and 400 (not registered) are excluded.
+    expect(json.count).toBe(5);
+    expect(json.rows.map((r: { its: string }) => r.its).sort()).toEqual(["100", "101", "102", "201", "202"]);
+    expect(json.rows.some((r: { its: string }) => r.its === "300" || r.its === "401")).toBe(false);
+
+    const head = json.rows.find((r: { its: string }) => r.its === "100");
+    expect(head).toMatchObject({ gender: "M", age: "40", attending: "Yes", detail: "Hyatt", hof_its: "100", head: "Head" });
+  });
+
+  it("flags the registrant as 'Acting head' when the family head is not in the roster", async () => {
+    const rows = (await (await GET(req())).json()).rows as { its: string; hof_its: string; head: string }[];
+
+    // Family 200 has no is_head member; submitted_by_its (201) becomes the acting head.
+    const acting = rows.find((r) => r.its === "201");
+    expect(acting?.head).toBe("Acting head");
+    // Exactly one head marked per family.
+    expect(rows.filter((r) => r.hof_its === "100" && r.head).length).toBe(1);
+    expect(rows.filter((r) => r.hof_its === "200" && r.head).length).toBe(1);
+  });
+
+  it("includes not-attending members and calls them out via the Attending column", async () => {
+    const rows = (await (await GET(req())).json()).rows as { its: string; attending: string }[];
+    expect(rows.find((r) => r.its === "102")?.attending).toBe("No");
+    expect(rows.find((r) => r.its === "101")?.attending).toBe("Yes");
+  });
+
+  it("narrows to a single hotel when a value is supplied", async () => {
+    const json = await (await GET(req("segment=open_to_utaro&value=Hilton"))).json();
+    expect(json.rows.every((r: { hof_its: string }) => r.hof_its === "200")).toBe(true);
+    expect(json.count).toBe(2);
+  });
+
+  it("returns the auth response when the caller is not permitted", async () => {
+    requirePortalCaller.mockResolvedValue(NextResponse.json({ error: "forbidden" }, { status: 403 }));
+    const res = await GET(req());
+    expect(res.status).toBe(403);
+  });
+});

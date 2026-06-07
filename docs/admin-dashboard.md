@@ -57,6 +57,13 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - Task metrics: totals by status/priority, overdue list, and per-department breakdown (optional `department_id` filter)
 - Conversation metrics: active/manual/AI conversation counts, inbound vs outbound message volume, messages-by-day series, and top agent tools
 
+### Registration Analytics (`/admin/registration`)
+- Admin/leadership-only dashboard of registration, accommodation, transport, and khidmat KPIs, served by `GET /api/admin/registration-analytics`, with per-segment drill-downs via `GET /api/admin/registration-analytics/detail?segment=…`.
+- Each KPI opens a detail panel listing the matching families or individuals, with search and an **Export CSV** button. The CSV is written with a UTF-8 BOM so Excel (esp. on macOS) renders dashes/non-ASCII correctly instead of mojibake.
+- Most accommodation/transport/status segments are **family-level** (one row per family). The **Awaiting Utaro** segment (`open_to_utaro` — registered, hotel-booked, open to a host) is **individual-level**: one row per roster member of each qualifying family, so the accommodation team sees every member's gender/age and can pivot families via the `HOF ITS` column.
+  - **Head** column marks the family head — `Head` for the roster HoF (`mumineen.is_head`, i.e. `its = hof_its`), or `Acting head` for the registrant (`families.submitted_by_its`) when the HoF isn't in the roster (~430 families have no `is_head` member).
+  - **Attending** column (`Yes`/`No`) calls out members flagged `not_attending`; all roster members are included so the family picture is complete.
+
 ### Mumineen Roster (`/admin/mumineen`)
 - Admin/leadership and IT-access page for roster import, lookup, registration gate control, and committee corrections.
 - **Download template** links to `/templates/mumineen-roster-template.xlsx`, a static Excel workbook with an upload-ready `Roster` first sheet, plus `Examples` and `Instructions` sheets.

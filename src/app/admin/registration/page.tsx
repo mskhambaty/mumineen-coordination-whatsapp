@@ -91,6 +91,8 @@ type DetailRow = {
   email: string;
   detail: string;
   hof_its: string;
+  head?: string;
+  attending?: string;
   utaro_host_name?: string;
   utaro_host_its?: string;
   utaro_host_whatsapp?: string;
@@ -167,14 +169,27 @@ function DetailPanel({
   const hasDetail = rows.some((r) => r.detail);
   const showGender = rows.some((r) => r.gender !== "—");
   const showAge = rows.some((r) => r.age !== "—");
+  const showHead = rows.some((r) => r.head !== undefined);
+  const showAttending = rows.some((r) => r.attending !== undefined);
+  // Columns spanned by the utaro host sub-row (kept in sync with the header below).
+  const colCount =
+    2 + (showGender ? 1 : 0) + (showAge ? 1 : 0) + 2 + (hasDetail ? 1 : 0) + (showHead ? 1 : 0) + (showAttending ? 1 : 0);
 
   function exportCsv() {
     const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+    const withHead = filtered.some((r) => r.head !== undefined);
+    const withAttending = filtered.some((r) => r.attending !== undefined);
     const header = ["Name", "ITS", "Gender", "Age", "Type", "Phone", "Email", req.detailLabel ?? "Details", "HOF ITS"];
-    const lines = filtered.map((r) =>
-      [r.name, r.its, r.gender, r.age, r.local_mehman, r.whatsapp, r.email, r.detail, r.hof_its].map(esc).join(","),
-    );
-    const blob = new Blob([[header.join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
+    if (withHead) header.push("Head");
+    if (withAttending) header.push("Attending");
+    const lines = filtered.map((r) => {
+      const cells = [r.name, r.its, r.gender, r.age, r.local_mehman, r.whatsapp, r.email, r.detail, r.hof_its];
+      if (withHead) cells.push(r.head ?? "");
+      if (withAttending) cells.push(r.attending ?? "");
+      return cells.map(esc).join(",");
+    });
+    // Prepend a UTF-8 BOM so Excel (esp. on macOS) renders dashes/non-ASCII correctly instead of mojibake.
+    const blob = new Blob(["\uFEFF" + [header.join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -246,6 +261,8 @@ function DetailPanel({
                   <th className="px-2 py-2">Type</th>
                   <th className="px-2 py-2">Phone</th>
                   {hasDetail && <th className="px-2 py-2">{req.detailLabel ?? "Details"}</th>}
+                  {showHead && <th className="px-2 py-2">Head</th>}
+                  {showAttending && <th className="px-2 py-2">Attending</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -281,10 +298,20 @@ function DetailPanel({
                           {r.detail || "—"}
                         </td>
                       )}
+                      {showHead && (
+                        <td className="px-2 py-2 text-xs font-medium text-gray-600 dark:text-gray-400">
+                          {r.head || ""}
+                        </td>
+                      )}
+                      {showAttending && (
+                        <td className={`px-2 py-2 text-xs font-medium ${r.attending === "No" ? "text-red-500 dark:text-red-400" : "text-gray-500"}`}>
+                          {r.attending}
+                        </td>
+                      )}
                     </tr>
                     {r.utaro_host_name && (
                       <tr key={`${r.its}-host`} className="bg-emerald-50/50 dark:bg-emerald-950/20">
-                        <td colSpan={showGender || showAge ? 7 : 5} className="px-4 py-1.5">
+                        <td colSpan={colCount} className="px-4 py-1.5">
                           <div className="flex flex-wrap items-center gap-3 text-xs text-emerald-800 dark:text-emerald-300">
                             <span className="font-semibold">Host:</span>
                             <span>{r.utaro_host_name}</span>
