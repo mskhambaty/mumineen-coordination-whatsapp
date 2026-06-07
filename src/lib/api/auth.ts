@@ -47,6 +47,23 @@ export function requireAdminKey(req: Request): boolean {
   return providedKey === adminKey;
 }
 
+// Stronger gate for high-stakes admin tools (e.g. paid public broadcasts): requires the portal
+// admin key AND that the acting portal user (sent as x-portal-user-id) resolves to admin/leadership
+// in the database. Role is read from the DB by id, not trusted from the client. Returns true only
+// when both hold.
+export async function requireAdminLeadership(req: Request): Promise<boolean> {
+  if (!requireAdminKey(req)) return false;
+  const userId = req.headers.get("x-portal-user-id");
+  if (!userId) return false;
+  const { data } = await getSupabaseAdmin()
+    .from("whatsapp_users")
+    .select("role, global_role, is_master_admin, status")
+    .eq("id", userId)
+    .maybeSingle();
+  if (!data || data.status !== "active") return false;
+  return data.role === "admin" || data.global_role === "leadership_admin" || data.is_master_admin === true;
+}
+
 export function guardDeptAccess(caller: CallerContext, departmentId: string): void {
   if (caller.can_read_all) return;
   const hasDeptAccess = caller.departments.some((d) => d.department_id === departmentId);
