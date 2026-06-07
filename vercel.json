@@ -27,6 +27,10 @@
     {
       "path": "/api/cron/broadcast-drain",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/department-digest",
+      "schedule": "0 22 * * *"
     }
   ]
 }

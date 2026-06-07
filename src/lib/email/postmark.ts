@@ -108,7 +108,7 @@ export async function sendTaskNotificationEmail(
   });
 }
 
-async function sendRawEmail(to: string, subject: string, htmlBody: string, textBody: string): Promise<void> {
+export async function sendRawEmail(to: string, subject: string, htmlBody: string, textBody: string): Promise<void> {
   const res = await fetch(`${POSTMARK_API}/email`, {
     method: "POST",
     headers: {
