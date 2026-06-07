@@ -56,3 +56,9 @@ export function canManageParking(user: PortalUser | null | undefined) {
 export function canViewParking(user: PortalUser | null | undefined) {
   return canManageParking(user) || user?.is_manager === true;
 }
+
+// Accommodations module — same access as parking (admin/leadership, IT, Transport, or manager read-only).
+export function canManageAccommodations(user: PortalUser | null | undefined) {
+  return canViewRegistrations(user);
+}
+

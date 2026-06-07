@@ -492,6 +492,64 @@ Source: `supabase/migrations/20260529134501_match_site_content.sql`
 search over `religious_content` (same signature/body as `match_site_content`).  
 Source: `supabase/migrations/20260604130000_religious_content.sql`
 
+### `accommodation_host_imports`
+
+Raw import history — one row per spreadsheet upload.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `uploaded_at` | timestamptz | Auto |
+| `uploaded_by` | text | Nullable |
+| `filename` | text | Nullable |
+| `row_count` | integer | Number of valid rows |
+| `raw_json` | jsonb | Full raw spreadsheet rows |
+
+### `accommodation_hosts`
+
+Normalized hosts derived from the latest import (upserted on `hof_its`).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `hof_its` | text | Unique — host identity |
+| `first_name` | text | Nullable |
+| `last_name` | text | Nullable |
+| `address` | text | Geocoding source |
+| `city` | text | Nullable |
+| `lat` | double | Geocoded latitude |
+| `lon` | double | Geocoded longitude |
+| `can_provide_utaro` | boolean | Eligibility flag |
+| `capacity_mehman` | integer | Max mehman guests |
+| `capacity_family_friends` | integer | Additional family/friends capacity |
+| `include_family_friends` | boolean | Admin toggle |
+| `gender_preference` | text | Mardo/Bairo preference |
+| `import_id` | uuid | FK → `accommodation_host_imports` |
+| `created_at` | timestamptz | Auto |
+| `updated_at` | timestamptz | Auto |
+
+### `accommodation_matches`
+
+Guest-host match linkage with lifecycle status.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `guest_family_id` | uuid | FK → `families` |
+| `host_id` | uuid | FK → `accommodation_hosts` |
+| `status` | text | `pending` \| `confirmed` \| `rejected` \| `cancelled` |
+| `guest_member_count` | integer | Number of guests allocated |
+| `notes` | text | Nullable |
+| `previous_acc_type` | text | Audit: pre-confirm value |
+| `previous_utaro_host_its` | text | Audit: pre-confirm value |
+| `confirmed_at` | timestamptz | When confirmed |
+| `confirmed_by` | text | Who confirmed |
+| `created_at` | timestamptz | Auto |
+| `updated_at` | timestamptz | Auto |
+
+Unique constraint: `(guest_family_id, host_id)`.  
+Source: `supabase/migrations/20260606120000_accommodations_module.sql`
+
 ## Migration Conventions
 
 - One logical change per migration file.
