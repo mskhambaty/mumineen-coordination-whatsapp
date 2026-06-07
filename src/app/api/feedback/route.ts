@@ -6,9 +6,10 @@ import { recordFeedback } from "@/lib/feedback/record";
 
 export const runtime = "nodejs";
 
-// Append-only feedback intake from the WhatsApp agent's submit_feedback tool. Identified by
-// x-whatsapp-from; low-stakes like create_issue, so any identified caller may submit feedback
-// about their own experience. One call may carry feedback for several areas.
+// Append-only feedback intake. NOTE: the agent no longer logs feedback in real time — the nightly
+// digest mines it from conversations instead (src/lib/digest/mine-conversations.ts), avoiding
+// double-counting. Retained as a programmatic insert path (e.g. future admin/manual entry).
+// Identified by x-whatsapp-from; `area` accepts any string and is normalized (default "general").
 
 const entrySchema = z.object({
   area: z.string().min(1),

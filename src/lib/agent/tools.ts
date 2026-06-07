@@ -240,40 +240,6 @@ export const allToolDefinitions: ToolDefinition[] = [
       },
     },
   },
-  {
-    type: "function",
-    function: {
-      name: "submit_feedback",
-      description:
-        "Record a visitor's feedback about their experience so the right committee sees it in the nightly summary. Use when a user shares how something went — good or bad — about jaman/mawaid, flow/crowd management, parking or transport, audio/video, accommodation, or seating/rahat. One call can carry several areas. If the feedback is an actionable problem to fix (e.g. 'the AC was broken'), ALSO use create_issue; for an emergency or a request for a person, use move_to_escalation. This tool is for capturing sentiment, not a substitute for helping.",
-      parameters: {
-        type: "object",
-        properties: {
-          entries: {
-            type: "array",
-            description: "One entry per area the user gave feedback on.",
-            items: {
-              type: "object",
-              properties: {
-                area: {
-                  type: "string",
-                  enum: ["mawaid", "flow", "parking_transport", "audio_video", "accommodation", "seating", "general"],
-                  description: "Which area the feedback is about.",
-                },
-                sentiment: { type: "string", enum: ["positive", "neutral", "negative"], description: "Overall tone of this feedback." },
-                rating: { type: "number", description: "Optional 1-5 rating if the user gave one." },
-                comment: { type: "string", description: "A short, cleaned-up summary of what they said." },
-              },
-              required: ["area"],
-              additionalProperties: false,
-            },
-          },
-        },
-        required: ["entries"],
-        additionalProperties: false,
-      },
-    },
-  },
   // --- Task Management Tools ---
   {
     type: "function",
@@ -720,12 +686,6 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       return callInternalApi("/api/rsvp/meals", { phone: context.phoneE164 });
     case "set_family_meal_rsvps":
       return callInternalApi("/api/rsvp/meals", {
-        method: "POST",
-        phone: context.phoneE164,
-        body: { entries: args.entries ?? [] },
-      });
-    case "submit_feedback":
-      return callInternalApi("/api/feedback", {
         method: "POST",
         phone: context.phoneE164,
         body: { entries: args.entries ?? [] },

@@ -3,9 +3,10 @@ import { getDepartmentCatalog, renderCatalog, type Dept } from "@/lib/department
 import { FEEDBACK_AREAS, normalizeArea } from "@/lib/feedback/areas";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
-// Nightly batch: mine the last 24h of raw WhatsApp conversations for experience feedback that the
-// agent's real-time submit_feedback tool didn't capture, and write it to feedback_entries so the
-// digest can raise it with the right department. This is BATCHED (many conversations per LLM call,
+// Nightly batch: mine the last 24h of raw WhatsApp conversations for experience feedback and write
+// it to feedback_entries so the digest can raise it with the right department. This is the single
+// source of feedback for the digest (the agent no longer logs feedback in real time). BATCHED
+// (many conversations per LLM call,
 // a handful of calls per night) — so it uses the higher-end OPENAI_MODEL_HIGH preset rather than
 // looping the cheap model per conversation.
 

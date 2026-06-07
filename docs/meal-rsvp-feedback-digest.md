@@ -23,18 +23,19 @@ record, `applyMealRsvps` with date-range expansion). API: `GET/POST /api/rsvp/me
 ## 2. Feedback
 
 Append-only, department-tagged, sentiment-scored — `feedback_entries`
-(`supabase/migrations/20260606100200_*`). Each entry is associated with a department by an LLM
-classifier against the **live department list + descriptions** (`src/lib/departments/classify.ts`),
-falling back to a static area→department map (`src/lib/feedback/areas.ts`) when nothing clearly
-fits. The agent's `submit_feedback` accepts any `area` string and the route normalizes it
-(`normalizeArea`, unknown → `general`) so feedback is never dropped on a label mismatch. Capture:
-`src/lib/feedback/record.ts`, API `POST /api/feedback`. The same classifier routes `create_issue`
-issues to the right department when the agent doesn't name one, so they don't sit untriaged.
+(`supabase/migrations/20260606100200_*`). Feedback is captured by the **nightly conversation-mining
+batch** (see §3), which is the single source — the agent does **not** log feedback in real time
+(that caused double-counting and fired rarely). Each entry is associated with a department by an
+LLM classifier against the **live department list + descriptions** (`src/lib/departments/classify.ts`),
+falling back to a static area→department map (`src/lib/feedback/areas.ts`). The `create_issue` path
+uses the same classifier to route issues to the right department when the agent doesn't name one,
+so they don't sit untriaged. (`POST /api/feedback` + `recordFeedback` remain as a programmatic
+insert path for future admin/manual entry, but are no longer wired to the agent.)
 
 ## 3. Nightly department digest (22:00 UTC)
 
-Before aggregating, the cron **mines the last 24h of raw conversations** for feedback the agent's
-live `submit_feedback` tool missed (`src/lib/digest/mine-conversations.ts`). This is **batched** —
+Before aggregating, the cron **mines the last 24h of raw conversations** for feedback
+(`src/lib/digest/mine-conversations.ts`) — the single source of digest feedback. This is **batched** —
 ~10-15 conversations per LLM call, a handful of calls per night — so it uses the higher-end
 `OPENAI_MODEL_HIGH` preset (better extraction) rather than looping the cheap model per conversation.
 Each call extracts feedback items, assigns sentiment, and routes to a department (live catalog) in
