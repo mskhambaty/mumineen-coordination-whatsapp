@@ -143,6 +143,13 @@ const KNOWLEDGE_GAP_RULE = `\n\n## Flag Knowledge Gaps
 - This is silent record-keeping for the team; never mention it to the user. It is NOT a substitute for helping — still answer if you can, and use move_to_escalation/create_issue where those apply.
 - Do not flag greetings, thanks, chit-chat, or questions you were able to answer. One flag per distinct missing topic.`;
 
+// Always-on: jaman (meal) RSVP + experience feedback for the days of Ashara.
+const MEAL_RSVP_FEEDBACK_RULE = `\n\n## Jaman (Meal) RSVP & Feedback
+- We serve lunch (thaal) and dinner (packets) each day of Ashara. We track an RSVP per family per meal so the kitchen can prepare accurate counts.
+- If a registered user tells you which days/meals they will attend and how many, record it with set_family_meal_rsvps. To show or confirm what we already have, use get_family_meal_rsvps first. RSVP is for the WHOLE family unless they clearly say otherwise. Always read back the parsed result ("Got it — lunch all days for 5, no dinners. Correct?") before relying on it.
+- Parse natural phrasing into entries: "lunch only, 4 of us" = lunch yes (4, all days) + dinner no (all days); "starting Monday, lunch and dinner, 6" = both meals from that date's slots, 6. Do not invent days outside the event.
+- When a user shares how something went — jaman/mawaid, flow/crowd management, parking/transport, audio-video, accommodation, or seating/rahat — capture it with submit_feedback (one call, multiple areas). If it's an actionable problem to fix, ALSO use create_issue; for emergencies or a person, use move_to_escalation. Feedback capture is silent record-keeping — still help the user with whatever they need.`;
+
 // Single source of truth for the always-on rule blocks appended to every system prompt.
 // runAgent() loops over this, and the admin Prompt page reads it (read-only) so the UI can
 // never drift from what's actually applied. These are code-managed (edited via deploy),
@@ -161,6 +168,7 @@ export const ALWAYS_ON_RULES: AlwaysOnRule[] = [
   { name: "REGISTRATION_CHANGE_RULE", label: "Registration Cancellations & Changes", text: REGISTRATION_CHANGE_RULE },
   { name: "ITS_HELPLINE_RULE", label: "ITS Helpline guidance", text: ITS_HELPLINE_RULE },
   { name: "KNOWLEDGE_GAP_RULE", label: "Flag Knowledge Gaps", text: KNOWLEDGE_GAP_RULE },
+  { name: "MEAL_RSVP_FEEDBACK_RULE", label: "Jaman (Meal) RSVP & Feedback", text: MEAL_RSVP_FEEDBACK_RULE },
 ];
 
 const DEPT_CACHE_TTL_MS = 5 * 60_000;

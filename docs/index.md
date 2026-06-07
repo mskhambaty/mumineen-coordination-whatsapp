@@ -29,6 +29,7 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 | [escalation.md](./escalation.md) | Escalation & site support: triggers, roles, on-call, notifications (design spec) |
 | [relay-updates.md](./relay-updates.md) | Public relay-page updates feed: endpoint, authoring UI, agent indexing |
 | [accommodations-matching.md](./plans/accommodations-matching.md) | Accommodations host-guest utaro matching module: import, rollups, matching |
+| [meal-rsvp-feedback-digest.md](./meal-rsvp-feedback-digest.md) | Jaman meal RSVP, feedback capture, nightly department digest, and the manual template send console |
 | [openapi.yaml](./openapi.yaml) | API-first contract for all `src/app/api/**` routes |
 
 ## Key File Locations
@@ -64,6 +65,13 @@ src/lib/env.ts                           — Env var lookup with alias support
 public/templates/mumineen-roster-template.xlsx — Downloadable Mumineen roster import template
 supabase/migrations/                     — All database migrations
 src/app/api/relay-updates/route.ts       — Public relay updates JSON feed
+src/lib/rsvp/meal-rsvp.ts                — Meal-slot grid read/record + applyMealRsvps (RSVP capture)
+src/lib/feedback/record.ts               — Append-only feedback capture (area→department tagged)
+src/lib/whatsapp/audience.ts             — Send-console audience resolution + free/paid window split
+src/lib/whatsapp/broadcast.ts            — Throttled template broadcast engine (queue + drain)
+src/lib/digest/run.ts                    — Nightly department digest: aggregate→AI→store→distribute
+src/app/api/cron/department-digest/route.ts — Nightly department digest cron (22:00 UTC)
+src/app/api/cron/broadcast-drain/route.ts   — Template broadcast drain cron (every minute)
 ```
 
 ## Quick Reference: Adding a New Feature

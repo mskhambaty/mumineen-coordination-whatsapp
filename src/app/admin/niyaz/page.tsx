@@ -8,6 +8,15 @@ import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type Tally = { responded_families: number; yes_count: number; total_head_count: number };
 
+type MealGridSlot = {
+  eventDate: string;
+  meal: "lunch" | "dinner";
+  servingType: string | null;
+  respondedFamilies: number;
+  attendingFamilies: number;
+  totalHeadCount: number;
+};
+
 type NiyazInstance = {
   id: string;
   title: string;
@@ -102,6 +111,7 @@ export default function NiyazPage() {
   const [savingResp, setSavingResp] = useState(false);
   const [editingRespId, setEditingRespId] = useState<string | null>(null);
   const [editResp, setEditResp] = useState({ response: "yes" as "yes" | "no" | "maybe", head_count: "" });
+  const [mealGrid, setMealGrid] = useState<MealGridSlot[]>([]);
 
   useEffect(() => {
     const user = readAdminUser();
@@ -114,7 +124,13 @@ export default function NiyazPage() {
       return;
     }
     void loadInstances();
+    void loadMealGrid();
   }, [router]);
+
+  async function loadMealGrid() {
+    const res = await apiFetch("/api/admin/niyaz/meal-grid");
+    if (res.ok) setMealGrid(((await res.json()).slots as MealGridSlot[]) ?? []);
+  }
 
   // The signed-in admin, read at submit time (stored on the response as recorded_by).
   function currentAdminId(): string {
@@ -305,6 +321,48 @@ export default function NiyazPage() {
 
       {error && (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{error}</div>
+      )}
+
+      {mealGrid.length > 0 && (
+        <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-sm font-semibold">Meal counts (kitchen) — attending families · head count</h2>
+            <button type="button" onClick={loadMealGrid} className="text-xs text-blue-600">Refresh</button>
+          </div>
+          <div className="overflow-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="text-xs uppercase text-gray-500">
+                <tr>
+                  <th className="px-2 py-1">Day</th>
+                  <th className="px-2 py-1">Lunch (thaal)</th>
+                  <th className="px-2 py-1">Dinner (packets)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...new Set(mealGrid.map((s) => s.eventDate))].sort().map((date) => {
+                  const lunch = mealGrid.find((s) => s.eventDate === date && s.meal === "lunch");
+                  const dinner = mealGrid.find((s) => s.eventDate === date && s.meal === "dinner");
+                  const cell = (s?: MealGridSlot) =>
+                    s ? `${s.attendingFamilies} fam · ${s.totalHeadCount}` : "—";
+                  return (
+                    <tr key={date} className="border-t border-gray-100 dark:border-gray-800">
+                      <td className="px-2 py-1 font-medium">{new Date(`${date}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</td>
+                      <td className="px-2 py-1">{cell(lunch)}</td>
+                      <td className="px-2 py-1">{cell(dinner)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-gray-300 font-semibold dark:border-gray-700">
+                  <td className="px-2 py-1">Total head count</td>
+                  <td className="px-2 py-1">{mealGrid.filter((s) => s.meal === "lunch").reduce((n, s) => n + s.totalHeadCount, 0)}</td>
+                  <td className="px-2 py-1">{mealGrid.filter((s) => s.meal === "dinner").reduce((n, s) => n + s.totalHeadCount, 0)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
       )}
 
       {showInstanceForm && (

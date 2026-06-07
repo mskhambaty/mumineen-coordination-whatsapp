@@ -12,7 +12,7 @@ import { buildSendComponents, describeTemplate, previewBody, type TemplateDescri
 // open 24h customer-service window — required for cold staff alerts (free-form sends
 // to a window-less number return Meta error 131047).
 
-export type TemplateSendResult = { status: "sent" | "failed"; error?: string };
+export type TemplateSendResult = { status: "sent" | "failed"; error?: string; waMessageId?: string };
 
 // Resolve an APPROVED template by name from the live Meta template list into the
 // descriptor the send pipeline needs. Throws if the template is missing or not
@@ -55,11 +55,12 @@ export async function sendTemplateNotification(input: SendTemplateNotificationIn
 
     const components = buildSendComponents({ bodyParams: input.bodyParams }, desc);
     const metaResponse = await sendWhatsAppTemplateComponents(input.phoneE164, desc.name, desc.language, components);
+    const waMessageId = metaResponse.messages?.[0]?.id;
 
     await recordOutboundMessage({
       phoneE164: input.phoneE164,
       body: `[template:${desc.name}] ${previewBody(desc.bodyText, input.bodyParams)}`.trim(),
-      whatsappMessageId: metaResponse.messages?.[0]?.id,
+      whatsappMessageId: waMessageId,
       rawPayload: {
         source: input.source,
         template: desc.name,
@@ -69,7 +70,7 @@ export async function sendTemplateNotification(input: SendTemplateNotificationIn
     });
     await touchConversationSession({ phoneE164: input.phoneE164, userId: input.userId ?? undefined });
 
-    return { status: "sent" };
+    return { status: "sent", waMessageId };
   } catch (err) {
     const message = err instanceof Error ? err.message : `WhatsApp template "${input.templateName}" send failed.`;
     // Log an opaque id only — never the phone number or message body.

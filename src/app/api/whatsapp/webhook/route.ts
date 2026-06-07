@@ -16,6 +16,7 @@ import {
 } from "@/lib/supabase/server";
 import { insertPendingMessage, runCoalescedInbound } from "@/lib/whatsapp/coalesce";
 import { extractIncomingMessages, type IncomingWhatsAppMessage } from "@/lib/whatsapp/parser";
+import { applyBroadcastStatuses, extractStatusUpdates, markBroadcastReplied } from "@/lib/whatsapp/broadcast-status";
 
 export const runtime = "nodejs";
 // The reply is generated in an after() background task that runs up to two sequential model
@@ -53,16 +54,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  // Delivery-status callbacks (sent/delivered/read/failed) ride the same webhook as messages and
+  // carry no message body. Apply them to broadcast recipients, best-effort, before the message path.
+  const statusUpdates = extractStatusUpdates(payload);
+  if (statusUpdates.length > 0) {
+    await applyBroadcastStatuses(statusUpdates).catch((err) => console.error("Broadcast status update failed:", err));
+  }
+
   const messages = extractIncomingMessages(payload);
 
   if (messages.length === 0) {
-    return NextResponse.json({ received: true, processed: 0 });
+    return NextResponse.json({ received: true, processed: 0, statuses: statusUpdates.length });
   }
 
   let processed = 0;
 
   for (const message of messages) {
     try {
+      // If this number was recently broadcast to, mark that recipient as replied (best-effort).
+      void markBroadcastReplied(message.phoneE164).catch(() => undefined);
       const didProcess = await processIncomingMessage(message);
       processed += didProcess ? 1 : 0;
     } catch (error) {
