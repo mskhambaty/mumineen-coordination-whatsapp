@@ -17,6 +17,8 @@ export default function ContentBucketEditor({
   adminKey,
   showSource = false,
   initialSourceUrl = null,
+  showTheme = false,
+  initialTheme = null,
   onClose,
   onSaved,
 }: {
@@ -28,11 +30,14 @@ export default function ContentBucketEditor({
   adminKey: string;
   showSource?: boolean;
   initialSourceUrl?: string | null;
+  showTheme?: boolean;
+  initialTheme?: string | null;
   onClose: () => void;
   onSaved?: (chunkCount: number) => void;
 }) {
   const [content, setContent] = useState(initialContent);
   const [sourceUrl, setSourceUrl] = useState(initialSourceUrl ?? "");
+  const [theme, setTheme] = useState(initialTheme ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -53,7 +58,13 @@ export default function ContentBucketEditor({
       const res = await fetch(endpoint, {
         method: "PUT",
         headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
-        body: JSON.stringify({ content, updated_by: updatedBy, ...(showSource ? { source_url: sourceUrl.trim() } : {}) }),
+        body: JSON.stringify({
+          content,
+          updated_by: updatedBy,
+          ...(showSource ? { source_url: sourceUrl.trim() } : {}),
+          // Send theme only if explicitly set; blank lets the server auto-generate from content.
+          ...(showTheme && theme.trim() ? { theme: theme.trim() } : {}),
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Failed to save");
@@ -110,6 +121,19 @@ export default function ContentBucketEditor({
                 value={sourceUrl}
                 onChange={(e) => { setSourceUrl(e.target.value); setSaved(false); }}
                 placeholder="https://blogs.jameasaifiyah.edu/reflection/ashara/1447h/reflections-majlis-2-5/"
+                className="mt-1 block w-full rounded-md border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+              />
+            </label>
+          )}
+          {showTheme && (
+            <label className="mb-3 block text-sm text-gray-700 dark:text-gray-300">
+              Theme — one line (leave blank to auto-generate on save)
+              <input
+                type="text"
+                value={theme}
+                maxLength={160}
+                onChange={(e) => { setTheme(e.target.value); setSaved(false); }}
+                placeholder="e.g. al-Falak al-Muheet — the surrounding orbit and leading by example"
                 className="mt-1 block w-full rounded-md border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
               />
             </label>

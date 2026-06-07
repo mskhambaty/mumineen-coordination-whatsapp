@@ -3,7 +3,15 @@ import type OpenAI from "openai";
 import { canUseTool, canUseTaskToolForCaller, publicTools, committeeTools, taskReadTools, taskWriteTools, taskCreateTools, leadershipTools, type AppUser } from "@/lib/permissions";
 import { retrieveReligiousContext, retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
 import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
-import { findMajlisReflection } from "@/lib/knowledge/religious-topics";
+import { DEFAULT_ACTIVE_YEAR } from "@/lib/knowledge/ashara-config";
+import {
+  availableFacets,
+  findMajlisReflection,
+  isDeepQuery,
+  isOverviewQuery,
+  listMajlisThemes,
+  parseMajlisRef,
+} from "@/lib/knowledge/religious-topics";
 import { recordToolAudit } from "@/lib/supabase/server";
 import { recordKnowledgeGap } from "@/lib/knowledge/knowledge-gaps";
 import type { CallerContext } from "@/lib/api/auth";
@@ -551,18 +559,50 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       );
     case "answer_religious_questions": {
       const query = String(args.query ?? "Ashara majlis Vaaz Talaqi Iqtibasaat");
-      // If the user names a specific majlis ("second waaz", "Majlis 2", "4th Muharram"),
-      // fetch that exact reflection by number — vector search mis-ranks majlis ordinals.
-      const majlis = await findMajlisReflection(query);
-      if (majlis.length) {
+
+      // 1. Overview intent ("topics of all majalis", "compare") → compact theme list, no full blocks.
+      if (isOverviewQuery(query)) {
+        const ym = query.match(/\b(14\d\d)\s*h?\b/i);
+        const year = ym ? ym[1] : DEFAULT_ACTIVE_YEAR;
+        const themes = await listMajlisThemes(year);
+        if (!themes.length) {
+          return { status: "not_available", answer_style: "overview", year,
+            context: `No indexed majlis themes for Ashara ${year}H yet.` };
+        }
         return {
-          status: "ok",
-          source: "religious_topic_exact",
-          context: majlis
-            .map((t) => `[${t.title}${t.source_url ? ` — Source: ${t.source_url}` : ""}]\n${t.content}`)
-            .join("\n\n---\n\n"),
+          status: "ok", source: "religious_overview", answer_style: "overview",
+          context: `Majlis themes — Ashara ${year}H:\n` + themes.map((t) => `- ${t.majlisLabel}: ${t.theme}`).join("\n"),
         };
       }
+
+      // 2. Specific majlis ("Majlis 2", "second waaz", "4th Muharram") → exact block(s).
+      // (Structured lookup beats vector search, which mis-ranks majlis ordinals.)
+      const ref = parseMajlisRef(query);
+      if (ref) {
+        const hits = await findMajlisReflection(query);
+        const facets = await availableFacets(ref);
+        if (hits.length) {
+          return {
+            status: "ok",
+            source: "religious_topic_exact",
+            answer_style: isDeepQuery(query) ? "deep" : "brief",
+            available_facets: facets,
+            context: hits
+              .map((t) => `[${t.title}${t.source_url ? ` — Source: ${t.source_url}` : ""}]\n${t.theme ? `Theme: ${t.theme}\n` : ""}${t.content}`)
+              .join("\n\n---\n\n"),
+          };
+        }
+        // Named a majlis but nothing indexed for that year → never fabricate.
+        return {
+          status: "not_available",
+          answer_style: "brief",
+          year: ref.year ?? DEFAULT_ACTIVE_YEAR,
+          available_facets: facets,
+          context: `No indexed content for that majlis in Ashara ${ref.year ?? DEFAULT_ACTIVE_YEAR}H yet.`,
+        };
+      }
+
+      // 3. General religious question → vector search fallback.
       return getIndexedInfo(
         query,
         "I could not find this in the indexed religious content yet.",

@@ -1,3 +1,5 @@
+import { AI_MODEL, chatParams, getAIClient } from "@/lib/ai/model";
+import { DEFAULT_ACTIVE_YEAR, majlisLabel } from "@/lib/knowledge/ashara-config";
 import { deleteReligiousContent, indexReligiousTopic, type ReligiousMeta } from "@/lib/knowledge/index-content";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -22,6 +24,7 @@ export type ReligiousTopic = {
   category: ReligiousCategory | null;
   language: ReligiousLanguage;
   status: ReligiousStatus;
+  theme: string | null;
   updated_at: string | null;
 };
 
@@ -40,7 +43,7 @@ export type TopicMeta = {
 
 const TOPIC_SELECT =
   "id, slug, title, content, chunk_count, sort_order, source_url, source_label, " +
-  "year_hijri, majlis_number, is_ashura, category, language, status, updated_at";
+  "year_hijri, majlis_number, is_ashura, category, language, status, theme, updated_at";
 
 // Count Q&A entries in topic text (entries are separated by blank lines).
 function countEntries(content: string): number {
@@ -126,12 +129,39 @@ export async function createReligiousTopic(title: string, meta: TopicMeta = {}):
   return { id: data.id as string, slug: data.slug as string };
 }
 
+// One-line "theme" for a topic block (multi-representation indexing). Best-effort:
+// returns null on any failure so saving never breaks on the summarizer.
+export async function generateTheme(title: string, content: string): Promise<string | null> {
+  const text = content.trim();
+  if (!text) return null;
+  try {
+    const res = await getAIClient().chat.completions.create({
+      ...chatParams(AI_MODEL, { maxTokens: 80, temperature: 0.1 }),
+      messages: [
+        {
+          role: "system",
+          content:
+            "You distill Dawoodi Bohra Ashara majlis content into ONE short theme line (max ~120 characters). " +
+            "No preamble, no quotes, reverent tone, keep honorifics (SA/AS/TUS/RA). Output only the line.",
+        },
+        { role: "user", content: `Title: ${title}\n\nContent:\n${text.slice(0, 4000)}\n\nReturn ONLY the one-line theme.` },
+      ],
+    });
+    const theme = res.choices[0]?.message?.content?.trim().replace(/^["']+|["']+$/g, "").slice(0, 160);
+    return theme || null;
+  } catch {
+    return null;
+  }
+}
+
 // Save a topic's text (and optional source link) and re-index it into the vector store.
+// `theme`: pass a string to set it explicitly, undefined to auto-generate from content.
 export async function saveReligiousTopic(
   topicId: string,
   content: string,
   updatedBy: string | null,
   source?: { sourceUrl?: string | null; sourceLabel?: string | null },
+  theme?: string | null,
 ): Promise<{ chunk_count: number }> {
   const supabase = getSupabaseAdmin();
   const { data: topic } = await supabase
@@ -156,6 +186,8 @@ export async function saveReligiousTopic(
 
   // Saving real content fulfils a pending-translation / placeholder slot → mark indexed.
   const nextStatus = content.trim() ? "indexed" : (topic.status as string);
+  // Explicit theme wins; otherwise auto-generate a fresh one from the new content.
+  const nextTheme = theme !== undefined ? (theme || null) : await generateTheme(topic.title as string, content);
 
   const { error } = await supabase
     .from("religious_topics")
@@ -165,6 +197,7 @@ export async function saveReligiousTopic(
       source_url: sourceUrl,
       source_label: sourceLabel,
       status: nextStatus,
+      theme: nextTheme,
       updated_by: updatedBy,
       updated_at: new Date().toISOString(),
     })
@@ -242,6 +275,21 @@ export function parseMajlisRef(query: string): MajlisRef | null {
   return { lailat, majlisNum, wantsTazyeen, wantsDars, wantsCategory, year: ym ? ym[1] : null };
 }
 
+// "Overview" intent: the user wants a list/comparison across majalis, not one block.
+// (Handled before parseMajlisRef, which only fires when a specific majlis is named.)
+export function isOverviewQuery(query: string): boolean {
+  const q = ` ${query.toLowerCase()} `;
+  return /\b(all|every|each|list|overview|summary)\b/.test(q) && /\bmajlis|majalis|waaz|ashara|theme|topic/.test(q)
+    || /\b(topics?|themes?|subjects?)\s+of\s+(all|the|every|each)\b/.test(q)
+    || /\b(all|every)\s+majalis\b/.test(q)
+    || /\bcompare\b/.test(q);
+}
+
+// "Deep" intent: the user explicitly wants more than the headline.
+export function isDeepQuery(query: string): boolean {
+  return /\b(tell me more|more detail|in detail|details|explain|elaborate|full|fully|stories|story|everything about|go deeper|deep dive)\b/i.test(query);
+}
+
 // Map a parsed reference to the target content category.
 function categoryForRef(ref: MajlisRef): ReligiousCategory {
   if (ref.wantsCategory) return ref.wantsCategory;
@@ -250,7 +298,7 @@ function categoryForRef(ref: MajlisRef): ReligiousCategory {
   return "reflection";
 }
 
-type MajlisHit = { title: string; content: string; source_url: string | null };
+type MajlisHit = { title: string; content: string; source_url: string | null; theme?: string | null };
 
 // Legacy fallback: match by title prefix for any row missing structured metadata.
 async function findMajlisByTitle(ref: MajlisRef, category: ReligiousCategory): Promise<MajlisHit[]> {
@@ -284,7 +332,7 @@ export async function findMajlisReflection(query: string): Promise<MajlisHit[]> 
 
   let q = getSupabaseAdmin()
     .from("religious_topics")
-    .select("title, content, source_url, year_hijri")
+    .select("title, content, source_url, theme, year_hijri")
     .eq("category", category);
   if (ref.year) q = q.eq("year_hijri", ref.year);
   if (ref.lailat) q = q.eq("is_ashura", true);
@@ -296,7 +344,82 @@ export async function findMajlisReflection(query: string): Promise<MajlisHit[]> 
   // Fallback to legacy title matching if nothing carried structured metadata.
   if (!rows.length) rows = (await findMajlisByTitle(ref, category)) as typeof rows;
 
-  return rows.slice(0, 2).map((t) => ({ title: t.title, content: t.content, source_url: t.source_url ?? null }));
+  return rows.slice(0, 2).map((t) => ({ title: t.title, content: t.content, source_url: t.source_url ?? null, theme: t.theme ?? null }));
+}
+
+// --- Overview + facets (multi-representation indexing) ---
+
+export type MajlisThemeRow = { majlisLabel: string; theme: string };
+
+// Compact per-majlis theme list for "overview"/"topics of all majalis" answers.
+// One line per majlis for the year, preferring the Reflection theme (the main waaz theme).
+export async function listMajlisThemes(year: string): Promise<MajlisThemeRow[]> {
+  const { data } = await getSupabaseAdmin()
+    .from("religious_topics")
+    .select("majlis_number, is_ashura, category, theme, status")
+    .eq("year_hijri", year)
+    .eq("status", "indexed")
+    .not("theme", "is", null);
+  const rows = (data ?? []) as {
+    majlis_number: number | null; is_ashura: boolean; category: ReligiousCategory | null; theme: string | null;
+  }[];
+
+  // Group by majlis; prefer the reflection theme, else the first available.
+  const byMajlis = new Map<string, { order: number; label: string; theme: string; isReflection: boolean }>();
+  for (const r of rows) {
+    if (!r.theme) continue;
+    const key = r.is_ashura ? "ashura" : String(r.majlis_number ?? "?");
+    const order = r.is_ashura ? 99 : (r.majlis_number ?? 98);
+    const isReflection = r.category === "reflection";
+    const existing = byMajlis.get(key);
+    if (!existing || (isReflection && !existing.isReflection)) {
+      byMajlis.set(key, { order, label: majlisLabel(r.majlis_number, r.is_ashura), theme: r.theme, isReflection });
+    }
+  }
+  return Array.from(byMajlis.values())
+    .sort((a, b) => a.order - b.order)
+    .map((v) => ({ majlisLabel: v.label, theme: v.theme }));
+}
+
+// Which content categories actually have indexed, non-empty content for a given majlis —
+// so the agent only offers follow-ups that really exist (and we can detect "not available").
+export async function availableFacets(ref: MajlisRef): Promise<ReligiousCategory[]> {
+  const year = ref.year ?? DEFAULT_ACTIVE_YEAR;
+  let q = getSupabaseAdmin()
+    .from("religious_topics")
+    .select("category, majlis_number, is_ashura, status, content")
+    .eq("year_hijri", year)
+    .eq("status", "indexed");
+  if (ref.lailat) q = q.eq("is_ashura", true);
+  else q = q.eq("majlis_number", ref.majlisNum);
+  const { data } = await q;
+  const cats = new Set<ReligiousCategory>();
+  for (const r of (data ?? []) as { category: ReligiousCategory | null; content: string | null }[]) {
+    if (r.category && (r.content ?? "").trim()) cats.add(r.category);
+  }
+  return Array.from(cats);
+}
+
+// One-time backfill: generate a theme for any topic that has content but no theme yet
+// (e.g. the 1447 blocks indexed before the theme layer existed). Runs server-side.
+export async function backfillMissingThemes(limit = 200): Promise<{ updated: number; remaining: number }> {
+  const supabase = getSupabaseAdmin();
+  const { data } = await supabase
+    .from("religious_topics")
+    .select("id, title, content")
+    .neq("content", "")
+    .is("theme", null)
+    .limit(limit);
+  const rows = (data ?? []) as { id: string; title: string; content: string }[];
+  let updated = 0;
+  for (const t of rows) {
+    const theme = await generateTheme(t.title, t.content);
+    if (theme) {
+      await supabase.from("religious_topics").update({ theme }).eq("id", t.id);
+      updated++;
+    }
+  }
+  return { updated, remaining: rows.length - updated };
 }
 
 // Delete a topic block and its vectorized chunks.
