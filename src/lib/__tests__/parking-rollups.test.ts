@@ -224,10 +224,16 @@ describe("matchesLotPurposes", () => {
     };
   }
 
-  it("vip_incapacitated matches a category value or any rahat member", () => {
-    expect(matchesLotPurposes(row({ categories: ["VIP"] }), ["vip_incapacitated"])).toBe(true);
-    expect(matchesLotPurposes(row({ rahat_count: 1 }), ["vip_incapacitated"])).toBe(true);
-    expect(matchesLotPurposes(row(), ["vip_incapacitated"])).toBe(false);
+  it("vip matches a roster category value, not a rahat member", () => {
+    expect(matchesLotPurposes(row({ categories: ["VIP"] }), ["vip"])).toBe(true);
+    expect(matchesLotPurposes(row({ rahat_count: 1 }), ["vip"])).toBe(false);
+    expect(matchesLotPurposes(row(), ["vip"])).toBe(false);
+  });
+
+  it("ada matches a rahat/wheelchair member, not a roster category", () => {
+    expect(matchesLotPurposes(row({ rahat_count: 1 }), ["ada"])).toBe(true);
+    expect(matchesLotPurposes(row({ categories: ["VIP"] }), ["ada"])).toBe(false);
+    expect(matchesLotPurposes(row(), ["ada"])).toBe(false);
   });
 
   it("foreign_mehman matches mehman households regardless of transport", () => {
@@ -263,7 +269,7 @@ describe("matchesLotPurposes", () => {
 describe("lotPurposesNarrow", () => {
   it("is true only when every purpose carries a data check", () => {
     expect(lotPurposesNarrow(["chicago"])).toBe(true);
-    expect(lotPurposesNarrow(["vip_incapacitated", "all_65_plus"])).toBe(true);
+    expect(lotPurposesNarrow(["vip", "ada", "all_65_plus"])).toBe(true);
     expect(lotPurposesNarrow(["foreign_mehman"])).toBe(true);
   });
 

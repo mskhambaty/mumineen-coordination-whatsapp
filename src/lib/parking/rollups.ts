@@ -3,7 +3,8 @@
 // between the API routes and the admin page.
 
 export const LOT_PURPOSES = [
-  "vip_incapacitated",
+  "vip",
+  "ada",
   "foreign_mehman",
   "all_65_plus",
   "chicago",
@@ -11,7 +12,8 @@ export const LOT_PURPOSES = [
 ] as const;
 
 export const PURPOSE_LABELS: Record<string, string> = {
-  vip_incapacitated: "VIP / Incapacitated",
+  vip: "VIP",
+  ada: "ADA",
   foreign_mehman: "Foreign Mehman",
   all_65_plus: "All 65+",
   chicago: "Chicago",
@@ -98,7 +100,7 @@ export function buildHouseholdRow(
 
 // Purposes with a household-level data check (see matchesLotPurposes). early_khidmat
 // and unknown purposes accept everyone by design.
-const DATA_CHECKED_PURPOSES = ["vip_incapacitated", "foreign_mehman", "all_65_plus", "chicago"];
+const DATA_CHECKED_PURPOSES = ["vip", "ada", "foreign_mehman", "all_65_plus", "chicago"];
 
 // Can this purpose set actually exclude anyone? Because matchesLotPurposes is an OR,
 // one always-true purpose (early_khidmat, unknown, or none) makes everyone qualify —
@@ -116,8 +118,10 @@ export function matchesLotPurposes(row: HouseholdRow, purposes: string[]): boole
   if (purposes.length === 0) return true;
   return purposes.some((p) => {
     switch (p) {
-      case "vip_incapacitated":
-        return row.categories.length > 0 || row.rahat_count > 0;
+      case "vip":
+        return row.categories.length > 0;
+      case "ada":
+        return row.rahat_count > 0;
       case "foreign_mehman":
         return row.local_mehman === "Mehman";
       case "all_65_plus":

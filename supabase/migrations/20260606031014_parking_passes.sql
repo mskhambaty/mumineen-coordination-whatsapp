@@ -9,7 +9,8 @@ create table public.parking_lots (
   capacity integer not null default 0,
   -- Plain text by design: 8 suggested colors today, a 9th may appear; duplicates across lots allowed.
   color text,
-  -- Subset of: vip_incapacitated, foreign_mehman, all_65_plus, chicago, early_khidmat (app-validated).
+  -- Subset of: vip, ada, foreign_mehman, all_65_plus, chicago, early_khidmat (app-validated).
+  -- ('vip_incapacitated' was split into 'vip' + 'ada' in 20260607140000_split_parking_vip_ada_purpose.sql.)
   purposes text[] not null default '{}',
   sort_order integer not null default 0,
   created_at timestamptz not null default now(),
