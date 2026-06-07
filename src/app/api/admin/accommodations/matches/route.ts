@@ -1,15 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { confirmMatch, createPendingMatch, rejectMatch, suggestMatches } from "@/lib/accommodations/matching";
+import { confirmMatch, createPendingMatch, rejectMatch, suggestBestAllocation, suggestMatches, type ScoringOptions } from "@/lib/accommodations/matching";
 import { requireAdminKey } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
+function parseScoringOptions(req: NextRequest): ScoringOptions {
+  const fifo = req.nextUrl.searchParams.get("fifo");
+  const proximity = req.nextUrl.searchParams.get("proximity");
+  const demographics = req.nextUrl.searchParams.get("demographics");
+  return {
+    fifo: fifo !== "0",
+    proximity: proximity !== "0",
+    demographics: demographics !== "0",
+  };
+}
+
 /**
  * GET /api/admin/accommodations/matches — List all matches or get suggestions.
  * Query params:
  *   ?action=suggest — generate ranked suggestions for unmatched guests
+ *   ?action=allocate — best-allocation mode (maximize families matched)
+ *   ?fifo=0&proximity=0&demographics=0 — toggle scoring factors off
  *   (default) — list existing matches
  */
 export async function GET(req: NextRequest) {
@@ -21,8 +34,15 @@ export async function GET(req: NextRequest) {
 
   try {
     if (action === "suggest") {
-      const suggestions = await suggestMatches();
+      const opts = parseScoringOptions(req);
+      const suggestions = await suggestMatches(opts);
       return NextResponse.json({ suggestions });
+    }
+
+    if (action === "allocate") {
+      const opts = parseScoringOptions(req);
+      const result = await suggestBestAllocation(opts);
+      return NextResponse.json(result);
     }
 
     // Default: list existing matches
