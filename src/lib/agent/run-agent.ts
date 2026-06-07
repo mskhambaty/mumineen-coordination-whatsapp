@@ -216,6 +216,25 @@ type AgentInput = {
 // Tools whose answers should be generated with the higher-end model.
 export const HIGH_MODEL_TOOLS = new Set(["answer_religious_questions", "get_lisan_word_meaning"]);
 
+// Tools that write/change state. In test mode these are recorded but NOT executed,
+// so the eval harness can exercise the agent without creating real tickets/escalations.
+export const SIDE_EFFECT_TOOLS = new Set([
+  "create_issue",
+  "move_to_escalation",
+  "create_task",
+  "assign_task",
+  "update_task_status",
+  "update_volunteer_status",
+  "create_internal_note",
+  "flag_knowledge_gap",
+  "update_milestone",
+]);
+
+// Optional test hooks (undefined in production → zero behavior change):
+//  - toolCalls:        names of every tool the agent invoked are pushed here (for eval tool-checks)
+//  - stubSideEffects:  side-effecting tools return a stub instead of running (no real writes)
+export type AgentTestHooks = { toolCalls?: string[]; stubSideEffects?: boolean };
+
 // Pick the model for the final answer: the high-end model if the turn used a Waaz Talaqi /
 // Lisan tool, otherwise the standard model. Exported for testing.
 export function pickFinalModel(
@@ -279,7 +298,7 @@ export function buildSystemPrompt(params: {
   return systemContent;
 }
 
-export async function runAgent(input: AgentInput) {
+export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   if (!input.message.trim()) {
     return "I received your message, but I cannot read that message type yet. Please send a text message and I will help.";
   }
@@ -351,11 +370,18 @@ export async function runAgent(input: AgentInput) {
     }
 
     const args = parseToolArguments(toolCall.function.arguments);
-    const toolResult = await executeTool(toolCall.function.name, args, {
-      user: input.user,
-      phoneE164: input.phoneE164,
-      callerContext,
-    });
+    test?.toolCalls?.push(toolCall.function.name);
+
+    // In test mode, record the side-effecting call but don't execute it (no real
+    // ticket/escalation/task gets created). Read-only tools still run for real.
+    const toolResult =
+      test?.stubSideEffects && SIDE_EFFECT_TOOLS.has(toolCall.function.name)
+        ? { status: "ok", test_stub: true }
+        : await executeTool(toolCall.function.name, args, {
+            user: input.user,
+            phoneE164: input.phoneE164,
+            callerContext,
+          });
 
     if (toolCall.function.name === "move_to_escalation" && isEscalated(toolResult)) {
       escalationAck = escalationAcknowledgment(toolResult);
