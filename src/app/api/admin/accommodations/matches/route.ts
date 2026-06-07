@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { confirmMatch, createPendingMatch, rejectMatch, suggestBestAllocation, suggestMatches, type ScoringOptions } from "@/lib/accommodations/matching";
+import { buildMatchRollups } from "@/lib/accommodations/rollups";
 import { requireAdminKey } from "@/lib/api/auth";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
@@ -45,29 +45,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(result);
     }
 
-    // Default: list existing matches enriched with guest demographics
-    const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from("accommodation_matches")
-      .select(`
-        id,
-        guest_family_id,
-        host_id,
-        status,
-        guest_member_count,
-        notes,
-        confirmed_at,
-        confirmed_by,
-        created_at,
-        updated_at,
-        accommodation_hosts (hof_its, first_name, last_name, address, city),
-        families (hof_its, hotel_name)
-      `)
-      .order("created_at", { ascending: false });
-
-    if (error) throw new Error(error.message);
-
-    return NextResponse.json({ matches: data ?? [] });
+    // Default: list existing matches enriched with guest/host details
+    const matches = await buildMatchRollups();
+    return NextResponse.json({ matches });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

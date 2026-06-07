@@ -49,6 +49,7 @@ export type HostRow = {
   host_male_count: number | null;
   host_female_count: number | null;
   distance_to_masjid_km: number | null;
+  email: string | null;
 };
 
 // Masjid location: 10S252 Kingery Hwy, Willowbrook, IL 60527
@@ -260,16 +261,16 @@ export async function buildHostRollups(): Promise<HostRow[]> {
 
   // Roster demographics: look up mumineen by hof_its
   const hofItsList = hosts.map((h) => h.hof_its);
-  const rosterMembers = await fetchAll<{ hof_its: string; gender: string | null; age: number | null }>((from, to) =>
+  const rosterMembers = await fetchAll<{ hof_its: string; gender: string | null; age: number | null; email: string | null; is_head: boolean }>((from, to) =>
     supabase
       .from("mumineen")
-      .select("hof_its, gender, age")
+      .select("hof_its, gender, age, email, is_head")
       .eq("roster_active", true)
       .in("hof_its", hofItsList)
       .range(from, to),
   );
 
-  const rosterByHof = new Map<string, { hof_its: string; gender: string | null; age: number | null }[]>();
+  const rosterByHof = new Map<string, { hof_its: string; gender: string | null; age: number | null; email: string | null; is_head: boolean }[]>();
   for (const m of rosterMembers) {
     const list = rosterByHof.get(m.hof_its) ?? [];
     list.push(m);
@@ -285,6 +286,8 @@ export async function buildHostRollups(): Promise<HostRow[]> {
     const roster = rosterByHof.get(h.hof_its);
     const hostAges = roster?.map((m) => m.age).filter((a): a is number => a != null) ?? [];
     const distToMasjid = h.lat != null && h.lon != null ? haversineKm(h.lat, h.lon, MASJID_LAT, MASJID_LON) : null;
+    // Look up email: prefer head-of-family's email, fall back to any family member
+    const hofEmail = roster?.find((m) => m.is_head && m.email)?.email ?? roster?.find((m) => m.email)?.email ?? null;
 
     return {
       id: h.id,
@@ -312,6 +315,176 @@ export async function buildHostRollups(): Promise<HostRow[]> {
       host_male_count: roster?.filter((m) => m.gender === "M").length ?? null,
       host_female_count: roster?.filter((m) => m.gender === "F").length ?? null,
       distance_to_masjid_km: distToMasjid != null ? Math.round(distToMasjid * 10) / 10 : null,
+      email: hofEmail,
+    };
+  });
+}
+
+// --- Enriched Match Rollups ---
+
+export type MatchRollup = {
+  id: string;
+  guest_family_id: string;
+  host_id: string;
+  status: string;
+  guest_member_count: number;
+  notes: string | null;
+  confirmed_at: string | null;
+  created_at: string;
+  // Guest details
+  guest_name: string | null;
+  guest_its: string;
+  guest_adult_count: number;
+  guest_child_count: number;
+  guest_male_count: number;
+  guest_female_count: number;
+  guest_ages: string;
+  guest_phone: string | null;
+  guest_email: string | null;
+  guest_arrival_at: string | null;
+  guest_arrival_flight: string | null;
+  guest_departure_at: string | null;
+  guest_departure_flight: string | null;
+  // Host details
+  host_name: string;
+  host_its: string;
+  host_phone: string | null;
+  host_email: string | null;
+};
+
+export async function buildMatchRollups(): Promise<MatchRollup[]> {
+  const supabase = getSupabaseAdmin();
+
+  const matches = await fetchAll<{
+    id: string;
+    guest_family_id: string;
+    host_id: string;
+    status: string;
+    guest_member_count: number;
+    notes: string | null;
+    confirmed_at: string | null;
+    created_at: string;
+  }>((from, to) =>
+    supabase
+      .from("accommodation_matches")
+      .select("id, guest_family_id, host_id, status, guest_member_count, notes, confirmed_at, created_at")
+      .order("created_at", { ascending: false })
+      .range(from, to),
+  );
+
+  if (matches.length === 0) return [];
+
+  // Get family hof_its
+  const familyIds = [...new Set(matches.map((m) => m.guest_family_id))];
+  const families = await fetchAll<{ id: string; hof_its: string }>((from, to) =>
+    supabase
+      .from("families")
+      .select("id, hof_its")
+      .in("id", familyIds)
+      .range(from, to),
+  );
+  const familyMap = new Map(families.map((f) => [f.id, f.hof_its]));
+
+  // Get guest mumineen (demographics, contact, arrival)
+  const guestHofList = [...new Set(families.map((f) => f.hof_its))];
+  const guestMembers = await fetchAll<{
+    hof_its: string;
+    full_name: string | null;
+    gender: string | null;
+    age: number | null;
+    is_head: boolean;
+    not_attending: boolean | null;
+    whatsapp_e164: string | null;
+    email: string | null;
+    arrival_at: string | null;
+    arrival_flight_no: string | null;
+    departure_at: string | null;
+    departure_flight_no: string | null;
+  }>((from, to) =>
+    supabase
+      .from("mumineen")
+      .select("hof_its, full_name, gender, age, is_head, not_attending, whatsapp_e164, email, arrival_at, arrival_flight_no, departure_at, departure_flight_no")
+      .eq("roster_active", true)
+      .in("hof_its", guestHofList)
+      .range(from, to),
+  );
+
+  const guestByHof = new Map<string, typeof guestMembers>();
+  for (const m of guestMembers) {
+    const list = guestByHof.get(m.hof_its) ?? [];
+    list.push(m);
+    guestByHof.set(m.hof_its, list);
+  }
+
+  // Get host details
+  const hostIds = [...new Set(matches.map((m) => m.host_id))];
+  const hosts = await fetchAll<{ id: string; hof_its: string; first_name: string | null; last_name: string | null; mobile: string | null }>((from, to) =>
+    supabase
+      .from("accommodation_hosts")
+      .select("id, hof_its, first_name, last_name, mobile")
+      .in("id", hostIds)
+      .range(from, to),
+  );
+  const hostMap = new Map(hosts.map((h) => [h.id, h]));
+
+  // Get host emails from mumineen
+  const hostItsList = hosts.map((h) => h.hof_its);
+  const hostMumineen = await fetchAll<{ hof_its: string; email: string | null; is_head: boolean }>((from, to) =>
+    supabase
+      .from("mumineen")
+      .select("hof_its, email, is_head")
+      .eq("roster_active", true)
+      .in("hof_its", hostItsList)
+      .not("email", "is", null)
+      .range(from, to),
+  );
+  const hostEmailMap = new Map<string, string>();
+  for (const m of hostMumineen) {
+    if (m.email && (!hostEmailMap.has(m.hof_its) || m.is_head)) {
+      hostEmailMap.set(m.hof_its, m.email);
+    }
+  }
+
+  return matches.map((match) => {
+    const guestHof = familyMap.get(match.guest_family_id) ?? "";
+    const members = guestByHof.get(guestHof) ?? [];
+    const attending = members.filter((m) => !m.not_attending);
+    const head = members.find((m) => m.is_head);
+    const ages = attending.map((m) => m.age).filter((a): a is number => a != null);
+
+    const host = hostMap.get(match.host_id);
+    const hostName = host ? [host.first_name, host.last_name].filter(Boolean).join(" ") || host.hof_its : "";
+
+    const guestPhone = head?.whatsapp_e164 ?? members.find((m) => m.whatsapp_e164)?.whatsapp_e164 ?? null;
+    const guestEmail = head?.email ?? members.find((m) => m.email)?.email ?? null;
+    const arrivalMember = head ?? members[0];
+
+    return {
+      id: match.id,
+      guest_family_id: match.guest_family_id,
+      host_id: match.host_id,
+      status: match.status,
+      guest_member_count: match.guest_member_count,
+      notes: match.notes,
+      confirmed_at: match.confirmed_at,
+      created_at: match.created_at,
+      guest_name: head?.full_name ?? members[0]?.full_name ?? null,
+      guest_its: guestHof,
+      guest_adult_count: attending.filter((m) => m.age != null && m.age >= 18).length,
+      guest_child_count: attending.filter((m) => m.age != null && m.age < 18).length,
+      guest_male_count: attending.filter((m) => m.gender === "M").length,
+      guest_female_count: attending.filter((m) => m.gender === "F").length,
+      guest_ages: ages.sort((a, b) => a - b).join(", "),
+      guest_phone: guestPhone,
+      guest_email: guestEmail,
+      guest_arrival_at: arrivalMember?.arrival_at ?? null,
+      guest_arrival_flight: arrivalMember?.arrival_flight_no ?? null,
+      guest_departure_at: arrivalMember?.departure_at ?? null,
+      guest_departure_flight: arrivalMember?.departure_flight_no ?? null,
+      host_name: hostName,
+      host_its: host?.hof_its ?? "",
+      host_phone: host?.mobile ?? null,
+      host_email: hostEmailMap.get(host?.hof_its ?? "") ?? null,
     };
   });
 }

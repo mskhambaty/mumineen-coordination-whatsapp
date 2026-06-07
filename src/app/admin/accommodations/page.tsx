@@ -22,6 +22,7 @@ type HostRow = {
   gender_preference: string | null;
   distance_to_masjid_km: number | null;
   host_family_size: number | null;
+  email: string | null;
 };
 
 type GuestRow = {
@@ -51,8 +52,23 @@ type MatchRow = {
   notes: string | null;
   confirmed_at: string | null;
   created_at: string;
-  accommodation_hosts: { hof_its: string; first_name: string | null; last_name: string | null; address: string | null; city: string | null } | null;
-  families: { hof_its: string; hotel_name: string | null } | null;
+  guest_name: string | null;
+  guest_its: string;
+  guest_adult_count: number;
+  guest_child_count: number;
+  guest_male_count: number;
+  guest_female_count: number;
+  guest_ages: string;
+  guest_phone: string | null;
+  guest_email: string | null;
+  guest_arrival_at: string | null;
+  guest_arrival_flight: string | null;
+  guest_departure_at: string | null;
+  guest_departure_flight: string | null;
+  host_name: string;
+  host_its: string;
+  host_phone: string | null;
+  host_email: string | null;
 };
 
 type Suggestion = {
@@ -185,6 +201,16 @@ export default function AccommodationsPage() {
     }
   }, []);
 
+  // Silently refresh data for inactive tabs (no loading spinner, no error toast)
+  const refreshInBackground = useCallback((...fetchers: Array<"hosts" | "guests" | "matches">) => {
+    const h = headers();
+    for (const f of fetchers) {
+      if (f === "hosts") fetch("/api/admin/accommodations/hosts", { headers: h }).then(r => r.ok ? r.json() : null).then(d => d && setHosts(d.hosts ?? [])).catch(() => {});
+      if (f === "guests") fetch("/api/admin/accommodations/guests", { headers: h }).then(r => r.ok ? r.json() : null).then(d => d && setGuests(d.guests ?? [])).catch(() => {});
+      if (f === "matches") fetch("/api/admin/accommodations/matches", { headers: h }).then(r => r.ok ? r.json() : null).then(d => d && setMatches(d.matches ?? [])).catch(() => {});
+    }
+  }, []);
+
   const fetchSuggestions = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -230,6 +256,12 @@ export default function AccommodationsPage() {
     }
   }, [tab, suggestMode, fetchHosts, fetchGuests, fetchMatches, fetchSuggestions, fetchAllocation]);
 
+  // On mount, load counts for all tabs so badges are always accurate
+  useEffect(() => {
+    refreshInBackground("hosts", "guests", "matches");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget;
@@ -253,6 +285,7 @@ export default function AccommodationsPage() {
       setSuccessMsg(`Imported ${data.hostsUpserted} hosts from ${data.rows} rows.`);
       form.reset();
       fetchHosts();
+      refreshInBackground("guests", "matches");
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -307,6 +340,7 @@ export default function AccommodationsPage() {
       setSuccessMsg("Match created (pending)");
       if (suggestMode === "per-guest") fetchSuggestions();
       else fetchAllocation();
+      refreshInBackground("hosts", "guests", "matches");
     } catch (err) {
       setError((err as Error).message);
     }
@@ -322,6 +356,7 @@ export default function AccommodationsPage() {
       if (!res.ok) throw new Error(await res.text());
       setSuccessMsg(`Match ${action}ed`);
       fetchMatches();
+      refreshInBackground("hosts", "guests");
     } catch (err) {
       setError((err as Error).message);
     }
@@ -364,19 +399,28 @@ export default function AccommodationsPage() {
 
   function exportMatches() {
     exportToXlsx(matches.map(m => ({
-      "Guest ITS": m.families?.hof_its ?? m.guest_family_id,
-      "Host Name": m.accommodation_hosts ? [m.accommodation_hosts.first_name, m.accommodation_hosts.last_name].filter(Boolean).join(" ") : "",
-      "Host ITS": m.accommodation_hosts?.hof_its ?? "",
-      Members: m.guest_member_count,
+      Guest: m.guest_name ?? m.guest_its,
+      "Guest ITS": m.guest_its,
+      "Adults/Kids": `${m.guest_adult_count}/${m.guest_child_count}`,
+      "M/F": `${m.guest_male_count}M/${m.guest_female_count}F`,
+      "Guest Ages": m.guest_ages,
+      "Guest Phone": m.guest_phone ?? "",
+      "Guest Email": m.guest_email ?? "",
+      "Arrival": m.guest_arrival_at ? new Date(m.guest_arrival_at).toLocaleDateString() : "",
+      "Arrival Flight": m.guest_arrival_flight ?? "",
+      "Departure": m.guest_departure_at ? new Date(m.guest_departure_at).toLocaleDateString() : "",
+      "Departure Flight": m.guest_departure_flight ?? "",
+      Host: m.host_name,
+      "Host ITS": m.host_its,
+      "Host Phone": m.host_phone ?? "",
+      "Host Email": m.host_email ?? "",
       Status: m.status,
-      Created: m.created_at,
-      Confirmed: m.confirmed_at ?? "",
     })), "accommodations-matches.xlsx");
   }
 
   function exportSuggestions() {
     const data = suggestMode === "allocation" && allocation
-      ? [...allocation.matched.map(s => ({ ...formatSuggestionRow(s), Matched: "Yes" })), ...allocation.unmatched.map(g => ({ Guest: g.head_name ?? g.hof_its, ITS: g.hof_its, Members: g.member_count, Host: "", Score: "", Reasons: "", Matched: "No" }))]
+      ? [...allocation.matched.map(s => ({ ...formatSuggestionRow(s), Matched: "Yes" })), ...allocation.unmatched.map(g => ({ Guest: g.head_name ?? g.hof_its, ITS: g.hof_its, Attending: g.attending_count, Host: "", Reasons: "", Matched: "No" }))]
       : suggestions.slice(0, 500).map(s => formatSuggestionRow(s));
     exportToXlsx(data, `accommodations-suggestions-${suggestMode}.xlsx`);
   }
@@ -385,11 +429,10 @@ export default function AccommodationsPage() {
     return {
       Guest: s.guest.head_name ?? s.guest.hof_its,
       ITS: s.guest.hof_its,
-      Members: s.guest.member_count,
+      Attending: s.guest.attending_count,
       Host: s.host.display_name,
       "Host ITS": s.host.hof_its,
       "Remaining Cap": s.host.remaining_capacity,
-      Score: s.score,
       Reasons: s.reasons.join("; "),
     };
   }
@@ -460,6 +503,7 @@ export default function AccommodationsPage() {
                   <th className="p-2">Pending</th>
                   <th className="p-2">Remaining</th>
                   <th className="p-2">Gender Pref</th>
+                  <th className="p-2">Email</th>
                   <th className="p-2">Distance</th>
                 </tr>
               </thead>
@@ -484,6 +528,12 @@ export default function AccommodationsPage() {
                     <td className="p-2 text-center text-yellow-600 dark:text-yellow-400">{h.pending_allocated || ""}</td>
                     <td className="p-2 text-center font-semibold text-green-600 dark:text-green-400">{h.remaining_capacity}</td>
                     <td className="p-2">{h.gender_preference ?? "—"}</td>
+                    <td className="p-2 text-xs">
+                      {h.email
+                        ? <span className="text-green-600 dark:text-green-400" title={h.email}>✓</span>
+                        : <span className="text-red-500" title="No email found in mumineen roster">⚠️ Missing</span>
+                      }
+                    </td>
                     <td className="p-2">
                       {h.distance_to_masjid_km != null
                         ? `${h.distance_to_masjid_km} km`
@@ -523,7 +573,6 @@ export default function AccommodationsPage() {
                   <th className="p-2">HOF Name</th>
                   <th className="p-2">ITS</th>
                   <th className="p-2">Attending</th>
-                  <th className="p-2">Members</th>
                   <th className="p-2">Adults/Kids</th>
                   <th className="p-2">M/F</th>
                   <th className="p-2">Ages</th>
@@ -543,7 +592,6 @@ export default function AccommodationsPage() {
                         {g.attending_count}/{g.member_count}
                       </span>
                     </td>
-                    <td className="p-2 text-center">{g.member_count}</td>
                     <td className="p-2 text-center">{g.adult_count}/{g.child_count}</td>
                     <td className="p-2 text-center">{g.male_count}M/{g.female_count}F</td>
                     <td className="p-2 text-xs">{g.ages || "—"}</td>
@@ -582,22 +630,35 @@ export default function AccommodationsPage() {
                 <tr className="border-b dark:border-gray-700 text-left">
                   <th className="p-2">Guest</th>
                   <th className="p-2">Guest ITS</th>
-                  <th className="p-2">Members</th>
+                  <th className="p-2">Adults/Kids</th>
+                  <th className="p-2">M/F</th>
+                  <th className="p-2">Ages</th>
+                  <th className="p-2">Guest Phone</th>
+                  <th className="p-2">Guest Email</th>
+                  <th className="p-2">Arrival</th>
                   <th className="p-2">Host</th>
                   <th className="p-2">Host ITS</th>
+                  <th className="p-2">Host Phone</th>
+                  <th className="p-2">Host Email</th>
                   <th className="p-2">Status</th>
-                  <th className="p-2">Created</th>
                   <th className="p-2">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {matches.map((m) => (
                   <tr key={m.id} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
-                    <td className="p-2 font-medium">{m.families?.hof_its ?? m.guest_family_id.slice(0, 8)}</td>
-                    <td className="p-2 font-mono text-xs">{m.families?.hof_its ?? "—"}</td>
-                    <td className="p-2 text-center">{m.guest_member_count}</td>
-                    <td className="p-2 font-medium">{m.accommodation_hosts ? [m.accommodation_hosts.first_name, m.accommodation_hosts.last_name].filter(Boolean).join(" ") || m.accommodation_hosts.hof_its : m.host_id.slice(0, 8)}</td>
-                    <td className="p-2 font-mono text-xs">{m.accommodation_hosts?.hof_its ?? "—"}</td>
+                    <td className="p-2 font-medium">{m.guest_name ?? m.guest_its}</td>
+                    <td className="p-2 font-mono text-xs">{m.guest_its}</td>
+                    <td className="p-2 text-center">{m.guest_adult_count}/{m.guest_child_count}</td>
+                    <td className="p-2 text-center">{m.guest_male_count}M/{m.guest_female_count}F</td>
+                    <td className="p-2 text-xs">{m.guest_ages || "—"}</td>
+                    <td className="p-2 text-xs">{m.guest_phone ?? "—"}</td>
+                    <td className="p-2 text-xs">{m.guest_email ?? "—"}</td>
+                    <td className="p-2 text-xs">{m.guest_arrival_at ? `${new Date(m.guest_arrival_at).toLocaleDateString()}${m.guest_arrival_flight ? ` (${m.guest_arrival_flight})` : ""}` : "—"}</td>
+                    <td className="p-2 font-medium">{m.host_name}</td>
+                    <td className="p-2 font-mono text-xs">{m.host_its}</td>
+                    <td className="p-2 text-xs">{m.host_phone ?? "—"}</td>
+                    <td className="p-2 text-xs">{m.host_email ?? "—"}</td>
                     <td className="p-2">
                       <span className={`px-1.5 py-0.5 rounded text-xs ${
                         m.status === "confirmed" ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" :
@@ -607,7 +668,6 @@ export default function AccommodationsPage() {
                         {m.status}
                       </span>
                     </td>
-                    <td className="p-2 text-xs">{new Date(m.created_at).toLocaleDateString()}</td>
                     <td className="p-2 space-x-1">
                       {canWrite && m.status === "pending" && (
                         <>
@@ -719,14 +779,13 @@ export default function AccommodationsPage() {
                   <div key={familyId} className="border dark:border-gray-700 rounded p-3">
                     <div className="flex items-center gap-2 mb-2">
                       <span className="font-semibold">{familySuggestions[0].guest.head_name ?? familySuggestions[0].guest.hof_its}</span>
-                      <span className="text-xs text-gray-500">({familySuggestions[0].guest.member_count} members)</span>
+                      <span className="text-xs text-gray-500">({familySuggestions[0].guest.attending_count} attending)</span>
                       <span className="text-xs font-mono text-gray-400">{familySuggestions[0].guest.hof_its}</span>
                       {familySuggestions[0].guest.has_wheelchair && <span>♿</span>}
                     </div>
                     <table className="w-full text-xs border-collapse">
                       <thead>
                         <tr className="text-left border-b dark:border-gray-700">
-                          <th className="p-1">Score</th>
                           <th className="p-1">Host</th>
                           <th className="p-1">Remaining</th>
                           <th className="p-1">Distance</th>
@@ -737,7 +796,6 @@ export default function AccommodationsPage() {
                       <tbody>
                         {familySuggestions.slice(0, 5).map((s, i) => (
                           <tr key={`${s.host.id}-${i}`} className="border-b dark:border-gray-700/50">
-                            <td className="p-1 font-mono font-semibold">{s.score}</td>
                             <td className="p-1">{s.host.display_name}</td>
                             <td className="p-1 text-center text-green-600">{s.host.remaining_capacity}</td>
                             <td className="p-1">{s.host.distance_to_masjid_km != null ? `${s.host.distance_to_masjid_km}km` : "—"}</td>
@@ -745,7 +803,7 @@ export default function AccommodationsPage() {
                             <td className="p-1">
                               {canWrite && (
                                 <button
-                                  onClick={() => handleCreateMatch(s.guest.family_id, s.host.id, s.guest.member_count)}
+                                  onClick={() => handleCreateMatch(s.guest.family_id, s.host.id, s.guest.attending_count)}
                                   className="px-2 py-0.5 bg-blue-600 text-white rounded hover:bg-blue-700"
                                 >
                                   Match
@@ -786,9 +844,8 @@ export default function AccommodationsPage() {
                     <tr className="border-b dark:border-gray-700 text-left">
                       <th className="p-2">Status</th>
                       <th className="p-2">Guest</th>
-                      <th className="p-2">Members</th>
+                      <th className="p-2">Attending</th>
                       <th className="p-2">Host</th>
-                      <th className="p-2">Score</th>
                       <th className="p-2">Reasons</th>
                       <th className="p-2">Action</th>
                     </tr>
@@ -798,14 +855,13 @@ export default function AccommodationsPage() {
                       <tr key={`m-${i}`} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
                         <td className="p-2"><span className="px-1.5 py-0.5 rounded text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">matched</span></td>
                         <td className="p-2">{s.guest.head_name ?? s.guest.hof_its}</td>
-                        <td className="p-2 text-center">{s.guest.member_count}</td>
+                        <td className="p-2 text-center">{s.guest.attending_count}</td>
                         <td className="p-2">{s.host.display_name}</td>
-                        <td className="p-2 font-mono">{s.score}</td>
                         <td className="p-2 text-xs">{s.reasons.join("; ")}</td>
                         <td className="p-2">
                           {canWrite && (
                             <button
-                              onClick={() => handleCreateMatch(s.guest.family_id, s.host.id, s.guest.member_count)}
+                              onClick={() => handleCreateMatch(s.guest.family_id, s.host.id, s.guest.attending_count)}
                               className="px-2 py-0.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
                             >
                               Match
@@ -818,7 +874,7 @@ export default function AccommodationsPage() {
                       <tr key={`u-${i}`} className="border-b dark:border-gray-700 bg-red-50 dark:bg-red-900/20">
                         <td className="p-2"><span className="px-1.5 py-0.5 rounded text-xs bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">unmatched</span></td>
                         <td className="p-2 text-red-700 dark:text-red-300">{g.head_name ?? g.hof_its}</td>
-                        <td className="p-2 text-center text-red-700 dark:text-red-300">{g.member_count}</td>
+                        <td className="p-2 text-center text-red-700 dark:text-red-300">{g.attending_count}</td>
                         <td className="p-2 text-gray-400">—</td>
                         <td className="p-2 text-gray-400">—</td>
                         <td className="p-2 text-xs text-red-600 dark:text-red-400">No host with sufficient capacity</td>
