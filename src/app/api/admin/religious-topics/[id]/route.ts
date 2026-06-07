@@ -15,7 +15,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as {
-    content?: unknown; updated_by?: unknown; source_url?: unknown; source_label?: unknown;
+    content?: unknown; updated_by?: unknown; source_url?: unknown; source_label?: unknown; theme?: unknown;
   };
   const content = typeof body.content === "string" ? body.content : "";
   const updatedBy = typeof body.updated_by === "string" ? body.updated_by.slice(0, 200) : null;
@@ -26,9 +26,11 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
           sourceLabel: typeof body.source_label === "string" ? body.source_label.trim() : null,
         }
       : undefined;
+  // Explicit theme string overrides auto-generation; omit the field to auto-generate.
+  const theme = typeof body.theme === "string" ? body.theme.trim().slice(0, 160) : undefined;
 
   try {
-    const result = await saveReligiousTopic(id, content, updatedBy, source);
+    const result = await saveReligiousTopic(id, content, updatedBy, source, theme);
     return NextResponse.json({ id, ...result });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Failed to save" }, { status: 500 });

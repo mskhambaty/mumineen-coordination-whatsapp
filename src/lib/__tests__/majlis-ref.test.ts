@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseMajlisRef } from "@/lib/knowledge/religious-topics";
+import { isDeepQuery, isOverviewQuery, parseMajlisRef } from "@/lib/knowledge/religious-topics";
 
 describe("parseMajlisRef", () => {
   it("parses ordinal-word majlis references", () => {
@@ -53,5 +53,29 @@ describe("parseMajlisRef", () => {
   it("returns null when no specific majlis is referenced", () => {
     expect(parseMajlisRef("what does aab mean")).toBeNull();
     expect(parseMajlisRef("which hotels have a shuttle")).toBeNull();
+  });
+});
+
+describe("isOverviewQuery", () => {
+  it("detects list/overview/compare intent across majalis", () => {
+    expect(isOverviewQuery("topics of all majalis in Ashara 1447")).toBe(true);
+    expect(isOverviewQuery("give me an overview of every majlis")).toBe(true);
+    expect(isOverviewQuery("list all the waaz themes")).toBe(true);
+    expect(isOverviewQuery("compare majlis 4 and majlis 5")).toBe(true);
+  });
+  it("does not fire for a single-majlis question", () => {
+    expect(isOverviewQuery("what was the theme of majlis 4")).toBe(false);
+    expect(isOverviewQuery("jumla of majlis 2")).toBe(false);
+  });
+});
+
+describe("isDeepQuery", () => {
+  it("detects explicit go-deeper intent", () => {
+    expect(isDeepQuery("tell me more about majlis 4")).toBe(true);
+    expect(isDeepQuery("any stories from majlis 1")).toBe(true);
+    expect(isDeepQuery("explain majlis 3 in detail")).toBe(true);
+  });
+  it("stays false for a plain theme question", () => {
+    expect(isDeepQuery("what was the theme of majlis 4")).toBe(false);
   });
 });

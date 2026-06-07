@@ -32,6 +32,7 @@ type Topic = {
   category: string | null;
   language: string;
   status: string;
+  theme: string | null;
 };
 
 const STATUS_STYLE: Record<string, string> = {
@@ -54,6 +55,8 @@ export default function AsharaDashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyCell, setBusyCell] = useState<string | null>(null);
   const [editing, setEditing] = useState<Topic | null>(null);
+  const [themeBusy, setThemeBusy] = useState(false);
+  const [themeMsg, setThemeMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const user = readAdminUser();
@@ -130,6 +133,23 @@ export default function AsharaDashboardPage() {
       });
   }, [topics, year]);
 
+  async function backfillThemes() {
+    setThemeBusy(true);
+    setThemeMsg(null);
+    setError(null);
+    try {
+      const res = await apiFetch("/api/admin/religious-topics/backfill-themes", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to generate themes");
+      setThemeMsg(`Generated ${data.updated ?? 0} theme(s).`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate themes");
+    } finally {
+      setThemeBusy(false);
+    }
+  }
+
   async function seedRow(row: AsharaRow) {
     const key = `seed:${row.label}`;
     setBusyCell(key);
@@ -195,19 +215,35 @@ export default function AsharaDashboardPage() {
             One row per majlis, one column per type. Click any cell to add its content.
           </p>
         </div>
-        <label className="text-sm text-gray-700 dark:text-gray-300">
-          Ashara year (Hijri)
-          <select
-            value={year}
-            onChange={(e) => setYear(e.target.value)}
-            className="mt-1 block rounded-md border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+        <div className="flex items-end gap-3">
+          <button
+            type="button"
+            onClick={() => void backfillThemes()}
+            disabled={themeBusy}
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+            title="Generate a one-line theme for any block that has content but no theme yet"
           >
-            {years.map((y) => (
-              <option key={y} value={y}>{y}H</option>
-            ))}
-          </select>
-        </label>
+            {themeBusy ? "Generating…" : "Generate missing themes"}
+          </button>
+          <label className="text-sm text-gray-700 dark:text-gray-300">
+            Ashara year (Hijri)
+            <select
+              value={year}
+              onChange={(e) => setYear(e.target.value)}
+              className="mt-1 block rounded-md border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+            >
+              {years.map((y) => (
+                <option key={y} value={y}>{y}H</option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
+      {themeMsg && (
+        <div className="mb-4 rounded-md border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+          {themeMsg}
+        </div>
+      )}
 
       {/* How it works + status legend + progress */}
       <div className="mb-4 rounded-lg border border-gray-200 bg-white p-4 text-sm shadow-sm dark:border-gray-800 dark:bg-gray-900">
@@ -311,6 +347,9 @@ export default function AsharaDashboardPage() {
                                 <span className="text-[11px] text-gray-500 dark:text-gray-400">
                                   {t.entry_count > 0 ? `${t.entry_count} entr${t.entry_count !== 1 ? "ies" : "y"}` : "empty"} · {t.chunk_count} chunks
                                 </span>
+                                {t.theme && (
+                                  <span className="line-clamp-2 text-[11px] italic text-gray-400">{t.theme}</span>
+                                )}
                               </>
                             ) : (
                               <span className="text-xs">{busyCell === key ? "Creating…" : "+ Add"}</span>
@@ -376,6 +415,8 @@ export default function AsharaDashboardPage() {
           endpoint={`/api/admin/religious-topics/${editing.id}`}
           showSource
           initialSourceUrl={editing.source_url}
+          showTheme
+          initialTheme={editing.theme}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); void load(); }}
         />
