@@ -8,6 +8,7 @@ type Summary = {
   department_id: string | null;
   department_name: string;
   ai_briefing: string | null;
+  ai_briefing_short: string | null;
   metrics: unknown;
 };
 
@@ -65,6 +66,11 @@ export default function DepartmentDigestPage() {
         {summaries.map((s) => (
           <div key={s.department_id ?? "allup"} className="rounded-lg border border-gray-200 p-4 dark:border-gray-800">
             <h2 className="font-semibold">{s.department_name}</h2>
+            {s.ai_briefing_short && (
+              <p className="mt-1 rounded-md bg-gray-50 px-3 py-2 text-sm italic text-gray-600 dark:bg-gray-900 dark:text-gray-300">
+                {s.ai_briefing_short}
+              </p>
+            )}
             <pre className="mt-2 whitespace-pre-wrap font-sans text-sm">{s.ai_briefing || "(no briefing generated)"}</pre>
           </div>
         ))}
