@@ -249,7 +249,7 @@ export default function AccommodationsPage() {
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      setSuccessMsg(`Imported ${data.hostsUpserted} hosts from ${data.rows} rows. Geocoded: ${data.geocoded ?? 0}.`);
+      setSuccessMsg(`Imported ${data.hostsUpserted} hosts from ${data.rows} rows.`);
       form.reset();
       fetchHosts();
     } catch (err) {
@@ -265,6 +265,20 @@ export default function AccommodationsPage() {
         method: "PATCH",
         headers: { ...headers(), "Content-Type": "application/json" },
         body: JSON.stringify({ hostId, include_family_friends: !current }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      fetchHosts();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function handleGeocode(hostId: string) {
+    try {
+      const res = await fetch("/api/admin/accommodations/hosts", {
+        method: "PATCH",
+        headers: { ...headers(), "Content-Type": "application/json" },
+        body: JSON.stringify({ hostId, action: "geocode" }),
       });
       if (!res.ok) throw new Error(await res.text());
       fetchHosts();
@@ -350,7 +364,7 @@ export default function AccommodationsPage() {
   function exportMatches() {
     exportToXlsx(matches.map(m => ({
       "Guest ITS": m.families?.hof_its ?? m.guest_family_id,
-      "Host Name": m.accommodation_hosts ? [m.accommodation_hosts.first_name, m.accommodation_hosts.last_name].filter(Boolean).join(" ") : m.host_id,
+      "Host Name": m.accommodation_hosts ? [m.accommodation_hosts.first_name, m.accommodation_hosts.last_name].filter(Boolean).join(" ") : "",
       "Host ITS": m.accommodation_hosts?.hof_its ?? "",
       Members: m.guest_member_count,
       Status: m.status,
@@ -469,7 +483,14 @@ export default function AccommodationsPage() {
                     <td className="p-2 text-center text-yellow-600 dark:text-yellow-400">{h.pending_allocated || ""}</td>
                     <td className="p-2 text-center font-semibold text-green-600 dark:text-green-400">{h.remaining_capacity}</td>
                     <td className="p-2">{h.gender_preference ?? "—"}</td>
-                    <td className="p-2">{h.distance_to_masjid_km != null ? `${h.distance_to_masjid_km} km` : "—"}</td>
+                    <td className="p-2">
+                      {h.distance_to_masjid_km != null
+                        ? `${h.distance_to_masjid_km} km`
+                        : canWrite
+                          ? <button onClick={() => handleGeocode(h.id)} className="px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 rounded hover:bg-blue-200" title="Calculate distance from address">📍</button>
+                          : "—"
+                      }
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -552,9 +573,11 @@ export default function AccommodationsPage() {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="border-b dark:border-gray-700 text-left">
-                  <th className="p-2">Guest Family</th>
-                  <th className="p-2">Host</th>
+                  <th className="p-2">Guest</th>
+                  <th className="p-2">Guest ITS</th>
                   <th className="p-2">Members</th>
+                  <th className="p-2">Host</th>
+                  <th className="p-2">Host ITS</th>
                   <th className="p-2">Status</th>
                   <th className="p-2">Created</th>
                   <th className="p-2">Actions</th>
@@ -563,13 +586,11 @@ export default function AccommodationsPage() {
               <tbody>
                 {matches.map((m) => (
                   <tr key={m.id} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
-                    <td className="p-2 font-mono text-xs">{m.families?.hof_its ?? m.guest_family_id.slice(0, 8)}</td>
-                    <td className="p-2">
-                      {m.accommodation_hosts
-                        ? [m.accommodation_hosts.first_name, m.accommodation_hosts.last_name].filter(Boolean).join(" ") || m.accommodation_hosts.hof_its
-                        : m.host_id.slice(0, 8)}
-                    </td>
+                    <td className="p-2 font-medium">{m.families?.hof_its ?? m.guest_family_id.slice(0, 8)}</td>
+                    <td className="p-2 font-mono text-xs">{m.families?.hof_its ?? "—"}</td>
                     <td className="p-2 text-center">{m.guest_member_count}</td>
+                    <td className="p-2 font-medium">{m.accommodation_hosts ? [m.accommodation_hosts.first_name, m.accommodation_hosts.last_name].filter(Boolean).join(" ") || m.accommodation_hosts.hof_its : m.host_id.slice(0, 8)}</td>
+                    <td className="p-2 font-mono text-xs">{m.accommodation_hosts?.hof_its ?? "—"}</td>
                     <td className="p-2">
                       <span className={`px-1.5 py-0.5 rounded text-xs ${
                         m.status === "confirmed" ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" :

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { importAccommodationHosts } from "@/lib/accommodations/import";
+import { geocodeAddress, importAccommodationHosts } from "@/lib/accommodations/import";
 import { buildHostRollups } from "@/lib/accommodations/rollups";
 import { requireAdminKey } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -46,7 +46,8 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * PATCH /api/admin/accommodations/hosts — Update host include_family_friends flag.
+ * PATCH /api/admin/accommodations/hosts — Update host settings or trigger geocoding.
+ * Body: { hostId, include_family_friends } OR { hostId, action: "geocode" }
  */
 export async function PATCH(req: NextRequest) {
   if (!requireAdminKey(req)) {
@@ -55,13 +56,58 @@ export async function PATCH(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { hostId, include_family_friends } = body as { hostId: string; include_family_friends: boolean };
+    const { hostId, action, include_family_friends } = body as {
+      hostId: string;
+      action?: string;
+      include_family_friends?: boolean;
+    };
 
-    if (!hostId || typeof include_family_friends !== "boolean") {
-      return NextResponse.json({ error: "hostId and include_family_friends required" }, { status: 400 });
+    if (!hostId) {
+      return NextResponse.json({ error: "hostId required" }, { status: 400 });
     }
 
     const supabase = getSupabaseAdmin();
+
+    // Geocode a single host
+    if (action === "geocode") {
+      const { data: host, error: hostErr } = await supabase
+        .from("accommodation_hosts")
+        .select("id, address, city")
+        .eq("id", hostId)
+        .single();
+
+      if (hostErr || !host) {
+        return NextResponse.json({ error: "Host not found" }, { status: 404 });
+      }
+      if (!host.address) {
+        return NextResponse.json({ error: "Host has no address to geocode" }, { status: 400 });
+      }
+
+      const result = await geocodeAddress(host.address, host.city);
+      if (!result) {
+        return NextResponse.json({ error: "Geocoding failed — address not found" }, { status: 422 });
+      }
+
+      const { error: updateErr } = await supabase
+        .from("accommodation_hosts")
+        .update({
+          lat: result.lat,
+          lon: result.lon,
+          geocoded_at: new Date().toISOString(),
+          geocode_source: "nominatim",
+        })
+        .eq("id", hostId);
+
+      if (updateErr) throw new Error(updateErr.message);
+
+      return NextResponse.json({ ok: true, lat: result.lat, lon: result.lon });
+    }
+
+    // Toggle include_family_friends
+    if (typeof include_family_friends !== "boolean") {
+      return NextResponse.json({ error: "include_family_friends (boolean) or action required" }, { status: 400 });
+    }
+
     const { error } = await supabase
       .from("accommodation_hosts")
       .update({ include_family_friends, updated_at: new Date().toISOString() })
