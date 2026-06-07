@@ -20,7 +20,7 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
-import { classifyDepartment, __resetCatalogCacheForTests } from "@/lib/departments/classify";
+import { classifyDepartment, classifyDepartments, __resetCatalogCacheForTests } from "@/lib/departments/classify";
 
 function reply(content: string) {
   create.mockResolvedValue({ choices: [{ message: { content } }] });
@@ -32,29 +32,40 @@ beforeEach(() => {
 });
 afterEach(() => __resetCatalogCacheForTests());
 
-describe("classifyDepartment", () => {
-  it("maps the model's chosen index to the department id", async () => {
-    reply('{"index": 2}');
-    expect(await classifyDepartment("the sound in the masjid is too low")).toBe("dep-avr");
+describe("classifyDepartments", () => {
+  it("maps multiple indices to multiple department ids (feedback spanning areas)", async () => {
+    reply('{"indices": [2, 3]}');
+    expect(await classifyDepartments("the sound was low and parking was chaotic")).toEqual(["dep-avr", "dep-flow"]);
   });
 
-  it("returns null when the model picks 0 (no clear fit)", async () => {
-    reply('{"index": 0}');
-    expect(await classifyDepartment("ya ali madad")).toBeNull();
+  it("returns a single id for single-area feedback", async () => {
+    reply('{"indices": [2]}');
+    expect(await classifyDepartments("the sound in the masjid is too low")).toEqual(["dep-avr"]);
   });
 
-  it("returns null for an out-of-range index", async () => {
-    reply('{"index": 99}');
-    expect(await classifyDepartment("something")).toBeNull();
+  it("returns [] when nothing clearly fits, and drops out-of-range indices", async () => {
+    reply('{"indices": []}');
+    expect(await classifyDepartments("ya ali madad")).toEqual([]);
+    reply('{"indices": [99]}');
+    expect(await classifyDepartments("something")).toEqual([]);
   });
 
-  it("returns null for empty text without calling the model", async () => {
-    expect(await classifyDepartment("   ")).toBeNull();
+  it("returns [] for empty text without calling the model", async () => {
+    expect(await classifyDepartments("   ")).toEqual([]);
     expect(create).not.toHaveBeenCalled();
   });
 
-  it("never throws — returns null if the model errors", async () => {
+  it("never throws — returns [] if the model errors", async () => {
     create.mockRejectedValue(new Error("boom"));
-    expect(await classifyDepartment("AC broken in mawaid")).toBeNull();
+    expect(await classifyDepartments("AC broken in mawaid")).toEqual([]);
+  });
+});
+
+describe("classifyDepartment (single)", () => {
+  it("returns the first owning department, or null", async () => {
+    reply('{"indices": [3, 1]}');
+    expect(await classifyDepartment("crowding at the entrance")).toBe("dep-flow");
+    reply('{"indices": []}');
+    expect(await classifyDepartment("ya ali madad")).toBeNull();
   });
 });
