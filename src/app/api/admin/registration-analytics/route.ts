@@ -221,16 +221,26 @@ export async function GET(req: NextRequest) {
 
   // Hosts derived from guest-entered utaro fields: keyed by host ITS when present,
   // else normalized host name (free text — imperfect until the matching feature lands).
-  type HostAgg = { key: string; label: string; families: number; people: number };
+  // host_member_count is the size of the host's own family (unfiltered — intrinsic to the host).
+  const hostFamilySize = new Map<string, number>();
+  for (const m of allMembers) hostFamilySize.set(m.hof_its, (hostFamilySize.get(m.hof_its) ?? 0) + 1);
+
+  type HostAgg = { key: string; label: string; host_name: string; host_its: string | null; host_member_count: number; families: number; people: number };
   const hostMap = new Map<string, HostAgg>();
   for (const f of registeredFams) {
     if (f.acc_type !== "utaro") continue;
-    const its = f.utaro_host_its?.trim();
+    const its = f.utaro_host_its?.trim() || null;
     const normName = (f.utaro_host_name ?? "").trim().toLowerCase().replace(/\s+/g, " ");
     const key = its ? `its:${its}` : normName ? `name:${normName}` : null;
     if (!key) continue;
-    const label = its ? `${f.utaro_host_name?.trim() || "Unknown host"} (ITS ${its})` : f.utaro_host_name!.trim();
-    const agg = hostMap.get(key) ?? { key, label, families: 0, people: 0 };
+    const displayName = its ? (f.utaro_host_name?.trim() || "Unknown host") : f.utaro_host_name!.trim();
+    const label = its ? `${displayName} (ITS ${its})` : displayName;
+    const agg = hostMap.get(key) ?? {
+      key, label,
+      host_name: displayName, host_its: its,
+      host_member_count: its ? (hostFamilySize.get(its) ?? 0) : 0,
+      families: 0, people: 0,
+    };
     agg.families += 1;
     agg.people += famPeople(f);
     hostMap.set(key, agg);

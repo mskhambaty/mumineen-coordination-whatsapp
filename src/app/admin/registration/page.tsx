@@ -38,7 +38,7 @@ type Analytics = {
     open_to_utaro_people: number;
     not_set: number;
     top_hotels: { name: string; count: number; people: number; awaiting: number; awaiting_people: number }[];
-    hosts: { key: string; label: string; families: number; people: number }[];
+    hosts: { key: string; label: string; host_name: string; host_its: string | null; host_member_count: number; families: number; people: number }[];
   };
   transport: {
     rideshare: number;
@@ -1164,7 +1164,34 @@ export default function RegistrationAnalyticsPage() {
 
                     <SectionCard
                       title="Utaro Hosts"
-                      filterSlot={<span className="text-xs text-gray-400">guest-reported</span>}
+                      filterSlot={
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-400">guest-reported</span>
+                          {data.accommodation.hosts.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+                                const header = ["Host Name", "Host ITS", "Host Family Members", "FAM", "PPL"];
+                                const sorted = [...data.accommodation.hosts].sort((a, b) => b.families - a.families);
+                                const lines = sorted.map((h) =>
+                                  [h.host_name, h.host_its ?? "", String(h.host_member_count), String(h.families), String(h.people)].map(esc).join(","),
+                                );
+                                const blob = new Blob([[header.join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = "utaro-hosts.csv";
+                                a.click();
+                                URL.revokeObjectURL(url);
+                              }}
+                              className="rounded px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-300 hover:bg-emerald-50 dark:text-emerald-400 dark:ring-emerald-700 dark:hover:bg-emerald-950/40"
+                            >
+                              Export CSV
+                            </button>
+                          )}
+                        </div>
+                      }
                     >
                       {data.accommodation.hosts.length === 0 ? (
                         <p className="text-sm text-gray-400">No utaro registrations yet.</p>
