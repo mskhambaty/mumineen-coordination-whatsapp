@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 
-import { isMasterAdmin } from "@/lib/admin/access";
+import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -46,8 +46,8 @@ async function fetchAll<T>(
 }
 
 export async function GET(req: NextRequest) {
-  // Full-roster export (incl. phone/email) is master-admin only — mirrors the page's export gate.
-  const auth = await requirePortalCaller(req, isMasterAdmin);
+  // Full-roster export (incl. phone/email) is admin/leadership only — mirrors the page's export gate.
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
   if (auth instanceof NextResponse) return auth;
 
   const supabase = getSupabaseAdmin();

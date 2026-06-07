@@ -9,7 +9,6 @@ const base = {
   global_role: "member" as string | null,
   departments: [] as { department_id: string; department_name: string; dept_role: string }[],
   is_escalation_support: false,
-  is_master_admin: false,
 };
 
 describe("derivePortalFlags", () => {
@@ -45,9 +44,8 @@ describe("derivePortalFlags", () => {
     expect(flags.is_transport).toBe(true);
   });
 
-  it("passes through escalation support and master admin", () => {
-    const flags = derivePortalFlags({ ...base, is_escalation_support: true, is_master_admin: true });
+  it("passes through escalation support", () => {
+    const flags = derivePortalFlags({ ...base, is_escalation_support: true });
     expect(flags.is_support).toBe(true);
-    expect(flags.is_master_admin).toBe(true);
   });
 });

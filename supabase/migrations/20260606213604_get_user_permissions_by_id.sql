@@ -2,7 +2,7 @@
 -- Differences from get_user_permissions(p_phone):
 --   * inactive users resolve to unknown (deactivating a user revokes portal access)
 --   * departments are included even for admins (portal flags derive from dept names)
---   * adds is_escalation_support and is_master_admin for the portal page-gate predicates
+--   * adds is_escalation_support for the portal page-gate predicates
 
 create or replace function public.get_user_permissions_by_id(p_user_id uuid)
 returns jsonb language plpgsql as $$
@@ -38,8 +38,7 @@ begin
       'can_read_all', true,
       'can_write_all', true,
       'departments', coalesce(dept_roles, '[]'::jsonb),
-      'is_escalation_support', v_is_support,
-      'is_master_admin', coalesce(u.is_master_admin, false)
+      'is_escalation_support', v_is_support
     );
   end if;
 
@@ -51,8 +50,7 @@ begin
     'can_read_all', false,
     'can_write_all', false,
     'departments', coalesce(dept_roles, '[]'::jsonb),
-    'is_escalation_support', v_is_support,
-    'is_master_admin', coalesce(u.is_master_admin, false)
+    'is_escalation_support', v_is_support
   );
 end;
 $$;

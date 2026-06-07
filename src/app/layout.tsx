@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Anjuman e Saifee WhatsApp Assistant",
-  description: "WhatsApp backend for Ashara Mubarak 1447H coordination.",
+  title: "Ashara Mubaraka 1448H — Chicago Relay Center",
+  description: "Anjuman e Saifee Chicago coordination platform for Ashara Mubaraka 1448H.",
 };
 
 export default function RootLayout({

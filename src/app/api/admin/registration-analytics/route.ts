@@ -109,8 +109,11 @@ export async function GET(req: NextRequest) {
 
   // Family-level filter: when filtering by local_mehman, restrict to families whose HoF matches.
   // When filtering by status, restrict families accordingly.
+  // Use any member's local_mehman to identify the family type — not just is_head,
+  // because 430 families have no is_head record in mumineen and would otherwise
+  // fall through both Local and Mehman filters.
   const hofItsSet = localMehmanFilter
-    ? new Set(allMembers.filter((m) => m.local_mehman === localMehmanFilter && m.is_head).map((m) => m.hof_its))
+    ? new Set(allMembers.filter((m) => m.local_mehman === localMehmanFilter).map((m) => m.hof_its))
     : null;
 
   let fams = allFams;
@@ -118,8 +121,12 @@ export async function GET(req: NextRequest) {
   if (statusFilter) {
     if (statusFilter === "submitted") {
       fams = fams.filter((f) => f.registration_status === "submitted" || f.registration_status === "confirmed");
+    } else if (statusFilter === "pending") {
+      fams = fams.filter(
+        (f) => !f.registration_status || f.registration_status === "pending" || f.registration_status === "not_started",
+      );
     } else {
-      fams = fams.filter((f) => (f.registration_status ?? "pending") === statusFilter);
+      fams = fams.filter((f) => f.registration_status === statusFilter);
     }
   }
 
@@ -137,7 +144,7 @@ export async function GET(req: NextRequest) {
   ).length;
   const confirmedFamilies = fams.filter((f) => f.registration_status === "confirmed").length;
   const pendingFamilies = fams.filter(
-    (f) => !f.registration_status || f.registration_status === "pending",
+    (f) => !f.registration_status || f.registration_status === "pending" || f.registration_status === "not_started",
   ).length;
   const cancelledFamilies = fams.filter((f) => f.registration_status === "cancelled").length;
 
@@ -145,6 +152,8 @@ export async function GET(req: NextRequest) {
   const notAttending = members.filter((m) => m.not_attending).length;
   const localCount = members.filter((m) => m.local_mehman === "Local").length;
   const mehmanCount = members.filter((m) => m.local_mehman === "Mehman").length;
+  const submittedMumineen = members.filter((m) => isSubmitted(m.hof_its)).length;
+  const pendingMumineen = members.length - submittedMumineen;
 
   // ── Registration timeline ────────────────────────────────────────────────────
 
@@ -291,7 +300,11 @@ export async function GET(req: NextRequest) {
 
   // ── Khidmat ──────────────────────────────────────────────────────────────────
 
-  const khidmatPool = members.filter((m) => !m.not_attending && m.local_mehman === "Mehman");
+  // Scope to submitted families only — unregistered mehman default to wants_khidmat=false
+  // from roster import, which would otherwise inflate the "not wants" count.
+  const khidmatPool = members.filter(
+    (m) => !m.not_attending && m.local_mehman === "Mehman" && isSubmitted(m.hof_its),
+  );
   const wantsKhidmat = khidmatPool.filter((m) => m.wants_khidmat === true).length;
   const notKhidmat = khidmatPool.filter((m) => m.wants_khidmat === false).length;
   const khidmatNotSet = khidmatPool.filter((m) => m.wants_khidmat === null).length;
@@ -345,6 +358,8 @@ export async function GET(req: NextRequest) {
       pending_families: pendingFamilies,
       cancelled_families: cancelledFamilies,
       total_mumineen: members.length,
+      submitted_mumineen: submittedMumineen,
+      pending_mumineen: pendingMumineen,
       attending: attending.length,
       not_attending: notAttending,
       local: localCount,

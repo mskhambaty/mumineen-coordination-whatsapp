@@ -85,6 +85,9 @@ export default function KnowledgePage() {
   const [migrating, setMigrating] = useState(false);
   const [migrateMsg, setMigrateMsg] = useState<string | null>(null);
 
+  const [driveSyncing, setDriveSyncing] = useState(false);
+  const [driveSyncMsg, setDriveSyncMsg] = useState<string | null>(null);
+
   const [topics, setTopics] = useState<ReligiousTopic[]>([]);
   const [editingTopic, setEditingTopic] = useState<ReligiousTopic | null>(null);
   const [newTopicTitle, setNewTopicTitle] = useState("");
@@ -149,6 +152,43 @@ export default function KnowledgePage() {
       setError(err instanceof Error ? err.message : "Could not sort FAQs");
     } finally {
       setMigrating(false);
+    }
+  }
+
+  async function runDriveSync(dryRun: boolean) {
+    setDriveSyncing(true);
+    setDriveSyncMsg(null);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/admin/knowledge/drive-sync?dryRun=${dryRun}`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) throw new Error(data.error ?? "Drive sync failed");
+      const s = (data.stats ?? {}) as {
+        dryRun?: boolean;
+        scanned?: number;
+        added?: number;
+        updated?: number;
+        skipped?: number;
+        deleted?: number;
+        errors?: unknown[];
+        note?: string;
+      };
+      if (s.note) {
+        setDriveSyncMsg(s.note);
+        return;
+      }
+      const parts = [`${s.added ?? 0} added`, `${s.updated ?? 0} updated`, `${s.skipped ?? 0} skipped`];
+      if (s.deleted) parts.push(`${s.deleted} removed`);
+      let msg = `${s.dryRun ? "Dry run — would apply:" : "Synced:"} ${parts.join(", ")} (scanned ${s.scanned ?? 0}).`;
+      if (s.errors?.length) msg += ` ⚠️ ${s.errors.length} error(s) — check logs.`;
+      setDriveSyncMsg(msg);
+      if (!s.dryRun) await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Drive sync failed");
+    } finally {
+      setDriveSyncing(false);
     }
   }
 
@@ -341,6 +381,39 @@ export default function KnowledgePage() {
           CSV, Excel (.xlsx/.xls), Word (.docx), or PDF, up to 15 MB. Scanned/image-only PDFs can&apos;t be read.
         </p>
       </form>
+
+      {tab === "faq" && (
+        <div className="mb-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Google Drive sync</h2>
+              <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
+                Pull FAQ docs from the shared Drive “WhatsApp” folder into the knowledge base. Run a
+                <strong> Dry run</strong> first to preview what would change — it reads only, and writes nothing.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void runDriveSync(true)}
+                disabled={driveSyncing}
+                className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                {driveSyncing ? "Working…" : "Dry run"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void runDriveSync(false)}
+                disabled={driveSyncing}
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300 dark:disabled:bg-gray-700"
+              >
+                {driveSyncing ? "Syncing…" : "Sync now"}
+              </button>
+            </div>
+          </div>
+          {driveSyncMsg && <p className="mt-3 text-sm font-medium text-green-700 dark:text-green-400">{driveSyncMsg}</p>}
+        </div>
+      )}
 
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
         <div className="border-b border-gray-200 px-5 py-4 dark:border-gray-800">

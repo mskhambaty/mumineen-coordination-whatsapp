@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import React, { useEffect, useRef, useState } from "react";
 
-import { canAccessMumineen } from "@/lib/admin/access";
+import { canAccessMumineen, isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type Stats = { mumineen: number; adults: number; families: number; registered_families: number; cancelled_families: number; mehmaan: number; local: number };
@@ -213,6 +213,26 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 const yesOrNull = (v: boolean | null | undefined) => (v ? "Yes" : null);
 
+type AddMuminForm = {
+  its: string;
+  full_name: string;
+  is_head: boolean;
+  hof_its: string;
+  gender: string;
+  local_mehman: string;
+  age: string;
+  is_adult: boolean;
+  whatsapp_e164: string;
+  email: string;
+  jamaat: string;
+};
+
+const emptyAddForm: AddMuminForm = {
+  its: "", full_name: "", is_head: true, hof_its: "",
+  gender: "", local_mehman: "", age: "", is_adult: false,
+  whatsapp_e164: "", email: "", jamaat: "",
+};
+
 type ImportLogEntry = {
   id: string;
   imported_by_name: string | null;
@@ -247,9 +267,13 @@ export default function MumineenPage() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<EditForm | null>(null);
   const [saving, setSaving] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addForm, setAddForm] = useState(emptyAddForm);
+  const [addSaving, setAddSaving] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [displayName, setDisplayName] = useState<string | null>(null);
+  const [isAdminUser, setIsAdminUser] = useState(false);
 
   useEffect(() => {
     const user = readAdminUser();
@@ -258,7 +282,7 @@ export default function MumineenPage() {
       return;
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDisplayName(user.is_master_admin === true ? "__master__" : null);
+    setIsAdminUser(isAdminOrLeadership(user));
     if (!canAccessMumineen(user)) {
       router.push("/admin/conversations");
       return;
@@ -491,6 +515,43 @@ export default function MumineenPage() {
     }
   }
 
+  async function submitAddMumin(e: React.FormEvent) {
+    e.preventDefault();
+    if (addSaving) return;
+    setAddSaving(true);
+    setAddError(null);
+    try {
+      const body = {
+        its: addForm.its.trim(),
+        full_name: addForm.full_name.trim(),
+        is_head: addForm.is_head,
+        ...(addForm.is_head ? {} : { hof_its: addForm.hof_its.trim() }),
+        gender: addForm.gender || null,
+        local_mehman: addForm.local_mehman || null,
+        age: addForm.age ? parseInt(addForm.age, 10) : null,
+        is_adult: addForm.age ? parseInt(addForm.age, 10) >= 18 : addForm.is_adult,
+        whatsapp_e164: addForm.whatsapp_e164.trim() || null,
+        email: addForm.email.trim() || null,
+        jamaat: addForm.jamaat.trim() || null,
+      };
+      const res = await apiFetch("/api/admin/mumineen/create", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to create mumin");
+      setAddOpen(false);
+      setAddForm(emptyAddForm);
+      await loadStats();
+      setQuery(addForm.its.trim());
+      await runSearch(addForm.its.trim());
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : "Failed to create mumin");
+    } finally {
+      setAddSaving(false);
+    }
+  }
+
   const cards: { label: string; value: number | undefined }[] = [
     { label: "Mumineen", value: stats?.mumineen },
     { label: "Mehmaan", value: stats?.mehmaan },
@@ -506,7 +567,7 @@ export default function MumineenPage() {
       <div className="mb-5">
         <div className="flex items-center justify-between gap-4">
           <h1 className="text-xl font-bold">Mumineen Roster</h1>
-          {displayName === "__master__" && (
+          {isAdminUser && (
             <button
               type="button"
               onClick={async () => {
@@ -546,7 +607,16 @@ export default function MumineenPage() {
       </div>
 
       <div className="mb-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-        <h2 className="text-lg font-semibold">Lookup mumin</h2>
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-lg font-semibold">Lookup mumin</h2>
+          <button
+            type="button"
+            onClick={() => { setAddOpen(true); setAddError(null); setAddForm(emptyAddForm); }}
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            + Add mumin
+          </button>
+        </div>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Search by ITS, name, WhatsApp number, HOF ITS, jamaat, or category.</p>
         <input
           value={query}
@@ -860,19 +930,21 @@ export default function MumineenPage() {
                     <EditRow label="Email"><input value={form.email} onChange={(e) => updateForm({ email: e.target.value })} type="email" className={inputCls} /></EditRow>
                   </Section>
 
-                  <Section title="Travel">
-                    <EditRow label="Arrival"><input value={form.arrival_at} onChange={(e) => updateForm({ arrival_at: e.target.value })} type="datetime-local" className={inputCls} /></EditRow>
-                    <EditRow label="Arrival flight"><input value={form.arrival_flight_no} onChange={(e) => updateForm({ arrival_flight_no: e.target.value })} className={inputCls} /></EditRow>
-                    <EditRow label="Departure"><input value={form.departure_at} onChange={(e) => updateForm({ departure_at: e.target.value })} type="datetime-local" className={inputCls} /></EditRow>
-                    <EditRow label="Departure flight"><input value={form.departure_flight_no} onChange={(e) => updateForm({ departure_flight_no: e.target.value })} className={inputCls} /></EditRow>
-                    <EditRow label="Airport">
-                      <select value={form.airport} onChange={(e) => updateForm({ airport: e.target.value })} className={inputCls}>
-                        <option value="">—</option>
-                        <option value="ORD">ORD</option>
-                        <option value="MDW">MDW</option>
-                      </select>
-                    </EditRow>
-                  </Section>
+                  {selected.local_mehman === "Mehman" && (
+                    <Section title="Travel">
+                      <EditRow label="Arrival"><input value={form.arrival_at} onChange={(e) => updateForm({ arrival_at: e.target.value })} type="datetime-local" className={inputCls} /></EditRow>
+                      <EditRow label="Arrival flight"><input value={form.arrival_flight_no} onChange={(e) => updateForm({ arrival_flight_no: e.target.value })} className={inputCls} /></EditRow>
+                      <EditRow label="Departure"><input value={form.departure_at} onChange={(e) => updateForm({ departure_at: e.target.value })} type="datetime-local" className={inputCls} /></EditRow>
+                      <EditRow label="Departure flight"><input value={form.departure_flight_no} onChange={(e) => updateForm({ departure_flight_no: e.target.value })} className={inputCls} /></EditRow>
+                      <EditRow label="Airport">
+                        <select value={form.airport} onChange={(e) => updateForm({ airport: e.target.value })} className={inputCls}>
+                          <option value="">—</option>
+                          <option value="ORD">ORD</option>
+                          <option value="MDW">MDW</option>
+                        </select>
+                      </EditRow>
+                    </Section>
+                  )}
 
                   <Section title="Needs / khidmat">
                     <EditRow label="Not attending"><input type="checkbox" checked={form.not_attending} onChange={(e) => updateForm({ not_attending: e.target.checked })} className="h-4 w-4 accent-blue-600" /></EditRow>
@@ -881,15 +953,17 @@ export default function MumineenPage() {
                       <EditRow label="Wheelchair"><input type="checkbox" checked={form.wheelchair} onChange={(e) => updateForm({ wheelchair: e.target.checked })} className="h-4 w-4 accent-blue-600" /></EditRow>
                     )}
                     <EditRow label="Special needs"><input value={form.special_needs} onChange={(e) => updateForm({ special_needs: e.target.value })} className={inputCls} /></EditRow>
-                    <EditRow label="Wants khidmat"><input type="checkbox" checked={form.wants_khidmat} onChange={(e) => updateForm({ wants_khidmat: e.target.checked, khidmat_department_ids: e.target.checked ? form.khidmat_department_ids : [] })} className="h-4 w-4 accent-blue-600" /></EditRow>
-                    {form.wants_khidmat && (
+                    {selected.local_mehman === "Mehman" && (
+                      <EditRow label="Wants khidmat"><input type="checkbox" checked={form.wants_khidmat} onChange={(e) => updateForm({ wants_khidmat: e.target.checked, khidmat_department_ids: e.target.checked ? form.khidmat_department_ids : [] })} className="h-4 w-4 accent-blue-600" /></EditRow>
+                    )}
+                    {selected.local_mehman === "Mehman" && form.wants_khidmat && (
                       <EditRow label="Departments">
                         <KhidmatPicker departments={departments} selected={form.khidmat_department_ids} onChange={(ids) => updateForm({ khidmat_department_ids: ids })} />
                       </EditRow>
                     )}
                   </Section>
 
-                  {selected.family && (
+                  {selected.family && selected.local_mehman === "Mehman" && (
                     <Section title="Family registration">
                       <EditRow label="Accommodation">
                         <select value={form.acc_type} onChange={(e) => updateForm({ acc_type: e.target.value })} className={inputCls}>
@@ -935,16 +1009,18 @@ export default function MumineenPage() {
                     <Field label="WhatsApp link clicked" value={yesOrNull(selected.whatsapp_link_clicked)} />
                   </Section>
 
-                  <Section title="Travel">
-                    <Field label="Arrival" value={fmtDateTime(selected.arrival_at)} />
-                    <Field label="Arrival flight" value={selected.arrival_flight_no} />
-                    <Field label="Departure" value={fmtDateTime(selected.departure_at)} />
-                    <Field label="Departure flight" value={selected.departure_flight_no} />
-                    <Field label="Airport" value={selected.airport} />
-                    <Field label="Daily transport" value={selected.daily_trans} />
-                    <Field label="Roster arrival (raw)" value={selected.roster_arrival_raw} />
-                    <Field label="Roster flight code" value={selected.roster_flight_code} />
-                  </Section>
+                  {selected.local_mehman === "Mehman" && (
+                    <Section title="Travel">
+                      <Field label="Arrival" value={fmtDateTime(selected.arrival_at)} />
+                      <Field label="Arrival flight" value={selected.arrival_flight_no} />
+                      <Field label="Departure" value={fmtDateTime(selected.departure_at)} />
+                      <Field label="Departure flight" value={selected.departure_flight_no} />
+                      <Field label="Airport" value={selected.airport} />
+                      <Field label="Daily transport" value={selected.daily_trans} />
+                      <Field label="Roster arrival (raw)" value={selected.roster_arrival_raw} />
+                      <Field label="Roster flight code" value={selected.roster_flight_code} />
+                    </Section>
+                  )}
 
                   <Section title="Needs / khidmat">
                     <Field label="Rahat seating" value={yesOrNull(selected.rahat_seating)} />
@@ -985,6 +1061,77 @@ export default function MumineenPage() {
                 </>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {addOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+            <h2 className="mb-4 text-lg font-semibold">Add mumin</h2>
+            <form onSubmit={(e) => { void submitAddMumin(e); }} className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">ITS number *</label>
+                <input required value={addForm.its} onChange={(e) => setAddForm((f) => ({ ...f, its: e.target.value }))} className={inputCls} placeholder="e.g. 1234567" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Full name *</label>
+                <input required value={addForm.full_name} onChange={(e) => setAddForm((f) => ({ ...f, full_name: e.target.value }))} className={inputCls} placeholder="e.g. Murtaza Hussain" />
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="is_head" checked={addForm.is_head} onChange={(e) => setAddForm((f) => ({ ...f, is_head: e.target.checked, hof_its: "" }))} className="h-4 w-4" />
+                <label htmlFor="is_head" className="text-sm text-gray-700 dark:text-gray-300">This person is the Head of a new family</label>
+              </div>
+              {!addForm.is_head && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Head of Family ITS *</label>
+                  <input required value={addForm.hof_its} onChange={(e) => setAddForm((f) => ({ ...f, hof_its: e.target.value }))} className={inputCls} placeholder="Existing HoF ITS" />
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Gender</label>
+                  <select value={addForm.gender} onChange={(e) => setAddForm((f) => ({ ...f, gender: e.target.value }))} className={inputCls}>
+                    <option value="">—</option>
+                    <option value="M">Male</option>
+                    <option value="F">Female</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Type</label>
+                  <select value={addForm.local_mehman} onChange={(e) => setAddForm((f) => ({ ...f, local_mehman: e.target.value }))} className={inputCls}>
+                    <option value="">—</option>
+                    <option value="Local">Local</option>
+                    <option value="Mehman">Mehman</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Age</label>
+                  <input type="number" min={0} max={150} value={addForm.age} onChange={(e) => setAddForm((f) => ({ ...f, age: e.target.value }))} className={inputCls} placeholder="e.g. 35" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Jamaat</label>
+                  <input value={addForm.jamaat} onChange={(e) => setAddForm((f) => ({ ...f, jamaat: e.target.value }))} className={inputCls} placeholder="e.g. Chicago" />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">WhatsApp</label>
+                <input value={addForm.whatsapp_e164} onChange={(e) => setAddForm((f) => ({ ...f, whatsapp_e164: e.target.value }))} className={inputCls} placeholder="+1..." />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Email</label>
+                <input type="email" value={addForm.email} onChange={(e) => setAddForm((f) => ({ ...f, email: e.target.value }))} className={inputCls} />
+              </div>
+              {addError && <p className="text-sm text-red-600 dark:text-red-400">{addError}</p>}
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" onClick={() => setAddOpen(false)} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600">Cancel</button>
+                <button type="submit" disabled={addSaving} className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+                  {addSaving ? "Saving…" : "Add mumin"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

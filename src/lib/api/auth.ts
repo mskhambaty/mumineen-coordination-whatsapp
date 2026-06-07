@@ -82,7 +82,6 @@ type PortalPermissions = {
   global_role: string | null;
   departments: { department_id: string; department_name: string; dept_role: string }[];
   is_escalation_support: boolean;
-  is_master_admin: boolean;
 };
 
 // Mirrors buildPortalSessionUser / the isItMember-style helpers in supabase/server.ts,
@@ -103,7 +102,6 @@ export function derivePortalFlags(perms: PortalPermissions): PortalUser {
     is_it: isIt,
     is_transport: isTransport,
     is_internal: isManager || isIt || isTransport || perms.departments.length > 0,
-    is_master_admin: perms.is_master_admin,
   };
 }
 
@@ -152,15 +150,13 @@ export async function resolveCallerFromSession(req: Request): Promise<CallerCont
       global_role: (result.global_role as string) ?? null,
       departments,
       is_escalation_support: result.is_escalation_support === true,
-      is_master_admin: result.is_master_admin === true,
     }),
   };
 }
 
 // Full-access caller for server-to-server x-admin-key requests (agent, cron).
 // portal is a blanket allow so every page-gate predicate passes — the flags do
-// NOT mean real department membership. is_master_admin stays false: that gate
-// is for specific human accounts, not the shared server key.
+// NOT mean real department membership.
 export const ADMIN_API_CALLER: CallerContext = {
   user_id: "admin-api",
   display_name: "Admin API",
@@ -177,7 +173,6 @@ export const ADMIN_API_CALLER: CallerContext = {
     is_it: true,
     is_transport: true,
     is_internal: true,
-    is_master_admin: false,
   },
 };
 

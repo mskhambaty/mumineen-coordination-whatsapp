@@ -18,7 +18,7 @@ export async function GET(
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("whatsapp_users")
-    .select("id, display_name, phone_e164, email, role, global_role, status, is_master_admin")
+    .select("id, display_name, phone_e164, email, role, global_role, status")
     .eq("id", id)
     .single();
 
@@ -65,8 +65,6 @@ export async function PUT(
   if (body.display_name !== undefined) updates.display_name = body.display_name;
   if (body.phone_e164 !== undefined) updates.phone_e164 = body.phone_e164;
   if (body.email !== undefined) updates.email = body.email;
-  if (body.is_master_admin !== undefined) updates.is_master_admin = Boolean(body.is_master_admin);
-
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "No updates provided" }, { status: 400 });
   }
@@ -113,7 +111,7 @@ export async function PUT(
     .from("whatsapp_users")
     .update(updates)
     .eq("id", id)
-    .select("id, display_name, phone_e164, email, role, global_role, status, is_master_admin")
+    .select("id, display_name, phone_e164, email, role, global_role, status")
     .single();
 
   if (error) {
