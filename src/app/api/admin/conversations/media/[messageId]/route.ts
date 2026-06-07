@@ -1,18 +1,18 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
+import { canAccessInbox } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { fetchWhatsAppMedia } from "@/lib/meta/whatsapp";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
 // Serve a WhatsApp image for the inbox. The bytes live behind Meta's authenticated
-// media API, so we proxy them on demand by the message's stored media id. Auth comes
-// via a `key` query param because <img> tags can't send headers (same as the SSE route).
+// media API, so we proxy them on demand by the message's stored media id.
+// The browser attaches the httpOnly session cookie automatically on same-origin requests.
 export async function GET(req: NextRequest, { params }: { params: Promise<{ messageId: string }> }) {
-  const key = req.nextUrl.searchParams.get("key");
-  if (!process.env.ADMIN_API_KEY || key !== process.env.ADMIN_API_KEY) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canAccessInbox);
+  if (auth instanceof NextResponse) return auth;
 
   const { messageId } = await params;
   const { data: message } = await getSupabaseAdmin()

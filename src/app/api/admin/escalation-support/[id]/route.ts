@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { isAdminOrLeadership } from "@/lib/admin/access";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -11,9 +12,8 @@ const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 // DELETE: remove a support member (cascades their on-call hours).
 export async function DELETE(req: NextRequest, { params }: RouteContext) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
   const { error } = await getSupabaseAdmin()
@@ -31,9 +31,8 @@ export async function DELETE(req: NextRequest, { params }: RouteContext) {
 // PATCH: reassign a member to a different department (or null = general fallback).
 // Keeps their on-call hours intact.
 export async function PATCH(req: NextRequest, { params }: RouteContext) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as { department_id?: unknown };
@@ -61,9 +60,8 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
 
 // PUT: replace a member's on-call hours with the provided weekly ranges.
 export async function PUT(req: NextRequest, { params }: RouteContext) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as { hours?: unknown };

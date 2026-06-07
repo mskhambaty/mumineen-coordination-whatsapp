@@ -3,29 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-type StoredUser = {
-  id?: string;
-  display_name?: string | null;
-  email?: string | null;
-  role?: string | null;
-  global_role?: string | null;
-};
-
-function readStoredUser(): StoredUser | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem("admin_user");
-    return raw ? (JSON.parse(raw) as StoredUser) : null;
-  } catch {
-    return null;
-  }
-}
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 export default function ProfilePage() {
   const router = useRouter();
-  const [user, setUser] = useState<StoredUser | null>(() => readStoredUser());
-  const [displayName, setDisplayName] = useState(() => readStoredUser()?.display_name ?? "");
-  const [email, setEmail] = useState(() => readStoredUser()?.email ?? "");
+  const [user, setUser] = useState(() => readAdminUser());
+  const [displayName, setDisplayName] = useState(() => readAdminUser()?.display_name ?? "");
+  const [email, setEmail] = useState(() => readAdminUser()?.email ?? "");
   const [savingName, setSavingName] = useState(false);
   const [nameMsg, setNameMsg] = useState<string | null>(null);
 
@@ -38,29 +22,20 @@ export default function ProfilePage() {
   const [passwordMsg, setPasswordMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [error, setError] = useState<string | null>(null);
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
   useEffect(() => {
-    if (!localStorage.getItem("admin_token")) {
+    if (!readAdminUser()) {
       router.push("/admin/login");
     }
   }, [router]);
 
-  function apiFetch(path: string, init?: RequestInit) {
-    return fetch(path, {
-      ...init,
-      headers: { "Content-Type": "application/json", "x-admin-key": adminKey, ...(init?.headers ?? {}) },
-    });
-  }
-
   async function saveName(event: React.FormEvent) {
     event.preventDefault();
-    if (!user?.id) return;
     setSavingName(true);
     setNameMsg(null);
     setError(null);
     try {
-      const payload: Record<string, unknown> = { id: user.id, display_name: displayName };
+      const payload: Record<string, unknown> = { display_name: displayName };
       if (isAdmin) payload.email = email;
       const res = await apiFetch("/api/admin/profile", {
         method: "PUT",
@@ -82,7 +57,6 @@ export default function ProfilePage() {
 
   async function savePassword(event: React.FormEvent) {
     event.preventDefault();
-    if (!user?.id) return;
     setPasswordMsg(null);
     setError(null);
     if (newPassword.length < 8) {
@@ -97,7 +71,7 @@ export default function ProfilePage() {
     try {
       const res = await apiFetch("/api/admin/profile", {
         method: "PUT",
-        body: JSON.stringify({ id: user.id, current_password: currentPassword, new_password: newPassword }),
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Failed to change password");

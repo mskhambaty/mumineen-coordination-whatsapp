@@ -47,5 +47,8 @@ memory/
 # superpowers working docs (specs/plans, local per-developer)
 /docs/superpowers/
 
+# generated user manuals (local, per-developer)
+/docs/manuals/
+
 # local mcp config backup
 *.localbak

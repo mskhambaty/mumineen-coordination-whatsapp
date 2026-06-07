@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { canManageParking, canViewParking } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 import {
   LOT_PURPOSES,
   PURPOSE_LABELS,
@@ -310,7 +311,6 @@ export default function ParkingPage() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [canManage, setCanManage] = useState(false);
-  const [userId, setUserId] = useState("");
 
   const [lots, setLots] = useState<Lot[]>([]);
   const [rows, setRows] = useState<HouseholdRow[]>([]);
@@ -331,37 +331,28 @@ export default function ParkingPage() {
   // when a narrowable lot is picked; the chip stays toggleable for deliberate overrides.
   const [purposeFit, setPurposeFit] = useState(false);
 
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
-  const headers = useMemo(
-    () => ({ "x-admin-key": adminKey, "x-admin-user-id": userId }),
-    [adminKey, userId],
-  );
-
   // Gate: signed-in portal user with parking view access (see canViewParking).
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    const user = readAdminUser();
+    if (!user) {
       router.push("/admin/login");
       return;
     }
-    const raw = localStorage.getItem("admin_user");
-    const user = raw ? JSON.parse(raw) : null;
     if (!canViewParking(user)) {
       router.push("/admin/conversations");
       return;
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setCanManage(canManageParking(user));
-    setUserId(user?.id ?? "");
     setReady(true);
   }, [router]);
 
   const loadLots = useCallback(async () => {
-    const res = await fetch("/api/admin/parking/lots", { headers });
+    const res = await apiFetch("/api/admin/parking/lots");
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json.error ?? "Failed to load lots");
     setLots(json.lots ?? []);
-  }, [headers]);
+  }, []);
 
   const loadHouseholds = useCallback(
     async (f: Filters) => {
@@ -376,13 +367,13 @@ export default function ParkingPage() {
       if (f.has_category) params.set("has_category", "1");
       if (f.kids_under_7) params.set("kids_under_7", "1");
       if (f.assigned) params.set("assigned", f.assigned);
-      const res = await fetch(`/api/admin/parking/households?${params}`, { headers });
+      const res = await apiFetch(`/api/admin/parking/households?${params}`);
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Failed to load households");
       setRows(json.rows ?? []);
       setTotal(json.total ?? 0);
     },
-    [headers],
+    [],
   );
 
   const loadAll = useCallback(
@@ -402,10 +393,10 @@ export default function ParkingPage() {
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (ready && userId) void loadAll(DEFAULT_FILTERS);
+    if (ready) void loadAll(DEFAULT_FILTERS);
     // Initial load once gated; subsequent loads go through applyFilter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, userId]);
+  }, [ready]);
 
   function applyFilter(patch: Partial<Filters>) {
     const next = { ...filters, ...patch };
@@ -429,9 +420,8 @@ export default function ParkingPage() {
   }
 
   async function assignPass(familyId: string, lotId: string, notes: string) {
-    const res = await fetch("/api/admin/parking/passes", {
+    const res = await apiFetch("/api/admin/parking/passes", {
       method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify({ family_id: familyId, lot_id: lotId, notes }),
     });
     const json = await res.json().catch(() => ({}));
@@ -443,9 +433,8 @@ export default function ParkingPage() {
   }
 
   async function revokePass(passId: string) {
-    const res = await fetch(`/api/admin/parking/passes?id=${encodeURIComponent(passId)}`, {
+    const res = await apiFetch(`/api/admin/parking/passes?id=${encodeURIComponent(passId)}`, {
       method: "DELETE",
-      headers,
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -456,9 +445,8 @@ export default function ParkingPage() {
   }
 
   async function saveLot(patch: { id: string; name: string; capacity: number; color: string; purposes: string[] }) {
-    const res = await fetch("/api/admin/parking/lots", {
+    const res = await apiFetch("/api/admin/parking/lots", {
       method: "PATCH",
-      headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify(patch),
     });
     const json = await res.json().catch(() => ({}));
@@ -550,9 +538,8 @@ export default function ParkingPage() {
     setError(null);
     setNotice(null);
     try {
-      const res = await fetch("/api/admin/parking/passes/bulk", {
+      const res = await apiFetch("/api/admin/parking/passes/bulk", {
         method: "POST",
-        headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ lot_id: bulkLot.id, family_ids: [...selected] }),
       });
       const json = await res.json().catch(() => ({}));

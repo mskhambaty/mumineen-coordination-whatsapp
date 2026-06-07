@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { canAccessMumineen } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { importMumineenRoster } from "@/lib/mumineen/import";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -12,12 +13,12 @@ const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB
 
 // POST: import the mumineen roster from an uploaded Excel/CSV. Idempotent (upsert).
 export async function POST(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canAccessMumineen);
+  if (auth instanceof NextResponse) return auth;
 
-  const uploaderUserId = req.headers.get("x-admin-user-id") ?? null;
-  const uploaderName = req.headers.get("x-admin-user-name") ?? null;
+  // Server-to-server (admin-key) callers have the sentinel id; record null for them.
+  const uploaderUserId = auth.caller.user_id === "admin-api" ? null : auth.caller.user_id;
+  const uploaderName = auth.caller.display_name ?? null;
 
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
@@ -72,9 +73,8 @@ export async function POST(req: NextRequest) {
 
 // GET: import history log.
 export async function GET(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canAccessMumineen);
+  if (auth instanceof NextResponse) return auth;
 
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase

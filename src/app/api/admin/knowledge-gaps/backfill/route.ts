@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { canManageKnowledge } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { AI_MODEL, chatParams, getAIClient, PARSE_TEMPERATURE } from "@/lib/ai/model";
 import { recordKnowledgeGap } from "@/lib/knowledge/knowledge-gaps";
 import { getRecentMessages, getSupabaseAdmin } from "@/lib/supabase/server";
@@ -18,9 +19,8 @@ type Gap = { topic?: unknown; question?: unknown };
 // POST /api/admin/knowledge-gaps/backfill?limit=60 — one-time pass over past conversations to
 // flag topics the bot couldn't answer (the live agent handles this going forward).
 export async function POST(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canManageKnowledge);
+  if (auth instanceof NextResponse) return auth;
   const limit = Math.min(Math.max(Number(req.nextUrl.searchParams.get("limit") ?? 60), 1), 200);
   const supabase = getSupabaseAdmin();
 

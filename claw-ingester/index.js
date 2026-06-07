@@ -12,6 +12,7 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
 } from '@whiskeysockets/baileys'
 import P from 'pino'
+import fs from 'fs'
 import qrcode from 'qrcode-terminal'
 import { persist } from './store.js'
 
@@ -20,6 +21,45 @@ const logger = P({ level: process.env.LOG_LEVEL || 'info' })
 // Where this listener stores ITS auth/session. Must NOT point at OpenClaw's
 // credentials (~/.openclaw/credentials/...). This is a second linked device.
 const AUTH_DIR = process.env.AUTH_DIR || './auth'
+
+// Group JID -> { department, wa_subject } map. Names are resolved in-process on
+// the live socket (no separate connection), so there's no session conflict and
+// nothing to stop/start. You fill in `department` by hand; `wa_subject` is the
+// WhatsApp group name, captured automatically as a hint.
+const GROUPS_FILE = process.env.GROUPS_FILE || './groups.json'
+
+function loadGroups() {
+  try {
+    return JSON.parse(fs.readFileSync(GROUPS_FILE, 'utf8'))
+  } catch {
+    return {}
+  }
+}
+
+let groups = loadGroups()
+
+function saveGroups() {
+  fs.writeFileSync(GROUPS_FILE, JSON.stringify(groups, null, 2) + '\n')
+}
+
+// Resolve+persist a group's name the first time we see it (or if its name is
+// still unknown). Uses the LIVE socket — no new connection. Never overwrites the
+// human-assigned `department`.
+async function ensureGroupKnown(sock, jid) {
+  if (groups[jid]?.wa_subject) return // already have a name; leave it (and department) alone
+  try {
+    const meta = await sock.groupMetadata(jid)
+    groups[jid] = {
+      department: groups[jid]?.department || '', // preserve any existing label
+      wa_subject: meta?.subject || '',
+    }
+    saveGroups()
+    logger.info({ jid, wa_subject: groups[jid].wa_subject }, 'discovered group — set "department" in groups.json')
+  } catch (e) {
+    // Don't let a metadata hiccup block message capture; we'll retry on the next message.
+    logger.warn({ jid, err: e.message }, 'group metadata fetch failed (will retry)')
+  }
+}
 
 async function start() {
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR)
@@ -71,6 +111,10 @@ async function start() {
       const jid = msg.key?.remoteJid || ''
       if (!jid.endsWith('@g.us')) continue   // groups only
       if (jid === 'status@broadcast') continue
+
+      // Resolve this group's name in-process the first time we see it (no extra
+      // connection). Fire-and-forget — capture must not wait on it.
+      ensureGroupKnown(sock, jid)
       // NOTE: we no longer skip fromMe. The bot's own group messages (e.g.
       // outbound notifications) are captured too, flagged with is_bot:true below,
       // so the conversation record is complete. The extraction layer can exclude

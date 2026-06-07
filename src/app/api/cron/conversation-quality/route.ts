@@ -38,7 +38,7 @@ function isAuthorized(req: NextRequest): boolean {
   if (authHeader === `Bearer ${cronSecret}`) return true;
 
   const adminKey = req.headers.get("x-admin-key") || req.nextUrl.searchParams.get("key");
-  const expectedAdminKey = process.env.ADMIN_API_KEY || process.env.NEXT_PUBLIC_ADMIN_KEY;
+  const expectedAdminKey = process.env.ADMIN_API_KEY;
   return Boolean(adminKey && expectedAdminKey && adminKey === expectedAdminKey);
 }
 

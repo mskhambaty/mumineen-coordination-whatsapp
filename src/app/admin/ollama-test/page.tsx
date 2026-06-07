@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
+import { readAdminUser } from "@/lib/admin/client";
 
 type OllamaModel = {
   name: string;
@@ -76,13 +77,11 @@ export default function OllamaTestPage() {
   const [chatError, setChatError] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    const user = readAdminUser();
+    if (!user) {
       router.push("/admin/login");
       return;
     }
-    const raw = localStorage.getItem("admin_user");
-    const user = raw ? (JSON.parse(raw) as { role?: string; global_role?: string }) : null;
     if (!isAdminOrLeadership(user)) {
       router.push("/admin/tasks");
     }

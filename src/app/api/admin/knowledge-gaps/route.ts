@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { canManageKnowledge } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
 // GET /api/admin/knowledge-gaps?status=open — topics the agent couldn't answer, most-asked first.
 export async function GET(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canManageKnowledge);
+  if (auth instanceof NextResponse) return auth;
   const status = req.nextUrl.searchParams.get("status") ?? "open";
   const supabase = getSupabaseAdmin();
   let query = supabase
@@ -27,9 +27,8 @@ export async function GET(req: NextRequest) {
 
 // PATCH /api/admin/knowledge-gaps — update a gap's status (open | addressed | dismissed).
 export async function PATCH(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canManageKnowledge);
+  if (auth instanceof NextResponse) return auth;
   const body = (await req.json().catch(() => ({}))) as { id?: unknown; status?: unknown };
   const id = typeof body.id === "string" ? body.id : "";
   const status = body.status === "open" || body.status === "addressed" || body.status === "dismissed" ? body.status : null;

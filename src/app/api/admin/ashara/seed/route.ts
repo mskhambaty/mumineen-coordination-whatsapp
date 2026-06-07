@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { canManageKnowledge } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { DEFAULT_ACTIVE_YEAR } from "@/lib/knowledge/ashara-config";
 import { seedMajlisDay } from "@/lib/knowledge/seed-majlis";
 
@@ -10,9 +11,8 @@ export const maxDuration = 120;
 // POST { year, majlis_number, is_ashura }: create the 6 per-category slots for one majlis.
 // Backs the dashboard's "Seed this majlis" button. Idempotent.
 export async function POST(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canManageKnowledge);
+  if (auth instanceof NextResponse) return auth;
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const year = typeof body.year === "string" && body.year.trim() ? body.year.trim() : DEFAULT_ACTIVE_YEAR;
   const isAshura = body.is_ashura === true;

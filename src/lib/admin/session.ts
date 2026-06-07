@@ -62,6 +62,3 @@ export async function canAccessPortal(user: PortalSessionSourceUser): Promise<bo
   );
 }
 
-export function createPortalSessionToken(user: Pick<PortalSessionSourceUser, "id" | "email">): string {
-  return Buffer.from(`${user.id}:${user.email ?? ""}:${Date.now()}`).toString("base64");
-}

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import React, { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { canViewRegistrations } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -119,12 +120,10 @@ const SECTIONS = [
 function DetailPanel({
   req,
   filters,
-  adminKey,
   onClose,
 }: {
   req: DetailRequest;
   filters: Filters;
-  adminKey: string;
   onClose: () => void;
 }) {
   const [rows, setRows] = useState<DetailRow[]>([]);
@@ -140,13 +139,11 @@ function DetailPanel({
     if (filters.local_mehman) params.set("local_mehman", filters.local_mehman);
     if (filters.status) params.set("status", filters.status);
     if (filters.attending) params.set("attending", filters.attending);
-    fetch(`/api/admin/registration-analytics/detail?${params}`, {
-      headers: { "x-admin-key": adminKey },
-    })
+    apiFetch(`/api/admin/registration-analytics/detail?${params}`)
       .then((r) => r.json())
       .then((d) => { setRows(d.rows ?? []); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [req.segment, req.value, filters, adminKey]);
+  }, [req.segment, req.value, filters]);
 
   // Close on outside click
   useEffect(() => {
@@ -685,7 +682,6 @@ export default function RegistrationAnalyticsPage() {
   const [airportFilter, setAirportFilter] = useState("");
   const [khidmatDeptFilter, setKhidmatDeptFilter] = useState("");
 
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
   const load = useCallback(
     async (f: Filters) => {
@@ -697,7 +693,7 @@ export default function RegistrationAnalyticsPage() {
         if (f.status) params.set("status", f.status);
         if (f.attending) params.set("attending", f.attending);
         const url = `/api/admin/registration-analytics${params.toString() ? `?${params}` : ""}`;
-        const res = await fetch(url, { headers: { "x-admin-key": adminKey } });
+        const res = await apiFetch(url);
         const json = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(json.error ?? "Failed to load");
         setData(json as Analytics);
@@ -707,7 +703,7 @@ export default function RegistrationAnalyticsPage() {
         setLoading(false);
       }
     },
-    [adminKey],
+    [],
   );
 
   const applyFilter = (patch: Partial<Filters>) => {
@@ -719,11 +715,10 @@ export default function RegistrationAnalyticsPage() {
   const drill = (req: DetailRequest) => setDetail(req);
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) { router.push("/admin/login"); return; }
-    const raw = localStorage.getItem("admin_user");
-    const user = raw ? JSON.parse(raw) as { role?: string; global_role?: string } : null;
+    const user = readAdminUser();
+    if (!user) { router.push("/admin/login"); return; }
     if (!canViewRegistrations(user)) { router.push("/admin/conversations"); return; }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load(filters);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
@@ -795,7 +790,6 @@ export default function RegistrationAnalyticsPage() {
         <DetailPanel
           req={detail}
           filters={filters}
-          adminKey={adminKey}
           onClose={() => setDetail(null)}
         />
       )}

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import React, { useEffect, useRef, useState } from "react";
 
 import { canAccessMumineen, isAdminOrLeadership } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type Stats = { mumineen: number; adults: number; families: number; registered_families: number; cancelled_families: number; mehmaan: number; local: number };
 
@@ -215,10 +216,10 @@ const yesOrNull = (v: boolean | null | undefined) => (v ? "Yes" : null);
 type AddMuminForm = {
   its: string;
   full_name: string;
+  prefix: string;
   is_head: boolean;
   hof_its: string;
   gender: string;
-  local_mehman: string;
   age: string;
   is_adult: boolean;
   whatsapp_e164: string;
@@ -227,8 +228,8 @@ type AddMuminForm = {
 };
 
 const emptyAddForm: AddMuminForm = {
-  its: "", full_name: "", is_head: true, hof_its: "",
-  gender: "", local_mehman: "", age: "", is_adult: false,
+  its: "", full_name: "", prefix: "", is_head: true, hof_its: "",
+  gender: "", age: "", is_adult: false,
   whatsapp_e164: "", email: "", jamaat: "",
 };
 
@@ -272,17 +273,14 @@ export default function MumineenPage() {
   const [addError, setAddError] = useState<string | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
   const [isAdminUser, setIsAdminUser] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    const user = readAdminUser();
+    if (!user) {
       router.push("/admin/login");
       return;
     }
-    const raw = localStorage.getItem("admin_user");
-    const user = raw ? JSON.parse(raw) as { role?: string; global_role?: string; is_it?: boolean } : null;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsAdminUser(isAdminOrLeadership(user));
     if (!canAccessMumineen(user)) {
@@ -293,7 +291,6 @@ export default function MumineenPage() {
     void loadGate();
     void loadDepartments();
     void loadHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   useEffect(() => {
@@ -380,9 +377,8 @@ export default function MumineenPage() {
             transport_detail: form.transport_detail,
           }
         : undefined;
-      const res = await fetch("/api/admin/mumineen/update", {
+      const res = await apiFetch("/api/admin/mumineen/update", {
         method: "POST",
-        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
         body: JSON.stringify({ its: selected.its, member, family }),
       });
       const data = await res.json().catch(() => ({}));
@@ -400,23 +396,23 @@ export default function MumineenPage() {
   }
 
   async function loadStats() {
-    const res = await fetch("/api/admin/mumineen", { headers: { "x-admin-key": adminKey } });
+    const res = await apiFetch("/api/admin/mumineen");
     if (res.ok) setStats((await res.json()) as Stats);
   }
 
   async function loadGate() {
-    const res = await fetch("/api/admin/registration-gate", { headers: { "x-admin-key": adminKey } });
+    const res = await apiFetch("/api/admin/registration-gate");
     if (res.ok) setGate(Boolean((await res.json()).enabled));
   }
 
   async function loadDepartments() {
-    const res = await fetch("/api/admin/mumineen/departments", { headers: { "x-admin-key": adminKey } });
+    const res = await apiFetch("/api/admin/mumineen/departments");
     if (res.ok) setDepartments(((await res.json()).departments as Department[]) ?? []);
   }
 
   async function loadHistory() {
     setHistoryLoading(true);
-    const res = await fetch("/api/admin/mumineen/import", { headers: { "x-admin-key": adminKey } });
+    const res = await apiFetch("/api/admin/mumineen/import");
     if (res.ok) setImportHistory((await res.json()) as ImportLogEntry[]);
     setHistoryLoading(false);
   }
@@ -425,9 +421,8 @@ export default function MumineenPage() {
     setGateBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/registration-gate", {
+      const res = await apiFetch("/api/admin/registration-gate", {
         method: "POST",
-        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
         body: JSON.stringify({ enabled: next }),
       });
       const data = await res.json().catch(() => ({}));
@@ -449,12 +444,7 @@ export default function MumineenPage() {
     try {
       const body = new FormData();
       body.append("file", file);
-      const adminUserRaw = localStorage.getItem("admin_user");
-      const adminUser = adminUserRaw ? JSON.parse(adminUserRaw) as { id?: string; display_name?: string } : null;
-      const importHeaders: Record<string, string> = { "x-admin-key": adminKey };
-      if (adminUser?.id) importHeaders["x-admin-user-id"] = adminUser.id;
-      if (adminUser?.display_name) importHeaders["x-admin-user-name"] = adminUser.display_name;
-      const res = await fetch("/api/admin/mumineen/import", { method: "POST", headers: importHeaders, body });
+      const res = await apiFetch("/api/admin/mumineen/import", { method: "POST", body });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Import failed");
       const extras: string[] = [];
@@ -482,9 +472,7 @@ export default function MumineenPage() {
   async function runSearch(term: string) {
     setSearching(true);
     try {
-      const res = await fetch(`/api/admin/mumineen/search?q=${encodeURIComponent(term)}`, {
-        headers: { "x-admin-key": adminKey },
-      });
+      const res = await apiFetch(`/api/admin/mumineen/search?q=${encodeURIComponent(term)}`);
       const data = await res.json().catch(() => ({}));
       setResults(res.ok ? ((data.results as SearchResult[]) ?? []) : []);
     } catch {
@@ -515,9 +503,8 @@ export default function MumineenPage() {
     if (action === "reopen" && !window.confirm(`Reopen registration for family ${hofIts}? They will be able to submit the form again.`)) return;
     setError(null);
     try {
-      const res = await fetch("/api/admin/mumineen/registration", {
+      const res = await apiFetch("/api/admin/mumineen/registration", {
         method: "POST",
-        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
         body: JSON.stringify({ hof_its: hofIts, action, reason }),
       });
       const data = await res.json().catch(() => ({}));
@@ -537,19 +524,19 @@ export default function MumineenPage() {
       const body = {
         its: addForm.its.trim(),
         full_name: addForm.full_name.trim(),
+        prefix: addForm.prefix.trim() || null,
         is_head: addForm.is_head,
         ...(addForm.is_head ? {} : { hof_its: addForm.hof_its.trim() }),
         gender: addForm.gender || null,
-        local_mehman: addForm.local_mehman || null,
+        local_mehman: "Mehman",
         age: addForm.age ? parseInt(addForm.age, 10) : null,
         is_adult: addForm.age ? parseInt(addForm.age, 10) >= 18 : addForm.is_adult,
         whatsapp_e164: addForm.whatsapp_e164.trim() || null,
         email: addForm.email.trim() || null,
         jamaat: addForm.jamaat.trim() || null,
       };
-      const res = await fetch("/api/admin/mumineen/create", {
+      const res = await apiFetch("/api/admin/mumineen/create", {
         method: "POST",
-        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
         body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
@@ -585,7 +572,7 @@ export default function MumineenPage() {
             <button
               type="button"
               onClick={async () => {
-                const res = await fetch("/api/admin/mumineen/export", { headers: { "x-admin-key": adminKey } });
+                const res = await apiFetch("/api/admin/mumineen/export");
                 if (!res.ok) return;
                 const blob = await res.blob();
                 const url = URL.createObjectURL(blob);
@@ -1088,9 +1075,15 @@ export default function MumineenPage() {
                 <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">ITS number *</label>
                 <input required value={addForm.its} onChange={(e) => setAddForm((f) => ({ ...f, its: e.target.value }))} className={inputCls} placeholder="e.g. 1234567" />
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Full name *</label>
-                <input required value={addForm.full_name} onChange={(e) => setAddForm((f) => ({ ...f, full_name: e.target.value }))} className={inputCls} placeholder="e.g. Murtaza Hussain" />
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Prefix</label>
+                  <input value={addForm.prefix} onChange={(e) => setAddForm((f) => ({ ...f, prefix: e.target.value }))} className={inputCls} placeholder="e.g. Shaikh" />
+                </div>
+                <div className="col-span-2">
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Full name *</label>
+                  <input required value={addForm.full_name} onChange={(e) => setAddForm((f) => ({ ...f, full_name: e.target.value }))} className={inputCls} placeholder="e.g. Murtaza Hussain" />
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <input type="checkbox" id="is_head" checked={addForm.is_head} onChange={(e) => setAddForm((f) => ({ ...f, is_head: e.target.checked, hof_its: "" }))} className="h-4 w-4" />
@@ -1113,11 +1106,7 @@ export default function MumineenPage() {
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Type</label>
-                  <select value={addForm.local_mehman} onChange={(e) => setAddForm((f) => ({ ...f, local_mehman: e.target.value }))} className={inputCls}>
-                    <option value="">—</option>
-                    <option value="Local">Local</option>
-                    <option value="Mehman">Mehman</option>
-                  </select>
+                  <p className="mt-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">Mehman</p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">

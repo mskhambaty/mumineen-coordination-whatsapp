@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
-import { resolveParkingCaller } from "@/lib/parking/auth";
+import { canManageParking } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -11,13 +11,8 @@ export const runtime = "nodejs";
 // never doubles anyone (deliberate extras go through the single-assign endpoint).
 // Capacity is deliberately NOT enforced (soft-warn in the UI only).
 export async function POST(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const caller = await resolveParkingCaller(req);
-  if (!caller.canManage) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requirePortalCaller(req, canManageParking);
+  if (auth instanceof NextResponse) return auth;
 
   const body = (await req.json().catch(() => ({}))) as {
     lot_id?: unknown;
@@ -53,7 +48,8 @@ export async function POST(req: NextRequest) {
       toInsert.map((familyId) => ({
         family_id: familyId,
         lot_id: lotId,
-        assigned_by: caller.userId,
+        // Server-to-server (admin-key) callers have a sentinel id, not a user row.
+        assigned_by: auth.caller.user_id === "admin-api" ? null : auth.caller.user_id,
       })),
     );
     if (error) {

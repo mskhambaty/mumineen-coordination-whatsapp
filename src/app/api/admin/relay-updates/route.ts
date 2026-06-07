@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requireLeadership } from "@/lib/relay-updates/auth";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { reindexRelayUpdatesBestEffort } from "@/lib/relay-updates/index-updates";
 import { validateRelayUpdateInput } from "@/lib/relay-updates/shared";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -12,9 +13,8 @@ export const maxDuration = 60;
 
 // GET: all updates (incl. unpublished) for the portal table, newest first.
 export async function GET(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
   const { data, error } = await getSupabaseAdmin()
     .from("relay_updates")
     .select("id, date, title, body, category, link, cta, published, created_at, updated_at, creator:whatsapp_users!relay_updates_created_by_fkey(display_name)")
@@ -28,9 +28,8 @@ export async function GET(req: NextRequest) {
 
 // POST: create an update. Body: { user_id, date, title, body, category, link?, cta?, published? }
 export async function POST(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
   const denied = await requireLeadership(typeof body.user_id === "string" ? body.user_id : "");

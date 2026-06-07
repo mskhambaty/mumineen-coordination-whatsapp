@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey, resolveCallerFromPhone } from "@/lib/api/auth";
+import { canAccessInbox } from "@/lib/admin/access";
+import { resolveCallerFromPhone } from "@/lib/api/auth";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSenderProfile, toPublicSenderProfile } from "@/lib/mumineen/sender-profile";
 
 type RouteContext = {
@@ -9,11 +11,10 @@ type RouteContext = {
 
 // Internal-only: the inbox "User Profile" panel. Returns the sender's registration
 // profile with PII stripped (no age, phone, email, or ITS) plus their committee
-// department assignments. Admin-key gated like the rest of /api/admin/conversations.
+// department assignments. Session-gated like the rest of /api/admin/conversations.
 export async function GET(req: NextRequest, { params }: RouteContext) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canAccessInbox);
+  if (auth instanceof NextResponse) return auth;
 
   const { phoneE164 } = await params;
   const phone = decodeURIComponent(phoneE164);

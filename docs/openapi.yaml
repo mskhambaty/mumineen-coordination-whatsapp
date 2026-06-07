@@ -7,6 +7,7 @@ servers:
   - url: /api
 security:
   - whatsappPhone: []
+  - portalSession: []
   - adminKey: []
 tags:
   - name: auth
@@ -17,11 +18,18 @@ tags:
   - name: users
   - name: cron
   - name: email
+  - name: accommodations
 paths:
   /admin/auth:
     post:
       tags: [auth]
       summary: Log in to the admin portal.
+      description: >-
+        Verifies credentials and sets a `portal_session` httpOnly cookie
+        (HMAC-SHA256-signed, SameSite=Lax, Secure in production, 7-day TTL).
+        Returns `{ user }` in the response body — no token. The cookie is used
+        by all subsequent admin API requests. 401 if credentials are invalid;
+        403 if the user lacks portal access.
       security: []
       requestBody:
         required: true
@@ -34,11 +42,37 @@ paths:
                 email: { type: string, format: email }
                 password: { type: string }
       responses:
-        "200": { description: Login token and user profile. }
+        "200":
+          description: Authenticated user profile. Sets `portal_session` cookie.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user: { type: object }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /admin/auth/logout:
+    post:
+      tags: [auth]
+      summary: Log out of the admin portal.
+      description: >-
+        Clears the `portal_session` cookie. Public route — no session required.
+        Clients should also clear any locally cached user state (e.g. localStorage admin_user).
+      security: []
+      responses:
+        "200":
+          description: Session cookie cleared.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: { type: boolean }
   /auth/forgot-password:
     post:
       tags: [auth, email]
@@ -92,7 +126,7 @@ paths:
     get:
       tags: [users]
       summary: List portal users.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters:
         - name: department_id
           in: query
@@ -111,7 +145,7 @@ paths:
     post:
       tags: [users]
       summary: Create a portal user.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       requestBody:
         required: true
         content:
@@ -126,7 +160,7 @@ paths:
     get:
       tags: [users]
       summary: Get one user.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses:
         "200": { description: User detail. }
@@ -136,7 +170,7 @@ paths:
     put:
       tags: [users]
       summary: Update one user.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         required: true
@@ -153,7 +187,7 @@ paths:
     get:
       tags: [users, departments]
       summary: List a user's department memberships.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses:
         "200": { description: Department memberships. }
@@ -162,7 +196,7 @@ paths:
     post:
       tags: [users, departments]
       summary: Add a department membership.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         required: true
@@ -194,7 +228,7 @@ paths:
         forces past the once-per-user guard, so an admin can re-issue a welcome on request. A
         department is resolved from the user's memberships when not supplied; the user must belong
         to at least one department.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         required: false
@@ -222,7 +256,7 @@ paths:
       tags: [users, departments]
       summary: Update or deactivate a department membership.
       description: Supports department role, active status, and per-membership contact_for_issues notification flag.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters:
         - { $ref: "#/components/parameters/Id" }
         - name: membershipId
@@ -240,7 +274,7 @@ paths:
       tags: [conversations]
       summary: List Lead Inbox conversations with messages and tool calls.
       description: Returns recent conversations sorted by `last_message_at`; message and tool-call arrays are capped to latest activity and ordered chronologically within each conversation.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters:
         - name: phone
           in: query
@@ -259,15 +293,9 @@ paths:
       summary: Server-Sent Events stream of inbox activity for live updates.
       description: >-
         EventSource endpoint. Emits a `changed` event when conversation activity
-        changes so the Lead Inbox refetches without polling. The admin key is passed
-        as the `key` query param because EventSource cannot send custom headers.
-      security: []
-      parameters:
-        - name: key
-          in: query
-          required: true
-          schema: { type: string }
-          description: Admin API key (same value as x-admin-key).
+        changes so the Lead Inbox refetches without polling. Authenticated via
+        the `portal_session` cookie (sent automatically by the browser).
+      security: [{ portalSession: [] }, { adminKey: [] }]
       responses:
         "200": { description: "text/event-stream of ready/changed/ping events." }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -311,7 +339,7 @@ paths:
     put:
       tags: [conversations]
       summary: Switch a conversation between AI and manual handling.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters:
         - name: phoneE164
           in: path
@@ -338,7 +366,7 @@ paths:
       tags: [conversations]
       summary: Send a manual WhatsApp reply for a conversation.
       description: Requires the conversation to be in manual handling mode.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters:
         - name: phoneE164
           in: path
@@ -364,7 +392,7 @@ paths:
       tags: [conversations]
       summary: De-escalate or set the escalation status of a conversation.
       description: Used by the Lead Inbox De-escalate button.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters:
         - name: phoneE164
           in: path
@@ -443,7 +471,7 @@ paths:
     get:
       tags: [conversations, users]
       summary: List escalation/support team members with on-call hours.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       responses:
         "200": { description: Support members with user info and on-call hours. }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -451,7 +479,7 @@ paths:
     post:
       tags: [conversations, users]
       summary: Add an existing user to the support team.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       requestBody:
         required: true
         content:
@@ -471,7 +499,7 @@ paths:
     delete:
       tags: [conversations, users]
       summary: Remove a support team member (cascades their on-call hours).
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses:
         "200": { description: Removed. }
@@ -480,7 +508,7 @@ paths:
     put:
       tags: [conversations, users]
       summary: Replace a member's weekly on-call hours (America/Chicago).
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         required: true
@@ -509,7 +537,7 @@ paths:
     get:
       tags: [conversations]
       summary: List uploaded FAQ/guide documents.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters:
         - name: store
           in: query
@@ -524,7 +552,7 @@ paths:
       tags: [conversations]
       summary: Upload a CSV/Excel/Word/PDF document and index it.
       description: Admin/leadership or department PM/HOD. Extracted text is chunked, embedded, and stored for the agent — into site_content (store=logistics, default) or religious_content (store=religious, not department-scoped).
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       requestBody:
         required: true
         content:
@@ -547,7 +575,7 @@ paths:
     delete:
       tags: [conversations]
       summary: Delete a document and remove its vectors from its store.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses:
         "200": { description: Deleted. }
@@ -557,7 +585,7 @@ paths:
     get:
       tags: [conversations]
       summary: Count of Lisan ud Dawat words currently loaded for exact lookup.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       responses:
         "200": { description: "{ count }." }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -566,7 +594,7 @@ paths:
       tags: [conversations]
       summary: Upload the dictionary CSV (full replace) into the lisan_words exact-lookup table.
       description: "Columns by header: transliteration/word, lisan, meaning, example. Powers get_lisan_word_meaning."
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       requestBody:
         required: true
         content:
@@ -586,7 +614,7 @@ paths:
     get:
       tags: [conversations]
       summary: List religious content topic blocks (Vaaz Talaqi, Iqtibasaat, Lisan word meanings).
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       responses:
         "200": { description: Topics with content + entry/chunk counts. }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -594,7 +622,7 @@ paths:
     post:
       tags: [conversations]
       summary: Create a new (empty) religious topic block.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       requestBody:
         required: true
         content:
@@ -605,7 +633,7 @@ paths:
               properties:
                 title: { type: string }
       responses:
-        "201": { description: Created topic { id, slug }. }
+        "201": { description: "Created topic { id, slug }." }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
@@ -613,7 +641,7 @@ paths:
     put:
       tags: [conversations]
       summary: Save a religious topic block and re-index it into religious_content.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         required: true
@@ -631,7 +659,7 @@ paths:
     delete:
       tags: [conversations]
       summary: Delete a religious topic block and its vectors.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses:
         "200": { description: Deleted. }
@@ -642,7 +670,7 @@ paths:
       tags: [users]
       summary: Update the signed-in user's own display name and/or password.
       description: Changing the password requires the correct current password. Identified by the user id in the body.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       requestBody:
         required: true
         content:
@@ -666,7 +694,7 @@ paths:
       tags: [conversations]
       summary: Manually re-scrape and re-embed the official site content.
       description: Same work as the daily cron, triggered from the Prompt page, gated by the admin key.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       responses:
         "200": { description: Scrape stats (pages, chunks embedded/stored). }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -675,7 +703,7 @@ paths:
     get:
       tags: [conversations, tasks]
       summary: Leadership task and conversation analytics (rolling 30-day window).
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters:
         - name: department_id
           in: query
@@ -702,7 +730,7 @@ paths:
     get:
       tags: [users]
       summary: Resolve a transcript alias to a user.
-      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      security: [{ whatsappPhone: [] }, { portalSession: [] }, { adminKey: [] }]
       parameters:
         - name: alias
           in: query
@@ -717,7 +745,7 @@ paths:
     post:
       tags: [users, departments]
       summary: Bulk-create users detected from a transcript.
-      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      security: [{ whatsappPhone: [] }, { portalSession: [] }, { adminKey: [] }]
       requestBody:
         required: true
         content:
@@ -733,7 +761,7 @@ paths:
     get:
       tags: [departments]
       summary: List departments visible to the caller.
-      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      security: [{ whatsappPhone: [] }, { portalSession: [] }, { adminKey: [] }]
       responses:
         "200":
           description: Departments.
@@ -747,7 +775,7 @@ paths:
     post:
       tags: [departments]
       summary: Create a department.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       requestBody:
         required: true
         content:
@@ -769,7 +797,7 @@ paths:
     put:
       tags: [departments]
       summary: Update a department.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         required: true
@@ -789,7 +817,7 @@ paths:
       tags: [departments]
       summary: Remove an unused department.
       description: Blocked if the department has members, tasks, or milestones.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses:
         "200": { description: Deleted department. }
@@ -801,7 +829,7 @@ paths:
     get:
       tags: [departments, tasks]
       summary: List tasks in one department.
-      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      security: [{ whatsappPhone: [] }, { portalSession: [] }, { adminKey: [] }]
       parameters:
         - { $ref: "#/components/parameters/Id" }
         - { $ref: "#/components/parameters/StatusFilter" }
@@ -816,7 +844,7 @@ paths:
     get:
       tags: [departments, tasks]
       summary: Get task counts for one department.
-      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      security: [{ whatsappPhone: [] }, { portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses:
         "200": { description: Department summary. }
@@ -827,7 +855,7 @@ paths:
     get:
       tags: [departments, transcripts]
       summary: Get transcript parser prompt configuration for a department.
-      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      security: [{ whatsappPhone: [] }, { portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses:
         "200":
@@ -841,7 +869,7 @@ paths:
     put:
       tags: [departments, transcripts]
       summary: Save transcript parser prompt configuration for a department.
-      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      security: [{ whatsappPhone: [] }, { portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         required: true
@@ -883,7 +911,7 @@ paths:
       tags: [tasks]
       summary: List tasks scoped to the caller.
       description: Members see assigned tasks only. PM/HOD users see tasks in their active departments. Leadership/admin sees all tasks.
-      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      security: [{ whatsappPhone: [] }, { portalSession: [] }, { adminKey: [] }]
       parameters:
         - { $ref: "#/components/parameters/StatusFilter" }
         - { $ref: "#/components/parameters/PriorityFilter" }
@@ -911,7 +939,7 @@ paths:
       tags: [tasks]
       summary: Create a task.
       description: Creating an issue with a department notifies active department members marked contact_for_issues.
-      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      security: [{ whatsappPhone: [] }, { portalSession: [] }, { adminKey: [] }]
       requestBody:
         required: true
         content:
@@ -928,7 +956,7 @@ paths:
     get:
       tags: [tasks]
       summary: List tasks grouped for the kanban board.
-      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      security: [{ whatsappPhone: [] }, { portalSession: [] }, { adminKey: [] }]
       parameters:
         - { $ref: "#/components/parameters/PriorityFilter" }
         - name: department_id
@@ -953,7 +981,7 @@ paths:
     get:
       tags: [tasks]
       summary: Get one task.
-      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      security: [{ whatsappPhone: [] }, { portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses:
         "200": { description: Task detail. }
@@ -964,7 +992,7 @@ paths:
       tags: [tasks]
       summary: Update one task.
       description: Moving an issue to a department notifies active department members marked contact_for_issues.
-      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      security: [{ whatsappPhone: [] }, { portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         required: true
@@ -982,7 +1010,7 @@ paths:
     post:
       tags: [transcripts]
       summary: Upload and parse a WhatsApp or meeting transcript.
-      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      security: [{ whatsappPhone: [] }, { portalSession: [] }, { adminKey: [] }]
       requestBody:
         required: true
         content:
@@ -1015,7 +1043,7 @@ paths:
     get:
       tags: [transcripts]
       summary: List parsed events for an upload.
-      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      security: [{ whatsappPhone: [] }, { portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses:
         "200":
@@ -1033,7 +1061,7 @@ paths:
     post:
       tags: [transcripts, tasks]
       summary: Apply selected parsed events as tasks.
-      security: [{ whatsappPhone: [] }, { adminKey: [] }]
+      security: [{ whatsappPhone: [] }, { portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         required: true
@@ -1136,7 +1164,7 @@ paths:
     get:
       tags: [conversations]
       summary: List all relay updates (published and unpublished).
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       responses:
         "200":
           description: All relay updates, newest first.
@@ -1156,7 +1184,7 @@ paths:
       tags: [conversations]
       summary: Create a relay update and re-index published updates.
       description: Admin/leadership only. On success, re-indexes all published updates into site_content under `updates://relay`.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       requestBody:
         required: true
         content:
@@ -1183,7 +1211,7 @@ paths:
       tags: [conversations]
       summary: Update a relay update and re-index published updates.
       description: Admin/leadership only. On success, re-indexes all published updates into site_content under `updates://relay`.
-      security: [{ adminKey: [] }]
+      security: [{ portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         required: true
@@ -1366,7 +1394,12 @@ components:
       type: apiKey
       in: header
       name: x-admin-key
-      description: Admin dashboard API key.
+      description: Server-to-server auth for agent tools and cron jobs. Never sent by browser clients.
+    portalSession:
+      type: apiKey
+      in: cookie
+      name: portal_session
+      description: HMAC-SHA256-signed httpOnly session cookie set by POST /api/admin/auth. Carries { user_id, exp }. Used by all browser-facing admin routes.
     cronSecret:
       type: http
       scheme: bearer
@@ -1759,3 +1792,128 @@ components:
         link: { type: string, maxLength: 500, description: Optional CTA URL (http/https). }
         cta: { type: string, maxLength: 80, description: Optional CTA label; requires link. }
         published: { type: boolean, default: true }
+
+  # --- Accommodations Module ---
+  /admin/accommodations/hosts:
+    get:
+      tags: [accommodations]
+      summary: List host rollups with capacity and demographics.
+      security: [{ adminKey: [] }]
+      responses:
+        200:
+          description: Array of host rollup rows.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hosts: { type: array, items: { $ref: '#/components/schemas/AccommodationHost' } }
+    post:
+      tags: [accommodations]
+      summary: Upload host spreadsheet (XLSX).
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        201:
+          description: Import result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rows: { type: integer }
+                  hostsUpserted: { type: integer }
+                  importId: { type: string, format: uuid }
+    patch:
+      tags: [accommodations]
+      summary: Toggle include_family_friends for a host.
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hostId, include_family_friends]
+              properties:
+                hostId: { type: string, format: uuid }
+                include_family_friends: { type: boolean }
+      responses:
+        200:
+          description: Success.
+  /admin/accommodations/guests:
+    get:
+      tags: [accommodations]
+      summary: List awaiting-utaro guest families with demographics.
+      security: [{ adminKey: [] }]
+      responses:
+        200:
+          description: Array of guest rollup rows.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  guests: { type: array, items: { $ref: '#/components/schemas/AccommodationGuest' } }
+  /admin/accommodations/matches:
+    get:
+      tags: [accommodations]
+      summary: List matches or generate suggestions (?action=suggest).
+      security: [{ adminKey: [] }]
+      parameters:
+        - name: action
+          in: query
+          schema: { type: string, enum: [suggest] }
+      responses:
+        200:
+          description: Matches list or suggestions array.
+    post:
+      tags: [accommodations]
+      summary: Create a pending match.
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [guestFamilyId, hostId, guestMemberCount]
+              properties:
+                guestFamilyId: { type: string, format: uuid }
+                hostId: { type: string, format: uuid }
+                guestMemberCount: { type: integer }
+                notes: { type: string }
+      responses:
+        201:
+          description: Created match ID.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  matchId: { type: string, format: uuid }
+    patch:
+      tags: [accommodations]
+      summary: Confirm, reject, or cancel a match.
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [matchId, action]
+              properties:
+                matchId: { type: string, format: uuid }
+                action: { type: string, enum: [confirm, reject, cancel] }
+                confirmedBy: { type: string }
+      responses:
+        200:
+          description: Action completed.

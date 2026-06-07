@@ -28,6 +28,7 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 | [admin-dashboard.md](./admin-dashboard.md) | Admin web dashboard: pages, auth, features |
 | [escalation.md](./escalation.md) | Escalation & site support: triggers, roles, on-call, notifications (design spec) |
 | [relay-updates.md](./relay-updates.md) | Public relay-page updates feed: endpoint, authoring UI, agent indexing |
+| [accommodations-matching.md](./plans/accommodations-matching.md) | Accommodations host-guest utaro matching module: import, rollups, matching |
 | [openapi.yaml](./openapi.yaml) | API-first contract for all `src/app/api/**` routes |
 
 ## Key File Locations
@@ -51,6 +52,9 @@ src/lib/meta/whatsapp.ts                 — Meta Graph API calls + signature ve
 src/lib/whatsapp/send-template.ts        — Standardized template-send pipeline (resolve→validate→send→log) for all notifications
 src/lib/whatsapp/templates.ts            — Template descriptor + components builder + body preview
 src/lib/escalation/notify.ts             — On-call escalation email + WhatsApp template notifications
+src/lib/accommodations/import.ts         — Host spreadsheet XLSX import (upsert by ITS)
+src/lib/accommodations/rollups.ts        — Guest/host demographic rollups + capacity math
+src/lib/accommodations/matching.ts       — Matching logic, confirm/reject lifecycle
 src/lib/whatsapp/parser.ts               — Incoming webhook payload parsing
 src/lib/scraper/scrape-site.ts           — Cheerio scraper + OpenAI embedding
 src/lib/scraper/retrieve-site-context.ts — RAG vector search

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { canManageKnowledge } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { saveFaqBucket } from "@/lib/knowledge/faq-buckets";
 
 export const runtime = "nodejs";
@@ -10,9 +11,8 @@ type Ctx = { params: Promise<{ departmentId: string }> };
 
 // PUT { content, updated_by }: save a department's FAQ bucket and re-index it.
 export async function PUT(req: NextRequest, { params }: Ctx) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canManageKnowledge);
+  if (auth instanceof NextResponse) return auth;
   const { departmentId } = await params;
   const body = (await req.json().catch(() => ({}))) as { content?: unknown; updated_by?: unknown };
   const content = typeof body.content === "string" ? body.content : "";

@@ -1,7 +1,9 @@
+import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
 import { verifyPassword } from "@/lib/admin/passwords";
-import { buildPortalSessionUser, createPortalSessionToken } from "@/lib/admin/session";
+import { buildPortalSessionUser } from "@/lib/admin/session";
+import { SESSION_COOKIE_NAME, sessionCookieOptions, signSessionToken } from "@/lib/admin/session-token";
 import { optionalEnv } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -79,13 +81,11 @@ export async function POST(req: NextRequest) {
         console.error("Failed to stamp last_login_at", err);
       });
 
-    // Return a simple session token (user ID based for simplicity)
-    const token = createPortalSessionToken(user);
+    // Issue a signed httpOnly session cookie; permissions are re-resolved per request.
+    const cookieStore = await cookies();
+    cookieStore.set(SESSION_COOKIE_NAME, signSessionToken(user.id), sessionCookieOptions());
 
-    return NextResponse.json({
-      token,
-      user: sessionUser,
-    });
+    return NextResponse.json({ user: sessionUser });
   } catch (error) {
     console.error("Admin login failed", error);
     if (error instanceof Error && error.message.includes("Missing required environment variable")) {

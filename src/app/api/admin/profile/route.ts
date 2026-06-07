@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { isAdminOrLeadership } from "@/lib/admin/access";
 import { hashPassword, isValidNewPassword, verifyPassword } from "@/lib/admin/passwords";
 import { optionalEnv } from "@/lib/env";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
 type ProfileBody = {
-  id?: unknown;
   display_name?: unknown;
   email?: unknown;
   current_password?: unknown;
@@ -20,15 +20,16 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // PUT: a signed-in user updates their own display name and/or password.
 // Changing the password requires the correct current password.
 export async function PUT(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requirePortalCaller(req, () => true);
+  if (auth instanceof NextResponse) return auth;
+
+  if (auth.caller.user_id === "admin-api") {
+    return NextResponse.json({ error: "Profile routes require a user session" }, { status: 400 });
   }
 
+  const id = auth.caller.user_id;
+
   const body = (await req.json().catch(() => ({}))) as ProfileBody;
-  const id = typeof body.id === "string" ? body.id : "";
-  if (!id) {
-    return NextResponse.json({ error: "Missing user id" }, { status: 400 });
-  }
 
   const displayName = typeof body.display_name === "string" ? body.display_name.trim() : undefined;
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : undefined;
@@ -38,7 +39,7 @@ export async function PUT(req: NextRequest) {
   const supabase = getSupabaseAdmin();
   const { data: user, error: lookupError } = await supabase
     .from("whatsapp_users")
-    .select("id, display_name, email, password_hash, role, global_role")
+    .select("id, display_name, email, password_hash")
     .eq("id", id)
     .maybeSingle();
 
@@ -57,8 +58,7 @@ export async function PUT(req: NextRequest) {
 
   // Email is the login identity, so only admins/leadership may change their own.
   if (email !== undefined && email !== (user.email ?? "").toLowerCase()) {
-    const isAdmin = user.role === "admin" || user.global_role === "leadership_admin";
-    if (!isAdmin) {
+    if (!isAdminOrLeadership(auth.caller.portal)) {
       return NextResponse.json({ error: "Only an admin can change the email" }, { status: 403 });
     }
     if (!EMAIL_RE.test(email)) {

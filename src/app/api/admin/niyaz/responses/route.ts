@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { isAdminOrLeadership } from "@/lib/admin/access";
 import { num, oneOf, str } from "@/lib/registration/normalize";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 
 export const runtime = "nodejs";
 
@@ -21,9 +22,8 @@ type ResponseBody = {
 // One admin row per (instance, family): if one exists already, this updates it (a new
 // submission timestamp) rather than appending a duplicate.
 export async function POST(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
   const body = (await req.json().catch(() => ({}))) as ResponseBody;
 
   const instanceId = str(body.registration_instance_id);

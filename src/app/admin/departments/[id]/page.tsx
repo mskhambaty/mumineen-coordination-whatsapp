@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type Task = {
   id: string;
@@ -32,25 +33,21 @@ export default function DepartmentDetailPage() {
   const [newTask, setNewTask] = useState({ title: "", description: "", assigned_to_alias: "", due_date: "" });
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    const user = readAdminUser();
+    if (!user) {
       router.push("/admin/login");
       return;
     }
 
     async function loadTasks() {
       try {
-        const res = await fetch(`/api/departments/${params.id}/tasks`, {
-          headers: { "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_KEY ?? "" },
-        });
+        const res = await apiFetch(`/api/departments/${params.id}/tasks`);
         if (res.ok) {
           const data = await res.json();
           setTasks(data);
         }
         // Get department name
-        const deptRes = await fetch("/api/departments", {
-          headers: { "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_KEY ?? "" },
-        });
+        const deptRes = await apiFetch("/api/departments");
         if (deptRes.ok) {
           const depts = await deptRes.json();
           const dept = depts.find((d: { id: string; name: string }) => d.id === params.id);
@@ -68,12 +65,8 @@ export default function DepartmentDetailPage() {
 
   async function updateTaskStatus(taskId: string, status: string) {
     try {
-      await fetch(`/api/tasks/${taskId}`, {
+      await apiFetch(`/api/tasks/${taskId}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_KEY ?? "",
-        },
         body: JSON.stringify({ status }),
       });
       window.location.reload();
@@ -85,12 +78,8 @@ export default function DepartmentDetailPage() {
   async function createTask(e: React.FormEvent) {
     e.preventDefault();
     try {
-      await fetch("/api/tasks", {
+      await apiFetch("/api/tasks", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_KEY ?? "",
-        },
         body: JSON.stringify({
           title: newTask.title,
           department_name: deptName,

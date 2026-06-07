@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { canManageKnowledge } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { deleteReligiousTopic, saveReligiousTopic } from "@/lib/knowledge/religious-topics";
 
 export const runtime = "nodejs";
@@ -10,9 +11,8 @@ type Ctx = { params: Promise<{ id: string }> };
 
 // PUT { content, updated_by }: save a religious topic block and re-index it.
 export async function PUT(req: NextRequest, { params }: Ctx) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canManageKnowledge);
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as {
     content?: unknown; updated_by?: unknown; source_url?: unknown; source_label?: unknown; theme?: unknown;
@@ -39,9 +39,8 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
 
 // DELETE: remove a religious topic block and its vectorized chunks.
 export async function DELETE(req: NextRequest, { params }: Ctx) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canManageKnowledge);
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   try {
     await deleteReligiousTopic(id);

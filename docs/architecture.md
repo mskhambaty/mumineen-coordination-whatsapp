@@ -54,6 +54,39 @@ scrapeSite()                        (src/lib/scraper/scrape-site.ts)
 | Supabase | Database (users, messages, sessions, audit, site content) | `SUPABASE_SERVICE_ROLE_KEY` |
 | Vercel | Hosting, env vars, cron | — |
 
+## Admin Dashboard Auth Flow
+
+```
+Browser (admin page)
+    │ POST /api/admin/auth  { email, password }
+    ▼
+resolveCallerFromSession  (NOT used here — this is the login endpoint itself)
+    ├─ verify credentials + bcrypt hash
+    ├─ call get_user_permissions_by_id RPC → role, status, portal flags
+    ├─ check active status + portal access predicate
+    ├─ sign HMAC-SHA256 cookie payload { user_id, exp }
+    └─ Set-Cookie: portal_session=<signed>; HttpOnly; SameSite=Lax; Path=/; 7-day TTL
+    Response: { user }  (no token in body)
+
+Subsequent admin API requests
+    │ Cookie: portal_session=<signed>  (sent automatically by browser)
+    ▼
+resolveCallerFromSession  (src/lib/api/auth.ts)
+    ├─ verify cookie HMAC signature
+    ├─ call get_user_permissions_by_id RPC  (per-request — role changes take effect immediately)
+    └─ build CallerContext with portal flags
+    ▼
+requirePortalCaller(req, predicate)  (src/lib/api/portal-auth.ts)
+    ├─ 401 → invalid/missing session
+    ├─ 403 → predicate failure (wrong role / permission)
+    └─ 200 → handler proceeds
+
+POST /api/admin/auth/logout  (public — no session required)
+    └─ Clears portal_session cookie
+```
+
+`x-admin-key` (`ADMIN_API_KEY`) bypasses the cookie check and is used only by agent tools and cron jobs — never by the browser.
+
 ## Layer Boundaries
 
 | Layer | Path | Responsibility |
@@ -63,6 +96,8 @@ scrapeSite()                        (src/lib/scraper/scrape-site.ts)
 | Agent | `src/lib/agent/` | OpenAI loop, tool dispatch |
 | AI Config | `src/lib/ai/model.ts` | Central OpenAI client, model names, temperatures, token limits |
 | Permissions | `src/lib/permissions.ts` | Role and tool access rules |
+| Portal Auth | `src/lib/api/auth.ts`, `src/lib/api/portal-auth.ts` | Session cookie verification, per-request permission resolution, route guard |
+| Admin Client | `src/lib/admin/client.ts` | Cookie-based fetch helper; redirects to login on 401 |
 | Supabase | `src/lib/supabase/` | All database reads and writes |
 | Meta | `src/lib/meta/` | Meta Graph API calls, signature verification |
 | WhatsApp Parser | `src/lib/whatsapp/` | Raw webhook payload → typed structs |
