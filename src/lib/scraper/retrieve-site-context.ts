@@ -15,8 +15,12 @@ const RELIGIOUS_CONTEXT =
   "Ashara Mubaraka majalis — Vaaz Talaqi, Iqtibasaat, and Lisan ud Dawat word meanings for mumineen:";
 
 // text-embedding-3-small similarities run lower in absolute terms than larger
-// models, so keep the floor modest. Too high (e.g. 0.55) drops valid matches.
-const MATCH_THRESHOLD = 0.42;
+// models, so keep the floor modest. At 0.42, short curated FAQ chunks (e.g. a
+// one-line WiFi or bathroom answer) were falling below the floor and never
+// retrieved, even on direct queries — so a freshly-uploaded FAQ wouldn't answer.
+// 0.30 lets those surface; the agent already ignores irrelevant context, and
+// topK still caps how much is returned.
+const MATCH_THRESHOLD = 0.3;
 
 // Shared retrieval: embed the (context-anchored) query and run a pgvector match RPC,
 // formatting the rows into the agent-facing context block.
