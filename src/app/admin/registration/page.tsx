@@ -718,6 +718,7 @@ export default function RegistrationAnalyticsPage() {
     const user = readAdminUser();
     if (!user) { router.push("/admin/login"); return; }
     if (!canViewRegistrations(user)) { router.push("/admin/conversations"); return; }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load(filters);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
