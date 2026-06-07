@@ -47,6 +47,16 @@ async function sendTemplateEmail(payload: PostmarkTemplatePayload): Promise<Post
   return (await res.json()) as PostmarkTemplateResponse;
 }
 
+// Nightly department digest email via the daily-department-summary Postmark template.
+// feedback_html is rendered (an <ul> list); feedback_text is the plain-text fallback.
+export async function sendDepartmentSummaryEmail(
+  to: string,
+  model: { department_name: string; feedback_html: string; feedback_text: string },
+): Promise<void> {
+  const templateAlias = optionalEnv("POSTMARK_DEPARTMENT_SUMMARY_TEMPLATE") ?? "daily-department-summary";
+  await sendTemplateEmail({ To: to, TemplateAlias: templateAlias, TemplateModel: model });
+}
+
 export async function sendPasswordResetEmail(
   to: string,
   name: string,

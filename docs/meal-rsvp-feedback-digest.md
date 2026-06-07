@@ -32,15 +32,23 @@ independent): `src/lib/feedback/areas.ts`. Capture: `src/lib/feedback/record.ts`
 
 `src/lib/digest/aggregate.ts` rolls up a day's feedback / issues (`tasks`) / escalations
 (`conversation_sessions`) per department, plus an all-up view with flagged knowledge gaps and the
-next day's meal RSVP totals. `src/lib/digest/run.ts` generates an AI briefing per active department
-and an all-up leadership summary, stores them in `department_daily_summaries`, and distributes by
-email (`sendRawEmail`) + a **free in-window** WhatsApp summary. Recipients opt out via
-`department_members.daily_feedback_digest` (default **ON**, mirroring opt-in `contact_for_issues`).
+next day's meal RSVP totals. `src/lib/digest/run.ts` generates **two** summaries per active
+department — a short one-liner (WhatsApp) and a longer bullet list (email + dashboard) — stores both
+in `department_daily_summaries` (`ai_briefing` = long, `ai_briefing_short` = short), and distributes:
 
-Cron: `/api/cron/department-digest` (`?date=` override). Portal: `/admin/department-digest` +
-`GET /api/admin/department-digest`.
+- **WhatsApp** via the Meta `daily_department_issue_confirmation` template (`{{1}}` department,
+  `{{2}}` short summary) — `DEPARTMENT_SUMMARY_WA_TEMPLATE`.
+- **Email** via the Postmark `daily-department-summary` template (`department_name`, `feedback_html`
+  bullet list, `feedback_text`) — `POSTMARK_DEPARTMENT_SUMMARY_TEMPLATE`.
 
-> Out-of-window WhatsApp delivery needs an approved digest template (none exists yet) — follow-up.
+Recipients opt out via `department_members.daily_feedback_digest` (default **ON**). A user in N
+departments gets N messages. The **all-up** summary (one per day, `department_id` null) goes to
+admin/leadership plus **Project Management** and **Leadership** department members.
+
+Cron: `/api/cron/department-digest` (22:00 UTC, `?date=` override). Portal: `/admin/department-digest`
++ `GET /api/admin/department-digest`, **access-scoped**: a department member sees only their own
+departments' summaries; admin/leadership and Project Management / Leadership members see every
+department plus the all-up. Summaries are stored per day for historical reference.
 
 ## 4. Manual Send Templates console
 

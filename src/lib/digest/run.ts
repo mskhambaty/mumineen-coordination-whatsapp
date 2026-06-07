@@ -1,23 +1,57 @@
 import { AI_MODEL, SUMMARY_TEMPERATURE, MAX_SUMMARY_TOKENS, chatParams, getAIClient } from "@/lib/ai/model";
-import { sendRawEmail } from "@/lib/email/postmark";
-import { sendWhatsAppText } from "@/lib/meta/whatsapp";
-import { getSupabaseAdmin, recordOutboundMessage } from "@/lib/supabase/server";
+import { sendDepartmentSummaryEmail } from "@/lib/email/postmark";
+import { optionalEnv } from "@/lib/env";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { sendTemplateNotification } from "@/lib/whatsapp/send-template";
 import { aggregateAllUpExtras, aggregateDepartments, type AllUpExtras, type DeptMetrics } from "@/lib/digest/aggregate";
 
-// Build, store, and distribute the nightly department digest for a date. One stored briefing per
-// department that had activity, plus an all-up leadership briefing. Distribution: email to opted-in
-// department members (daily_feedback_digest = true) and a free in-window WhatsApp summary.
+// Build, store, and distribute the nightly department digest for a date. Per department that had
+// activity we generate TWO summaries — a short one-liner for the WhatsApp template and a longer
+// bullet list for the email + dashboard — store both, and distribute via the
+// daily_department_issue_confirmation Meta template and the daily-department-summary Postmark
+// template. An all-up summary goes to Project Management + Leadership + admin/leadership.
+//
+// Recipients are per (department, member): a user in N departments receives N messages.
 
-const WINDOW_MS = 24 * 60 * 60 * 1000;
+const WA_TEMPLATE = optionalEnv("DEPARTMENT_SUMMARY_WA_TEMPLATE") ?? "daily_department_issue_confirmation";
+const ALL_UP_LABEL = "All Departments";
 
 export type DigestRunResult = { date: string; departments: number; emails: number; whatsapp: number; errors: string[] };
 
+type Summary = { short: string; bullets: string[] };
+
 function metricsLine(m: DeptMetrics): string {
   const f = m.feedback;
-  return `${m.department_name}: ${f.total} feedback (${f.positive}+/${f.neutral}~/${f.negative}-), ${m.issues} issues, ${m.escalations} escalations`;
+  return `${f.total} feedback (${f.positive}+/${f.neutral}~/${f.negative}-), ${m.issues} issues, ${m.escalations} escalations`;
 }
 
-async function briefing(system: string, payload: unknown): Promise<string> {
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function htmlList(bullets: string[]): string {
+  if (bullets.length === 0) return "<p>No notable feedback today.</p>";
+  return `<ul>${bullets.map((b) => `<li>${escapeHtml(b)}</li>`).join("")}</ul>`;
+}
+function textList(bullets: string[]): string {
+  return bullets.length ? bullets.map((b) => `- ${b}`).join("\n") : "No notable feedback today.";
+}
+function stripFences(s: string): string {
+  return s.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+}
+
+const DEPT_SYSTEM =
+  "You write an end-of-day committee briefing for one department of a Dawoodi Bohra Ashara relay center, using ONLY the JSON metrics provided. " +
+  'Reply with STRICT JSON: {"short": string, "bullets": string[]}. ' +
+  '"short" = ONE plain sentence (max 160 chars) capturing the single most important feedback/issue for that department today (for a WhatsApp message). ' +
+  '"bullets" = 3-6 concise bullet strings covering sentiment, top feedback themes, issues/escalations, and one improvement suggestion. No markdown, no preamble.';
+
+const ALLUP_SYSTEM =
+  "You write a short leadership end-of-day summary ACROSS ALL departments of a Dawoodi Bohra Ashara relay center, using ONLY the JSON provided. " +
+  'Reply with STRICT JSON: {"short": string, "bullets": string[]}. ' +
+  '"short" = ONE sentence (max 160 chars) on the overall day for a WhatsApp message. ' +
+  '"bullets" = 4-7 bullets: overall mood, departments needing attention, total issues/escalations, next-day expected meal counts, and 1-2 priorities. No markdown.';
+
+async function generateSummary(system: string, payload: unknown, fallbackShort: string): Promise<Summary> {
   try {
     const client = getAIClient();
     const res = await client.chat.completions.create({
@@ -27,33 +61,30 @@ async function briefing(system: string, payload: unknown): Promise<string> {
         { role: "user", content: JSON.stringify(payload) },
       ],
     });
-    return res.choices[0]?.message?.content?.trim() ?? "";
+    const raw = stripFences(res.choices[0]?.message?.content?.trim() ?? "");
+    const parsed = JSON.parse(raw) as { short?: unknown; bullets?: unknown };
+    const bullets = Array.isArray(parsed.bullets) ? parsed.bullets.map((b) => String(b)).filter(Boolean) : [];
+    const short = typeof parsed.short === "string" && parsed.short.trim() ? parsed.short.trim() : fallbackShort;
+    return { short: short.slice(0, 280), bullets };
   } catch (err) {
-    console.error("Digest briefing generation failed:", err);
-    return "";
+    console.error("Digest summary generation failed:", err);
+    return { short: fallbackShort.slice(0, 280), bullets: [] };
   }
 }
 
-const DEPT_SYSTEM =
-  "You write a brief (4-6 bullet) end-of-day committee briefing for a Dawoodi Bohra Ashara relay center department. " +
-  "Use only the JSON metrics provided. Cover: overall sentiment, the top problems/themes from feedback, issue/escalation load, and ONE concrete suggestion to improve tomorrow. Be concise and practical. No preamble.";
-
-const ALLUP_SYSTEM =
-  "You write a short leadership end-of-day summary across all departments of a Dawoodi Bohra Ashara relay center. " +
-  "Use only the JSON provided. Cover: overall mood, departments needing attention, total issues/escalations, the next day's expected meal counts, and 1-2 priorities for tomorrow. Be concise. No preamble.";
-
-async function upsertSummary(departmentId: string | null, date: string, metrics: unknown, aiBriefing: string) {
+async function upsertSummary(departmentId: string | null, date: string, metrics: unknown, s: Summary) {
   const supabase = getSupabaseAdmin();
-  // Manual upsert on the partial-unique (department_id, summary_date) keys.
+  const long = textList(s.bullets);
   const query = supabase.from("department_daily_summaries").select("id").eq("summary_date", date);
   const { data: existing } = departmentId
     ? await query.eq("department_id", departmentId).maybeSingle()
     : await query.is("department_id", null).maybeSingle();
 
+  const fields = { metrics, ai_briefing: long, ai_briefing_short: s.short };
   if (existing) {
-    await supabase.from("department_daily_summaries").update({ metrics, ai_briefing: aiBriefing }).eq("id", existing.id);
+    await supabase.from("department_daily_summaries").update(fields).eq("id", existing.id);
   } else {
-    await supabase.from("department_daily_summaries").insert({ department_id: departmentId, summary_date: date, metrics, ai_briefing: aiBriefing });
+    await supabase.from("department_daily_summaries").insert({ department_id: departmentId, summary_date: date, ...fields });
   }
 }
 
@@ -71,59 +102,63 @@ async function deptRecipients(departmentId: string): Promise<Member[]> {
     .map((r) => ({ user_id: r.user_id, email: r.whatsapp_users!.email, phone_e164: r.whatsapp_users!.phone_e164 }));
 }
 
-async function leadershipRecipients(): Promise<Member[]> {
-  const { data } = await getSupabaseAdmin()
+// All-up recipients: admin/leadership-role users + active members (opted in) of the Project
+// Management and Leadership departments.
+async function allUpRecipients(): Promise<Member[]> {
+  const supabase = getSupabaseAdmin();
+  const byUser = new Map<string, Member>();
+
+  const { data: leaders } = await supabase
     .from("whatsapp_users")
-    .select("id, email, phone_e164, role, global_role, status")
+    .select("id, email, phone_e164, status")
     .eq("status", "active")
     .or("role.eq.admin,global_role.eq.leadership_admin");
-  return ((data ?? []) as { id: string; email: string | null; phone_e164: string | null }[]).map((u) => ({
-    user_id: u.id,
-    email: u.email,
-    phone_e164: u.phone_e164,
-  }));
-}
+  for (const u of (leaders ?? []) as { id: string; email: string | null; phone_e164: string | null }[]) {
+    byUser.set(u.id, { user_id: u.id, email: u.email, phone_e164: u.phone_e164 });
+  }
 
-async function inWindowPhones(): Promise<Set<string>> {
-  const cutoff = new Date(Date.now() - WINDOW_MS).toISOString();
-  const { data } = await getSupabaseAdmin().from("conversation_sessions").select("phone_e164").gte("last_message_at", cutoff);
-  return new Set(((data ?? []) as { phone_e164: string }[]).map((r) => r.phone_e164));
+  const { data: depts } = await supabase.from("departments").select("id, name").in("name", ["Project Management", "Leadership"]);
+  const deptIds = ((depts ?? []) as { id: string }[]).map((d) => d.id);
+  if (deptIds.length > 0) {
+    for (const id of deptIds) {
+      for (const m of await deptRecipients(id)) byUser.set(m.user_id, m);
+    }
+  }
+  return [...byUser.values()];
 }
 
 async function distribute(
   recipients: Member[],
-  subject: string,
-  body: string,
-  inWindow: Set<string>,
+  departmentLabel: string,
+  s: Summary,
   counters: { emails: number; whatsapp: number; errors: string[] },
 ) {
+  const feedbackHtml = htmlList(s.bullets);
+  const feedbackText = textList(s.bullets);
   const seenEmail = new Set<string>();
   const seenPhone = new Set<string>();
+
   for (const r of recipients) {
     if (r.email && !seenEmail.has(r.email)) {
       seenEmail.add(r.email);
       try {
-        await sendRawEmail(r.email, subject, `<pre style="font-family:sans-serif;white-space:pre-wrap">${body}</pre>`, body);
+        await sendDepartmentSummaryEmail(r.email, { department_name: departmentLabel, feedback_html: feedbackHtml, feedback_text: feedbackText });
         counters.emails++;
       } catch (err) {
         counters.errors.push(`email ${r.user_id}: ${err instanceof Error ? err.message : "failed"}`);
       }
     }
-    // Free in-window WhatsApp summary only (out-of-window needs an approved template — follow-up).
-    if (r.phone_e164 && inWindow.has(r.phone_e164) && !seenPhone.has(r.phone_e164)) {
+    if (r.phone_e164 && !seenPhone.has(r.phone_e164)) {
       seenPhone.add(r.phone_e164);
-      try {
-        const res = await sendWhatsAppText(r.phone_e164, body);
-        await recordOutboundMessage({
-          phoneE164: r.phone_e164,
-          body,
-          whatsappMessageId: res.messages?.[0]?.id,
-          rawPayload: { source: "department_digest" },
-        });
-        counters.whatsapp++;
-      } catch (err) {
-        counters.errors.push(`wa ${r.user_id}: ${err instanceof Error ? err.message : "failed"}`);
-      }
+      const res = await sendTemplateNotification({
+        phoneE164: r.phone_e164,
+        userId: r.user_id,
+        templateName: WA_TEMPLATE,
+        bodyParams: [departmentLabel, s.short || "See dashboard for today's summary."],
+        source: "department_digest",
+      });
+      if (res.status === "sent") counters.whatsapp++;
+      else counters.errors.push(`wa ${r.user_id}: ${res.error ?? "failed"}`);
     }
   }
 }
@@ -133,33 +168,29 @@ export async function runDepartmentDigest(date: string): Promise<DigestRunResult
 
   const deptMetrics = await aggregateDepartments(date);
   const extras: AllUpExtras = await aggregateAllUpExtras(date);
-  const inWindow = await inWindowPhones();
 
-  // Per-department briefings (only those with activity) + distribution.
   for (const m of deptMetrics) {
     if (!m.department_id) continue;
-    const hasActivity = m.feedback.total + m.issues + m.escalations > 0;
-    if (!hasActivity) continue;
+    if (m.feedback.total + m.issues + m.escalations === 0) continue;
 
-    const ai = await briefing(DEPT_SYSTEM, m);
-    await upsertSummary(m.department_id, date, m, ai);
+    const fallback = `${m.department_name}: ${metricsLine(m)}`;
+    const summary = await generateSummary(DEPT_SYSTEM, m, fallback);
+    if (summary.bullets.length === 0) summary.bullets = [metricsLine(m), ...m.feedback.samples];
+
+    await upsertSummary(m.department_id, date, m, summary);
     result.departments++;
 
-    const body = `${m.department_name} — daily summary (${date})\n\n${ai || metricsLine(m)}`;
-    const recipients = await deptRecipients(m.department_id);
-    await distribute(recipients, `[${m.department_name}] Daily summary ${date}`, body, inWindow, result);
+    await distribute(await deptRecipients(m.department_id), m.department_name, summary, result);
   }
 
-  // All-up leadership briefing.
-  const allUpPayload = { date, departments: deptMetrics.map(metricsLine), ...extras };
-  const allUpAi = await briefing(ALLUP_SYSTEM, allUpPayload);
-  await upsertSummary(null, date, allUpPayload, allUpAi);
+  // All-up.
+  const allUpPayload = { date, departments: deptMetrics.map((m) => ({ name: m.department_name, ...m, summary: metricsLine(m) })), ...extras };
+  const allUpFallback = `Next-day meals: lunch ${extras.meals_next_day.lunch_attending}, dinner ${extras.meals_next_day.dinner_attending}.`;
+  const allUpSummary = await generateSummary(ALLUP_SYSTEM, allUpPayload, allUpFallback);
+  if (allUpSummary.bullets.length === 0) allUpSummary.bullets = deptMetrics.map((m) => `${m.department_name}: ${metricsLine(m)}`);
+  await upsertSummary(null, date, allUpPayload, allUpSummary);
 
-  const allUpBody =
-    `All-up daily summary (${date})\n\n${allUpAi || deptMetrics.map(metricsLine).join("\n")}\n\n` +
-    `Next-day meals: lunch ${extras.meals_next_day.lunch_attending}, dinner ${extras.meals_next_day.dinner_attending}.`;
-  const leaders = await leadershipRecipients();
-  await distribute(leaders, `[All-up] Daily summary ${date}`, allUpBody, inWindow, result);
+  await distribute(await allUpRecipients(), ALL_UP_LABEL, allUpSummary, result);
 
   return result;
 }
