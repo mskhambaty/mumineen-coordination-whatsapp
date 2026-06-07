@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import React, { useEffect, useRef, useState } from "react";
 
-import { canAccessMumineen } from "@/lib/admin/access";
+import { canAccessMumineen, isAdminOrLeadership } from "@/lib/admin/access";
 
 type Stats = { mumineen: number; adults: number; families: number; registered_families: number; cancelled_families: number; mehmaan: number; local: number };
 
@@ -273,7 +273,7 @@ export default function MumineenPage() {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
-  const [displayName, setDisplayName] = useState<string | null>(null);
+  const [isAdminUser, setIsAdminUser] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
@@ -282,9 +282,9 @@ export default function MumineenPage() {
       return;
     }
     const raw = localStorage.getItem("admin_user");
-    const user = raw ? JSON.parse(raw) as { role?: string; global_role?: string; is_it?: boolean; display_name?: string; is_master_admin?: boolean } : null;
+    const user = raw ? JSON.parse(raw) as { role?: string; global_role?: string; is_it?: boolean } : null;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDisplayName(user?.is_master_admin === true ? "__master__" : null);
+    setIsAdminUser(isAdminOrLeadership(user));
     if (!canAccessMumineen(user)) {
       router.push("/admin/conversations");
       return;
@@ -581,7 +581,7 @@ export default function MumineenPage() {
       <div className="mb-5">
         <div className="flex items-center justify-between gap-4">
           <h1 className="text-xl font-bold">Mumineen Roster</h1>
-          {displayName === "__master__" && (
+          {isAdminUser && (
             <button
               type="button"
               onClick={async () => {
@@ -944,19 +944,21 @@ export default function MumineenPage() {
                     <EditRow label="Email"><input value={form.email} onChange={(e) => updateForm({ email: e.target.value })} type="email" className={inputCls} /></EditRow>
                   </Section>
 
-                  <Section title="Travel">
-                    <EditRow label="Arrival"><input value={form.arrival_at} onChange={(e) => updateForm({ arrival_at: e.target.value })} type="datetime-local" className={inputCls} /></EditRow>
-                    <EditRow label="Arrival flight"><input value={form.arrival_flight_no} onChange={(e) => updateForm({ arrival_flight_no: e.target.value })} className={inputCls} /></EditRow>
-                    <EditRow label="Departure"><input value={form.departure_at} onChange={(e) => updateForm({ departure_at: e.target.value })} type="datetime-local" className={inputCls} /></EditRow>
-                    <EditRow label="Departure flight"><input value={form.departure_flight_no} onChange={(e) => updateForm({ departure_flight_no: e.target.value })} className={inputCls} /></EditRow>
-                    <EditRow label="Airport">
-                      <select value={form.airport} onChange={(e) => updateForm({ airport: e.target.value })} className={inputCls}>
-                        <option value="">—</option>
-                        <option value="ORD">ORD</option>
-                        <option value="MDW">MDW</option>
-                      </select>
-                    </EditRow>
-                  </Section>
+                  {selected.local_mehman === "Mehman" && (
+                    <Section title="Travel">
+                      <EditRow label="Arrival"><input value={form.arrival_at} onChange={(e) => updateForm({ arrival_at: e.target.value })} type="datetime-local" className={inputCls} /></EditRow>
+                      <EditRow label="Arrival flight"><input value={form.arrival_flight_no} onChange={(e) => updateForm({ arrival_flight_no: e.target.value })} className={inputCls} /></EditRow>
+                      <EditRow label="Departure"><input value={form.departure_at} onChange={(e) => updateForm({ departure_at: e.target.value })} type="datetime-local" className={inputCls} /></EditRow>
+                      <EditRow label="Departure flight"><input value={form.departure_flight_no} onChange={(e) => updateForm({ departure_flight_no: e.target.value })} className={inputCls} /></EditRow>
+                      <EditRow label="Airport">
+                        <select value={form.airport} onChange={(e) => updateForm({ airport: e.target.value })} className={inputCls}>
+                          <option value="">—</option>
+                          <option value="ORD">ORD</option>
+                          <option value="MDW">MDW</option>
+                        </select>
+                      </EditRow>
+                    </Section>
+                  )}
 
                   <Section title="Needs / khidmat">
                     <EditRow label="Not attending"><input type="checkbox" checked={form.not_attending} onChange={(e) => updateForm({ not_attending: e.target.checked })} className="h-4 w-4 accent-blue-600" /></EditRow>
@@ -965,15 +967,17 @@ export default function MumineenPage() {
                       <EditRow label="Wheelchair"><input type="checkbox" checked={form.wheelchair} onChange={(e) => updateForm({ wheelchair: e.target.checked })} className="h-4 w-4 accent-blue-600" /></EditRow>
                     )}
                     <EditRow label="Special needs"><input value={form.special_needs} onChange={(e) => updateForm({ special_needs: e.target.value })} className={inputCls} /></EditRow>
-                    <EditRow label="Wants khidmat"><input type="checkbox" checked={form.wants_khidmat} onChange={(e) => updateForm({ wants_khidmat: e.target.checked, khidmat_department_ids: e.target.checked ? form.khidmat_department_ids : [] })} className="h-4 w-4 accent-blue-600" /></EditRow>
-                    {form.wants_khidmat && (
+                    {selected.local_mehman === "Mehman" && (
+                      <EditRow label="Wants khidmat"><input type="checkbox" checked={form.wants_khidmat} onChange={(e) => updateForm({ wants_khidmat: e.target.checked, khidmat_department_ids: e.target.checked ? form.khidmat_department_ids : [] })} className="h-4 w-4 accent-blue-600" /></EditRow>
+                    )}
+                    {selected.local_mehman === "Mehman" && form.wants_khidmat && (
                       <EditRow label="Departments">
                         <KhidmatPicker departments={departments} selected={form.khidmat_department_ids} onChange={(ids) => updateForm({ khidmat_department_ids: ids })} />
                       </EditRow>
                     )}
                   </Section>
 
-                  {selected.family && (
+                  {selected.family && selected.local_mehman === "Mehman" && (
                     <Section title="Family registration">
                       <EditRow label="Accommodation">
                         <select value={form.acc_type} onChange={(e) => updateForm({ acc_type: e.target.value })} className={inputCls}>
@@ -1019,16 +1023,18 @@ export default function MumineenPage() {
                     <Field label="WhatsApp link clicked" value={yesOrNull(selected.whatsapp_link_clicked)} />
                   </Section>
 
-                  <Section title="Travel">
-                    <Field label="Arrival" value={fmtDateTime(selected.arrival_at)} />
-                    <Field label="Arrival flight" value={selected.arrival_flight_no} />
-                    <Field label="Departure" value={fmtDateTime(selected.departure_at)} />
-                    <Field label="Departure flight" value={selected.departure_flight_no} />
-                    <Field label="Airport" value={selected.airport} />
-                    <Field label="Daily transport" value={selected.daily_trans} />
-                    <Field label="Roster arrival (raw)" value={selected.roster_arrival_raw} />
-                    <Field label="Roster flight code" value={selected.roster_flight_code} />
-                  </Section>
+                  {selected.local_mehman === "Mehman" && (
+                    <Section title="Travel">
+                      <Field label="Arrival" value={fmtDateTime(selected.arrival_at)} />
+                      <Field label="Arrival flight" value={selected.arrival_flight_no} />
+                      <Field label="Departure" value={fmtDateTime(selected.departure_at)} />
+                      <Field label="Departure flight" value={selected.departure_flight_no} />
+                      <Field label="Airport" value={selected.airport} />
+                      <Field label="Daily transport" value={selected.daily_trans} />
+                      <Field label="Roster arrival (raw)" value={selected.roster_arrival_raw} />
+                      <Field label="Roster flight code" value={selected.roster_flight_code} />
+                    </Section>
+                  )}
 
                   <Section title="Needs / khidmat">
                     <Field label="Rahat seating" value={yesOrNull(selected.rahat_seating)} />
