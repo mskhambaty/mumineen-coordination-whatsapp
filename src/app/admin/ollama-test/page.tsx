@@ -173,7 +173,7 @@ export default function OllamaTestPage() {
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8">
-      <h1 className="mb-6 text-2xl font-bold">Ollama A/B Test</h1>
+      <h1 className="mb-6 text-2xl font-bold">Model Testing</h1>
       <p className="mb-6 text-sm text-gray-600 dark:text-gray-400">
         Compare Ollama cloud models against OpenAI using the same system prompt and parameters as the live agent.
       </p>

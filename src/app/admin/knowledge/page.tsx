@@ -309,7 +309,7 @@ export default function KnowledgePage() {
   return (
     <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
       <div className="mb-4">
-        <h1 className="text-xl font-bold">Vectorized Data for Agent</h1>
+        <h1 className="text-xl font-bold">Knowledge Base</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Content the WhatsApp agent retrieves from. Each tab feeds a separate vector store so
           logistics and Waaz Talaqi answers never mix.

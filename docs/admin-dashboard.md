@@ -45,7 +45,7 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - **Dark mode** toggle (🌙/☀️) in the nav; preference persists in `localStorage("admin_theme")` and falls back to the OS preference on first load
 - Restricted to `role = 'admin'` or `global_role = 'leadership_admin'`
 
-### Escalation/Support (`/admin/escalation`)
+### Escalation & On-call (`/admin/escalation`)
 - Admin/leadership-only management of escalation members, **scoped per department** (see [escalation.md](./escalation.md))
 - Add an existing user as an escalation member **for a specific department** (membership grants Lead Inbox access). The same user can be added to multiple departments.
 - Per-member **on-call hours** editor: weekly recurring time ranges (multiple per day), evaluated in America/Chicago
@@ -65,7 +65,7 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - Imports call `POST /api/admin/mumineen/import` and upsert families by `hof_its` and mumineen by `its`, preserving registration-submitted details on re-import.
 - Lookup/edit uses `GET /api/admin/mumineen/search` and `POST /api/admin/mumineen/update`; edits are for existing active roster members only.
 
-### Vectorized Data for Agent (`/admin/knowledge`)
+### Knowledge Base (`/admin/knowledge`)
 Two tabs, each feeding a **separate vector store** so logistics and religious answers never mix.
 
 **Tab 1 — FAQ & Guides** (department-scoped, store `logistics`):

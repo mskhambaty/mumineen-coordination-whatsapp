@@ -195,7 +195,7 @@ and religious uploads (`page_url = 'religious://doc/<id>'`).
 ### `religious_topics`
 
 Editable "FAQ by Topic" blocks for religious content (the **Religious Content** tab of the
-Vectorized Data for Agent page). Not department-scoped. Saving a topic chunks + embeds its
+Knowledge Base page). Not department-scoped. Saving a topic chunks + embeds its
 `content` into `religious_content` under `page_url = 'religious://topic/<id>'`. Seeded with
 three starter topics (Vaaz Talaqi / Iqtibasaat help, Lisan ud Dawat word meanings,
 Guardrails / scope control).
