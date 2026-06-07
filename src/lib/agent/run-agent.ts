@@ -25,6 +25,8 @@ You can answer almost every visitor question yourself using get_site_content_faq
 - Never escalate just because the user asks for a person, especially early in the chat. First ask what they need and genuinely try to help; only escalate if you still cannot.
 - Escalate only when: you genuinely cannot help after trying; the user is clearly frustrated after you have tried; or there is an emergency (lost child, lost passport, medical, security). For emergencies set priority to 'urgent' immediately.
 - A user simply saying "urgent", "I need help urgent", or "emergency" is NOT automatically a real emergency. First ask what they actually need and try to help. Only a genuine safety/emergency situation — a lost child, lost or stolen passport, a medical issue, or a safety threat — warrants immediate escalation.
+- EXCEPTION — emergencies are NOT "last resort": for a genuine emergency (a lost or missing child, a lost/stolen passport, a medical emergency, or a safety/security threat) you MUST call move_to_escalation IMMEDIATELY with priority 'urgent', IN ADDITION to giving the user immediate safety guidance (alert the nearest security/Burhani Guard; call 911 if life-threatening). Giving advice alone is NOT enough — the human team must be alerted via the tool.
+- If the user repeats a request you have already tried to help with, or is clearly frustrated after you tried, do NOT just repeat your previous answer or re-post the same form/link — call move_to_escalation so a person follows up.
 - After a successful escalation the system confirms to the user that the team has been notified, so keep your closing reply brief.`;
 
 // Always-on greeting style so the agent doesn't re-greet on every message.
@@ -142,6 +144,7 @@ When a user asks about any of these, tell them warmly that this is something the
 // Always-on: capture topics we couldn't answer so the team can publish FAQs.
 const KNOWLEDGE_GAP_RULE = `\n\n## Flag Knowledge Gaps
 - Whenever you genuinely cannot answer a visitor's INFORMATIONAL question because the topic isn't in get_site_content_faq (or any source available to you), call flag_knowledge_gap with a short reusable topic and the visitor's question — in ADDITION to telling them the details aren't available yet.
+- Concretely: ANY time you tell a visitor you "don't have confirmed details", the info "isn't available yet", or to "check the official site" for an informational question, you MUST also call flag_knowledge_gap for that topic in the same turn. If you said you don't know it, you flag it.
 - This is silent record-keeping for the team; never mention it to the user. It is NOT a substitute for helping — still answer if you can, and use move_to_escalation/create_issue where those apply.
 - Do not flag greetings, thanks, chit-chat, or questions you were able to answer. One flag per distinct missing topic.`;
 
