@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { canManageInternalTools } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type TaskStatus = "open" | "in_progress" | "blocked" | "complete";
 type TaskPriority = "low" | "medium" | "high";
@@ -112,16 +113,12 @@ function KanbanPage() {
   const [form, setForm] = useState<TaskForm | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
-
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    const user = readAdminUser();
+    if (!user) {
       router.push("/admin/login");
       return;
     }
-    const raw = localStorage.getItem("admin_user");
-    const user = raw ? (JSON.parse(raw) as { role?: string; global_role?: string; is_manager?: boolean }) : null;
     if (!canManageInternalTools(user)) {
       router.push("/admin/registration");
       return;
@@ -158,17 +155,6 @@ function KanbanPage() {
     () => departmentId === "all" ? milestones : milestones.filter((m) => m.department_id === departmentId),
     [milestones, departmentId],
   );
-
-  async function apiFetch(path: string, init?: RequestInit) {
-    return fetch(path, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        "x-admin-key": adminKey,
-        ...(init?.headers ?? {}),
-      },
-    });
-  }
 
   async function loadReferenceData() {
     const [deptRes, usersRes, msRes] = await Promise.all([

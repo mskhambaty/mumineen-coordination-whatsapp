@@ -5,6 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type Membership = {
   id: string;
@@ -28,14 +29,11 @@ export default function UserDepartmentsPage() {
   const [newRole, setNewRole] = useState("member");
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    const currentUser = readAdminUser();
+    if (!currentUser) {
       router.push("/admin/login");
       return;
     }
-
-    const userRaw = localStorage.getItem("admin_user");
-    const currentUser = userRaw ? JSON.parse(userRaw) as { role?: string; global_role?: string } : null;
     if (!isAdminOrLeadership(currentUser)) {
       router.push("/admin/conversations");
       return;
@@ -43,11 +41,10 @@ export default function UserDepartmentsPage() {
 
     async function loadData() {
       try {
-        const headers = { "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_KEY ?? "" };
         const [membRes, deptRes, userRes] = await Promise.all([
-          fetch(`/api/admin/users/${params.id}/departments`, { headers }),
-          fetch("/api/departments", { headers }),
-          fetch(`/api/admin/users/${params.id}`, { headers }),
+          apiFetch(`/api/admin/users/${params.id}/departments`),
+          apiFetch("/api/departments"),
+          apiFetch(`/api/admin/users/${params.id}`),
         ]);
 
         if (membRes.ok) setMemberships(await membRes.json());
@@ -70,12 +67,8 @@ export default function UserDepartmentsPage() {
     e.preventDefault();
     if (!newDept) return;
     try {
-      await fetch(`/api/admin/users/${params.id}/departments`, {
+      await apiFetch(`/api/admin/users/${params.id}/departments`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_KEY ?? "",
-        },
         body: JSON.stringify({ department_id: newDept, dept_role: newRole }),
       });
       setNewDept("");
@@ -88,12 +81,8 @@ export default function UserDepartmentsPage() {
 
   async function deactivateMembership(id: string) {
     try {
-      await fetch(`/api/admin/users/${params.id}/departments/${id}`, {
+      await apiFetch(`/api/admin/users/${params.id}/departments/${id}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_KEY ?? "",
-        },
         body: JSON.stringify({ is_active: false }),
       });
       window.location.reload();
@@ -104,12 +93,8 @@ export default function UserDepartmentsPage() {
 
   async function updateIssueContact(id: string, contactForIssues: boolean) {
     try {
-      const res = await fetch(`/api/admin/users/${params.id}/departments/${id}`, {
+      const res = await apiFetch(`/api/admin/users/${params.id}/departments/${id}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_KEY ?? "",
-        },
         body: JSON.stringify({ contact_for_issues: contactForIssues }),
       });
       if (!res.ok) return;

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { isAdminOrLeadership } from "@/lib/admin/access";
 import { oneOf, str, ts } from "@/lib/registration/normalize";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 
 export const runtime = "nodejs";
 
@@ -25,9 +26,8 @@ type InstanceBody = {
 // GET /api/admin/niyaz/instances — list Niyaz registration instances with per-instance tallies
 // (latest submission per family).
 export async function GET(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
   const supabase = getSupabaseAdmin();
 
   const { data: instances, error } = await supabase
@@ -70,9 +70,8 @@ export async function GET(req: NextRequest) {
 
 // POST /api/admin/niyaz/instances — create a Niyaz registration instance.
 export async function POST(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
   const body = (await req.json().catch(() => ({}))) as InstanceBody;
   const title = str(body.title);
   if (!title) {

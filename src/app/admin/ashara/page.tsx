@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { canManageKnowledge } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 import ContentBucketEditor from "@/components/admin/ContentBucketEditor";
 import {
   ASHARA_CATEGORIES,
@@ -46,7 +47,6 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function AsharaDashboardPage() {
   const router = useRouter();
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
   const [topics, setTopics] = useState<Topic[]>([]);
   const [year, setYear] = useState(DEFAULT_ACTIVE_YEAR);
@@ -55,34 +55,25 @@ export default function AsharaDashboardPage() {
   const [busyCell, setBusyCell] = useState<string | null>(null);
   const [editing, setEditing] = useState<Topic | null>(null);
 
-  function api(path: string, init?: RequestInit) {
-    return fetch(path, {
-      ...init,
-      headers: { "Content-Type": "application/json", "x-admin-key": adminKey, ...(init?.headers ?? {}) },
-    });
-  }
-
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    const user = readAdminUser();
+    if (!user) {
       router.push("/admin/login");
       return;
     }
-    const raw = localStorage.getItem("admin_user");
-    const user = raw ? (JSON.parse(raw) as { role?: string; global_role?: string; is_manager?: boolean }) : null;
     if (!canManageKnowledge(user)) {
       router.push("/admin/conversations");
       return;
     }
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [router]);
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api("/api/admin/religious-topics");
+      const res = await apiFetch("/api/admin/religious-topics");
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to load");
       setTopics(((await res.json()).topics ?? []) as Topic[]);
     } catch (err) {
@@ -144,7 +135,7 @@ export default function AsharaDashboardPage() {
     setBusyCell(key);
     setError(null);
     try {
-      const res = await api("/api/admin/ashara/seed", {
+      const res = await apiFetch("/api/admin/ashara/seed", {
         method: "POST",
         body: JSON.stringify({ year, majlis_number: row.majlisNumber, is_ashura: row.isAshura }),
       });
@@ -168,7 +159,7 @@ export default function AsharaDashboardPage() {
     setBusyCell(key);
     setError(null);
     try {
-      const res = await api("/api/admin/religious-topics", {
+      const res = await apiFetch("/api/admin/religious-topics", {
         method: "POST",
         body: JSON.stringify({
           title: topicTitle(cat.label, year, row.majlisNumber, row.isAshura),
@@ -185,7 +176,7 @@ export default function AsharaDashboardPage() {
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to create");
       const created = (await res.json()) as { id: string };
       // Reload so the new cell shows, then open its editor.
-      const fresh = (await (await api("/api/admin/religious-topics")).json()).topics as Topic[];
+      const fresh = (await (await apiFetch("/api/admin/religious-topics")).json()).topics as Topic[];
       setTopics(fresh);
       setEditing(fresh.find((t) => t.id === created.id) ?? null);
     } catch (err) {
@@ -383,7 +374,6 @@ export default function AsharaDashboardPage() {
           }
           initialContent={editing.content}
           endpoint={`/api/admin/religious-topics/${editing.id}`}
-          adminKey={adminKey}
           showSource
           initialSourceUrl={editing.source_url}
           onClose={() => setEditing(null)}

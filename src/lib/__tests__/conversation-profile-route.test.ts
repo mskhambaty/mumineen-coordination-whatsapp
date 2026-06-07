@@ -7,10 +7,17 @@ const requireAdminKey = vi.fn();
 const resolveCallerFromPhone = vi.fn();
 const getSenderProfile = vi.fn();
 
-vi.mock("@/lib/api/auth", () => ({
-  requireAdminKey: (...args: unknown[]) => requireAdminKey(...args),
-  resolveCallerFromPhone: (...args: unknown[]) => resolveCallerFromPhone(...args),
-}));
+// Keep the real auth module (UnauthorizedError, ADMIN_API_CALLER, session resolution)
+// so requirePortalCaller behaves like production; stub only the key check and the
+// phone-based department lookup the route uses.
+vi.mock("@/lib/api/auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api/auth")>();
+  return {
+    ...actual,
+    requireAdminKey: (...args: unknown[]) => requireAdminKey(...args),
+    resolveCallerFromPhone: (...args: unknown[]) => resolveCallerFromPhone(...args),
+  };
+});
 
 vi.mock("@/lib/mumineen/sender-profile", async () => {
   // Keep the real toPublicSenderProfile so the test verifies PII stripping end-to-end.

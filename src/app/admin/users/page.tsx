@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type User = {
   id: string;
@@ -104,7 +105,6 @@ export default function UsersPage() {
       return null;
     }
   });
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
   const filteredUsers = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return users;
@@ -144,14 +144,11 @@ export default function UsersPage() {
   }, [openMenuId]);
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    const currentUser = readAdminUser();
+    if (!currentUser) {
       router.push("/admin/login");
       return;
     }
-
-    const userRaw = localStorage.getItem("admin_user");
-    const currentUser = userRaw ? JSON.parse(userRaw) as { role?: string; global_role?: string } : null;
     if (!isAdminOrLeadership(currentUser)) {
       router.push("/admin/conversations");
       return;
@@ -165,12 +162,8 @@ export default function UsersPage() {
         if (selectedDepartmentId !== "all") params.set("department_id", selectedDepartmentId);
 
         const [usersRes, departmentsRes] = await Promise.all([
-          fetch(`/api/admin/users?${params.toString()}`, {
-            headers: { "x-admin-key": adminKey },
-          }),
-          fetch("/api/departments", {
-            headers: { "x-admin-key": adminKey },
-          }),
+          apiFetch(`/api/admin/users?${params.toString()}`),
+          apiFetch("/api/departments"),
         ]);
 
         if (!usersRes.ok) {
@@ -192,16 +185,12 @@ export default function UsersPage() {
     }
 
     void loadData();
-  }, [adminKey, router, selectedDepartmentId]);
+  }, [router, selectedDepartmentId]);
 
   async function updateUser(id: string, field: string, value: string) {
     try {
-      const res = await fetch(`/api/admin/users/${id}`, {
+      const res = await apiFetch(`/api/admin/users/${id}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": adminKey,
-        },
         body: JSON.stringify({ [field]: value }),
       });
       if (!res.ok) {
@@ -219,12 +208,8 @@ export default function UsersPage() {
   async function addUser(e: React.FormEvent) {
     e.preventDefault();
     try {
-      const res = await fetch("/api/admin/users", {
+      const res = await apiFetch("/api/admin/users", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": adminKey,
-        },
         body: JSON.stringify(newUser),
       });
       if (!res.ok) {
@@ -263,12 +248,8 @@ export default function UsersPage() {
     deptRole: string,
     sendWelcome = false,
   ): Promise<DepartmentMembership> {
-    const res = await fetch(`/api/admin/users/${userId}/departments`, {
+    const res = await apiFetch(`/api/admin/users/${userId}/departments`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-admin-key": adminKey,
-      },
       body: JSON.stringify({ department_id: departmentId, dept_role: deptRole, send_welcome: sendWelcome }),
     });
 
@@ -312,9 +293,8 @@ export default function UsersPage() {
     setSettingPassword(true);
     setPasswordMsg(null);
     try {
-      const res = await fetch(`/api/admin/users/${editingUser.id}/password`, {
+      const res = await apiFetch(`/api/admin/users/${editingUser.id}/password`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
         body: JSON.stringify({ password: newPassword }),
       });
       const data = await res.json().catch(() => ({})) as { error?: string };
@@ -336,12 +316,8 @@ export default function UsersPage() {
     setSavingEdit(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/users/${editingUser.id}`, {
+      const res = await apiFetch(`/api/admin/users/${editingUser.id}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": adminKey,
-        },
         body: JSON.stringify({
           display_name: editForm.display_name,
           phone_e164: editForm.phone_e164,
@@ -382,9 +358,8 @@ export default function UsersPage() {
     setError(null);
     setNotice(null);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}/welcome`, {
+      const res = await apiFetch(`/api/admin/users/${user.id}/welcome`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
         body: JSON.stringify({}),
       });
       const data = await res.json().catch(() => ({})) as {
@@ -421,10 +396,7 @@ export default function UsersPage() {
     setDeletingId(user.id);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}`, {
-        method: "DELETE",
-        headers: { "x-admin-key": adminKey },
-      });
+      const res = await apiFetch(`/api/admin/users/${user.id}`, { method: "DELETE" });
       if (!res.ok) {
         const data = await res.json().catch(() => ({})) as { error?: string };
         throw new Error(data.error ?? "Failed to delete user");

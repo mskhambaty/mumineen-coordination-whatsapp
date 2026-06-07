@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 import { RELAY_UPDATE_CATEGORIES } from "@/lib/relay-updates/shared";
 
 type Update = {
@@ -35,7 +36,6 @@ function emptyDraft(): Draft {
 
 export default function RelayUpdatesPage() {
   const router = useRouter();
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
   const [userId] = useState(() => {
     if (typeof window === "undefined") return "";
     try {
@@ -52,23 +52,21 @@ export default function RelayUpdatesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/admin/relay-updates", { headers: { "x-admin-key": adminKey } });
+    const res = await apiFetch("/api/admin/relay-updates");
     const data = await res.json().catch(() => ({}));
     if (res.ok) setUpdates(data.updates ?? []);
     else setError(data.error ?? "Failed to load updates");
     setLoading(false);
-  }, [adminKey]);
+  }, []);
 
   useEffect(() => {
-    // Page gate: admin/leadership only (mirrors the API rule).
-    try {
-      const user = JSON.parse(localStorage.getItem("admin_user") ?? "null");
-      if (!user || !isAdminOrLeadership(user)) {
-        router.push("/admin");
-        return;
-      }
-    } catch {
+    const user = readAdminUser();
+    if (!user) {
       router.push("/admin/login");
+      return;
+    }
+    if (!isAdminOrLeadership(user)) {
+      router.push("/admin");
       return;
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -80,9 +78,8 @@ export default function RelayUpdatesPage() {
     setSaving(true);
     setError(null);
     const isEdit = Boolean(draft.id);
-    const res = await fetch(isEdit ? `/api/admin/relay-updates/${draft.id}` : "/api/admin/relay-updates", {
+    const res = await apiFetch(isEdit ? `/api/admin/relay-updates/${draft.id}` : "/api/admin/relay-updates", {
       method: isEdit ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
       body: JSON.stringify({ ...draft, user_id: userId }),
     });
     const data = await res.json().catch(() => ({}));
@@ -97,9 +94,8 @@ export default function RelayUpdatesPage() {
 
   async function togglePublished(u: Update) {
     setError(null);
-    const res = await fetch(`/api/admin/relay-updates/${u.id}`, {
+    const res = await apiFetch(`/api/admin/relay-updates/${u.id}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
       body: JSON.stringify({ ...u, published: !u.published, user_id: userId }),
     });
     if (!res.ok) {

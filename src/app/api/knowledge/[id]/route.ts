@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { canManageKnowledge } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { deleteKnowledgeChunks, deleteReligiousContent } from "@/lib/knowledge/index-content";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -9,9 +10,8 @@ type RouteContext = { params: Promise<{ id: string }> };
 // DELETE: remove a document and its vectorized chunks from the store it was indexed into
 // (site_content for logistics, religious_content for religious uploads).
 export async function DELETE(req: NextRequest, { params }: RouteContext) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canManageKnowledge);
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
   const supabase = getSupabaseAdmin();

@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { isAdminOrLeadership } from "@/lib/admin/access";
 import { hashPassword, isValidNewPassword } from "@/lib/admin/passwords";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 
 // PUT: admin/leadership sets (overrides) a portal password for any user. Guarded by the admin
 // key, same as the other /api/admin/users routes. Clears any pending reset token.
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
   const body = await req.json().catch(() => ({}));

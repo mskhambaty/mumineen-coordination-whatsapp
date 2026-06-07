@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { canViewRegistrations } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -80,9 +81,8 @@ export type DetailRow = {
 };
 
 export async function GET(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canViewRegistrations);
+  if (auth instanceof NextResponse) return auth;
 
   const { searchParams } = new URL(req.url);
   const segment = searchParams.get("segment") ?? "";

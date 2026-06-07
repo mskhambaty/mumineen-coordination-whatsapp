@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { isAdminOrLeadership } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -25,9 +26,8 @@ const Body = z.object({
 // If is_head=true, creates a new families row as well.
 // If is_head=false, hof_its is required and the family must already exist.
 export async function POST(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
 
   const raw = await req.json().catch(() => null);
   const parsed = Body.safeParse(raw);

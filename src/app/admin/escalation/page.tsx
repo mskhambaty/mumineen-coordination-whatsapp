@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -42,30 +43,19 @@ export default function EscalationSupportPage() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
-
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    const user = readAdminUser();
+    if (!user) {
       router.push("/admin/login");
       return;
     }
-    const userRaw = localStorage.getItem("admin_user");
-    const user = userRaw ? JSON.parse(userRaw) as { role?: string; global_role?: string } : null;
     if (!isAdminOrLeadership(user)) {
       router.push("/admin/conversations");
       return;
     }
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router]);
 
-  function apiFetch(path: string, init?: RequestInit) {
-    return fetch(path, {
-      ...init,
-      headers: { "Content-Type": "application/json", "x-admin-key": adminKey, ...(init?.headers ?? {}) },
-    });
-  }
+  }, [router]);
 
   async function load() {
     setLoading(true);

@@ -17,6 +17,7 @@ All env var lookups go through `src/lib/env.ts`, which supports mixed-case alias
 | `CRON_SECRET` | — | Generate a strong random string; use in `Authorization: ****** |
 | `NEXT_PUBLIC_APP_URL` | `App_url`, `APP_URL` | Public app base URL, `https://www.chicagorelaycenter.com` |
 | `ADMIN_FALLBACK_PASSWORD` | `Admin_fallback_password` | Optional legacy login fallback for users without `password_hash`; set only in deployment secrets, never in repo |
+| `ADMIN_API_KEY` | — | Server-to-server auth for agent tools and cron jobs. Never sent to the browser. Rotate after deploying the session-auth migration (see Security Notes). |
 | `POSTMARK_API_TOKEN` | `Postmark_api_token` | Postmark server API token; rotate if exposed |
 | `POSTMARK_FROM_EMAIL` | `Postmark_from_email` | Verified Postmark sender address |
 | `POSTMARK_PASSWORD_RESET_TEMPLATE` | `Postmark_password_reset_template` | Postmark template alias for password reset (default `password-reset`) |
@@ -35,6 +36,7 @@ All env var lookups go through `src/lib/env.ts`, which supports mixed-case alias
 | `WHATSAPP_BUSINESS_ACCOUNT_ID` | `Whatsapp_business_account_id` | (unset) | WhatsApp Business Account ID. **Required for every template notification** (welcome `committee_platform_access_created`, issue `department_ticket_assigned`, escalation `escalation_ticket_assigned`) — `listMessageTemplates()` reads it to resolve the approved template. Without it, template sends fail gracefully and only the email channel goes out. |
 | `OPENAI_MODEL` | `OpenAI_model` | `gpt-4o-mini` | Override the centralized chat completion model in `src/lib/ai/model.ts`. Any model id valid for the Chat Completions API works, including GPT-5.x (e.g. `gpt-5.4-mini`) — `chatParams()` adapts the request shape automatically (see note below). |
 | `OPENAI_MODEL_HIGH` | — | falls back to `OPENAI_MODEL` | Higher-end model used **only** for Waaz Talaqi / Lisan answers (the final completion when `answer_religious_questions` or `get_lisan_word_meaning` was used), e.g. `gpt-5.4`. No-op until set. If the configured model is unavailable/misconfigured, the agent **falls back to `OPENAI_MODEL`** rather than failing the reply. |
+| `SESSION_SECRET` | — | falls back to `ADMIN_API_KEY` | Signs portal session cookies (HMAC-SHA256). Set a dedicated random value in production to isolate cookie signing from the server-to-server API key. |
 
 > **Model compatibility (GPT-5.x / o-series).** These are reasoning models: they reject a custom
 > `temperature` and the deprecated `max_tokens`, requiring `max_completion_tokens` instead. All
@@ -64,3 +66,5 @@ The code will find them by canonical or alias name — whichever you set.
 - Do not put runtime service tokens in GitHub secrets unless a GitHub Actions workflow specifically needs them.
 - `META_APP_SECRET` should always be set in production to prevent spoofed webhook requests.
 - GitHub Copilot/MCP only needs `COPILOT_MCP_SUPABASE_ACCESS_TOKEN` — do not grant it access to service role keys.
+- **After deploying the session-auth migration, rotate `ADMIN_API_KEY`**: the old value was exposed in historical client bundles as `NEXT_PUBLIC_ADMIN_KEY` and the server still accepts it for server-to-server calls. Update the Vercel env and any agent/cron consumers that send it in the `x-admin-key` header. **Set a dedicated `SESSION_SECRET` BEFORE rotating** — session cookies are signed with `SESSION_SECRET ?? ADMIN_API_KEY`, so rotating the key without a dedicated secret invalidates every live portal session (forces all users to re-login).
+- `ADMIN_API_KEY` is now server-to-server only (agent tools, cron jobs). It must never be included in client-side code or sent to the browser.

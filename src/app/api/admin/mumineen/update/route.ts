@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { canAccessMumineen } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { ACC_TYPES, AIRPORTS, TRANSPORT_MODES, bool, khidmatIds, oneOf, str, ts } from "@/lib/registration/normalize";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -53,9 +54,8 @@ const FAMILY_COLS =
 // their family's accommodation/transport). Unlike the public /api/register POST, this is NOT gated by
 // the one-time submission lock and never touches registration_status/submitted_at — it's a correction tool.
 export async function POST(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canAccessMumineen);
+  if (auth instanceof NextResponse) return auth;
 
   const body = (await req.json().catch(() => ({}))) as UpdateBody;
   const its = str(body.its);

@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { isAdminOrLeadership } from "@/lib/admin/access";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 
 export const runtime = "nodejs";
 
 // GET: list learned-from-conversation suggestions (pending by default).
 export async function GET(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
 
   const status = req.nextUrl.searchParams.get("status") ?? "pending";
 

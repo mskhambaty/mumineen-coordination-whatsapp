@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
-import { resolveParkingCaller } from "@/lib/parking/auth";
+import { canManageParking, canViewParking } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import {
   buildHouseholdRow,
   matchesFilters,
@@ -39,13 +39,9 @@ type LotRow = { id: string; name: string; color: string | null };
 // rollups (rahat/senior, all-65+, categories, kids under 7) and current passes.
 // Filters come as query params and are applied server-side via matchesFilters.
 export async function GET(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const caller = await resolveParkingCaller(req);
-  if (!caller.canView) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requirePortalCaller(req, canViewParking);
+  if (auth instanceof NextResponse) return auth;
+  const canManage = auth.caller.portal ? canManageParking(auth.caller.portal) : false;
 
   const { searchParams } = new URL(req.url);
   const filters: HouseholdFilters = {
@@ -126,6 +122,6 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     rows: filtered,
     total: rows.length,
-    can_manage: caller.canManage,
+    can_manage: canManage,
   });
 }

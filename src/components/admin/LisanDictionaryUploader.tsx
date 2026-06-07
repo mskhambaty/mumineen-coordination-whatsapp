@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { apiFetch } from "@/lib/admin/client";
 
 // Uploads the Lisan ud Dawat dictionary CSV into the exact-lookup table (lisan_words),
 // powering the get_lisan_word_meaning tool. Full-replace on each upload.
-export default function LisanDictionaryUploader({ adminKey }: { adminKey: string }) {
+export default function LisanDictionaryUploader() {
   const [count, setCount] = useState<number | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -14,7 +15,7 @@ export default function LisanDictionaryUploader({ adminKey }: { adminKey: string
 
   async function fetchCount(): Promise<number | null> {
     try {
-      const res = await fetch("/api/admin/lisan-words", { headers: { "x-admin-key": adminKey } });
+      const res = await apiFetch("/api/admin/lisan-words");
       if (res.ok) return ((await res.json()).count ?? 0) as number;
     } catch {
       // ignore
@@ -27,7 +28,7 @@ export default function LisanDictionaryUploader({ adminKey }: { adminKey: string
       const c = await fetchCount();
       if (c !== null) setCount(c);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, []);
 
   async function upload(e: React.FormEvent) {
@@ -39,7 +40,7 @@ export default function LisanDictionaryUploader({ adminKey }: { adminKey: string
     try {
       const body = new FormData();
       body.append("file", file);
-      const res = await fetch("/api/admin/lisan-words", { method: "POST", headers: { "x-admin-key": adminKey }, body });
+      const res = await apiFetch("/api/admin/lisan-words", { method: "POST", body });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Upload failed");
       setMessage(`Imported ${data.count ?? 0} words.`);

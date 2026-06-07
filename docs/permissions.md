@@ -84,6 +84,14 @@ Every tool call — allowed or denied — is written to the `tool_audit_logs` ta
 
 See [database.md](./database.md) for the full schema.
 
+## Portal (Admin Dashboard) Enforcement
+
+The admin dashboard enforces permissions server-side using the same `CallerContext` and permission engine as the WhatsApp agent:
+
+- **Cookie auth:** every `src/app/api/admin/**` route resolves the caller via `resolveCallerFromSession` (src/lib/api/auth.ts), which verifies the HMAC-signed `portal_session` cookie and calls `get_user_permissions_by_id` per request. Role changes and deactivations take effect immediately.
+- **Route guard:** `requirePortalCaller(req, predicate)` (src/lib/api/portal-auth.ts) enforces the same predicates defined in the page gate (src/lib/admin/access.ts): `canAccessInbox`, `canAccessMumineen`, `isAdminOrLeadership`, `isMasterAdmin`, etc. Returns 401 for invalid/missing session, 403 for predicate failure.
+- **`x-admin-key` is server-to-server only:** agent tools and cron jobs send `x-admin-key` (from `ADMIN_API_KEY`), which bypasses the cookie check and passes every guard. This header must never be sent by browser clients.
+
 ## Adding a New Permission Level
 
 If you need a new role (e.g., `moderator`):

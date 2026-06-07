@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { canManageKnowledge } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { chunkText, indexKnowledgeChunks } from "@/lib/knowledge/index-content";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -12,9 +13,8 @@ export const maxDuration = 60;
 // into the logistics store so the agent can answer it next time. Optionally marks the gap
 // addressed. Mirrors the document upload flow but takes typed text instead of a file.
 export async function POST(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, canManageKnowledge);
+  if (auth instanceof NextResponse) return auth;
 
   const body = (await req.json().catch(() => ({}))) as {
     gap_id?: unknown;

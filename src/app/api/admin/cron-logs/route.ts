@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
+import { isAdminOrLeadership } from "@/lib/admin/access";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 
 export async function GET(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
 
   const jobKey = req.nextUrl.searchParams.get("job_key");
   const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") ?? 20) || 20, 100);

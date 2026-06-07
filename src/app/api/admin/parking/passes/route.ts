@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminKey } from "@/lib/api/auth";
-import { resolveParkingCaller } from "@/lib/parking/auth";
+import { canManageParking } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -9,13 +9,8 @@ export const runtime = "nodejs";
 // POST /api/admin/parking/passes — assign one pass to a household. Capacity is
 // deliberately NOT enforced here (soft-warn in the UI only; the team may oversell a lot).
 export async function POST(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const caller = await resolveParkingCaller(req);
-  if (!caller.canManage) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requirePortalCaller(req, canManageParking);
+  if (auth instanceof NextResponse) return auth;
 
   const body = (await req.json().catch(() => ({}))) as {
     family_id?: unknown;
@@ -34,7 +29,8 @@ export async function POST(req: NextRequest) {
       family_id: familyId,
       lot_id: lotId,
       notes: typeof body.notes === "string" && body.notes.trim() ? body.notes.trim() : null,
-      assigned_by: caller.userId,
+      // Server-to-server (admin-key) callers have a sentinel id, not a user row.
+      assigned_by: auth.caller.user_id === "admin-api" ? null : auth.caller.user_id,
     })
     .select("id, family_id, lot_id, notes, created_at")
     .single();
@@ -48,13 +44,8 @@ export async function POST(req: NextRequest) {
 
 // DELETE /api/admin/parking/passes?id=<pass-id> — revoke (hard delete, idempotent).
 export async function DELETE(req: NextRequest) {
-  if (!requireAdminKey(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const caller = await resolveParkingCaller(req);
-  if (!caller.canManage) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requirePortalCaller(req, canManageParking);
+  if (auth instanceof NextResponse) return auth;
 
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");

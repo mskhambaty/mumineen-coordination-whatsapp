@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type Tally = { responded_families: number; yes_count: number; total_head_count: number };
 
@@ -85,7 +86,6 @@ function localToIso(v: string): string | null {
 
 export default function NiyazPage() {
   const router = useRouter();
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
   const [error, setError] = useState<string | null>(null);
 
   const [instances, setInstances] = useState<NiyazInstance[]>([]);
@@ -104,19 +104,16 @@ export default function NiyazPage() {
   const [editResp, setEditResp] = useState({ response: "yes" as "yes" | "no" | "maybe", head_count: "" });
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    const user = readAdminUser();
+    if (!user) {
       router.push("/admin/login");
       return;
     }
-    const raw = localStorage.getItem("admin_user");
-    const user = raw ? (JSON.parse(raw) as { role?: string; global_role?: string }) : null;
     if (!isAdminOrLeadership(user)) {
       router.push("/admin/conversations");
       return;
     }
     void loadInstances();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   // The signed-in admin, read at submit time (stored on the response as recorded_by).
@@ -130,12 +127,12 @@ export default function NiyazPage() {
   }
 
   async function loadInstances() {
-    const res = await fetch("/api/admin/niyaz/instances", { headers: { "x-admin-key": adminKey } });
+    const res = await apiFetch("/api/admin/niyaz/instances");
     if (res.ok) setInstances(((await res.json()).instances as NiyazInstance[]) ?? []);
   }
 
   async function loadResponses(instanceId: string) {
-    const res = await fetch(`/api/admin/niyaz/instances/${instanceId}/responses`, { headers: { "x-admin-key": adminKey } });
+    const res = await apiFetch(`/api/admin/niyaz/instances/${instanceId}/responses`);
     const data = await res.json().catch(() => ({}));
     if (res.ok) {
       setResponses((data.responses as ResponseRow[]) ?? []);
@@ -189,9 +186,8 @@ export default function NiyazPage() {
         closes_at: localToIso(instanceForm.closes_at),
       };
       const url = editingInstanceId ? `/api/admin/niyaz/instances/${editingInstanceId}` : "/api/admin/niyaz/instances";
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method: editingInstanceId ? "PATCH" : "POST",
-        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
@@ -209,9 +205,8 @@ export default function NiyazPage() {
   async function changeStatus(c: NiyazInstance, status: NiyazInstance["status"]) {
     setError(null);
     try {
-      const res = await fetch(`/api/admin/niyaz/instances/${c.id}`, {
+      const res = await apiFetch(`/api/admin/niyaz/instances/${c.id}`, {
         method: "PATCH",
-        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
         body: JSON.stringify({ status }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Status update failed");
@@ -231,9 +226,8 @@ export default function NiyazPage() {
     setSavingResp(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/niyaz/responses", {
+      const res = await apiFetch("/api/admin/niyaz/responses", {
         method: "POST",
-        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
         body: JSON.stringify({
           registration_instance_id: selected.id,
           hof_its: respForm.hof_its.trim(),
@@ -264,9 +258,8 @@ export default function NiyazPage() {
     if (!selected) return;
     setError(null);
     try {
-      const res = await fetch(`/api/admin/niyaz/responses/${id}`, {
+      const res = await apiFetch(`/api/admin/niyaz/responses/${id}`, {
         method: "PATCH",
-        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
         body: JSON.stringify({ response: editResp.response, head_count: editResp.head_count === "" ? null : Number(editResp.head_count) }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Update failed");
@@ -282,7 +275,7 @@ export default function NiyazPage() {
     if (!selected || !window.confirm("Delete this response?")) return;
     setError(null);
     try {
-      const res = await fetch(`/api/admin/niyaz/responses/${id}`, { method: "DELETE", headers: { "x-admin-key": adminKey } });
+      const res = await apiFetch(`/api/admin/niyaz/responses/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Delete failed");
       await loadResponses(selected.id);
       await loadInstances();

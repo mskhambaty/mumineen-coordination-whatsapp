@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
+import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type TemplateDescriptor = {
   name: string;
@@ -25,7 +26,6 @@ function preview(bodyText: string | null, params: string[]): string {
 
 export default function WhatsAppPage() {
   const router = useRouter();
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
 
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
@@ -44,25 +44,22 @@ export default function WhatsAppPage() {
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
+    const user = readAdminUser();
+    if (!user) {
       router.push("/admin/login");
       return;
     }
-    const raw = localStorage.getItem("admin_user");
-    const user = raw ? (JSON.parse(raw) as { role?: string; global_role?: string }) : null;
     if (!isAdminOrLeadership(user)) {
       router.push("/admin/conversations");
       return;
     }
     void loadTemplates();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   async function loadTemplates() {
     setTemplatesError(null);
     try {
-      const res = await fetch("/api/admin/whatsapp/templates", { headers: { "x-admin-key": adminKey } });
+      const res = await apiFetch("/api/admin/whatsapp/templates");
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Failed to load templates");
       setTemplates((data.templates as TemplateDescriptor[]) ?? []);
@@ -112,9 +109,8 @@ export default function WhatsAppPage() {
         setSending(false);
         return;
       }
-      const res = await fetch("/api/admin/whatsapp/send", {
+      const res = await apiFetch("/api/admin/whatsapp/send", {
         method: "POST",
-        headers: { "x-admin-key": adminKey, "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
