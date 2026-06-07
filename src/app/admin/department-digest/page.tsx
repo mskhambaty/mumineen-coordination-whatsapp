@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { apiFetch } from "@/lib/admin/client";
+
 type Summary = {
   department_id: string | null;
   department_name: string;
@@ -10,7 +12,6 @@ type Summary = {
 };
 
 export default function DepartmentDigestPage() {
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
   const [date, setDate] = useState<string>("");
   const [activeDate, setActiveDate] = useState<string>("");
   const [summaries, setSummaries] = useState<Summary[]>([]);
@@ -21,7 +22,7 @@ export default function DepartmentDigestPage() {
       setLoading(true);
       try {
         const qs = d ? `?date=${d}` : "";
-        const res = await fetch(`/api/admin/department-digest${qs}`, { headers: { "x-admin-key": adminKey } });
+        const res = await apiFetch(`/api/admin/department-digest${qs}`);
         if (res.ok) {
           const data = await res.json();
           setSummaries((data.summaries as Summary[]) ?? []);
@@ -32,7 +33,7 @@ export default function DepartmentDigestPage() {
         setLoading(false);
       }
     },
-    [adminKey],
+    [],
   );
 
   useEffect(() => {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminLeadership } from "@/lib/api/auth";
+import { isAdminOrLeadership } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { listMessageTemplates } from "@/lib/meta/whatsapp";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { describeTemplate } from "@/lib/whatsapp/templates";
@@ -11,9 +12,8 @@ export const runtime = "nodejs";
 // (described) plus the committee/admin users selectable as a test audience. Admin/leadership only.
 // No PII (phone numbers) in the response; selectable users are id + name only.
 export async function GET(req: NextRequest) {
-  if (!(await requireAdminLeadership(req))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
 
   const all = await listMessageTemplates().catch(() => []);
   const templates = all.filter((t) => t.status?.toUpperCase() === "APPROVED").map(describeTemplate);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAdminLeadership } from "@/lib/api/auth";
+import { isAdminOrLeadership } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -8,9 +9,8 @@ export const runtime = "nodejs";
 // GET /api/admin/templates/broadcasts — the send log with per-broadcast metrics (most recent first).
 // Admin/leadership only.
 export async function GET(req: NextRequest) {
-  if (!(await requireAdminLeadership(req))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
 
   const { data, error } = await getSupabaseAdmin()
     .from("template_broadcasts")

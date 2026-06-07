@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireAdminLeadership } from "@/lib/api/auth";
+import { isAdminOrLeadership } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { AUDIENCE_KEYS, previewAudience } from "@/lib/whatsapp/audience";
 
 export const runtime = "nodejs";
@@ -14,9 +15,8 @@ const schema = z.object({
 // POST /api/admin/templates/preview — resolve an audience to free/paid counts + estimated cost so
 // the console can show the impact before sending. Returns counts only — never the phone list.
 export async function POST(req: NextRequest) {
-  if (!(await requireAdminLeadership(req))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
 
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {

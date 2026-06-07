@@ -80,6 +80,63 @@ export async function getFamilyMealGrid(familyId: string): Promise<MealGridRow[]
   });
 }
 
+export type MealGridTotal = {
+  instanceId: string;
+  eventDate: string;
+  meal: Meal;
+  servingType: string | null;
+  respondedFamilies: number;
+  attendingFamilies: number;
+  totalHeadCount: number;
+};
+
+// Per-slot kitchen totals across all families: how many families responded, how many are attending,
+// and the summed head count — using each family's latest response per slot.
+export async function getMealGridTotals(): Promise<MealGridTotal[]> {
+  const slots = await getMealSlots();
+  if (slots.length === 0) return [];
+
+  const { data } = await getSupabaseAdmin()
+    .from("rsvp_responses")
+    .select("registration_instance_id, family_id, response, head_count, submitted_at")
+    .in(
+      "registration_instance_id",
+      slots.map((s) => s.id),
+    )
+    .order("submitted_at", { ascending: false });
+
+  // Latest response per (instance, family).
+  const seen = new Set<string>();
+  const agg = new Map<string, { responded: number; attending: number; head: number }>();
+  for (const s of slots) agg.set(s.id, { responded: 0, attending: 0, head: 0 });
+
+  for (const r of (data ?? []) as { registration_instance_id: string; family_id: string; response: string | null; head_count: number | null }[]) {
+    const key = `${r.registration_instance_id}|${r.family_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const a = agg.get(r.registration_instance_id);
+    if (!a) continue;
+    a.responded++;
+    if (r.response === "yes") {
+      a.attending++;
+      a.head += r.head_count ?? 0;
+    }
+  }
+
+  return slots.map((s) => {
+    const a = agg.get(s.id)!;
+    return {
+      instanceId: s.id,
+      eventDate: s.eventDate,
+      meal: s.meal,
+      servingType: s.servingType,
+      respondedFamilies: a.responded,
+      attendingFamilies: a.attending,
+      totalHeadCount: a.head,
+    };
+  });
+}
+
 // Record (or update) one family's RSVP for one meal slot, latest-wins per submitter. Rebuilds the
 // behavior of the former niyaz/record helper against the intact rsvp_responses table.
 export async function recordMealRsvp(input: {

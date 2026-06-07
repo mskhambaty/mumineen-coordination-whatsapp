@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import { z } from "zod";
 
-import { requireAdminLeadership } from "@/lib/api/auth";
+import { isAdminOrLeadership } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { AUDIENCE_KEYS } from "@/lib/whatsapp/audience";
 import { createBroadcast, drainBroadcasts } from "@/lib/whatsapp/broadcast";
 
@@ -19,16 +20,15 @@ const schema = z.object({
 // first drain batch immediately; a cron drains the rest in throttled batches. Manual, admin/
 // leadership only — no auto-scheduling. Returns the broadcast id so the console can poll progress.
 export async function POST(req: NextRequest) {
-  if (!(await requireAdminLeadership(req))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
 
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid body", details: parsed.error.flatten() }, { status: 400 });
   }
 
-  const triggeredByUserId = req.headers.get("x-portal-user-id");
+  const triggeredByUserId = auth.caller.user_id === "admin-api" ? null : auth.caller.user_id;
   const result = await createBroadcast({
     templateCode: parsed.data.template_code,
     templateLanguage: parsed.data.template_language,
