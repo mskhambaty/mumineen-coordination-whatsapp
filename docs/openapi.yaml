@@ -17,6 +17,7 @@ tags:
   - name: users
   - name: cron
   - name: email
+  - name: accommodations
 paths:
   /admin/auth:
     post:
@@ -1759,3 +1760,128 @@ components:
         link: { type: string, maxLength: 500, description: Optional CTA URL (http/https). }
         cta: { type: string, maxLength: 80, description: Optional CTA label; requires link. }
         published: { type: boolean, default: true }
+
+  # --- Accommodations Module ---
+  /admin/accommodations/hosts:
+    get:
+      tags: [accommodations]
+      summary: List host rollups with capacity and demographics.
+      security: [{ adminKey: [] }]
+      responses:
+        200:
+          description: Array of host rollup rows.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hosts: { type: array, items: { $ref: '#/components/schemas/AccommodationHost' } }
+    post:
+      tags: [accommodations]
+      summary: Upload host spreadsheet (XLSX).
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        201:
+          description: Import result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rows: { type: integer }
+                  hostsUpserted: { type: integer }
+                  importId: { type: string, format: uuid }
+    patch:
+      tags: [accommodations]
+      summary: Toggle include_family_friends for a host.
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hostId, include_family_friends]
+              properties:
+                hostId: { type: string, format: uuid }
+                include_family_friends: { type: boolean }
+      responses:
+        200:
+          description: Success.
+  /admin/accommodations/guests:
+    get:
+      tags: [accommodations]
+      summary: List awaiting-utaro guest families with demographics.
+      security: [{ adminKey: [] }]
+      responses:
+        200:
+          description: Array of guest rollup rows.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  guests: { type: array, items: { $ref: '#/components/schemas/AccommodationGuest' } }
+  /admin/accommodations/matches:
+    get:
+      tags: [accommodations]
+      summary: List matches or generate suggestions (?action=suggest).
+      security: [{ adminKey: [] }]
+      parameters:
+        - name: action
+          in: query
+          schema: { type: string, enum: [suggest] }
+      responses:
+        200:
+          description: Matches list or suggestions array.
+    post:
+      tags: [accommodations]
+      summary: Create a pending match.
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [guestFamilyId, hostId, guestMemberCount]
+              properties:
+                guestFamilyId: { type: string, format: uuid }
+                hostId: { type: string, format: uuid }
+                guestMemberCount: { type: integer }
+                notes: { type: string }
+      responses:
+        201:
+          description: Created match ID.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  matchId: { type: string, format: uuid }
+    patch:
+      tags: [accommodations]
+      summary: Confirm, reject, or cancel a match.
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [matchId, action]
+              properties:
+                matchId: { type: string, format: uuid }
+                action: { type: string, enum: [confirm, reject, cancel] }
+                confirmedBy: { type: string }
+      responses:
+        200:
+          description: Action completed.

@@ -147,9 +147,8 @@ The service will be stopped, with a "Logged out" line in the journal.
 
 | File                    | Purpose                                                       |
 |-------------------------|---------------------------------------------------------------|
-| `index.js`              | The listener: connect, capture group messages, persist.       |
+| `index.js`              | The listener: connect, capture group messages, resolve group names, persist. |
 | `store.js`              | Storage layer (JSONL files). Swap this to change where data lands. |
-| `discover-groups.js`    | Enumerate the bot's groups; merge JID→department into `groups.json`. |
 | `peek.js`               | Read-side helper to inspect recent captures.                  |
 | `package.json`          | Dependencies and scripts (`npm start`, `npm run peek`).       |
 | `claw-ingester.service` | systemd unit template.                                        |
@@ -160,33 +159,13 @@ The service will be stopped, with a "Logged out" line in the journal.
 ## Group name mapping (groupId → department)
 
 Captured messages carry a group JID (`120363410038900760@g.us`), not a name. The
-extraction/wiki layer needs to route each group to a department, so maintain a
-`groups.json` map: **group JID → canonical department label.**
+extraction/wiki layer needs to route each group to a department, so a `groups.json`
+map is maintained: **group JID → canonical department label.**
 
-The canonical `department` is *your* taxonomy and must match your wiki's department
-list — it is NOT the WhatsApp group subject (which is whatever an admin typed,
-emoji and all, and can change). So WhatsApp's group name is captured as a hint
-(`wa_subject`), but your `department` label is the stable routing key.
-
-### Discover and label
-
-`discover-groups.js` enumerates the groups the bot is in and merges them into
-`groups.json`. **Stop the listener first** — it shares the `./auth` session, and two
-processes on one set of credentials corrupt it:
-
-```bash
-sudo systemctl stop claw-ingester
-node discover-groups.js
-sudo systemctl start claw-ingester
-```
-
-It's idempotent and safe to re-run as the bot joins more groups:
-
-- New group → added with `department: ""` for you to fill in.
-- Existing group → WhatsApp subject refreshed; your `department` label preserved.
-- Never deletes entries.
-
-After running, edit `groups.json` and set the `department` for any new groups:
+This is resolved **in-process by the listener** — no separate script, no session
+conflict, no stop/start. The first time the listener sees a message from a group it
+doesn't yet have a name for, it fetches that group's metadata on its *live*
+connection and writes an entry to `groups.json`:
 
 ```json
 {
@@ -197,9 +176,15 @@ After running, edit `groups.json` and set the `department` for any new groups:
 }
 ```
 
-> This is a small lookup (~one row per department group), maintained by hand after
-> the script discovers JIDs. Don't over-build it — no UI, no auto-sync. The script
-> saves you copying JIDs; the labeling is a one-time human pass per new group.
+- `wa_subject` — the WhatsApp group name, filled in automatically as a hint. May
+  change if an admin renames the group; it's not the routing key.
+- `department` — **your** canonical label, the stable routing key the wiki uses.
+  The listener never sets or overwrites this; you fill it in by hand once per group.
+
+So the workflow is: let the listener run, watch the log for
+`discovered group — set "department" in groups.json` lines (or just open
+`groups.json`), and fill in the `department` for each new group. As the bot joins
+more groups, they appear automatically — nothing to re-run.
 
 > Keep this separate from the sender-identity map (LID → person). They're keyed
 > differently (group JID vs sender LID) and serve different layers.

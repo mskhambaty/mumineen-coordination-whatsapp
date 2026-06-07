@@ -53,6 +53,7 @@ const dropdownGroups: DropdownGroup[] = [
       { href: "/admin/milestones", label: "Milestones", access: "manage" },
       { href: "/admin/tasks", label: "Task Management", access: "manage" },
       { href: "/admin/parking", label: "Parking Passes", access: "parking" },
+      { href: "/admin/accommodations", label: "Accommodations", access: "parking" },
       { href: "/admin/departments", label: "Departments", access: "admin" },
       { href: "/admin/users", label: "Users", access: "admin" },
       { href: "/admin/upload", label: "Upload Transcripts", access: "manage" },

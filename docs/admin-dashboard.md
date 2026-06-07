@@ -125,6 +125,16 @@ Two tabs, each feeding a **separate vector store** so logistics and religious an
 - Add new membership (department + role selector)
 - Deactivate existing memberships
 
+### Accommodations (`/admin/accommodations`)
+- **Access:** admin/leadership, IT, Transport, or department PM/HOD (same as Parking).
+- **Hosts tab:** Upload host spreadsheet (XLSX), view host supply table with capacity, allocated, remaining. Toggle "Include Family/Friends" checkbox per host.
+- **Awaiting Guests tab:** Registered hotel families open to utaro, with demographics (member count, ages, gender mix, wheelchair, hotel name).
+- **Matches tab:** Existing matches with status chips (pending/confirmed/rejected/cancelled). Confirm/reject/cancel actions.
+- **Suggestions tab:** Ranked guest-host pairing suggestions. Score based on FIFO, proximity, demographics/mobility, gender preference. "Match" button creates a pending linkage.
+- **Lifecycle:** Pending matches have no side effects. Confirming a match deducts host capacity and updates the guest family's utaro fields. Cancelling a confirmed match reverts the guest family's accommodation fields.
+- Key files: `src/lib/accommodations/import.ts`, `src/lib/accommodations/rollups.ts`, `src/lib/accommodations/matching.ts`, `src/app/admin/accommodations/page.tsx`.
+- API: `GET/POST/PATCH /api/admin/accommodations/hosts`, `GET /api/admin/accommodations/guests`, `GET/POST/PATCH /api/admin/accommodations/matches`.
+
 ### Profile (`/admin/profile`)
 - Available to **any signed-in user** (Profile link in the nav).
 - Edit own **display name**; email is read-only for non-admins (it's the login identity). **Admins/leadership can change their own email** (validated and checked for uniqueness).
