@@ -249,7 +249,7 @@ export default function AccommodationsPage() {
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      setSuccessMsg(`Imported ${data.hostsUpserted} hosts from ${data.rows} rows. Geocoded: ${data.geocoded ?? 0}.`);
+      setSuccessMsg(`Imported ${data.hostsUpserted} hosts from ${data.rows} rows.`);
       form.reset();
       fetchHosts();
     } catch (err) {
@@ -265,6 +265,20 @@ export default function AccommodationsPage() {
         method: "PATCH",
         headers: { ...headers(), "Content-Type": "application/json" },
         body: JSON.stringify({ hostId, include_family_friends: !current }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      fetchHosts();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function handleGeocode(hostId: string) {
+    try {
+      const res = await fetch("/api/admin/accommodations/hosts", {
+        method: "PATCH",
+        headers: { ...headers(), "Content-Type": "application/json" },
+        body: JSON.stringify({ hostId, action: "geocode" }),
       });
       if (!res.ok) throw new Error(await res.text());
       fetchHosts();
@@ -469,7 +483,14 @@ export default function AccommodationsPage() {
                     <td className="p-2 text-center text-yellow-600 dark:text-yellow-400">{h.pending_allocated || ""}</td>
                     <td className="p-2 text-center font-semibold text-green-600 dark:text-green-400">{h.remaining_capacity}</td>
                     <td className="p-2">{h.gender_preference ?? "—"}</td>
-                    <td className="p-2">{h.distance_to_masjid_km != null ? `${h.distance_to_masjid_km} km` : "—"}</td>
+                    <td className="p-2">
+                      {h.distance_to_masjid_km != null
+                        ? `${h.distance_to_masjid_km} km`
+                        : canWrite
+                          ? <button onClick={() => handleGeocode(h.id)} className="px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 rounded hover:bg-blue-200" title="Calculate distance from address">📍</button>
+                          : "—"
+                      }
+                    </td>
                   </tr>
                 ))}
               </tbody>
