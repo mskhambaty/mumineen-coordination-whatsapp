@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(result);
     }
 
-    // Default: list existing matches
+    // Default: list existing matches enriched with guest demographics
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
       .from("accommodation_matches")

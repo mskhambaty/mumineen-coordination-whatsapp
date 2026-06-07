@@ -364,7 +364,7 @@ export default function AccommodationsPage() {
   function exportMatches() {
     exportToXlsx(matches.map(m => ({
       "Guest ITS": m.families?.hof_its ?? m.guest_family_id,
-      "Host Name": m.accommodation_hosts ? [m.accommodation_hosts.first_name, m.accommodation_hosts.last_name].filter(Boolean).join(" ") : m.host_id,
+      "Host Name": m.accommodation_hosts ? [m.accommodation_hosts.first_name, m.accommodation_hosts.last_name].filter(Boolean).join(" ") : "",
       "Host ITS": m.accommodation_hosts?.hof_its ?? "",
       Members: m.guest_member_count,
       Status: m.status,
@@ -573,9 +573,11 @@ export default function AccommodationsPage() {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="border-b dark:border-gray-700 text-left">
-                  <th className="p-2">Guest Family</th>
-                  <th className="p-2">Host</th>
+                  <th className="p-2">Guest</th>
+                  <th className="p-2">Guest ITS</th>
                   <th className="p-2">Members</th>
+                  <th className="p-2">Host</th>
+                  <th className="p-2">Host ITS</th>
                   <th className="p-2">Status</th>
                   <th className="p-2">Created</th>
                   <th className="p-2">Actions</th>
@@ -584,13 +586,11 @@ export default function AccommodationsPage() {
               <tbody>
                 {matches.map((m) => (
                   <tr key={m.id} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
-                    <td className="p-2 font-mono text-xs">{m.families?.hof_its ?? m.guest_family_id.slice(0, 8)}</td>
-                    <td className="p-2">
-                      {m.accommodation_hosts
-                        ? [m.accommodation_hosts.first_name, m.accommodation_hosts.last_name].filter(Boolean).join(" ") || m.accommodation_hosts.hof_its
-                        : m.host_id.slice(0, 8)}
-                    </td>
+                    <td className="p-2 font-medium">{m.families?.hof_its ?? m.guest_family_id.slice(0, 8)}</td>
+                    <td className="p-2 font-mono text-xs">{m.families?.hof_its ?? "—"}</td>
                     <td className="p-2 text-center">{m.guest_member_count}</td>
+                    <td className="p-2 font-medium">{m.accommodation_hosts ? [m.accommodation_hosts.first_name, m.accommodation_hosts.last_name].filter(Boolean).join(" ") || m.accommodation_hosts.hof_its : m.host_id.slice(0, 8)}</td>
+                    <td className="p-2 font-mono text-xs">{m.accommodation_hosts?.hof_its ?? "—"}</td>
                     <td className="p-2">
                       <span className={`px-1.5 py-0.5 rounded text-xs ${
                         m.status === "confirmed" ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" :
