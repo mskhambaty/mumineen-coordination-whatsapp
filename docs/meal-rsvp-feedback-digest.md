@@ -25,9 +25,12 @@ record, `applyMealRsvps` with date-range expansion). API: `GET/POST /api/rsvp/me
 Append-only, department-tagged, sentiment-scored — `feedback_entries`
 (`supabase/migrations/20260606100200_*`). Feedback is captured by the **nightly conversation-mining
 batch** (see §3), which is the single source — the agent does **not** log feedback in real time
-(that caused double-counting and fired rarely). Each entry is associated with a department by an
-LLM classifier against the **live department list + descriptions** (`src/lib/departments/classify.ts`),
-falling back to a static area→department map (`src/lib/feedback/areas.ts`). The `create_issue` path
+(that caused double-counting and fired rarely). Each entry is associated with **one or more
+departments** (`feedback_entries.department_ids uuid[]`) by an LLM classifier against the **live
+department list + descriptions** (`classifyDepartments`, `src/lib/departments/classify.ts`) — so a
+comment that spans areas ("AC broken and parking chaotic") is credited to every owning department in
+the digest — falling back to the static area→department map (`src/lib/feedback/areas.ts`). The
+`create_issue` path
 uses the same classifier to route issues to the right department when the agent doesn't name one,
 so they don't sit untriaged. (`POST /api/feedback` + `recordFeedback` remain as a programmatic
 insert path for future admin/manual entry, but are no longer wired to the agent.)

@@ -59,7 +59,7 @@ describe("mineConversationsForFeedback", () => {
         {
           message: {
             content: JSON.stringify({
-              items: [{ summary: "Thaal served cold and late", sentiment: "negative", department_index: 1, area: "mawaid" }],
+              items: [{ summary: "Thaal served cold and late", sentiment: "negative", department_indices: [1], area: "mawaid" }],
             }),
           },
         },
@@ -78,7 +78,7 @@ describe("mineConversationsForFeedback", () => {
     expect(inserted[0]).toMatchObject({
       source: "mined",
       event_date: "2026-06-15",
-      department_id: "dep-mawaid",
+      department_ids: ["dep-mawaid"],
       area: "mawaid",
       sentiment: "negative",
       comment_text: "Thaal served cold and late",

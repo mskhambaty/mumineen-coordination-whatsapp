@@ -52,7 +52,7 @@ export async function aggregateDepartments(date: string): Promise<DeptMetrics[]>
     supabase.from("departments").select("id, name"),
     supabase
       .from("feedback_entries")
-      .select("department_id, sentiment, comment_text")
+      .select("department_ids, sentiment, comment_text")
       .eq("event_date", date),
     supabase
       .from("tasks")
@@ -87,14 +87,17 @@ export async function aggregateDepartments(date: string): Promise<DeptMetrics[]>
     return m;
   };
 
-  for (const f of (feedback ?? []) as { department_id: string | null; sentiment: string | null; comment_text: string | null }[]) {
-    if (!f.department_id) continue;
-    const m = ensure(f.department_id);
-    m.feedback.total++;
-    if (f.sentiment === "positive") m.feedback.positive++;
-    else if (f.sentiment === "negative") m.feedback.negative++;
-    else m.feedback.neutral++;
-    if (f.comment_text && m.feedback.samples.length < 5) m.feedback.samples.push(f.comment_text);
+  // A feedback entry may be tagged to multiple departments — credit each one.
+  for (const f of (feedback ?? []) as { department_ids: string[] | null; sentiment: string | null; comment_text: string | null }[]) {
+    for (const deptId of f.department_ids ?? []) {
+      if (!deptId) continue;
+      const m = ensure(deptId);
+      m.feedback.total++;
+      if (f.sentiment === "positive") m.feedback.positive++;
+      else if (f.sentiment === "negative") m.feedback.negative++;
+      else m.feedback.neutral++;
+      if (f.comment_text && m.feedback.samples.length < 5) m.feedback.samples.push(f.comment_text);
+    }
   }
   for (const t of (issues ?? []) as { department_id: string | null }[]) {
     if (t.department_id) ensure(t.department_id).issues++;

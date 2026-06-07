@@ -51,16 +51,17 @@ function buildTranscripts(messages: Msg[]): { phone: string; transcript: string 
   return convos.sort((a, b) => b.last - a.last).map(({ phone, transcript }) => ({ phone, transcript }));
 }
 
-type Extracted = { summary: string; sentiment: "positive" | "neutral" | "negative" | null; department_index: number; area: string };
+type Extracted = { summary: string; sentiment: "positive" | "neutral" | "negative" | null; department_indices: number[]; area: string };
 
 const SYSTEM =
   "You mine WhatsApp conversations from a Dawoodi Bohra Ashara relay center for concrete EXPERIENCE " +
   "FEEDBACK — complaints, praise, or actionable observations about the on-ground experience (mawaid/food, " +
   "flow/crowd, parking/transport, audio-video, accommodation, seating, cleanliness, facilities, etc.). " +
   "IGNORE pure information questions, greetings, duas, registration/visa queries, and small talk. " +
-  "Route each item to ONE department from the catalog using its name + description. " +
-  'Reply with STRICT JSON: {"items":[{"summary": string, "sentiment": "positive"|"neutral"|"negative", "department_index": number, "area": string}]}. ' +
-  "summary = one neutral sentence, no names or phone numbers. department_index = catalog number (0 if none fits). " +
+  "Route each item to its owning department(s) from the catalog using their names + descriptions — usually " +
+  "ONE, but 2-3 when the feedback genuinely spans areas. " +
+  'Reply with STRICT JSON: {"items":[{"summary": string, "sentiment": "positive"|"neutral"|"negative", "department_indices": number[], "area": string}]}. ' +
+  "summary = one neutral sentence, no names or phone numbers. department_indices = catalog numbers ([] if none fits). " +
   "area = one of: mawaid, flow, parking_transport, audio_video, accommodation, seating, general. Return an empty items array if there is no real feedback.";
 
 async function extractFromChunk(convos: { phone: string; transcript: string }[], depts: Dept[]): Promise<Extracted[]> {
@@ -84,7 +85,9 @@ async function extractFromChunk(convos: { phone: string; transcript: string }[],
       .map((it) => ({
         summary: (it.summary as string).trim().slice(0, 600),
         sentiment: ["positive", "neutral", "negative"].includes(it.sentiment as string) ? (it.sentiment as Extracted["sentiment"]) : null,
-        department_index: Number.isFinite(Number(it.department_index)) ? Number(it.department_index) : 0,
+        department_indices: (Array.isArray(it.department_indices) ? it.department_indices : [])
+          .map((n) => Number(n))
+          .filter((n) => Number.isInteger(n) && n >= 1),
         area: typeof it.area === "string" ? (it.area as string) : "general",
       }));
   } catch (err) {
@@ -123,13 +126,13 @@ export async function mineConversationsForFeedback(date: string): Promise<MineRe
     const items = await extractFromChunk(c, depts);
     for (const it of items) {
       const area = (FEEDBACK_AREAS as readonly string[]).includes(it.area) ? it.area : normalizeArea(it.area);
-      const departmentId = it.department_index >= 1 && it.department_index <= depts.length ? depts[it.department_index - 1].id : null;
+      const departmentIds = [...new Set(it.department_indices.filter((n) => n <= depts.length).map((n) => depts[n - 1].id))];
       rows.push({
         family_id: null,
         mumin_id: null,
         phone_e164: null,
         area,
-        department_id: departmentId,
+        department_ids: departmentIds,
         sentiment: it.sentiment,
         rating: null,
         comment_text: it.summary,

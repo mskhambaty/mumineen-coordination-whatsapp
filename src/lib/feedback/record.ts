@@ -1,5 +1,5 @@
 import { AREA_LABEL, resolveDepartmentIdForArea, type FeedbackArea } from "@/lib/feedback/areas";
-import { classifyDepartment } from "@/lib/departments/classify";
+import { classifyDepartments } from "@/lib/departments/classify";
 import { resolveFamilyForPhone } from "@/lib/rsvp/family";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -37,16 +37,18 @@ export async function recordFeedback(
 
   const rows = [];
   for (const entry of entries) {
-    // Associate the feedback with a department using the LIVE department list + descriptions
-    // (classifier), falling back to the static area→department map when nothing clearly fits.
+    // Associate the feedback with one or more departments using the LIVE department list +
+    // descriptions (classifier), falling back to the static area→department map when nothing fits.
     const classifyText = `${AREA_LABEL[entry.area]}: ${entry.comment ?? entry.rawMessage ?? ""}`;
-    const departmentId = (await classifyDepartment(classifyText)) ?? (await resolveDepartmentIdForArea(entry.area));
+    const classified = await classifyDepartments(classifyText);
+    const fallback = classified.length === 0 ? await resolveDepartmentIdForArea(entry.area) : null;
+    const departmentIds = classified.length > 0 ? classified : fallback ? [fallback] : [];
     rows.push({
       family_id: family?.familyId ?? null,
       mumin_id: family?.muminId ?? null,
       phone_e164: phone,
       area: entry.area,
-      department_id: departmentId,
+      department_ids: departmentIds,
       sentiment: entry.sentiment ?? null,
       rating: entry.rating ?? null,
       comment_text: entry.comment ?? null,
