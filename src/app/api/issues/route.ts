@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { AI_EMBEDDING_MODEL, getAIClient } from "@/lib/ai/model";
+import { classifyDepartment } from "@/lib/departments/classify";
 import { notifyDepartmentIssueContacts } from "@/lib/issues/notify";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { isTaskPriority } from "@/lib/tasks/types";
@@ -54,6 +55,12 @@ export async function POST(req: NextRequest) {
       .ilike("name", departmentName)
       .maybeSingle();
     departmentId = dept?.id ?? null;
+  }
+
+  // No (valid) department from the agent — classify the issue against the live department list +
+  // descriptions so it routes to the right team instead of sitting untriaged.
+  if (!departmentId) {
+    departmentId = await classifyDepartment(`${title}\n${description ?? ""}`);
   }
 
   // Link the reporter if we have a user record for this phone.

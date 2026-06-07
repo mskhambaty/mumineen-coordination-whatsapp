@@ -23,10 +23,13 @@ record, `applyMealRsvps` with date-range expansion). API: `GET/POST /api/rsvp/me
 ## 2. Feedback
 
 Append-only, department-tagged, sentiment-scored — `feedback_entries`
-(`supabase/migrations/20260606100200_*`). Areas map to owning departments by name (environment
-independent): `src/lib/feedback/areas.ts`. Capture: `src/lib/feedback/record.ts`, API
-`POST /api/feedback`, agent tool `submit_feedback`. Actionable problems still route to
-`create_issue` / `move_to_escalation`.
+(`supabase/migrations/20260606100200_*`). Each entry is associated with a department by an LLM
+classifier against the **live department list + descriptions** (`src/lib/departments/classify.ts`),
+falling back to a static area→department map (`src/lib/feedback/areas.ts`) when nothing clearly
+fits. The agent's `submit_feedback` accepts any `area` string and the route normalizes it
+(`normalizeArea`, unknown → `general`) so feedback is never dropped on a label mismatch. Capture:
+`src/lib/feedback/record.ts`, API `POST /api/feedback`. The same classifier routes `create_issue`
+issues to the right department when the agent doesn't name one, so they don't sit untriaged.
 
 ## 3. Nightly department digest (22:00 UTC)
 
