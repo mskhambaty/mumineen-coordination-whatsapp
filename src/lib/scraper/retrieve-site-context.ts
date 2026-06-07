@@ -56,7 +56,11 @@ async function retrieveContext(
     .join("\n\n---\n\n");
 }
 
-export async function retrieveSiteContext(query: string, topK = 5): Promise<string> {
+// topK=10 (not 5): curated FAQ docs were being crowded out of the top 5 by generic
+// scraped homepage chunks for short queries (e.g. "medical emergency" returned only
+// homepage boilerplate, not the Medical FAQ). A wider window lets the specific FAQ
+// reach the model even when it ranks below the homepage chrome.
+export async function retrieveSiteContext(query: string, topK = 10): Promise<string> {
   return retrieveContext("match_site_content", EVENT_CONTEXT, query, topK);
 }
 
