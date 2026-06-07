@@ -109,8 +109,11 @@ export async function GET(req: NextRequest) {
 
   // Family-level filter: when filtering by local_mehman, restrict to families whose HoF matches.
   // When filtering by status, restrict families accordingly.
+  // Use any member's local_mehman to identify the family type — not just is_head,
+  // because 430 families have no is_head record in mumineen and would otherwise
+  // fall through both Local and Mehman filters.
   const hofItsSet = localMehmanFilter
-    ? new Set(allMembers.filter((m) => m.local_mehman === localMehmanFilter && m.is_head).map((m) => m.hof_its))
+    ? new Set(allMembers.filter((m) => m.local_mehman === localMehmanFilter).map((m) => m.hof_its))
     : null;
 
   let fams = allFams;
