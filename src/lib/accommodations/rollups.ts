@@ -36,6 +36,7 @@ export type HostRow = {
   include_family_friends: boolean;
   effective_capacity: number;
   confirmed_allocated: number;
+  pending_allocated: number;
   remaining_capacity: number;
   gender_preference: string | null;
   pet_type: string | null;
@@ -170,11 +171,12 @@ export async function buildGuestRollups(): Promise<GuestRow[]> {
     const members = membersByHof.get(f.hof_its) ?? [];
     const ages = members.map((m) => m.age).filter((a): a is number => a != null);
     const head = members.find((m) => m.is_head);
+    const resolvedName = head?.full_name ?? members[0]?.full_name ?? f.hof_its;
 
     return {
       family_id: f.id,
       hof_its: f.hof_its,
-      head_name: head?.full_name ?? null,
+      head_name: resolvedName,
       member_count: members.length,
       adult_count: members.filter((m) => m.age != null && m.age >= 18).length,
       child_count: members.filter((m) => m.age != null && m.age < 18).length,
@@ -231,20 +233,25 @@ export async function buildHostRollups(): Promise<HostRow[]> {
 
   if (hosts.length === 0) return [];
 
-  // Get confirmed match allocations per host
+  // Get confirmed AND pending match allocations per host
   const hostIds = hosts.map((h) => h.id);
-  const confirmedMatches = await fetchAll<{ host_id: string; guest_member_count: number }>((from, to) =>
+  const activeMatches = await fetchAll<{ host_id: string; guest_member_count: number; status: string }>((from, to) =>
     supabase
       .from("accommodation_matches")
-      .select("host_id, guest_member_count")
+      .select("host_id, guest_member_count, status")
       .in("host_id", hostIds)
-      .eq("status", "confirmed")
+      .in("status", ["confirmed", "pending"])
       .range(from, to),
   );
 
-  const allocatedByHost = new Map<string, number>();
-  for (const m of confirmedMatches) {
-    allocatedByHost.set(m.host_id, (allocatedByHost.get(m.host_id) ?? 0) + m.guest_member_count);
+  const confirmedByHost = new Map<string, number>();
+  const pendingByHost = new Map<string, number>();
+  for (const m of activeMatches) {
+    if (m.status === "confirmed") {
+      confirmedByHost.set(m.host_id, (confirmedByHost.get(m.host_id) ?? 0) + m.guest_member_count);
+    } else {
+      pendingByHost.set(m.host_id, (pendingByHost.get(m.host_id) ?? 0) + m.guest_member_count);
+    }
   }
 
   // Roster demographics: look up mumineen by hof_its
@@ -267,8 +274,9 @@ export async function buildHostRollups(): Promise<HostRow[]> {
 
   return hosts.map((h) => {
     const effectiveCap = h.capacity_mehman + (h.include_family_friends ? h.capacity_family_friends : 0);
-    const confirmed = allocatedByHost.get(h.id) ?? 0;
-    const remaining = Math.max(0, effectiveCap - confirmed);
+    const confirmed = confirmedByHost.get(h.id) ?? 0;
+    const pending = pendingByHost.get(h.id) ?? 0;
+    const remaining = Math.max(0, effectiveCap - confirmed - pending);
 
     const roster = rosterByHof.get(h.hof_its);
     const hostAges = roster?.map((m) => m.age).filter((a): a is number => a != null) ?? [];
@@ -289,6 +297,7 @@ export async function buildHostRollups(): Promise<HostRow[]> {
       include_family_friends: h.include_family_friends,
       effective_capacity: effectiveCap,
       confirmed_allocated: confirmed,
+      pending_allocated: pending,
       remaining_capacity: remaining,
       gender_preference: h.gender_preference,
       pet_type: h.pet_type,

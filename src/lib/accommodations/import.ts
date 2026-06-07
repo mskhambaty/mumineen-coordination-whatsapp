@@ -5,6 +5,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 export type HostImportResult = {
   rows: number;
   hostsUpserted: number;
+  geocoded: number;
   importId: string;
 };
 
@@ -49,6 +50,84 @@ const COLUMN_MAP: { header: RegExp; col: string; parse: (v: unknown) => unknown 
   { header: /Type of Pet/i, col: "pet_type", parse: text },
   { header: /Number Allocated/i, col: "number_allocated", parse: intOrNull },
 ];
+
+// --- Geocoding via Nominatim (OpenStreetMap) ---
+
+type GeoResult = { lat: number; lon: number } | null;
+
+/**
+ * Geocode an address via Nominatim. Rate-limited to 1 req/sec.
+ * Returns null if geocoding fails.
+ */
+async function geocodeAddress(address: string, city: string | null): Promise<GeoResult> {
+  const query = [address, city, "IL", "USA"].filter(Boolean).join(", ");
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
+
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "MumineenAccommodations/1.0" },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (Array.isArray(data) && data.length > 0) {
+      const lat = parseFloat(data[0].lat);
+      const lon = parseFloat(data[0].lon);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        return { lat, lon };
+      }
+    }
+  } catch {
+    // Geocoding failure is non-fatal
+  }
+  return null;
+}
+
+/** Sleep helper for rate limiting. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Geocode hosts that have an address but no lat/lon.
+ * Updates the DB in place and returns count of successfully geocoded hosts.
+ */
+async function geocodeHosts(hostIds: string[]): Promise<number> {
+  if (hostIds.length === 0) return 0;
+
+  const supabase = getSupabaseAdmin();
+  const { data: hostsToGeocode } = await supabase
+    .from("accommodation_hosts")
+    .select("id, address, city")
+    .in("id", hostIds)
+    .not("address", "is", null)
+    .is("lat", null);
+
+  if (!hostsToGeocode || hostsToGeocode.length === 0) return 0;
+
+  let geocoded = 0;
+  for (const host of hostsToGeocode) {
+    if (!host.address) continue;
+
+    const result = await geocodeAddress(host.address, host.city);
+    if (result) {
+      await supabase
+        .from("accommodation_hosts")
+        .update({
+          lat: result.lat,
+          lon: result.lon,
+          geocoded_at: new Date().toISOString(),
+          geocode_source: "nominatim",
+        })
+        .eq("id", host.id);
+      geocoded++;
+    }
+
+    // Rate limit: 1 request per second for Nominatim
+    await sleep(1100);
+  }
+
+  return geocoded;
+}
 
 /**
  * Build header → column mapping from the actual sheet headers present.
@@ -164,5 +243,17 @@ export async function importAccommodationHosts(
     if (error) throw new Error(`Host upsert failed: ${error.message}`);
   }
 
-  return { rows: raw.length, hostsUpserted: hostRows.length, importId };
+  // 3. Geocode hosts that have addresses but no lat/lon yet.
+  // Fetch IDs of upserted hosts to geocode them.
+  const upsertedIts = hostRows.map((r) => String(r.hof_its));
+  const { data: upsertedHosts } = await supabase
+    .from("accommodation_hosts")
+    .select("id")
+    .in("hof_its", upsertedIts)
+    .not("address", "is", null)
+    .is("lat", null);
+
+  const geocoded = await geocodeHosts((upsertedHosts ?? []).map((h) => h.id));
+
+  return { rows: raw.length, hostsUpserted: hostRows.length, geocoded, importId };
 }

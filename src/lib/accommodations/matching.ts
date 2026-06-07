@@ -10,64 +10,58 @@ export type MatchSuggestion = {
   reasons: string[];
 };
 
-// --- Scoring ---
+// --- Scoring Options ---
 
-/** Haversine distance in km. */
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
+export type ScoringOptions = {
+  fifo?: boolean;
+  proximity?: boolean;
+  demographics?: boolean;
+};
+
+const DEFAULT_SCORING: ScoringOptions = { fifo: true, proximity: true, demographics: true };
 
 /**
  * Score a guest-host pair. Higher is better.
- * Factors: FIFO (submitted_at), proximity, demographics/mobility, gender_preference alignment.
+ * Factors (toggleable): FIFO (40), proximity to masjid (30), demographics/mobility (15).
+ * Always-on: gender preference alignment (15).
  */
-function scoreMatch(guest: GuestRow, host: HostRow, fifoRank: number, totalGuests: number): { score: number; reasons: string[] } {
+export function scoreMatch(
+  guest: GuestRow,
+  host: HostRow,
+  fifoRank: number,
+  totalGuests: number,
+  opts: ScoringOptions = DEFAULT_SCORING,
+): { score: number; reasons: string[] } {
   let score = 0;
   const reasons: string[] = [];
 
   // 1. FIFO: earlier submitted_at gets higher score (max 40 points)
-  const fifoScore = totalGuests > 1 ? 40 * (1 - fifoRank / (totalGuests - 1)) : 40;
-  score += fifoScore;
-  if (fifoRank < 5) reasons.push("Early registration");
+  if (opts.fifo !== false) {
+    const fifoScore = totalGuests > 1 ? 40 * (1 - fifoRank / (totalGuests - 1)) : 40;
+    score += fifoScore;
+    if (fifoRank < 5) reasons.push("Early registration");
+  }
 
   // 2. Proximity: closer host to masjid = better (max 30 points)
-  if (host.distance_to_masjid_km != null) {
-    // Within 5km is best; >30km gets 0
+  if (opts.proximity !== false && host.distance_to_masjid_km != null) {
     const proxScore = Math.max(0, 30 * (1 - host.distance_to_masjid_km / 30));
     score += proxScore;
     if (host.distance_to_masjid_km <= 10) reasons.push(`Close to masjid (${host.distance_to_masjid_km}km)`);
   }
 
-  // Also consider guest hotel proximity to host (if both geocoded)
-  if (guest.hotel_lat != null && guest.hotel_lon != null && host.lat != null && host.lon != null) {
-    const guestHostDist = haversineKm(guest.hotel_lat, guest.hotel_lon, host.lat, host.lon);
-    if (guestHostDist <= 10) {
-      score += 5;
-      reasons.push("Near guest hotel");
-    }
-  }
-
   // 3. Demographics/mobility: wheelchair/special needs families get bonus for accessible hosts (max 15 points)
-  if (guest.has_wheelchair || guest.has_special_needs) {
-    // Bonus for hosts with larger capacity (likely more space/accessibility)
+  if (opts.demographics !== false && (guest.has_wheelchair || guest.has_special_needs)) {
     if (host.effective_capacity >= guest.member_count * 2) {
       score += 10;
       reasons.push("Spacious for accessibility");
     }
-    // Bonus if host family includes seniors (likely ground-floor living)
     if (host.host_ages && host.host_ages.split(", ").some((a) => parseInt(a) >= 65)) {
       score += 5;
       reasons.push("Senior host household");
     }
   }
 
-  // 4. Gender preference alignment (max 15 points)
+  // 4. Gender preference alignment (always on, max 15 points)
   if (host.gender_preference) {
     const pref = host.gender_preference.toLowerCase();
     if (pref.includes("mardo") && guest.male_count > guest.female_count) {
@@ -94,7 +88,7 @@ function scoreMatch(guest: GuestRow, host: HostRow, fifoRank: number, totalGuest
  * Returns a ranked list of guest-host pairs sorted by score descending.
  * Only suggests hosts with enough remaining capacity for the entire guest family.
  */
-export async function suggestMatches(): Promise<MatchSuggestion[]> {
+export async function suggestMatches(opts?: ScoringOptions): Promise<MatchSuggestion[]> {
   const [guests, hosts] = await Promise.all([buildGuestRollups(), buildHostRollups()]);
 
   // Only unmatched guests (no pending or confirmed match)
@@ -119,7 +113,7 @@ export async function suggestMatches(): Promise<MatchSuggestion[]> {
     const eligibleHosts = availableHosts.filter((h) => h.remaining_capacity >= guest.member_count);
 
     for (const host of eligibleHosts) {
-      const { score, reasons } = scoreMatch(guest, host, fifoRank, sortedGuests.length);
+      const { score, reasons } = scoreMatch(guest, host, fifoRank, sortedGuests.length, opts);
       suggestions.push({ guest, host, score, reasons });
     }
   }
@@ -128,6 +122,69 @@ export async function suggestMatches(): Promise<MatchSuggestion[]> {
   suggestions.sort((a, b) => b.score - a.score);
 
   return suggestions;
+}
+
+// --- Best Allocation (maximize families matched) ---
+
+export type AllocationResult = {
+  matched: MatchSuggestion[];
+  unmatched: GuestRow[];
+};
+
+/**
+ * Greedy best-fit allocation: maximize the number of families matched.
+ * Strategy: sort guests smallest-first (easier to fit), then assign each to the best-scoring
+ * eligible host (considering already-assigned capacity).
+ * Ignores FIFO — purely optimizes for maximum coverage.
+ */
+export async function suggestBestAllocation(opts?: ScoringOptions): Promise<AllocationResult> {
+  const [guests, hosts] = await Promise.all([buildGuestRollups(), buildHostRollups()]);
+
+  const unmatchedGuests = guests.filter((g) => g.current_match_status == null);
+
+  // Sort smallest families first to maximize families matched (bin-packing heuristic)
+  const sortedGuests = [...unmatchedGuests].sort((a, b) => a.member_count - b.member_count);
+
+  // Track remaining capacity during allocation
+  const capacityLeft = new Map<string, number>();
+  const availableHosts = hosts.filter((h) => h.remaining_capacity > 0);
+  for (const h of availableHosts) {
+    capacityLeft.set(h.id, h.remaining_capacity);
+  }
+
+  const matched: MatchSuggestion[] = [];
+  const unmatchedFamilies: GuestRow[] = [];
+
+  // Scoring without FIFO, always disable it for allocation mode
+  const allocOpts: ScoringOptions = { ...opts, fifo: false };
+
+  for (const guest of sortedGuests) {
+    // Find hosts that still have capacity for this family
+    const eligible = availableHosts.filter((h) => (capacityLeft.get(h.id) ?? 0) >= guest.member_count);
+
+    if (eligible.length === 0) {
+      unmatchedFamilies.push(guest);
+      continue;
+    }
+
+    // Score each eligible host and pick the best
+    let best: { host: HostRow; score: number; reasons: string[] } | null = null;
+    for (const host of eligible) {
+      const { score, reasons } = scoreMatch(guest, host, 0, sortedGuests.length, allocOpts);
+      if (!best || score > best.score) {
+        best = { host, score, reasons };
+      }
+    }
+
+    if (best) {
+      matched.push({ guest, host: best.host, score: best.score, reasons: best.reasons });
+      capacityLeft.set(best.host.id, (capacityLeft.get(best.host.id) ?? 0) - guest.member_count);
+    } else {
+      unmatchedFamilies.push(guest);
+    }
+  }
+
+  return { matched, unmatched: unmatchedFamilies };
 }
 
 // --- Confirm Match ---
