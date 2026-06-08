@@ -18,7 +18,11 @@ vi.mock("@/lib/supabase/server", () => ({
 
 import { executeTool, allToolDefinitions } from "@/lib/agent/tools";
 import { canUseTool, publicTools } from "@/lib/permissions";
-import { RELIGIOUS_GUIDANCE_RULE } from "@/lib/agent/run-agent";
+import {
+  RELIGIOUS_GUIDANCE_RULE,
+  RELIGIOUS_FOLLOWUP_REPLY,
+  escalationAcknowledgment,
+} from "@/lib/agent/run-agent";
 
 const visitor = { id: "u1", phone_e164: "+1555", role: "visitor" as const, status: "active" };
 
@@ -88,14 +92,32 @@ describe("RELIGIOUS_GUIDANCE_RULE", () => {
     // Lisan word lookups route to the exact-lookup tool and never substitute a near word.
     expect(RELIGIOUS_GUIDANCE_RULE).toContain("get_lisan_word_meaning");
     expect(RELIGIOUS_GUIDANCE_RULE.toLowerCase()).toContain("substitute");
-    // Out-of-scope redirect names a concrete path.
-    expect(RELIGIOUS_GUIDANCE_RULE).toContain("Aamil Saheb");
+    // A question the reflections can't answer (incl. personal fiqh) hands off to the
+    // team via the escalation queue rather than improvising a ruling.
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("religious_followup");
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("move_to_escalation");
   });
 
   it("requires citing the source (with the blog-link allowance)", () => {
     expect(RELIGIOUS_GUIDANCE_RULE).toContain("Source:");
     expect(RELIGIOUS_GUIDANCE_RULE).toContain("blogs.jameasaifiyah.edu");
     expect(RELIGIOUS_GUIDANCE_RULE).toContain("Lisan ud Dawat dictionary");
+  });
+
+  it("escalation acknowledgment returns the fixed Waaz-scoped reply for religious_followup", () => {
+    // A religious_followup hand-off gets the curated reflections-only message (no ruling),
+    // distinct from the generic support/urgent acks. This is what the user sees instead of
+    // the bogus citations bug.
+    expect(escalationAcknowledgment({ category: "religious_followup", priority: "normal" })).toBe(
+      RELIGIOUS_FOLLOWUP_REPLY,
+    );
+    expect(RELIGIOUS_FOLLOWUP_REPLY).toContain("published Ashara reflections");
+    expect(RELIGIOUS_FOLLOWUP_REPLY).toContain("Waaz Mubarak");
+    // Other categories keep their existing acks.
+    expect(escalationAcknowledgment({ category: "registration", priority: "normal" })).not.toBe(
+      RELIGIOUS_FOLLOWUP_REPLY,
+    );
+    expect(escalationAcknowledgment({ priority: "urgent" }).toLowerCase()).toContain("urgent");
   });
 
   it("instructs WhatsApp formatting (bold/italic/lists) for Waaz Talaqi answers only", () => {

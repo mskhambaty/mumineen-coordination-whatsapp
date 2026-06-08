@@ -432,6 +432,9 @@ paths:
         Called by the agent's move_to_escalation tool. Identified by the
         x-whatsapp-from header. Non-emergency escalations are declined until a
         minimum number of inbound messages exist (deterministic last-resort gate).
+        Emergencies and the `religious_followup` category bypass that gate
+        (a deen/Waaz question the reflections can't answer is often the first
+        message); the agent then replies with a fixed Waaz-scoped acknowledgment.
       security: [{ whatsappPhone: [] }]
       requestBody:
         required: true
@@ -445,7 +448,7 @@ paths:
                 priority: { type: string, enum: [normal, urgent] }
                 category:
                   type: string
-                  enum: [emergency, accommodation, transport, registration, schedule, facilities, complaint, other]
+                  enum: [emergency, accommodation, transport, registration, schedule, facilities, complaint, religious_followup, other]
                 source: { type: string, enum: [ai, rule, manual] }
       responses:
         "200": { description: "Escalated, or declined by the last-resort guardrail." }
