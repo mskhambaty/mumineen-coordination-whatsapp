@@ -41,11 +41,11 @@ type Analytics = {
     hosts: { key: string; label: string; host_name: string; host_its: string | null; host_member_count: number; families: number; people: number }[];
   };
   transport: {
-    rideshare: number;
-    rental: number;
-    commute_with_utaro: number;
-    other: number;
-    not_set: number;
+    rideshare: number; rideshare_people: number;
+    rental: number; rental_people: number;
+    commute_with_utaro: number; commute_with_utaro_people: number;
+    other: number; other_people: number;
+    not_set: number; not_set_people: number;
   };
   airports: { ORD: number; MDW: number; not_set: number };
   arrivals_by_date: { date: string; count: number }[];
@@ -1270,19 +1270,24 @@ export default function RegistrationAnalyticsPage() {
                 <SectionCard title="Daily Transport to Relay Center">
                   <HBar label="Rideshare" value={data.transport.rideshare} total={transportTotal} color="bg-violet-500"
                     onClick={() => drill({ segment: "transport", value: "rideshare", label: "Transport: Rideshare", detailLabel: "Transport" })}
+                    trailing={<span className="w-16 shrink-0 text-right text-xs text-gray-400">{data.transport.rideshare_people.toLocaleString()} ppl</span>}
                   />
                   <HBar label="Rental Car" value={data.transport.rental} total={transportTotal} color="bg-orange-400"
                     onClick={() => drill({ segment: "transport", value: "rental", label: "Transport: Rental Car", detailLabel: "Transport" })}
+                    trailing={<span className="w-16 shrink-0 text-right text-xs text-gray-400">{data.transport.rental_people.toLocaleString()} ppl</span>}
                   />
                   <HBar label="With Friends/Family" value={data.transport.commute_with_utaro} total={transportTotal} color="bg-teal-500"
                     onClick={() => drill({ segment: "transport", value: "commute_with_utaro", label: "Transport: With Friends/Family", detailLabel: "Transport" })}
+                    trailing={<span className="w-16 shrink-0 text-right text-xs text-gray-400">{data.transport.commute_with_utaro_people.toLocaleString()} ppl</span>}
                   />
                   <HBar label="Other" value={data.transport.other} total={transportTotal} color="bg-gray-400"
                     onClick={() => drill({ segment: "transport", value: "other", label: "Transport: Other", detailLabel: "Transport" })}
+                    trailing={<span className="w-16 shrink-0 text-right text-xs text-gray-400">{data.transport.other_people.toLocaleString()} ppl</span>}
                   />
                   {data.transport.not_set > 0 && (
                     <HBar label="Local" value={data.transport.not_set} total={transportTotal} color="bg-gray-200"
                       onClick={() => drill({ segment: "transport", value: "", label: "Local — No Transport Needed", detailLabel: "Transport" })}
+                      trailing={<span className="w-16 shrink-0 text-right text-xs text-gray-400">{data.transport.not_set_people.toLocaleString()} ppl</span>}
                     />
                   )}
                 </SectionCard>

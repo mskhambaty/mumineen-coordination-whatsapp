@@ -251,12 +251,27 @@ export async function GET(req: NextRequest) {
 
   // ── Transport ────────────────────────────────────────────────────────────────
 
+  // Per-family attending headcount for individual-level transport breakdowns.
+  const famAttending = new Map<string, number>();
+  for (const m of members) {
+    if (!m.not_attending) famAttending.set(m.hof_its, (famAttending.get(m.hof_its) ?? 0) + 1);
+  }
+  const transportPeople = (mode: string | null) =>
+    registeredFams
+      .filter((f) => (mode ? f.transport_mode === mode : !f.transport_mode))
+      .reduce((sum, f) => sum + (famAttending.get(f.hof_its) ?? 0), 0);
+
   const transport = {
     rideshare: registeredFams.filter((f) => f.transport_mode === "rideshare").length,
+    rideshare_people: transportPeople("rideshare"),
     rental: registeredFams.filter((f) => f.transport_mode === "rental").length,
+    rental_people: transportPeople("rental"),
     commute_with_utaro: registeredFams.filter((f) => f.transport_mode === "commute_with_utaro").length,
+    commute_with_utaro_people: transportPeople("commute_with_utaro"),
     other: registeredFams.filter((f) => f.transport_mode === "other").length,
+    other_people: transportPeople("other"),
     not_set: registeredFams.filter((f) => !f.transport_mode).length,
+    not_set_people: transportPeople(null),
   };
 
   // ── Airport & travel (attending mehman) ──────────────────────────────────────
