@@ -116,6 +116,17 @@ export async function GET(req: NextRequest) {
   const mehmanRentalRate = registeredMehmanTotal > 0 ? registeredMehmanRental / registeredMehmanTotal : 0;
   const totalMehmanFamilies = allFams.filter((f) => hofType.get(f.hof_its) === "Mehman").length;
 
+  // Rahat rate from registered families — unregistered haven't filled out rahat_seating yet.
+  let regRahatPeople = 0, regAttendingPeople = 0;
+  for (const f of allFams) {
+    if (!isRegistered(f.registration_status)) continue;
+    const s = famStats.get(f.hof_its);
+    if (!s) continue;
+    regRahatPeople += s.rahat;
+    regAttendingPeople += s.attending;
+  }
+  const rahatRate = regAttendingPeople > 0 ? regRahatPeople / regAttendingPeople : 0;
+
   function computeEstimates(fams: FamilyRow[], isForecast = false) {
     let localPasses = 0;
     let mehmanRentalPasses = 0;
@@ -201,6 +212,12 @@ export async function GET(req: NextRequest) {
       rahatMehmanOver65Rental = Math.round(rahatRentalRate > 0
         ? rahatRentalRate * mehmanRentalPasses
         : currentRahatMehmanRental * (totalMehmanFamilies / Math.max(registeredMehmanTotal, 1)));
+
+      // Extrapolate rahat people using the registered rahat rate — unregistered mumineen
+      // haven't filled out rahat_seating yet so the loop above undercounts them.
+      const totalAttending = rahatPeople + nonRahatPeople;
+      rahatPeople = Math.round(rahatRate * totalAttending);
+      nonRahatPeople = totalAttending - rahatPeople;
     }
 
     return {
