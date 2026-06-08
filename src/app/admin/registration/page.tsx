@@ -813,8 +813,8 @@ export default function RegistrationAnalyticsPage() {
 
   const summary = data?.summary;
   const regRate =
-    summary && summary.total_families > 0
-      ? Math.round((summary.submitted_families / summary.total_families) * 100) : 0;
+    summary && summary.filtered_families > 0
+      ? Math.round((summary.submitted_families / summary.filtered_families) * 100) : 0;
   const mehmanPct =
     summary && summary.total_mumineen > 0
       ? Math.round((summary.mehman / summary.total_mumineen) * 100) : 0;
