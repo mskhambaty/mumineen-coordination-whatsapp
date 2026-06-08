@@ -176,7 +176,7 @@ export default function WebinarsAdminPage() {
           </div>
         ) : webinars.length === 0 ? (
           <div className="rounded-xl border border-dashed border-gray-300 py-16 text-center dark:border-gray-700">
-            <p className="text-sm text-gray-400">No webinars added yet. Click "Add webinar" to get started.</p>
+            <p className="text-sm text-gray-400">No webinars added yet. Click &quot;Add webinar&quot; to get started.</p>
           </div>
         ) : (
           <div className="space-y-3">
