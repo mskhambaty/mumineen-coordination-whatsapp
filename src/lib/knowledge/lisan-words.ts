@@ -81,13 +81,13 @@ export async function lookupLisanWord(query: string): Promise<LisanLookup> {
         .sort((a, b) => Math.abs((a.norm ?? "").length - norm.length) - Math.abs((b.norm ?? "").length - norm.length))
         .map(({ transliteration, lisan, meaning, example }) => ({ transliteration, lisan, meaning, example }));
       if (ranked.length === 1) return { status: "ok", matches: ranked };
-      return { status: "did_you_mean", suggestions: ranked.slice(0, 4) };
+      return { status: "did_you_mean", suggestions: ranked.slice(0, 3) };
     }
   }
 
-  const { data: sugg } = await supabase.rpc("match_lisan_words", { query_norm: norm, match_count: 4 });
+  const { data: sugg } = await supabase.rpc("match_lisan_words", { query_norm: norm, match_count: 3 });
   const suggestions = (sugg ?? []) as LisanEntry[];
-  return suggestions.length ? { status: "did_you_mean", suggestions: suggestions.slice(0, 4) } : { status: "not_found" };
+  return suggestions.length ? { status: "did_you_mean", suggestions: suggestions.slice(0, 3) } : { status: "not_found" };
 }
 
 export type LisanImportRow = {
