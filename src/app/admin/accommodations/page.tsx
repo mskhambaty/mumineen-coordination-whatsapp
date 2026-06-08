@@ -118,7 +118,7 @@ export default function AccommodationsPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Suggestion view mode
-  const [suggestMode, setSuggestMode] = useState<"per-guest" | "allocation">("per-guest");
+  const [suggestMode, setSuggestMode] = useState<"per-guest" | "allocation">("allocation");
 
   // Scoring toggles
   const [scoring, setScoring] = useState<ScoringToggles>({ fifo: true, proximity: true, demographics: true });
@@ -420,7 +420,7 @@ export default function AccommodationsPage() {
 
   function exportSuggestions() {
     const data = suggestMode === "allocation" && allocation
-      ? [...allocation.matched.map(s => ({ ...formatSuggestionRow(s), Matched: "Yes" })), ...allocation.unmatched.map(g => ({ Guest: g.head_name ?? g.hof_its, ITS: g.hof_its, Attending: g.attending_count, Host: "", Reasons: "", Matched: "No" }))]
+      ? [...allocation.matched.map(s => ({ ...formatSuggestionRow(s), Matched: "Yes" })), ...allocation.unmatched.map(g => ({ Guest: g.head_name ?? g.hof_its, ITS: g.hof_its, Attending: g.attending_count, "Adults/Kids": `${g.adult_count}/${g.child_count}`, "M/F": `${g.male_count}M/${g.female_count}F`, Ages: g.ages, Host: "", Reasons: "", Matched: "No" }))]
       : suggestions.slice(0, 500).map(s => formatSuggestionRow(s));
     exportToXlsx(data, `accommodations-suggestions-${suggestMode}.xlsx`);
   }
@@ -430,6 +430,9 @@ export default function AccommodationsPage() {
       Guest: s.guest.head_name ?? s.guest.hof_its,
       ITS: s.guest.hof_its,
       Attending: s.guest.attending_count,
+      "Adults/Kids": `${s.guest.adult_count}/${s.guest.child_count}`,
+      "M/F": `${s.guest.male_count}M/${s.guest.female_count}F`,
+      Ages: s.guest.ages,
       Host: s.host.display_name,
       "Host ITS": s.host.hof_its,
       "Remaining Cap": s.host.remaining_capacity,
@@ -777,9 +780,12 @@ export default function AccommodationsPage() {
               <div className="space-y-4">
                 {Array.from(groupByGuest(suggestions)).map(([familyId, familySuggestions]) => (
                   <div key={familyId} className="border dark:border-gray-700 rounded p-3">
-                    <div className="flex items-center gap-2 mb-2">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <span className="font-semibold">{familySuggestions[0].guest.head_name ?? familySuggestions[0].guest.hof_its}</span>
                       <span className="text-xs text-gray-500">({familySuggestions[0].guest.attending_count} attending)</span>
+                      <span className="text-xs text-gray-500">{familySuggestions[0].guest.adult_count}A/{familySuggestions[0].guest.child_count}K</span>
+                      <span className="text-xs text-gray-500">{familySuggestions[0].guest.male_count}M/{familySuggestions[0].guest.female_count}F</span>
+                      <span className="text-xs text-gray-400">{familySuggestions[0].guest.ages || ""}</span>
                       <span className="text-xs font-mono text-gray-400">{familySuggestions[0].guest.hof_its}</span>
                       {familySuggestions[0].guest.has_wheelchair && <span>♿</span>}
                     </div>
@@ -845,6 +851,9 @@ export default function AccommodationsPage() {
                       <th className="p-2">Status</th>
                       <th className="p-2">Guest</th>
                       <th className="p-2">Attending</th>
+                      <th className="p-2">Adults/Kids</th>
+                      <th className="p-2">M/F</th>
+                      <th className="p-2">Ages</th>
                       <th className="p-2">Host</th>
                       <th className="p-2">Reasons</th>
                       <th className="p-2">Action</th>
@@ -856,6 +865,9 @@ export default function AccommodationsPage() {
                         <td className="p-2"><span className="px-1.5 py-0.5 rounded text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">matched</span></td>
                         <td className="p-2">{s.guest.head_name ?? s.guest.hof_its}</td>
                         <td className="p-2 text-center">{s.guest.attending_count}</td>
+                        <td className="p-2 text-center">{s.guest.adult_count}/{s.guest.child_count}</td>
+                        <td className="p-2 text-center">{s.guest.male_count}M/{s.guest.female_count}F</td>
+                        <td className="p-2 text-xs">{s.guest.ages || "—"}</td>
                         <td className="p-2">{s.host.display_name}</td>
                         <td className="p-2 text-xs">{s.reasons.join("; ")}</td>
                         <td className="p-2">
@@ -875,6 +887,9 @@ export default function AccommodationsPage() {
                         <td className="p-2"><span className="px-1.5 py-0.5 rounded text-xs bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">unmatched</span></td>
                         <td className="p-2 text-red-700 dark:text-red-300">{g.head_name ?? g.hof_its}</td>
                         <td className="p-2 text-center text-red-700 dark:text-red-300">{g.attending_count}</td>
+                        <td className="p-2 text-center text-red-700 dark:text-red-300">{g.adult_count}/{g.child_count}</td>
+                        <td className="p-2 text-center text-red-700 dark:text-red-300">{g.male_count}M/{g.female_count}F</td>
+                        <td className="p-2 text-xs text-red-700 dark:text-red-300">{g.ages || "—"}</td>
                         <td className="p-2 text-gray-400">—</td>
                         <td className="p-2 text-gray-400">—</td>
                         <td className="p-2 text-xs text-red-600 dark:text-red-400">No host with sufficient capacity</td>
