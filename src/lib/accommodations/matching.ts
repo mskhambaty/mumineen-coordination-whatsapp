@@ -86,6 +86,19 @@ export function scoreMatch(
   return { score: Math.round(score * 10) / 10, reasons };
 }
 
+/**
+ * Hard gender filter: if host has a strict preference, exclude incompatible guests.
+ * "bairo" hosts cannot be assigned guests with any males.
+ * "mardo" hosts cannot be assigned guests with any females.
+ */
+function isGenderCompatible(guest: GuestRow, host: HostRow): boolean {
+  if (!host.gender_preference) return true;
+  const pref = host.gender_preference.toLowerCase();
+  if (pref.includes("bairo") && guest.male_count > 0) return false;
+  if (pref.includes("mardo") && guest.female_count > 0) return false;
+  return true;
+}
+
 // --- Main Matching ---
 
 /**
@@ -106,16 +119,16 @@ export async function suggestMatches(opts?: ScoringOptions): Promise<MatchSugges
     return aTime - bTime;
   });
 
-  // Only hosts with remaining capacity
-  const availableHosts = hosts.filter((h) => h.remaining_capacity > 0);
+  // Only hosts with remaining capacity that are enabled for suggestions
+  const availableHosts = hosts.filter((h) => h.remaining_capacity > 0 && h.enabled_for_suggestions);
 
   const suggestions: MatchSuggestion[] = [];
 
   for (let fifoRank = 0; fifoRank < sortedGuests.length; fifoRank++) {
     const guest = sortedGuests[fifoRank];
 
-    // Hard constraint: host must fit attending family members
-    const eligibleHosts = availableHosts.filter((h) => h.remaining_capacity >= guest.attending_count);
+    // Hard constraints: capacity + gender compatibility
+    const eligibleHosts = availableHosts.filter((h) => h.remaining_capacity >= guest.attending_count && isGenderCompatible(guest, h));
 
     for (const host of eligibleHosts) {
       const { score, reasons } = scoreMatch(guest, host, fifoRank, sortedGuests.length, opts);
@@ -134,6 +147,7 @@ export async function suggestMatches(opts?: ScoringOptions): Promise<MatchSugges
 export type AllocationResult = {
   matched: MatchSuggestion[];
   unmatched: GuestRow[];
+  unassignedHosts: HostRow[];
 };
 
 /**
@@ -152,7 +166,7 @@ export async function suggestBestAllocation(opts?: ScoringOptions): Promise<Allo
 
   // Track remaining capacity during allocation
   const capacityLeft = new Map<string, number>();
-  const availableHosts = hosts.filter((h) => h.remaining_capacity > 0);
+  const availableHosts = hosts.filter((h) => h.remaining_capacity > 0 && h.enabled_for_suggestions);
   for (const h of availableHosts) {
     capacityLeft.set(h.id, h.remaining_capacity);
   }
@@ -165,7 +179,8 @@ export async function suggestBestAllocation(opts?: ScoringOptions): Promise<Allo
 
   for (const guest of sortedGuests) {
     // Find hosts that still have capacity for this family
-    const eligible = availableHosts.filter((h) => (capacityLeft.get(h.id) ?? 0) >= guest.attending_count);
+    // Find hosts that still have capacity and are gender-compatible
+    const eligible = availableHosts.filter((h) => (capacityLeft.get(h.id) ?? 0) >= guest.attending_count && isGenderCompatible(guest, h));
 
     if (eligible.length === 0) {
       unmatchedFamilies.push(guest);
@@ -189,7 +204,11 @@ export async function suggestBestAllocation(opts?: ScoringOptions): Promise<Allo
     }
   }
 
-  return { matched, unmatched: unmatchedFamilies };
+  // Hosts that received no allocation
+  const assignedHostIds = new Set(matched.map((m) => m.host.id));
+  const unassignedHosts = availableHosts.filter((h) => !assignedHostIds.has(h.id));
+
+  return { matched, unmatched: unmatchedFamilies, unassignedHosts };
 }
 
 // --- Confirm Match ---

@@ -23,6 +23,7 @@ type HostRow = {
   distance_to_masjid_km: number | null;
   host_family_size: number | null;
   email: string | null;
+  enabled_for_suggestions: boolean;
 };
 
 type GuestRow = {
@@ -81,6 +82,7 @@ type Suggestion = {
 type AllocationResult = {
   matched: Suggestion[];
   unmatched: GuestRow[];
+  unassignedHosts: HostRow[];
 };
 
 type ScoringToggles = {
@@ -119,6 +121,7 @@ export default function AccommodationsPage() {
 
   // Suggestion view mode
   const [suggestMode, setSuggestMode] = useState<"per-guest" | "allocation">("allocation");
+  const [expandedFamilies, setExpandedFamilies] = useState<Set<string>>(new Set());
 
   // Scoring toggles
   const [scoring, setScoring] = useState<ScoringToggles>({ fifo: true, proximity: true, demographics: true });
@@ -299,6 +302,20 @@ export default function AccommodationsPage() {
         method: "PATCH",
         headers: { ...headers(), "Content-Type": "application/json" },
         body: JSON.stringify({ hostId, include_family_friends: !current }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      fetchHosts();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function handleToggleEnabled(hostId: string, current: boolean) {
+    try {
+      const res = await fetch("/api/admin/accommodations/hosts", {
+        method: "PATCH",
+        headers: { ...headers(), "Content-Type": "application/json" },
+        body: JSON.stringify({ hostId, enabled_for_suggestions: !current }),
       });
       if (!res.ok) throw new Error(await res.text());
       fetchHosts();
@@ -501,6 +518,7 @@ export default function AccommodationsPage() {
                   <th className="p-2">Cap (mehman)</th>
                   <th className="p-2">Cap (F&F)</th>
                   <th className="p-2">Include F&F</th>
+                  <th className="p-2">Enabled</th>
                   <th className="p-2">Effective</th>
                   <th className="p-2">Confirmed</th>
                   <th className="p-2">Pending</th>
@@ -524,6 +542,15 @@ export default function AccommodationsPage() {
                         checked={h.include_family_friends}
                         onChange={() => handleToggleFamilyFriends(h.id, h.include_family_friends)}
                         disabled={!canWrite}
+                      />
+                    </td>
+                    <td className="p-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={h.enabled_for_suggestions}
+                        onChange={() => handleToggleEnabled(h.id, h.enabled_for_suggestions)}
+                        disabled={!canWrite}
+                        title={h.enabled_for_suggestions ? "Included in suggestions" : "Excluded from suggestions"}
                       />
                     </td>
                     <td className="p-2 text-center font-semibold">{h.effective_capacity}</td>
@@ -800,7 +827,7 @@ export default function AccommodationsPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {familySuggestions.slice(0, 5).map((s, i) => (
+                        {(expandedFamilies.has(familyId) ? familySuggestions : familySuggestions.slice(0, 5)).map((s, i) => (
                           <tr key={`${s.host.id}-${i}`} className="border-b dark:border-gray-700/50">
                             <td className="p-1">{s.host.display_name}</td>
                             <td className="p-1 text-center text-green-600">{s.host.remaining_capacity}</td>
@@ -821,7 +848,20 @@ export default function AccommodationsPage() {
                       </tbody>
                     </table>
                     {familySuggestions.length > 5 && (
-                      <p className="text-xs text-gray-400 mt-1">+{familySuggestions.length - 5} more options</p>
+                      <button
+                        onClick={() => {
+                          const next = new Set(expandedFamilies);
+                          if (next.has(familyId)) next.delete(familyId);
+                          else next.add(familyId);
+                          setExpandedFamilies(next);
+                        }}
+                        className="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1"
+                      >
+                        {expandedFamilies.has(familyId)
+                          ? "Show less"
+                          : `Show all ${familySuggestions.length} options (+${familySuggestions.length - 5} more)`
+                        }
+                      </button>
                     )}
                   </div>
                 ))}
@@ -840,6 +880,11 @@ export default function AccommodationsPage() {
                 {allocation.unmatched.length > 0 && (
                   <span className="text-red-600 dark:text-red-400 font-semibold">
                     Unmatched: {allocation.unmatched.length} families
+                  </span>
+                )}
+                {allocation.unassignedHosts && allocation.unassignedHosts.length > 0 && (
+                  <span className="text-orange-600 dark:text-orange-400 font-semibold">
+                    Unassigned Hosts: {allocation.unassignedHosts.length}
                   </span>
                 )}
               </div>
@@ -901,11 +946,90 @@ export default function AccommodationsPage() {
                 {allocation.matched.length === 0 && allocation.unmatched.length === 0 && (
                   <p className="text-gray-500 dark:text-gray-400 p-4 text-center">No guests to allocate.</p>
                 )}
+
+                {/* Unassigned Hosts */}
+                {allocation.unassignedHosts && allocation.unassignedHosts.length > 0 && (
+                  <div className="mt-4">
+                    <h3 className="text-sm font-semibold text-orange-700 dark:text-orange-400 mb-2">
+                      Unassigned Hosts ({allocation.unassignedHosts.length})
+                    </h3>
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="border-b dark:border-gray-700 text-left">
+                          <th className="p-2">Host</th>
+                          <th className="p-2">ITS</th>
+                          <th className="p-2">Remaining Cap</th>
+                          <th className="p-2">Gender Pref</th>
+                          <th className="p-2">Distance</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {allocation.unassignedHosts.map((h) => (
+                          <tr key={h.id} className="border-b dark:border-gray-700 bg-orange-50 dark:bg-orange-900/10">
+                            <td className="p-2">{h.display_name}</td>
+                            <td className="p-2 font-mono text-xs">{h.hof_its}</td>
+                            <td className="p-2 text-center">{h.remaining_capacity}</td>
+                            <td className="p-2">{h.gender_preference ?? "—"}</td>
+                            <td className="p-2">{h.distance_to_masjid_km != null ? `${h.distance_to_masjid_km} km` : "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           )}
           {suggestMode === "allocation" && !allocation && (
             <p className="text-gray-500 dark:text-gray-400 p-4 text-center">No allocation data.</p>
+          )}
+
+          {/* Manual Match */}
+          {canWrite && (
+            <div className="mt-6 border dark:border-gray-700 rounded p-4">
+              <h3 className="text-sm font-semibold mb-3">Manual Match</h3>
+              <form
+                className="flex items-end gap-3 flex-wrap"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const form = e.currentTarget;
+                  const guestSelect = form.elements.namedItem("manualGuest") as HTMLSelectElement;
+                  const hostSelect = form.elements.namedItem("manualHost") as HTMLSelectElement;
+                  const guestFamilyId = guestSelect.value;
+                  const hostId = hostSelect.value;
+                  if (!guestFamilyId || !hostId) return;
+                  const guest = guests.find((g) => g.family_id === guestFamilyId);
+                  if (!guest) return;
+                  handleCreateMatch(guestFamilyId, hostId, guest.attending_count);
+                }}
+              >
+                <div>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Guest Family</label>
+                  <select name="manualGuest" className="border dark:border-gray-600 rounded px-2 py-1.5 text-sm dark:bg-gray-800 min-w-[200px]" required>
+                    <option value="">— Select guest —</option>
+                    {guests.filter((g) => !g.current_match_status).map((g) => (
+                      <option key={g.family_id} value={g.family_id}>
+                        {g.head_name ?? g.hof_its} ({g.attending_count} attending)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Host</label>
+                  <select name="manualHost" className="border dark:border-gray-600 rounded px-2 py-1.5 text-sm dark:bg-gray-800 min-w-[200px]" required>
+                    <option value="">— Select host —</option>
+                    {hosts.filter((h) => h.remaining_capacity > 0).map((h) => (
+                      <option key={h.id} value={h.id}>
+                        {h.display_name} (cap: {h.remaining_capacity})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button type="submit" className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">
+                  Create Match
+                </button>
+              </form>
+            </div>
           )}
         </div>
       )}

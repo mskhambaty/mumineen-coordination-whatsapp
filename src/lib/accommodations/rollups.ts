@@ -50,6 +50,7 @@ export type HostRow = {
   host_female_count: number | null;
   distance_to_masjid_km: number | null;
   email: string | null;
+  enabled_for_suggestions: boolean;
 };
 
 // Masjid location: 10S252 Kingery Hwy, Willowbrook, IL 60527
@@ -232,6 +233,7 @@ type HostDbRow = {
   sahebo_preference: string | null;
   days_after_ashura: number | null;
   can_provide_utaro: boolean;
+  enabled_for_suggestions: boolean;
 };
 
 /**
@@ -244,7 +246,7 @@ export async function buildHostRollups(): Promise<HostRow[]> {
   const hosts = await fetchAll<HostDbRow>((from, to) =>
     supabase
       .from("accommodation_hosts")
-      .select("id, hof_its, first_name, last_name, address, city, lat, lon, capacity_mehman, capacity_family_friends, include_family_friends, gender_preference, pet_type, sahebo_preference, days_after_ashura, can_provide_utaro")
+      .select("id, hof_its, first_name, last_name, address, city, lat, lon, capacity_mehman, capacity_family_friends, include_family_friends, gender_preference, pet_type, sahebo_preference, days_after_ashura, can_provide_utaro, enabled_for_suggestions")
       .eq("can_provide_utaro", true)
       .gt("capacity_mehman", 0)
       .range(from, to),
@@ -330,6 +332,7 @@ export async function buildHostRollups(): Promise<HostRow[]> {
       host_female_count: roster?.filter((m) => m.gender === "F").length ?? null,
       distance_to_masjid_km: distToMasjid != null ? Math.round(distToMasjid * 10) / 10 : null,
       email: hofEmail,
+      enabled_for_suggestions: h.enabled_for_suggestions,
     };
   });
 }

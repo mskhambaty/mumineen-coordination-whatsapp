@@ -56,10 +56,11 @@ export async function PATCH(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { hostId, action, include_family_friends } = body as {
+    const { hostId, action, include_family_friends, enabled_for_suggestions } = body as {
       hostId: string;
       action?: string;
       include_family_friends?: boolean;
+      enabled_for_suggestions?: boolean;
     };
 
     if (!hostId) {
@@ -103,9 +104,20 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ ok: true, lat: result.lat, lon: result.lon });
     }
 
+    // Toggle enabled_for_suggestions
+    if (typeof enabled_for_suggestions === "boolean") {
+      const { error } = await supabase
+        .from("accommodation_hosts")
+        .update({ enabled_for_suggestions, updated_at: new Date().toISOString() })
+        .eq("id", hostId);
+
+      if (error) throw new Error(error.message);
+      return NextResponse.json({ ok: true });
+    }
+
     // Toggle include_family_friends
     if (typeof include_family_friends !== "boolean") {
-      return NextResponse.json({ error: "include_family_friends (boolean) or action required" }, { status: 400 });
+      return NextResponse.json({ error: "include_family_friends (boolean), enabled_for_suggestions (boolean), or action required" }, { status: 400 });
     }
 
     const { error } = await supabase
