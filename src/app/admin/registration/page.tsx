@@ -1424,11 +1424,14 @@ export default function RegistrationAnalyticsPage() {
                     </div>
                     <div className="space-y-1.5 text-sm">
                       {[
-                        { label: "Local families", cur: estimates.current.parking.local_passes, fore: estimates.forecast.parking.local_passes },
-                        { label: "Mehman rental car", cur: estimates.current.parking.mehman_rental_passes, fore: estimates.forecast.parking.mehman_rental_passes },
+                        { label: "Local families", cur: estimates.current.parking.local_passes, fore: estimates.forecast.parking.local_passes, note: "" },
+                        { label: "Mehman rental car", cur: estimates.current.parking.mehman_rental_passes, fore: estimates.forecast.parking.mehman_rental_passes, note: "extrapolated from registration rate" },
                       ].map((row) => (
                         <div key={row.label} className="grid grid-cols-3 gap-x-3">
-                          <span className="text-gray-600 dark:text-gray-400">{row.label}</span>
+                          <span className="text-gray-600 dark:text-gray-400">
+                            {row.label}
+                            {row.note && <span className="ml-1 block text-[10px] text-gray-400">{row.note}</span>}
+                          </span>
                           <span className="text-right tabular-nums text-gray-800 dark:text-gray-200">{row.cur.toLocaleString()}</span>
                           <span className="text-right tabular-nums text-gray-500 dark:text-gray-400">{row.fore.toLocaleString()}</span>
                         </div>
@@ -1453,12 +1456,12 @@ export default function RegistrationAnalyticsPage() {
                       <div className="space-y-1.5 text-sm">
                         {[
                           {
-                            label: "Local — all members > 65",
+                            label: "Local families — all members > 65",
                             cur: estimates.current.parking.rahat_analysis.local_all_over65,
                             fore: estimates.forecast.parking.rahat_analysis.local_all_over65,
                           },
                           {
-                            label: "Mehman — over 65 + rental",
+                            label: "Mehman families — over 65 + rental",
                             cur: estimates.current.parking.rahat_analysis.mehman_over65_rental,
                             fore: estimates.forecast.parking.rahat_analysis.mehman_over65_rental,
                           },

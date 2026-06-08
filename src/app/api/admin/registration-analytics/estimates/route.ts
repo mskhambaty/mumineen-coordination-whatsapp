@@ -97,7 +97,18 @@ export async function GET(req: NextRequest) {
   const isRegistered = (status: string | null) =>
     status === "submitted" || status === "confirmed";
 
-  function computeEstimates(fams: FamilyRow[]) {
+  // Pre-compute Mehman rental rate from registered families so the forecast can extrapolate.
+  // Unregistered Mehman have null transport_mode, so we can't count them directly.
+  const registeredMehmanTotal = allFams.filter(
+    (f) => isRegistered(f.registration_status) && hofType.get(f.hof_its) === "Mehman",
+  ).length;
+  const registeredMehmanRental = allFams.filter(
+    (f) => isRegistered(f.registration_status) && hofType.get(f.hof_its) === "Mehman" && f.transport_mode === "rental",
+  ).length;
+  const mehmanRentalRate = registeredMehmanTotal > 0 ? registeredMehmanRental / registeredMehmanTotal : 0;
+  const totalMehmanFamilies = allFams.filter((f) => hofType.get(f.hof_its) === "Mehman").length;
+
+  function computeEstimates(fams: FamilyRow[], isForecast = false) {
     let localPasses = 0;
     let mehmanRentalPasses = 0;
     let rahatLocalAllOver65 = 0;    // local families where every attending member is > 65
@@ -115,15 +126,35 @@ export async function GET(req: NextRequest) {
       if (type === "Local") {
         localPasses += localFamilyPasses(s.attending);
         if (s.attending > 0 && s.attending === s.over65) rahatLocalAllOver65++;
-      } else if (type === "Mehman" && f.transport_mode === "rental") {
-        mehmanRentalPasses++;
-        if (s.over65 > 0) rahatMehmanOver65Rental++;
+      } else if (type === "Mehman") {
+        // For forecast: extrapolate rental passes using the registered rental rate.
+        // For current: only count families that have actually chosen rental.
+        if (isForecast || f.transport_mode === "rental") {
+          if (!isForecast) {
+            mehmanRentalPasses++;
+            if (s.over65 > 0) rahatMehmanOver65Rental++;
+          }
+        }
       }
 
-      // Thaals (all families, not just local/Mehman with rental)
+      // Thaals (all families)
       rahatPeople += s.rahat;
       nonRahatPeople += s.attending - s.rahat;
       wheelchairPeople += s.wheelchair;
+    }
+
+    // For forecast, apply the rental rate to the full Mehman roster
+    if (isForecast) {
+      mehmanRentalPasses = Math.round(mehmanRentalRate * totalMehmanFamilies);
+      // Extrapolate rahat Mehman rental proportionally from current
+      const rahatRentalRate = registeredMehmanRental > 0 ? rahatMehmanOver65Rental / registeredMehmanRental : 0;
+      // rahatMehmanOver65Rental is still 0 here (not counted in loop for forecast), compute from rate
+      const currentRahatMehmanRental = allFams
+        .filter((f) => isRegistered(f.registration_status) && hofType.get(f.hof_its) === "Mehman" && f.transport_mode === "rental")
+        .filter((f) => (famStats.get(f.hof_its)?.over65 ?? 0) > 0).length;
+      rahatMehmanOver65Rental = Math.round(rahatRentalRate > 0
+        ? rahatRentalRate * mehmanRentalPasses
+        : currentRahatMehmanRental * (totalMehmanFamilies / Math.max(registeredMehmanTotal, 1)));
     }
 
     return {
@@ -151,7 +182,7 @@ export async function GET(req: NextRequest) {
   const registeredFams = allFams.filter((f) => isRegistered(f.registration_status));
 
   return NextResponse.json({
-    current: computeEstimates(registeredFams),
-    forecast: computeEstimates(allFams),
+    current: computeEstimates(registeredFams, false),
+    forecast: computeEstimates(allFams, true),
   });
 }
