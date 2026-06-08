@@ -13,6 +13,8 @@ type Webinar = {
   created_at: string;
 };
 
+const SESSION_KEY = "webinars_verified";
+
 function extractYouTubeId(url: string): string | null {
   const m = url.match(
     /(?:youtube\.com\/watch\?(?:.*&)?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
@@ -20,9 +22,79 @@ function extractYouTubeId(url: string): string | null {
   return m ? m[1] : null;
 }
 
+// ─── ITS Gate ─────────────────────────────────────────────────────────────────
+
+function ItsGate({ onVerified }: { onVerified: (name: string | null) => void }) {
+  const [its, setIts] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    const res = await fetch("/api/webinars/verify-its", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ its: its.trim() }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setLoading(false);
+    if (!json.ok) {
+      setError(json.error ?? "Verification failed. Please try again.");
+      return;
+    }
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ name: json.name ?? null }));
+    onVerified(json.name ?? null);
+  }
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+      <div className="w-full max-w-sm">
+        <div className="mb-8 text-center">
+          <h1 className="text-2xl font-bold text-gray-900">Ashara Mubaraka 1448H</h1>
+          <p className="mt-1 text-sm text-gray-500">Chicago Relay Center · Webinars</p>
+        </div>
+        <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+          <h2 className="mb-1 text-base font-semibold text-gray-900">Enter your ITS number</h2>
+          <p className="mb-5 text-sm text-gray-500">
+            Access is for registered mumineen only.
+          </p>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="\d*"
+              value={its}
+              onChange={(e) => { setIts(e.target.value.replace(/\D/g, "")); setError(null); }}
+              placeholder="ITS number"
+              required
+              className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            {error && (
+              <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{error}</p>
+            )}
+            <button
+              type="submit"
+              disabled={loading || its.length === 0}
+              className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {loading ? "Verifying…" : "Continue"}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main page ─────────────────────────────────────────────────────────────────
+
 export default function WebinarsPage() {
+  const [verified, setVerified] = useState<boolean | null>(null); // null = loading check
+  const [guestName, setGuestName] = useState<string | null>(null);
   const [webinars, setWebinars] = useState<Webinar[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [webinarsLoading, setWebinarsLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
 
   const [showAdd, setShowAdd] = useState(false);
@@ -33,14 +105,43 @@ export default function WebinarsPage() {
 
   useEffect(() => {
     const user = readAdminUser();
-    setIsAdmin(isAdminOrLeadership(user));
+    const admin = isAdminOrLeadership(user);
+    setIsAdmin(admin);
 
+    // Admin/leadership bypass the ITS gate
+    if (admin) {
+      setVerified(true);
+      return;
+    }
+
+    // Check sessionStorage for an existing verified session
+    try {
+      const stored = sessionStorage.getItem(SESSION_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as { name: string | null };
+        setGuestName(parsed.name);
+        setVerified(true);
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    setVerified(false);
+  }, []);
+
+  useEffect(() => {
+    if (!verified) return;
     fetch("/api/webinars")
       .then((r) => r.json())
       .then((d) => setWebinars(d.webinars ?? []))
       .catch(() => null)
-      .finally(() => setLoading(false));
-  }, []);
+      .finally(() => setWebinarsLoading(false));
+  }, [verified]);
+
+  function handleVerified(name: string | null) {
+    setGuestName(name);
+    setVerified(true);
+  }
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -77,6 +178,12 @@ export default function WebinarsPage() {
   const inputCls =
     "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
 
+  // Still checking session
+  if (verified === null) return null;
+
+  // Not verified — show gate
+  if (!verified) return <ItsGate onVerified={handleVerified} />;
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -84,7 +191,12 @@ export default function WebinarsPage() {
         <div className="mx-auto flex max-w-6xl items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-gray-900">Ashara Mubaraka 1448H</h1>
-            <p className="mt-0.5 text-sm text-gray-500">Chicago Relay Center · Webinars</p>
+            <p className="mt-0.5 text-sm text-gray-500">
+              Chicago Relay Center · Webinars
+              {guestName && !isAdmin && (
+                <span className="ml-2 text-gray-400">— Marhaba, {guestName}</span>
+              )}
+            </p>
           </div>
           {isAdmin && (
             <button
@@ -163,7 +275,7 @@ export default function WebinarsPage() {
 
       {/* Content */}
       <main className="mx-auto max-w-6xl px-4 py-10">
-        {loading ? (
+        {webinarsLoading ? (
           <div className="flex justify-center py-20">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
           </div>
@@ -173,7 +285,7 @@ export default function WebinarsPage() {
             <p className="mt-1 text-sm">Check back soon.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
             {webinars.map((w) => {
               const videoId = extractYouTubeId(w.youtube_url);
               return (
@@ -181,7 +293,6 @@ export default function WebinarsPage() {
                   key={w.id}
                   className="group overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md"
                 >
-                  {/* Embed */}
                   <div className="relative aspect-video w-full bg-black">
                     {videoId ? (
                       <iframe
@@ -197,8 +308,6 @@ export default function WebinarsPage() {
                       </div>
                     )}
                   </div>
-
-                  {/* Info */}
                   <div className="p-4">
                     <h2 className="font-semibold text-gray-900">{w.title}</h2>
                     {w.description && (
