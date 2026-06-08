@@ -70,6 +70,58 @@ function dedupeByPhone(candidates: Recipient[]): Recipient[] {
   return [...byPhone.values()];
 }
 
+// Attach roster fields to recipients that don't have them yet (e.g. the whatsapp_users-based
+// audiences), by matching their phone to a roster member — directly via mumineen.whatsapp_e164 or
+// via mumin_phone_links. Lets personalization work for committee/test recipients who are on the
+// roster. Recipients with no roster match keep empty fields (field-mapped vars will skip them).
+async function enrichFieldsByPhone(recipients: Recipient[]): Promise<void> {
+  const need = recipients.filter((r) => !r.fields || Object.keys(r.fields).length === 0);
+  if (need.length === 0) return;
+  const supabase = getSupabaseAdmin();
+  const phones = [...new Set(need.map((r) => normalizePhone(r.phone)))];
+  // Stored numbers are inconsistent about the leading "+", so query both forms and key matches
+  // through normalizePhone on both sides.
+  const variants = (ps: string[]) => [...new Set(ps.flatMap((p) => [p, p.replace(/^\+/, "")]))];
+
+  const byPhone = new Map<string, Record<string, unknown> & { id: string }>();
+
+  // Direct: a roster member whose own WhatsApp number is this phone.
+  const { data: direct } = await supabase
+    .from("mumineen")
+    .select(`id, whatsapp_e164, ${MAPPABLE_COLS.join(", ")}`)
+    .in("whatsapp_e164", variants(phones))
+    .eq("roster_active", true);
+  for (const m of (direct ?? []) as unknown as (Record<string, unknown> & { id: string; whatsapp_e164: string })[]) {
+    const p = normalizePhone(m.whatsapp_e164);
+    if (!byPhone.has(p)) byPhone.set(p, m);
+  }
+
+  // Fallback: phone linked to a member via mumin_phone_links (e.g. a shared/registration number).
+  const remaining = phones.filter((p) => !byPhone.has(p));
+  if (remaining.length > 0) {
+    const { data: links } = await supabase.from("mumin_phone_links").select("phone_e164, mumin_id").in("phone_e164", variants(remaining));
+    const phoneByMumin = new Map<string, string>();
+    for (const l of (links ?? []) as { phone_e164: string; mumin_id: string }[]) {
+      if (!phoneByMumin.has(l.mumin_id)) phoneByMumin.set(l.mumin_id, normalizePhone(l.phone_e164));
+    }
+    if (phoneByMumin.size > 0) {
+      const { data: mems } = await supabase.from("mumineen").select(`id, ${MAPPABLE_COLS.join(", ")}`).in("id", [...phoneByMumin.keys()]);
+      for (const m of (mems ?? []) as unknown as (Record<string, unknown> & { id: string })[]) {
+        const p = phoneByMumin.get(m.id);
+        if (p && !byPhone.has(p)) byPhone.set(p, m);
+      }
+    }
+  }
+
+  for (const r of need) {
+    const m = byPhone.get(normalizePhone(r.phone));
+    if (m) {
+      r.fields = fieldsOf(m);
+      r.muminId = m.id;
+    }
+  }
+}
+
 // Resolve the raw (deduped) recipient list for an audience. `selectedUserIds` is used by
 // "selected_users"; `rules` by "custom".
 export async function resolveAudience(
@@ -97,7 +149,9 @@ export async function resolveAudience(
       .select("phone_e164")
       .in("id", selectedUserIds)
       .eq("status", "active");
-    return dedupeByPhone(((data ?? []) as { phone_e164: string }[]).map((u) => ({ phone: u.phone_e164, familyId: null })));
+    const recipients = dedupeByPhone(((data ?? []) as { phone_e164: string }[]).map((u) => ({ phone: u.phone_e164, familyId: null })));
+    await enrichFieldsByPhone(recipients);
+    return recipients;
   }
 
   if (key === "chicago_committee") {
@@ -106,7 +160,9 @@ export async function resolveAudience(
       .select("phone_e164")
       .in("role", ["committee", "admin"])
       .eq("status", "active");
-    return dedupeByPhone(((data ?? []) as { phone_e164: string }[]).map((u) => ({ phone: u.phone_e164, familyId: null })));
+    const recipients = dedupeByPhone(((data ?? []) as { phone_e164: string }[]).map((u) => ({ phone: u.phone_e164, familyId: null })));
+    await enrichFieldsByPhone(recipients);
+    return recipients;
   }
 
   // The remaining audiences are roster families. Pull active, non-cancelled families and one
