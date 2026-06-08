@@ -161,8 +161,14 @@ export async function suggestBestAllocation(opts?: ScoringOptions): Promise<Allo
 
   const unmatchedGuests = guests.filter((g) => g.current_match_status == null && g.attending_count > 0);
 
-  // Sort smallest families first to maximize families matched (bin-packing heuristic)
-  const sortedGuests = [...unmatchedGuests].sort((a, b) => a.attending_count - b.attending_count);
+  // Sort: elders first (families with 65+ member), then smallest families for bin-packing
+  const hasElder = (g: GuestRow) => g.ages.split(", ").some((a) => parseInt(a) >= 65);
+  const sortedGuests = [...unmatchedGuests].sort((a, b) => {
+    const aElder = hasElder(a) ? 0 : 1;
+    const bElder = hasElder(b) ? 0 : 1;
+    if (aElder !== bElder) return aElder - bElder;
+    return a.attending_count - b.attending_count;
+  });
 
   // Track remaining capacity during allocation
   const capacityLeft = new Map<string, number>();
