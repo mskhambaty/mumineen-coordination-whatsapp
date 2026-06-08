@@ -20,6 +20,8 @@ type FamilyRow = {
   hof_its: string;
   registration_status: string | null;
   transport_mode: string | null;
+  acc_type: string | null;
+  utaro_host_its: string | null;
 };
 
 const PAGE = 1000;
@@ -61,7 +63,7 @@ export async function GET(req: NextRequest) {
     fetchAll<FamilyRow>((from, to) =>
       supabase
         .from("families")
-        .select("hof_its, registration_status, transport_mode")
+        .select("hof_its, registration_status, transport_mode, acc_type, utaro_host_its")
         .eq("roster_active", true)
         .range(from, to),
     ),
@@ -118,13 +120,32 @@ export async function GET(req: NextRequest) {
     let nonRahatPeople = 0;
     let wheelchairPeople = 0;
 
+    // Map host ITS → Mehman guest families staying with them (within this fams scope).
+    // Only Mehman families that have reported a utaro host contribute.
+    const hostGuests = new Map<string, FamilyRow[]>();
+    for (const f of fams) {
+      if (f.acc_type === "utaro" && f.utaro_host_its) {
+        const key = f.utaro_host_its.trim();
+        if (!hostGuests.has(key)) hostGuests.set(key, []);
+        hostGuests.get(key)!.push(f);
+      }
+    }
+
     for (const f of fams) {
       const type = hofType.get(f.hof_its);
       const s = famStats.get(f.hof_its) ?? { attending: 0, over65: 0, rahat: 0, wheelchair: 0 };
 
       // Parking
       if (type === "Local") {
-        localPasses += localFamilyPasses(s.attending);
+        // Effective headcount = own members + non-rental Mehman guests.
+        // Guests with rental car already have their own pass and drive themselves.
+        let effectiveCount = s.attending;
+        for (const guest of hostGuests.get(f.hof_its) ?? []) {
+          if (guest.transport_mode !== "rental") {
+            effectiveCount += famStats.get(guest.hof_its)?.attending ?? 0;
+          }
+        }
+        localPasses += localFamilyPasses(effectiveCount);
         if (s.attending > 0 && s.attending === s.over65) rahatLocalAllOver65++;
       } else if (type === "Mehman") {
         // For forecast: extrapolate rental passes using the registered rental rate.
