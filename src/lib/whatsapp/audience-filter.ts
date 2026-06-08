@@ -50,6 +50,8 @@ export type FieldDef = {
 };
 
 export const FIELD_CATALOG: FieldDef[] = [
+  { key: "full_name", label: "Full name", group: "Person", type: "text", get: (r) => r.full_name },
+  { key: "its", label: "ITS", group: "Person", type: "text", get: (r) => r.its },
   { key: "jamaat", label: "Jamaat", group: "Person", type: "enum", dynamicEnum: true, get: (r) => r.jamaat },
   { key: "city", label: "City", group: "Person", type: "enum", dynamicEnum: true, get: (r) => r.city },
   { key: "category", label: "Category", group: "Person", type: "enum", dynamicEnum: true, get: (r) => r.category },
