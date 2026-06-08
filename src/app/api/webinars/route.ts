@@ -12,9 +12,9 @@ export async function GET() {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("webinars")
-    .select("id, title, youtube_url, description, created_at")
+    .select("id, seq, title, youtube_url, description, created_at")
     .eq("active", true)
-    .order("created_at", { ascending: false });
+    .order("seq", { ascending: true });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ webinars: data ?? [] });
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       description: parsed.data.description ?? null,
       created_by_name: auth.caller.display_name ?? null,
     })
-    .select("id, title, youtube_url, description, created_at")
+    .select("id, seq, title, youtube_url, description, created_at")
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -7,13 +7,12 @@ import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type Webinar = {
   id: string;
+  seq: number;
   title: string;
   youtube_url: string;
   description: string | null;
   created_at: string;
 };
-
-const SESSION_KEY = "webinars_verified";
 
 function extractYouTubeId(url: string): string | null {
   const m = url.match(
@@ -22,130 +21,41 @@ function extractYouTubeId(url: string): string | null {
   return m ? m[1] : null;
 }
 
-// ─── ITS Gate ─────────────────────────────────────────────────────────────────
+const inputCls =
+  "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100";
 
-function ItsGate({ onVerified }: { onVerified: (name: string | null) => void }) {
-  const [its, setIts] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    const res = await fetch("/api/webinars/verify-its", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ its: its.trim() }),
-    });
-    const json = await res.json().catch(() => ({}));
-    setLoading(false);
-    if (!json.ok) {
-      setError(json.error ?? "Verification failed. Please try again.");
-      return;
-    }
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ name: json.name ?? null }));
-    onVerified(json.name ?? null);
-  }
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <h1 className="text-2xl font-bold text-gray-900">Ashara Mubaraka 1448H</h1>
-          <p className="mt-1 text-sm text-gray-500">Chicago Relay Center · Webinars</p>
-        </div>
-        <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
-          <h2 className="mb-1 text-base font-semibold text-gray-900">Enter your ITS number</h2>
-          <p className="mb-5 text-sm text-gray-500">
-            Access is for registered mumineen only.
-          </p>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern="\d*"
-              value={its}
-              onChange={(e) => { setIts(e.target.value.replace(/\D/g, "")); setError(null); }}
-              placeholder="ITS number"
-              required
-              className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-            {error && (
-              <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{error}</p>
-            )}
-            <button
-              type="submit"
-              disabled={loading || its.length === 0}
-              className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              {loading ? "Verifying…" : "Continue"}
-            </button>
-          </form>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Main page ─────────────────────────────────────────────────────────────────
-
-export default function WebinarsPage() {
-  const [verified, setVerified] = useState<boolean | null>(null); // null = loading check
-  const [guestName, setGuestName] = useState<string | null>(null);
+export default function WebinarsAdminPage() {
+  const [ready, setReady] = useState(false);
   const [webinars, setWebinars] = useState<Webinar[]>([]);
-  const [webinarsLoading, setWebinarsLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ title: "", youtube_url: "", description: "" });
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [copiedSeq, setCopiedSeq] = useState<number | null>(null);
 
   useEffect(() => {
-    // One-time client-only init from localStorage/sessionStorage — must run in an effect
-    // (reading them during render would cause a hydration mismatch), so the synchronous
-    // setState here is intentional.
-    /* eslint-disable react-hooks/set-state-in-effect */
     const user = readAdminUser();
-    const admin = isAdminOrLeadership(user);
-    setIsAdmin(admin);
-
-    // Admin/leadership bypass the ITS gate
-    if (admin) {
-      setVerified(true);
+    if (!isAdminOrLeadership(user)) {
+      window.location.href = "/admin/login";
       return;
     }
-
-    // Check sessionStorage for an existing verified session
-    try {
-      const stored = sessionStorage.getItem(SESSION_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored) as { name: string | null };
-        setGuestName(parsed.name);
-        setVerified(true);
-        return;
-      }
-    } catch {
-      // ignore
-    }
-    setVerified(false);
-    /* eslint-enable react-hooks/set-state-in-effect */
-  }, []);
-
-  useEffect(() => {
-    if (!verified) return;
-    fetch("/api/webinars")
+    setReady(true);
+    apiFetch("/api/webinars")
       .then((r) => r.json())
       .then((d) => setWebinars(d.webinars ?? []))
       .catch(() => null)
-      .finally(() => setWebinarsLoading(false));
-  }, [verified]);
+      .finally(() => setLoading(false));
+  }, []);
 
-  function handleVerified(name: string | null) {
-    setGuestName(name);
-    setVerified(true);
+  function copyLink(seq: number) {
+    const url = `${window.location.origin}/webinars/${seq}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedSeq(seq);
+      setTimeout(() => setCopiedSeq(null), 2000);
+    });
   }
 
   async function handleAdd(e: React.FormEvent) {
@@ -166,64 +76,49 @@ export default function WebinarsPage() {
       setSaving(false);
       return;
     }
-    setWebinars((prev) => [json.webinar, ...prev]);
+    setWebinars((prev) => [...prev, json.webinar]);
     setForm({ title: "", youtube_url: "", description: "" });
     setShowAdd(false);
     setSaving(false);
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Remove this webinar?")) return;
+    if (!confirm("Remove this webinar? It will no longer be accessible via its link.")) return;
     setDeletingId(id);
     await apiFetch(`/api/webinars/${id}`, { method: "DELETE" });
     setWebinars((prev) => prev.filter((w) => w.id !== id));
     setDeletingId(null);
   }
 
-  const inputCls =
-    "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
-
-  // Still checking session
-  if (verified === null) return null;
-
-  // Not verified — show gate
-  if (!verified) return <ItsGate onVerified={handleVerified} />;
+  if (!ready) return null;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="border-b border-gray-200 bg-white px-6 py-5 shadow-sm">
-        <div className="mx-auto flex max-w-6xl items-center justify-between">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      <header className="border-b border-gray-200 bg-white px-6 py-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <div className="mx-auto flex max-w-4xl items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Ashara Mubaraka 1448H</h1>
-            <p className="mt-0.5 text-sm text-gray-500">
-              Chicago Relay Center · Webinars
-              {guestName && !isAdmin && (
-                <span className="ml-2 text-gray-400">— Marhaba, {guestName}</span>
-              )}
-            </p>
+            <h1 className="text-lg font-bold text-gray-900 dark:text-white">Webinars</h1>
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">Manage embed links · share individual webinar URLs with mumineen</p>
           </div>
-          {isAdmin && (
-            <button
-              type="button"
-              onClick={() => { setShowAdd(true); setFormError(null); }}
-              className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
-              <span className="text-base leading-none">+</span>
-              Add Webinar
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => { setShowAdd(true); setFormError(null); setForm({ title: "", youtube_url: "", description: "" }); }}
+            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            <span className="text-base leading-none">+</span>
+            Add webinar
+          </button>
         </div>
       </header>
 
       {/* Add modal */}
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
-            <h2 className="mb-4 text-base font-semibold text-gray-900">Add Webinar</h2>
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-900">
+            <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-white">Add Webinar</h2>
             <form onSubmit={handleAdd} className="space-y-3">
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-700">Title *</label>
+                <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">Title *</label>
                 <input
                   required
                   value={form.title}
@@ -233,7 +128,7 @@ export default function WebinarsPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-700">YouTube URL *</label>
+                <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">YouTube URL *</label>
                 <input
                   required
                   type="url"
@@ -247,7 +142,7 @@ export default function WebinarsPage() {
                 )}
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-700">Description</label>
+                <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">Description</label>
                 <textarea
                   value={form.description}
                   onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
@@ -258,11 +153,7 @@ export default function WebinarsPage() {
               </div>
               {formError && <p className="text-xs text-red-500">{formError}</p>}
               <div className="flex justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowAdd(false)}
-                  className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
-                >
+                <button type="button" onClick={() => setShowAdd(false)} className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800">
                   Cancel
                 </button>
                 <button
@@ -278,61 +169,70 @@ export default function WebinarsPage() {
         </div>
       )}
 
-      {/* Content */}
-      <main className="mx-auto max-w-6xl px-4 py-10">
-        {webinarsLoading ? (
+      <main className="mx-auto max-w-4xl px-4 py-8">
+        {loading ? (
           <div className="flex justify-center py-20">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
           </div>
         ) : webinars.length === 0 ? (
-          <div className="py-20 text-center text-gray-400">
-            <p className="text-lg font-medium">No webinars yet</p>
-            <p className="mt-1 text-sm">Check back soon.</p>
+          <div className="rounded-xl border border-dashed border-gray-300 py-16 text-center dark:border-gray-700">
+            <p className="text-sm text-gray-400">No webinars added yet. Click "Add webinar" to get started.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="space-y-3">
             {webinars.map((w) => {
               const videoId = extractYouTubeId(w.youtube_url);
+              const shareUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/webinars/${w.seq}`;
               return (
-                <div
-                  key={w.id}
-                  className="group overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md"
-                >
-                  <div className="relative aspect-video w-full bg-black">
+                <div key={w.id} className="flex items-center gap-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+                  {/* Thumbnail */}
+                  <div className="h-16 w-28 flex-shrink-0 overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-800">
                     {videoId ? (
-                      <iframe
-                        src={`https://www.youtube.com/embed/${videoId}`}
-                        title={w.title}
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                        className="absolute inset-0 h-full w-full"
+                      <img
+                        src={`https://img.youtube.com/vi/${videoId}/mqdefault.jpg`}
+                        alt={w.title}
+                        className="h-full w-full object-cover"
                       />
                     ) : (
-                      <div className="flex h-full items-center justify-center text-xs text-gray-400">
-                        Invalid YouTube URL
-                      </div>
+                      <div className="flex h-full items-center justify-center text-xs text-gray-400">No preview</div>
                     )}
                   </div>
-                  <div className="p-4">
-                    <h2 className="font-semibold text-gray-900">{w.title}</h2>
-                    {w.description && (
-                      <p className="mt-1 text-sm text-gray-500">{w.description}</p>
-                    )}
-                    <div className="mt-3 flex items-center justify-between">
-                      <span className="text-xs text-gray-400">
-                        {new Date(w.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+
+                  {/* Info */}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-md bg-gray-100 px-1.5 py-0.5 text-xs font-mono font-semibold text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                        #{w.seq}
                       </span>
-                      {isAdmin && (
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(w.id)}
-                          disabled={deletingId === w.id}
-                          className="rounded-md px-2 py-1 text-xs text-red-500 hover:bg-red-50 disabled:opacity-40"
-                        >
-                          {deletingId === w.id ? "Removing…" : "Remove"}
-                        </button>
-                      )}
+                      <span className="truncate font-medium text-gray-900 dark:text-white">{w.title}</span>
                     </div>
+                    {w.description && (
+                      <p className="mt-0.5 truncate text-xs text-gray-400">{w.description}</p>
+                    )}
+                    <p className="mt-1 truncate font-mono text-[11px] text-gray-400">{shareUrl}</p>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex flex-shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => copyLink(w.seq)}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                        copiedSeq === w.seq
+                          ? "bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400"
+                          : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                      }`}
+                    >
+                      {copiedSeq === w.seq ? "Copied!" : "Copy link"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(w.id)}
+                      disabled={deletingId === w.id}
+                      className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 disabled:opacity-40 dark:hover:bg-red-950/30"
+                    >
+                      {deletingId === w.id ? "Removing…" : "Remove"}
+                    </button>
                   </div>
                 </div>
               );
