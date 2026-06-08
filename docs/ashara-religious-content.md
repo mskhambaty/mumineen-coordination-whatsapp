@@ -51,7 +51,12 @@ per-majlis blocks are managed here.
 
 All Vaaz / majlis / Iqtibasaat / Tazyeen / Lisan questions go through the
 `answer_religious_questions` tool (`src/lib/agent/tools.ts`). Single Lisan **word** lookups use
-`get_lisan_word_meaning` instead.
+`get_lisan_word_meaning` instead — exact-`norm` match → **consonant-skeleton** match
+(`lisan-words.ts`, `norm_skeleton`; recovers variants like "sadqe" → *Sadaqa*; one hit answers
+directly, several → a numbered "did you mean") → trigram fallback. Word meanings never come
+from the model's general knowledge. **Short follow-ups** ("Tazyeen", "Al dars", or a bare
+number) inherit the majlis+year (or the offered option) from the previous turn — the agent
+re-calls the tool with the full reference rather than answering from memory.
 
 **Year resolution (1447 ↔ 1448).** Before retrieving, the tool calls `resolveAsharaYear(query, today)` (`ashara-config.ts`) to anchor on the *event*, not the Hijri calendar: explicit `1447/1448` → that year; "last year" → `LAST_COMPLETED_ASHARA_YEAR` (1447, the indexed one); "this year / today / this Ashara / upcoming" → `ACTIVE_ASHARA_YEAR` (1448, not yet posted); no cue → most-recent-available. If the resolved year has no content, the tool returns `not_available` **with** `available_year` + last year's content, and the agent says "1448H isn't posted yet — here's last year (1447H): …" — it never relabels one year's content as another's. Every answer states the concrete year.
 
