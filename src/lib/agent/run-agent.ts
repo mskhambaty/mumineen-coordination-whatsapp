@@ -259,7 +259,11 @@ export const SIDE_EFFECT_TOOLS = new Set([
 // Optional test hooks (undefined in production → zero behavior change):
 //  - toolCalls:        names of every tool the agent invoked are pushed here (for eval tool-checks)
 //  - stubSideEffects:  side-effecting tools return a stub instead of running (no real writes)
-export type AgentTestHooks = { toolCalls?: string[]; stubSideEffects?: boolean };
+export type AgentTestHooks = {
+  toolCalls?: string[];
+  stubSideEffects?: boolean;
+  toolResults?: Array<{ name: string; result: unknown }>;
+};
 
 // Pick the model for the final answer: the high-end model if the turn used a Waaz Talaqi /
 // Lisan tool, otherwise the standard model. Exported for testing.
@@ -418,6 +422,8 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
             phoneE164: input.phoneE164,
             callerContext,
           });
+
+    test?.toolResults?.push({ name: toolCall.function.name, result: toolResult });
 
     if (toolCall.function.name === "move_to_escalation" && isEscalated(toolResult)) {
       escalationAck = escalationAcknowledgment(toolResult);

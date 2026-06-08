@@ -42,10 +42,15 @@ export async function POST(req: NextRequest) {
 
   const user: AppUser = { phone_e164: phone, role: isCommittee ? "committee" : "visitor" };
 
+  const debug = req.nextUrl.searchParams.get("debug") === "true";
   const toolCalls: string[] = [];
+  const toolResults: Array<{ name: string; result: unknown }> = [];
   try {
-    const reply = await runAgent({ user, phoneE164: phone, message }, { toolCalls, stubSideEffects: true });
-    return NextResponse.json({ reply, tool_calls: toolCalls });
+    const reply = await runAgent(
+      { user, phoneE164: phone, message },
+      { toolCalls, toolResults, stubSideEffects: true },
+    );
+    return NextResponse.json({ reply, tool_calls: toolCalls, ...(debug ? { tool_results: toolResults } : {}) });
   } catch (err) {
     const messageText = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: messageText, tool_calls: toolCalls }, { status: 500 });
