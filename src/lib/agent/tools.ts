@@ -107,7 +107,7 @@ export const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "move_to_escalation",
       description:
-        "LAST RESORT ONLY. Hand the conversation to the human support team. Use this only after you have genuinely tried to help with get_site_content_faq and still cannot, or the user is clearly frustrated after you tried, or there is an emergency (lost child, lost passport, medical, security). Never escalate just because someone asks for a person early on — first ask what they need and try to help.",
+        "Hand the conversation to the human team. TWO uses: (1) LAST RESORT for logistics — only after you genuinely tried get_site_content_faq and still cannot, or the user is clearly frustrated after you tried, or an emergency (lost child, lost passport, medical, security); never escalate just because someone asks for a person early on. (2) RELIGIOUS FOLLOW-UP — a genuine Waaz/deen question the reflections can't answer, or a personal fiqh/fatwa question: call with category 'religious_followup' so the team can follow up (the system sends a fixed reply; do not add your own).",
       parameters: {
         type: "object",
         properties: {
@@ -130,9 +130,11 @@ export const allToolDefinitions: ToolDefinition[] = [
               "schedule",
               "facilities",
               "complaint",
+              "religious_followup",
               "other",
             ],
-            description: "Best-fit category for routing.",
+            description:
+              "Best-fit category for routing. Use 'religious_followup' for a Waaz/deen question the reflections can't answer (or a personal fiqh/fatwa question).",
           },
           department: {
             type: "string",

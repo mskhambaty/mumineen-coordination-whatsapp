@@ -68,6 +68,13 @@ re-calls the tool with the full reference rather than answering from memory.
 
 **Category-disciplined retrieval.** The tool checks a **specific majlis** first, then **overview** intent (`isOverviewQuery` → the curated `overview` block + per-majlis theme list), then a **category-aware vector fallback**: a decoration question searches `tazyeen`; everything else searches the sermon sources (`reflection`+`al_dars`+`overview`) so the decoration article can never answer a sermon-content question. `retrieveReligiousContext(query, topK, categories)` post-filters by the denormalized `category` on `religious_content`.
 
+**Can't answer from the reflections → hand off to the team (no improvised ruling).** Decision tree, enforced by `RELIGIOUS_GUIDANCE_RULE`:
+1. A real, on-topic match in the reflections → answer + cite the source (above).
+2. A genuine Waaz/deen/Iqtibasaat question with **no usable match**, OR a **personal fiqh/fatwa** ("should I fast on 10th Muharram"), OR sectarian/theological debate → the agent calls `move_to_escalation` with category **`religious_followup`** (priority `normal`). It must NOT give a ruling, an Aamil-Saheb redirect, or any `Source:` citation. The system then returns a **fixed reply** (`RELIGIOUS_FOLLOWUP_REPLY` in `run-agent.ts`): *"I answer only from the published Ashara reflections, and I couldn't find this there. I've shared your question with our team — if it relates to the Waaz Mubarak, someone will get back to you, Inshallah."* (subtly scopes follow-up to the Waaz Mubarak).
+3. Logistics (hotels, registration, ITS) → `get_site_content_faq`; content-free closings → `[[NO_REPLY]]`. Never escalate those.
+
+This reuses the existing escalation queue (`POST /api/escalations` → `conversation_sessions.escalation_status='pending'` → on-call email/WhatsApp → `/admin/conversations` *Escalations* tab). `religious_followup` is **exempt from the 3-inbound-message gate** (deen questions are often the first message). Because a successful escalation returns its deterministic acknowledgment and skips the second model completion, the irrelevant-citation bug (a fatwa decline getting reflection `Source:` lines stapled on) cannot occur on this path.
+
 **Query routing** (the tool inspects the query and returns an `answer_style`):
 
 | Intent | Trigger | Returns |

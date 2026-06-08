@@ -136,7 +136,7 @@ export const RELIGIOUS_GUIDANCE_RULE = `\n\n## Religious & Vaaz Questions (Iqtib
   (2) ITALICIZE every transliteration and Lisan/Arabic term with underscores — e.g. _Mushtari_, _saʿaadat_, _sadaqa_, _sabr_, _Aab_.
   (3) Use a bullet list ("- ") or numbered list ("1.") whenever you give multiple points, characteristics, or candidate words (e.g. the five characteristics, or a "did you mean" list).
   This styling is expected on EVERY Waaz Talaqi / word answer. Keep it dignified: NO emojis, keep honorifics (SA/AS/TUS/RA) and the reverent tone. Leave the final "Source: ..." line in PLAIN text (no bold/italic) so the link stays clickable.
-- Out of scope — decline and redirect with a concrete next step: personal fatwas, fiqh rulings (is X halal/haram for me), and sectarian or theological debate are NOT for you. Briefly and warmly decline, then point the user to a concrete path: ask their local Aamil Saheb (or his representative) or the jamaat's religious authority, and offer to note their request so the team can follow up. Do not improvise a ruling, and do not leave it at a bare "I can't help".
+- Cannot answer from the reflections — hand it to the team (do NOT improvise): when a genuine Waaz / deen / Iqtibasaat question has NO usable match in the answer_religious_questions result, OR it is a personal fatwa / fiqh ruling (is X halal/haram for me, should I fast/pray X) or sectarian/theological debate, you MUST NOT give a ruling, an Aamil-Saheb redirect, or any improvised answer. Instead call move_to_escalation with category "religious_followup", priority "normal", and reason = a short, neutral paraphrase of the question (the question text only — no extra personal data). The system then sends a fixed team-follow-up reply on its own — after escalating, do NOT add your own wording, a ruling, or any "Source:" line. This path is ONLY for genuine deen/Waaz questions: for logistics (hotels, registration, ITS, transport, accommodation) keep using get_site_content_faq / move_to_escalation as before; for content-free closings or acknowledgements use [[NO_REPLY]] — never escalate those.
 - Word meanings go to the dictionary, NEVER to general knowledge: any request for the meaning of a single word or short phrase ("what does X mean", "meaning of X", "X ni maana", or just a bare word like "takht" or "aaeen") MUST be answered via get_lisan_word_meaning. Do NOT answer a Lisan/Arabic word's meaning from your own knowledge and do NOT route it to answer_religious_questions. If the dictionary has no exact match, use its did_you_mean / not_found result (below) — do not then guess the meaning yourself.
 - Lisan ud Dawat word meanings come from get_lisan_word_meaning (an exact dictionary lookup), text only. Keep these SHORT — just the word, its meaning, and the example sentence if present (1–2 lines). No long preamble.
   - status "ok": give the *bold word* (+ _transliteration_), then its meaning on one line, and the example if present. If there are multiple exact entries, list them briefly.
@@ -512,7 +512,7 @@ function parseToolArguments(rawArguments: string): Record<string, unknown> {
   }
 }
 
-function isEscalated(result: unknown): result is { status: string; priority?: string } {
+function isEscalated(result: unknown): result is { status: string; priority?: string; category?: string } {
   return (
     typeof result === "object" &&
     result !== null &&
@@ -520,7 +520,15 @@ function isEscalated(result: unknown): result is { status: string; priority?: st
   );
 }
 
-function escalationAcknowledgment(result: { priority?: string }): string {
+// Fixed reply for a "couldn't answer from the reflections" hand-off. Subtly scopes the
+// follow-up to the Waaz Mubarak and never gives a ruling (see RELIGIOUS_GUIDANCE_RULE).
+export const RELIGIOUS_FOLLOWUP_REPLY =
+  "I answer only from the published Ashara reflections, and I couldn't find this there. I've shared your question with our team — if it relates to the Waaz Mubarak, someone will get back to you, Inshallah.";
+
+export function escalationAcknowledgment(result: { priority?: string; category?: string }): string {
+  if (result.category === "religious_followup") {
+    return RELIGIOUS_FOLLOWUP_REPLY;
+  }
   if (result.priority === "urgent") {
     return "I understand this is urgent. I've alerted our support team right away — someone will reach out to you as soon as possible. Please keep this number reachable.";
   }

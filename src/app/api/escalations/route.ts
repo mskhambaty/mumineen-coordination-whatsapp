@@ -15,6 +15,11 @@ export const runtime = "nodejs";
 // AI can't hand off on a "hi" -> "talk to someone" exchange. Emergencies bypass.
 const MIN_INBOUND_FOR_ESCALATION = 3;
 
+// Categories that bypass the min-inbound gate. A "religious_followup" is a one-shot
+// deen/Waaz question the reflections can't answer (often the very first message) — it is
+// a content hand-off, not a "get me a human" complaint, so the gate must not block it.
+const GATE_EXEMPT_CATEGORIES = new Set(["religious_followup"]);
+
 // Only a concrete safety/emergency situation bypasses the "evaluate first" gate —
 // NOT a user merely saying "urgent", "emergency", or "I need help".
 const EMERGENCY_PATTERN =
@@ -58,7 +63,8 @@ export async function POST(req: NextRequest) {
   }
 
   // Guardrail: non-emergencies need a few exchanges first (last-resort behaviour).
-  if (!isEmergency) {
+  // Emergencies and gate-exempt categories (e.g. religious_followup) skip this.
+  if (!isEmergency && !GATE_EXEMPT_CATEGORIES.has(category)) {
     const { count } = await supabase
       .from("messages")
       .select("id", { count: "exact", head: true })
