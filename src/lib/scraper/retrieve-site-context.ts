@@ -38,29 +38,45 @@ async function retrieveContext(
   const openai = getAIClient();
   const supabase = getSupabaseAdmin();
 
-  const embeddingRes = await openai.embeddings.create({
-    model: AI_EMBEDDING_MODEL,
-    input: `${contextPrefix} ${query}`,
-  });
-  const queryEmbedding = embeddingRes.data[0].embedding;
+  // Embed the query TWO ways and merge:
+  //  - raw query    -> specific terms ("wifi password", "bathrooms") rank the right FAQ
+  //                    chunk highest, so single-chunk FAQs surface reliably.
+  //  - anchored      -> the event-context prefix helps terse one-word questions match.
+  // The anchored-only approach made generic homepage chunks dominate and buried specific
+  // FAQs right at the cutoff (they flickered in/out by phrasing). Raw results are merged
+  // FIRST so the specific answer leads the context the model reads.
+  const [rawEmb, ctxEmb] = await Promise.all([
+    openai.embeddings.create({ model: AI_EMBEDDING_MODEL, input: query }),
+    openai.embeddings.create({ model: AI_EMBEDDING_MODEL, input: `${contextPrefix} ${query}` }),
+  ]);
 
   // When filtering by category, pull a wider window so enough allowed rows survive.
   const matchCount = allowedCategories ? topK * 3 : topK;
-  const { data, error } = await supabase.rpc(rpc, {
-    query_embedding: JSON.stringify(queryEmbedding),
-    match_threshold: MATCH_THRESHOLD,
-    match_count: matchCount,
-  });
+  const runMatch = (embedding: number[]) =>
+    supabase.rpc(rpc, {
+      query_embedding: JSON.stringify(embedding),
+      match_threshold: MATCH_THRESHOLD,
+      match_count: matchCount,
+    });
+  const [rawRes, ctxRes] = await Promise.all([runMatch(rawEmb.data[0].embedding), runMatch(ctxEmb.data[0].embedding)]);
 
-  if (error) {
-    console.error(`${rpc} retrieval failed:`, error);
-    return "";
+  if (rawRes.error) console.error(`${rpc} retrieval failed (raw):`, rawRes.error);
+  if (ctxRes.error) console.error(`${rpc} retrieval failed (anchored):`, ctxRes.error);
+
+  // Merge raw-first (specific FAQ chunks lead), dedupe by title+content.
+  const seen = new Set<string>();
+  let rows: MatchRow[] = [];
+  for (const r of [...((rawRes.data ?? []) as MatchRow[]), ...((ctxRes.data ?? []) as MatchRow[])]) {
+    const key = `${r.page_title ?? ""}::${(r.content ?? "").slice(0, 80)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push(r);
   }
-
-  let rows = (data ?? []) as MatchRow[];
   if (allowedCategories) {
     // Keep rows whose category is allowed (or null/unknown, to be safe).
     rows = rows.filter((r) => !r.category || allowedCategories.includes(r.category)).slice(0, topK);
+  } else {
+    rows = rows.slice(0, topK);
   }
   if (!rows.length) return "";
 
