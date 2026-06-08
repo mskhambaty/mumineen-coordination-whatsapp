@@ -28,3 +28,33 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
+
+/* react-querybuilder ships light-only styles; make its controls follow the app theme
+   (vars flip under .dark, so this themes both modes). Used by the custom-audience builder. */
+.queryBuilder {
+  color: var(--foreground);
+}
+.queryBuilder .ruleGroup {
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--foreground) 18%, transparent);
+}
+.queryBuilder select,
+.queryBuilder input,
+.queryBuilder textarea {
+  background: var(--background);
+  color: var(--foreground);
+  border: 1px solid color-mix(in srgb, var(--foreground) 25%, transparent);
+  border-radius: 0.375rem;
+  padding: 0.25rem 0.5rem;
+}
+.queryBuilder option {
+  background: var(--background);
+  color: var(--foreground);
+}
+.queryBuilder button {
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+  color: var(--foreground);
+  border: 1px solid color-mix(in srgb, var(--foreground) 20%, transparent);
+  border-radius: 0.375rem;
+  padding: 0.2rem 0.55rem;
+}

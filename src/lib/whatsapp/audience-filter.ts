@@ -70,6 +70,7 @@ export const FIELD_CATALOG: FieldDef[] = [
   { key: "wants_khidmat", label: "Wants khidmat", group: "Person", type: "bool", get: (r) => r.wants_khidmat },
   { key: "khidmat_signed_up", label: "Khidmat dept selected", group: "Person", type: "bool", get: (r) => r.khidmat_count > 0 },
   { key: "not_attending", label: "Not attending", group: "Person", type: "bool", get: (r) => r.not_attending },
+  { key: "registered", label: "Registered (form submitted)", group: "Family", type: "bool", get: (r) => r.registration_status === "submitted" || r.registration_status === "confirmed" },
   { key: "registration_status", label: "Registration status", group: "Family", type: "enum", enumValues: ["not_started", "in_progress", "submitted", "confirmed", "cancelled"], get: (r) => r.registration_status },
   { key: "acc_type", label: "Accommodation", group: "Family", type: "enum", enumValues: ["hotel", "utaro"], get: (r) => r.acc_type },
   { key: "open_to_utaro", label: "Open to utaro", group: "Family", type: "bool", get: (r) => r.open_to_utaro },
