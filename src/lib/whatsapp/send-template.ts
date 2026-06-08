@@ -1,6 +1,6 @@
 import { listMessageTemplates, sendWhatsAppTemplateComponents } from "@/lib/meta/whatsapp";
 import { recordOutboundMessage, touchConversationSession } from "@/lib/supabase/server";
-import { buildSendComponents, describeTemplate, previewBody, type TemplateDescriptor } from "@/lib/whatsapp/templates";
+import { buildSendComponents, describeTemplate, previewBody, type SendComponentInputs, type TemplateDescriptor } from "@/lib/whatsapp/templates";
 
 // Single, standardized path for sending an approved Meta WhatsApp *template* as an
 // outbound notification (welcome, issue assignment, escalation, …). Every flow goes
@@ -34,6 +34,9 @@ export type SendTemplateNotificationInput = {
   userId?: string | null;
   templateName: string;
   bodyParams: string[];
+  // Pre-resolved send inputs (body/header/button) for personalized broadcasts. When provided, this
+  // supersedes bodyParams and is passed straight to buildSendComponents.
+  inputs?: SendComponentInputs;
   // Tags the outbound message's raw_payload so sends are filterable by origin
   // (e.g. "admin_welcome", "department_issue_contact", "escalation_oncall").
   source: string;
@@ -49,17 +52,19 @@ export type SendTemplateNotificationInput = {
 export async function sendTemplateNotification(input: SendTemplateNotificationInput): Promise<TemplateSendResult> {
   try {
     const desc = input.descriptor ?? (await resolveApprovedTemplate(input.templateName));
-    if (input.bodyParams.length < desc.bodyVarCount) {
-      throw new Error(`Template "${desc.name}" expects ${desc.bodyVarCount} variables, received ${input.bodyParams.length}.`);
+    const sendInputs: SendComponentInputs = input.inputs ?? { bodyParams: input.bodyParams };
+    const bodyParams = sendInputs.bodyParams ?? [];
+    if (bodyParams.length < desc.bodyVarCount) {
+      throw new Error(`Template "${desc.name}" expects ${desc.bodyVarCount} variables, received ${bodyParams.length}.`);
     }
 
-    const components = buildSendComponents({ bodyParams: input.bodyParams }, desc);
+    const components = buildSendComponents(sendInputs, desc);
     const metaResponse = await sendWhatsAppTemplateComponents(input.phoneE164, desc.name, desc.language, components);
     const waMessageId = metaResponse.messages?.[0]?.id;
 
     await recordOutboundMessage({
       phoneE164: input.phoneE164,
-      body: `[template:${desc.name}] ${previewBody(desc.bodyText, input.bodyParams)}`.trim(),
+      body: `[template:${desc.name}] ${previewBody(desc.bodyText, bodyParams, desc.bodyVars)}`.trim(),
       whatsappMessageId: waMessageId,
       rawPayload: {
         source: input.source,
