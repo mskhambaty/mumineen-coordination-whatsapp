@@ -1446,7 +1446,7 @@ export default function RegistrationAnalyticsPage() {
                     {/* Rahat analysis */}
                     <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800/40 dark:bg-amber-950/20">
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
-                        Rahat Pass Analysis <span className="font-normal normal-case">(pending confirmation)</span>
+                        Rahat Pass Analysis
                       </p>
                       <div className="mb-1 grid grid-cols-3 gap-x-3 text-xs font-semibold uppercase tracking-wide text-amber-600/70 dark:text-amber-500/70">
                         <span />
