@@ -7,6 +7,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 
 type MuminRow = {
+  its: string;
   hof_its: string;
   is_head: boolean;
   local_mehman: string | null;
@@ -56,7 +57,7 @@ export async function GET(req: NextRequest) {
     fetchAll<MuminRow>((from, to) =>
       supabase
         .from("mumineen")
-        .select("hof_its, is_head, local_mehman, age, rahat_seating, wheelchair, not_attending")
+        .select("its, hof_its, is_head, local_mehman, age, rahat_seating, wheelchair, not_attending")
         .eq("roster_active", true)
         .range(from, to),
     ),
@@ -68,6 +69,11 @@ export async function GET(req: NextRequest) {
         .range(from, to),
     ),
   ]);
+
+  // Any member ITS → their family's hof_its. Used to resolve cases where
+  // a guest entered a non-head family member's ITS as the host.
+  const memberToHof = new Map<string, string>();
+  for (const m of allMembers) memberToHof.set(m.its, m.hof_its);
 
   // Determine local_mehman per family (HOF first, fallback to any member)
   const hofType = new Map<string, string>();
@@ -120,16 +126,22 @@ export async function GET(req: NextRequest) {
     let nonRahatPeople = 0;
     let wheelchairPeople = 0;
 
-    // Map host ITS → Mehman guest families staying with them (within this fams scope).
-    // Only Mehman families that have reported a utaro host contribute.
+    // Map resolved hof_its → Mehman guest families staying with them (within this fams scope).
+    // utaro_host_its may contain any family member's ITS — resolve to hof_its via memberToHof.
+    // Keys that don't resolve to a known family (orphan hosts) are kept as-is so we can
+    // still add a parking pass for their premises in a second pass below.
     const hostGuests = new Map<string, FamilyRow[]>();
     for (const f of fams) {
       if (f.acc_type === "utaro" && f.utaro_host_its) {
-        const key = f.utaro_host_its.trim();
+        const rawIts = f.utaro_host_its.trim();
+        const key = memberToHof.get(rawIts) ?? rawIts;
         if (!hostGuests.has(key)) hostGuests.set(key, []);
         hostGuests.get(key)!.push(f);
       }
     }
+
+    // Set of hof_its values present in this scope — used to detect orphan hosts.
+    const famHofItsInScope = new Set(fams.map((f) => f.hof_its));
 
     for (const f of fams) {
       const type = hofType.get(f.hof_its);
@@ -162,6 +174,19 @@ export async function GET(req: NextRequest) {
       rahatPeople += s.rahat;
       nonRahatPeople += s.attending - s.rahat;
       wheelchairPeople += s.wheelchair;
+    }
+
+    // Orphan hosts: local families whose ITS isn't in the families table (e.g. not registered
+    // themselves) but who are hosting utaro guests. Add a parking pass for their premises.
+    for (const [hostKey, guests] of hostGuests) {
+      if (famHofItsInScope.has(hostKey)) continue; // already handled in the loop above
+      let effectiveCount = 0;
+      for (const guest of guests) {
+        if (guest.transport_mode !== "rental") {
+          effectiveCount += famStats.get(guest.hof_its)?.attending ?? 0;
+        }
+      }
+      localPasses += localFamilyPasses(effectiveCount);
     }
 
     // For forecast, apply the rental rate to the full Mehman roster
