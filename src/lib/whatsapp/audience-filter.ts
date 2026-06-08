@@ -264,20 +264,38 @@ async function loadRoster(): Promise<RosterRow[]> {
   return rows;
 }
 
-// Matched roster rows for a rule tree, deduped by phone (rep = head-of-family, else lowest ITS).
-// Rows without a phone are dropped (a broadcast can only message a number).
-export async function runFilter(tree: RuleGroup): Promise<RosterRow[]> {
+export type FilterFunnel = {
+  matched: number; // roster rows passing the rules (incl. those with no phone)
+  withWhatsapp: number; // of matched, those with a WhatsApp number
+  recipients: RosterRow[]; // deduped-by-phone reachable rows (rep = head-of-family, else lowest ITS)
+};
+
+// Evaluate a rule tree over the roster and report the recipient funnel: matched people, those with
+// a number, and the deduped reachable rows. A broadcast can only message a number, so rows without
+// one are counted (withWhatsapp/matched) but excluded from recipients.
+export async function runFilterDetailed(tree: RuleGroup): Promise<FilterFunnel> {
   const roster = await loadRoster();
+  let matched = 0;
+  let withWhatsapp = 0;
   const byPhone = new Map<string, RosterRow>();
   for (const r of roster) {
-    if (!r.whatsapp_e164 || !evaluate(tree, r)) continue;
+    if (!evaluate(tree, r)) continue;
+    matched += 1;
+    if (!r.whatsapp_e164) continue;
+    withWhatsapp += 1;
     const phone = normalizePhone(r.whatsapp_e164);
     const existing = byPhone.get(phone);
     if (!existing) { byPhone.set(phone, r); continue; }
     const better = (Number(r.is_head) - Number(existing.is_head)) || existing.its.localeCompare(r.its);
     if (better > 0) byPhone.set(phone, r);
   }
-  return [...byPhone.values()];
+  return { matched, withWhatsapp, recipients: [...byPhone.values()] };
+}
+
+// Matched roster rows for a rule tree, deduped by phone. (Recipients only — see runFilterDetailed
+// for the funnel counts.)
+export async function runFilter(tree: RuleGroup): Promise<RosterRow[]> {
+  return (await runFilterDetailed(tree)).recipients;
 }
 
 export async function dynamicEnumValues(): Promise<Record<string, string[]>> {

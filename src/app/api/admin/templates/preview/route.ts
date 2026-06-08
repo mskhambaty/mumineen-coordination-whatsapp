@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
     in_window: preview.in_window,
     out_window: preview.out_window,
     est_cost_usd: preview.est_cost_usd,
+    funnel: preview.funnel ?? null,
   };
 
   if (parsed.data.include_recipients) {

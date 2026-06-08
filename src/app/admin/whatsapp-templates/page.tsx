@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { QueryBuilder, type Field, type RuleGroupType } from "react-querybuilder";
+import { QueryBuilder, formatQuery, type Field, type RuleGroupType } from "react-querybuilder";
 import "react-querybuilder/dist/query-builder.css";
 
 import { apiFetch } from "@/lib/admin/client";
@@ -19,7 +19,7 @@ type TemplateDescriptor = {
   category?: string;
 };
 type SelectableUser = { id: string; name: string; role: string };
-type Preview = { total: number; in_window: number; out_window: number; est_cost_usd: number; recipients?: { phone: string; full_name: string | null; its: string | null; inWindow: boolean }[] };
+type Preview = { total: number; in_window: number; out_window: number; est_cost_usd: number; recipients?: { phone: string; full_name: string | null; its: string | null; inWindow: boolean }[]; funnel?: { matched: number; with_whatsapp: number; unique: number } | null };
 type CatalogField = { key: string; label: string; group: string; type: string; operators: string[]; values: string[] };
 type MappableField = { key: string; label: string };
 type Binding = { kind: "static"; value: string } | { kind: "field"; field: string };
@@ -76,6 +76,8 @@ export default function SendTemplatesPage() {
   const [mappable, setMappable] = useState<MappableField[]>([]);
   const [bindings, setBindings] = useState<Record<string, Binding>>({}); // token | "__header" | "__urlButton"
   const [headerMediaUrl, setHeaderMediaUrl] = useState("");
+  const [viewQuery, setViewQuery] = useState(false);
+  const [previewedFor, setPreviewedFor] = useState<string | null>(null);
 
   // Single-recipient composer state
   const [recipient, setRecipient] = useState("");
@@ -126,6 +128,23 @@ export default function SendTemplatesPage() {
       }),
     [catalog],
   );
+
+  // Human-readable + equivalent-SQL views of the current rule tree (the audience is evaluated
+  // in-app; the SQL is shown for transparency only).
+  const filterSummary = useMemo(() => {
+    try {
+      return formatQuery(query, { format: "natural_language", fields: rqbFields }) || "all people";
+    } catch {
+      return "all people";
+    }
+  }, [query, rqbFields]);
+  const filterSql = useMemo(() => {
+    try {
+      return formatQuery(query, { format: "sql", fields: rqbFields });
+    } catch {
+      return "";
+    }
+  }, [query, rqbFields]);
 
   function selectBroadcastTemplate(name: string) {
     setTpl(name);
@@ -195,6 +214,7 @@ export default function SendTemplatesPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Preview failed");
       setPreview(data as Preview);
+      setPreviewedFor(audience === "custom" ? filterSummary : (AUDIENCES.find((a) => a.key === audience)?.label ?? audience));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Preview failed");
     } finally {
@@ -373,7 +393,28 @@ export default function SendTemplatesPage() {
           {audience === "custom" && (
             <div className="rounded-md border border-gray-100 p-3 text-sm dark:border-gray-800">
               <div className="mb-2 text-xs uppercase tracking-wide text-gray-400">Custom filter</div>
-              <QueryBuilder fields={rqbFields} query={query} onQueryChange={setQuery} />
+              <div className="mb-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300">
+                This audience is everyone matching the filter <b>who has a valid WhatsApp number</b>, <b>deduplicated by number</b> (one message per number — relatives sharing a number are messaged once). So it can be lower than the people counts on the registration analytics page.
+              </div>
+              <QueryBuilder fields={rqbFields} query={query} onQueryChange={setQuery} listsAsArrays />
+              <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">
+                <span className="text-gray-400">Filter:</span> {filterSummary}
+              </div>
+              <button type="button" onClick={() => setViewQuery((v) => !v)} className="mt-2 text-xs text-blue-600 hover:underline">
+                {viewQuery ? "Hide query" : "View query"}
+              </button>
+              {viewQuery && (
+                <div className="mt-2 space-y-2">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wide text-gray-400">Equivalent SQL <span className="normal-case">(for reference — evaluated in-app, not run as SQL)</span></div>
+                    <pre className="mt-1 overflow-auto rounded-md bg-gray-100 p-2 text-[11px] dark:bg-gray-950">{filterSql || "(no conditions)"}</pre>
+                  </div>
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wide text-gray-400">Rule JSON</div>
+                    <pre className="mt-1 max-h-48 overflow-auto rounded-md bg-gray-100 p-2 text-[11px] dark:bg-gray-950">{JSON.stringify(query, null, 2)}</pre>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -390,6 +431,20 @@ export default function SendTemplatesPage() {
               </span>
             )}
           </div>
+
+          {preview && (
+            <div className="text-xs text-gray-500 dark:text-gray-400">
+              {preview.funnel && (
+                <div>
+                  {preview.funnel.matched.toLocaleString()} matched · {preview.funnel.with_whatsapp.toLocaleString()} with WhatsApp · <b>{preview.funnel.unique.toLocaleString()} unique numbers</b>{" "}
+                  ({(preview.funnel.matched - preview.funnel.with_whatsapp).toLocaleString()} no number, {(preview.funnel.with_whatsapp - preview.funnel.unique).toLocaleString()} shared)
+                </div>
+              )}
+              {previewedFor && (
+                <div className="mt-0.5">Showing recipients for: <span className="text-gray-700 dark:text-gray-300">{previewedFor}</span></div>
+              )}
+            </div>
+          )}
 
           {preview?.recipients && preview.recipients.length > 0 && (
             <div className="max-h-56 overflow-auto rounded-md border border-gray-100 dark:border-gray-800">

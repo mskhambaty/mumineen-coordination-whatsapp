@@ -1,5 +1,5 @@
 import { optionalEnv } from "@/lib/env";
-import { runFilter, type RuleGroup } from "@/lib/whatsapp/audience-filter";
+import { runFilter, runFilterDetailed, type RuleGroup } from "@/lib/whatsapp/audience-filter";
 import { MAPPABLE_FIELDS } from "@/lib/whatsapp/templates";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -246,11 +246,30 @@ export type AudiencePreview = {
   out_window: number; // paid
   est_cost_usd: number;
   recipients: { phone: string; familyId: string | null; muminId?: string | null; fields?: Record<string, string | null>; inWindow: boolean }[];
+  // The recipient funnel, for custom filters: how the matched people reduce to unique numbers.
+  funnel?: { matched: number; with_whatsapp: number; unique: number };
 };
 
-// Resolve an audience and split it into free (in-window) vs paid, with an estimated cost.
+// Resolve an audience and split it into free (in-window) vs paid, with an estimated cost. For the
+// custom filter it also reports the matched->reachable->deduped funnel so the count reconciles with
+// the people-counts on the analytics page.
 export async function previewAudience(key: AudienceKey, selectedUserIds: string[] = [], rules?: RuleGroup): Promise<AudiencePreview> {
-  const [recipients, inWindow] = await Promise.all([resolveAudience(key, selectedUserIds, rules), getInWindowPhones()]);
+  let recipients: Recipient[];
+  let funnel: AudiencePreview["funnel"];
+  if (key === "custom" && rules) {
+    const d = await runFilterDetailed(rules);
+    recipients = d.recipients.map((r) => ({
+      phone: normalizePhone(r.whatsapp_e164 as string),
+      familyId: r.family_id,
+      muminId: r.mumin_id,
+      fields: fieldsOf(r as unknown as Record<string, unknown>),
+    }));
+    funnel = { matched: d.matched, with_whatsapp: d.withWhatsapp, unique: d.recipients.length };
+  } else {
+    recipients = await resolveAudience(key, selectedUserIds, rules);
+  }
+
+  const inWindow = await getInWindowPhones();
   const enriched = recipients.map((r) => ({ ...r, inWindow: inWindow.has(r.phone) }));
   const free = enriched.filter((r) => r.inWindow).length;
   const paid = enriched.length - free;
@@ -260,5 +279,6 @@ export async function previewAudience(key: AudienceKey, selectedUserIds: string[
     out_window: paid,
     est_cost_usd: Number((paid * utilityMessageCostUsd()).toFixed(2)),
     recipients: enriched,
+    funnel,
   };
 }
