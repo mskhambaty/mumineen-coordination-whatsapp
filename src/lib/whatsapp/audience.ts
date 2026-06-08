@@ -1,10 +1,13 @@
 import { optionalEnv } from "@/lib/env";
+import { runFilter, type RuleGroup } from "@/lib/whatsapp/audience-filter";
+import { MAPPABLE_FIELDS } from "@/lib/whatsapp/templates";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
-// Audience resolution for the manual template-send console. Each audience key resolves to a set of
+// Audience resolution for the template-send console. Each audience key resolves to a set of
 // recipients, always DEDUPED by phone number (one message max per number). A recipient is "in
 // window" if the number messaged us in the last 24h — those template sends are free; the rest are
-// paid. Counts/cost are previewed before send and recorded on the broadcast.
+// paid. Roster-based recipients also carry `fields` (mappable roster columns) so broadcasts can
+// personalize template variables per recipient. The "custom" key uses the rule-tree filter engine.
 
 export const AUDIENCE_KEYS = [
   "selected_users",
@@ -12,6 +15,7 @@ export const AUDIENCE_KEYS = [
   "arrived_hof",
   "registered_hof",
   "all_members",
+  "custom",
 ] as const;
 
 export type AudienceKey = (typeof AUDIENCE_KEYS)[number];
@@ -26,32 +30,65 @@ export const AUDIENCE_LABEL: Record<AudienceKey, string> = {
   arrived_hof: "Arrived families (one per family)",
   registered_hof: "All registered families (one per family)",
   all_members: "All family members (deduped by number)",
+  custom: "Custom filter",
 };
 
-export type Recipient = { phone: string; familyId: string | null };
+export type Recipient = {
+  phone: string;
+  familyId: string | null;
+  muminId?: string | null;
+  fields?: Record<string, string | null>; // mappable roster fields for personalization
+};
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
+
+// Columns selected for roster-based audiences so recipients can personalize variables.
+const MAPPABLE_COLS = MAPPABLE_FIELDS.map((f) => f.key);
+
+function fieldsOf(row: Record<string, unknown>): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  for (const key of MAPPABLE_COLS) {
+    const v = row[key];
+    out[key] = v == null ? null : String(v);
+  }
+  return out;
+}
 
 function normalizePhone(input: string): string {
   const digits = input.replace(/[^\d]/g, "");
   return digits ? `+${digits}` : input;
 }
 
-// Dedupe a candidate list by phone, keeping the first family association seen.
+// Dedupe a candidate list by phone, keeping the first recipient (with its fields) seen.
 function dedupeByPhone(candidates: Recipient[]): Recipient[] {
   const byPhone = new Map<string, Recipient>();
   for (const c of candidates) {
     if (!c.phone) continue;
     const phone = normalizePhone(c.phone);
-    if (!byPhone.has(phone)) byPhone.set(phone, { phone, familyId: c.familyId });
+    if (!byPhone.has(phone)) byPhone.set(phone, { ...c, phone });
   }
   return [...byPhone.values()];
 }
 
-// Resolve the raw (deduped) recipient list for an audience. `selectedUserIds` is only used for the
-// "selected_users" key.
-export async function resolveAudience(key: AudienceKey, selectedUserIds: string[] = []): Promise<Recipient[]> {
+// Resolve the raw (deduped) recipient list for an audience. `selectedUserIds` is used by
+// "selected_users"; `rules` by "custom".
+export async function resolveAudience(
+  key: AudienceKey,
+  selectedUserIds: string[] = [],
+  rules?: RuleGroup,
+): Promise<Recipient[]> {
   const supabase = getSupabaseAdmin();
+
+  if (key === "custom") {
+    if (!rules) return [];
+    const rows = await runFilter(rules); // already deduped by phone
+    return rows.map((r) => ({
+      phone: normalizePhone(r.whatsapp_e164 as string),
+      familyId: r.family_id,
+      muminId: r.mumin_id,
+      fields: fieldsOf(r as unknown as Record<string, unknown>),
+    }));
+  }
 
   if (key === "selected_users") {
     if (selectedUserIds.length === 0) return [];
@@ -73,7 +110,7 @@ export async function resolveAudience(key: AudienceKey, selectedUserIds: string[
   }
 
   // The remaining audiences are roster families. Pull active, non-cancelled families and one
-  // reachable number each (head member's WhatsApp, else any member's).
+  // reachable number each (head member's WhatsApp, else any member's), carrying that member's fields.
   if (key === "registered_hof" || key === "arrived_hof") {
     const { data: families } = await supabase
       .from("families")
@@ -87,21 +124,20 @@ export async function resolveAudience(key: AudienceKey, selectedUserIds: string[
 
     const { data: members } = await supabase
       .from("mumineen")
-      .select("family_id, whatsapp_e164, is_head, arrival_at, not_attending")
+      .select(`id, family_id, whatsapp_e164, is_head, arrival_at, not_attending, ${MAPPABLE_COLS.join(", ")}`)
       .in("family_id", familyIds)
       .eq("roster_active", true)
       .not("whatsapp_e164", "is", null);
 
-    type M = { family_id: string; whatsapp_e164: string; is_head: boolean; arrival_at: string | null; not_attending: boolean };
-    const byFamily = new Map<string, { phone: string; arrived: boolean }>();
+    type M = Record<string, unknown> & { id: string; family_id: string; whatsapp_e164: string; is_head: boolean; arrival_at: string | null; not_attending: boolean };
+    const byFamily = new Map<string, { member: M; arrived: boolean }>();
     const now = Date.now();
-    for (const m of (members ?? []) as M[]) {
+    for (const m of (members ?? []) as unknown as M[]) {
       if (m.not_attending) continue;
       const arrived = m.arrival_at ? new Date(m.arrival_at).getTime() <= now : false;
       const existing = byFamily.get(m.family_id);
-      // Prefer the head member's number; otherwise take the first seen.
       if (!existing || m.is_head) {
-        byFamily.set(m.family_id, { phone: m.whatsapp_e164, arrived: arrived || (existing?.arrived ?? false) });
+        byFamily.set(m.family_id, { member: m, arrived: arrived || (existing?.arrived ?? false) });
       } else if (arrived && !existing.arrived) {
         existing.arrived = true;
       }
@@ -110,7 +146,7 @@ export async function resolveAudience(key: AudienceKey, selectedUserIds: string[
     const recipients: Recipient[] = [];
     for (const [familyId, info] of byFamily) {
       if (key === "arrived_hof" && !info.arrived) continue;
-      recipients.push({ phone: info.phone, familyId });
+      recipients.push({ phone: info.member.whatsapp_e164, familyId, muminId: info.member.id, fields: fieldsOf(info.member) });
     }
     return dedupeByPhone(recipients);
   }
@@ -118,14 +154,16 @@ export async function resolveAudience(key: AudienceKey, selectedUserIds: string[
   // all_members: every attending roster member with a number, deduped by phone.
   const { data: members } = await supabase
     .from("mumineen")
-    .select("family_id, whatsapp_e164, not_attending, roster_active")
+    .select(`id, family_id, whatsapp_e164, not_attending, roster_active, ${MAPPABLE_COLS.join(", ")}`)
     .eq("roster_active", true)
     .eq("not_attending", false)
     .not("whatsapp_e164", "is", null);
   return dedupeByPhone(
-    ((members ?? []) as { family_id: string | null; whatsapp_e164: string }[]).map((m) => ({
+    ((members ?? []) as unknown as (Record<string, unknown> & { id: string; family_id: string | null; whatsapp_e164: string })[]).map((m) => ({
       phone: m.whatsapp_e164,
       familyId: m.family_id,
+      muminId: m.id,
+      fields: fieldsOf(m),
     })),
   );
 }
@@ -151,12 +189,12 @@ export type AudiencePreview = {
   in_window: number; // free
   out_window: number; // paid
   est_cost_usd: number;
-  recipients: { phone: string; familyId: string | null; inWindow: boolean }[];
+  recipients: { phone: string; familyId: string | null; muminId?: string | null; fields?: Record<string, string | null>; inWindow: boolean }[];
 };
 
 // Resolve an audience and split it into free (in-window) vs paid, with an estimated cost.
-export async function previewAudience(key: AudienceKey, selectedUserIds: string[] = []): Promise<AudiencePreview> {
-  const [recipients, inWindow] = await Promise.all([resolveAudience(key, selectedUserIds), getInWindowPhones()]);
+export async function previewAudience(key: AudienceKey, selectedUserIds: string[] = [], rules?: RuleGroup): Promise<AudiencePreview> {
+  const [recipients, inWindow] = await Promise.all([resolveAudience(key, selectedUserIds, rules), getInWindowPhones()]);
   const enriched = recipients.map((r) => ({ ...r, inWindow: inWindow.has(r.phone) }));
   const free = enriched.filter((r) => r.inWindow).length;
   const paid = enriched.length - free;

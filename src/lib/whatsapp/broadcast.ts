@@ -1,12 +1,16 @@
 import { previewAudience, utilityMessageCostUsd, type AudienceKey } from "@/lib/whatsapp/audience";
+import type { RuleGroup } from "@/lib/whatsapp/audience-filter";
 import { resolveApprovedTemplate, sendTemplateNotification } from "@/lib/whatsapp/send-template";
+import { resolveBindings, type SendComponentInputs, type VariableBindings } from "@/lib/whatsapp/templates";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
-// Broadcast engine for the manual template-send console. A broadcast is created with all its
-// recipients enqueued ('queued'), then drained in throttled batches by a cron so the work survives
-// serverless time limits and naturally rate-limits the fan-out. All sends go through the shared
-// sendTemplateNotification pipeline (logging, no PII leakage). Templates here are no-variable
-// (the three approved Ashara templates), so bodyParams is empty.
+// Broadcast engine for the template-send console. A broadcast is created with all its recipients
+// enqueued ('queued'), then drained in throttled batches by a cron so the work survives serverless
+// time limits and naturally rate-limits the fan-out. All sends go through the shared
+// sendTemplateNotification pipeline (logging, no PII leakage). Templates may have variables: each is
+// bound to a static value or a per-recipient roster field; recipients whose mapped field is empty
+// (or who have no roster fields) are recorded 'skipped'. Per-recipient resolved params are frozen
+// onto the recipient row at create time.
 
 const DEFAULT_BATCH_SIZE = 150; // per drain invocation; ~4k recipients clear in well under an hour
 
@@ -15,63 +19,89 @@ export type CreateBroadcastInput = {
   templateLanguage?: string;
   audienceKey: AudienceKey;
   selectedUserIds?: string[];
+  rules?: RuleGroup; // for the "custom" audience
+  variableBindings?: VariableBindings;
   triggeredByUserId?: string | null;
 };
 
-export type CreateBroadcastResult = { broadcastId: string; total: number; free: number; paid: number; estCostUsd: number };
+export type CreateBroadcastResult = { broadcastId: string; total: number; free: number; paid: number; skipped: number; estCostUsd: number };
 
-// Resolve the audience, create the broadcast row, and enqueue one recipient row per phone.
+// Resolve the audience, create the broadcast row, freeze per-recipient template params, and enqueue
+// one recipient row per phone.
 export async function createBroadcast(input: CreateBroadcastInput): Promise<CreateBroadcastResult | { error: string }> {
   const supabase = getSupabaseAdmin();
 
   // Validate the template exists & is approved before enqueuing anything.
+  let desc;
   try {
-    await resolveApprovedTemplate(input.templateCode);
+    desc = await resolveApprovedTemplate(input.templateCode);
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Template not found" };
   }
 
-  const preview = await previewAudience(input.audienceKey, input.selectedUserIds ?? []);
+  // Every template variable must have a binding.
+  const bindings: VariableBindings = input.variableBindings ?? {};
+  for (const tok of desc.bodyVars) {
+    if (!bindings.body?.[tok]) return { error: `Missing binding for variable "${tok}".` };
+  }
+  if (desc.header?.format === "TEXT" && desc.headerVar && !bindings.header) {
+    return { error: `Missing binding for header variable "${desc.headerVar}".` };
+  }
+  if (desc.header && desc.header.format !== "TEXT" && !bindings.headerMediaUrl) {
+    return { error: "This template has a media header — provide a media URL." };
+  }
+  if (desc.urlButtons.some((b) => b.hasVar) && !bindings.urlButton) {
+    return { error: "Missing binding for the URL button value." };
+  }
+
+  const preview = await previewAudience(input.audienceKey, input.selectedUserIds ?? [], input.rules);
   if (preview.total === 0) return { error: "No recipients in the selected audience." };
+
+  // Resolve each recipient's params now; recipients missing a mapped field are marked skipped.
+  type Row = { family_id: string | null; phone_e164: string; was_in_window: boolean; send_status: "queued" | "skipped"; skip_reason: string | null; body_params: SendComponentInputs | null };
+  const prelim: Row[] = [];
+  let skipped = 0, free = 0, paid = 0;
+  for (const r of preview.recipients) {
+    const { inputs, skipReason } = resolveBindings(desc, bindings, r.fields ?? {});
+    if (skipReason) {
+      skipped += 1;
+      prelim.push({ family_id: r.familyId, phone_e164: r.phone, was_in_window: r.inWindow, send_status: "skipped", skip_reason: skipReason, body_params: null });
+    } else {
+      if (r.inWindow) free += 1; else paid += 1;
+      prelim.push({ family_id: r.familyId, phone_e164: r.phone, was_in_window: r.inWindow, send_status: "queued", skip_reason: null, body_params: inputs });
+    }
+  }
+  const estCostUsd = Number((paid * utilityMessageCostUsd()).toFixed(2));
 
   const { data: broadcast, error } = await supabase
     .from("template_broadcasts")
     .insert({
       template_code: input.templateCode,
-      template_language: input.templateLanguage ?? "en_US",
+      template_language: input.templateLanguage ?? desc.language ?? "en_US",
       audience_key: input.audienceKey,
+      audience_rules: input.rules ?? null,
+      variable_bindings: input.variableBindings ?? null,
       triggered_by_user_id: input.triggeredByUserId ?? null,
       status: "running",
       total_recipients: preview.total,
-      count_free: preview.in_window,
-      count_paid: preview.out_window,
+      count_free: free,
+      count_paid: paid,
       count_excluded: 0,
-      est_cost_usd: preview.est_cost_usd,
+      count_skipped: skipped,
+      est_cost_usd: estCostUsd,
     })
     .select("id")
     .single();
   if (error || !broadcast) return { error: error?.message ?? "Failed to create broadcast" };
 
   // Enqueue recipients in chunks (Postgres insert payload limits).
-  const rows = preview.recipients.map((r) => ({
-    broadcast_id: broadcast.id,
-    family_id: r.familyId,
-    phone_e164: r.phone,
-    was_in_window: r.inWindow,
-    send_status: "queued" as const,
-  }));
+  const rows = prelim.map((r) => ({ ...r, broadcast_id: broadcast.id }));
   for (let i = 0; i < rows.length; i += 500) {
     const { error: insErr } = await supabase.from("template_broadcast_recipients").insert(rows.slice(i, i + 500));
     if (insErr) return { error: insErr.message };
   }
 
-  return {
-    broadcastId: broadcast.id,
-    total: preview.total,
-    free: preview.in_window,
-    paid: preview.out_window,
-    estCostUsd: preview.est_cost_usd,
-  };
+  return { broadcastId: broadcast.id, total: preview.total, free, paid, skipped, estCostUsd };
 }
 
 export type DrainResult = { processed: number; broadcastsTouched: number };
@@ -84,7 +114,7 @@ export async function drainBroadcasts(batchSize = DEFAULT_BATCH_SIZE): Promise<D
 
   const { data: queued } = await supabase
     .from("template_broadcast_recipients")
-    .select("id, broadcast_id, phone_e164, template_broadcasts!inner(template_code, template_language, status)")
+    .select("id, broadcast_id, phone_e164, body_params, template_broadcasts!inner(template_code, template_language, status)")
     .eq("send_status", "queued")
     .eq("template_broadcasts.status", "running")
     .limit(batchSize);
@@ -93,6 +123,7 @@ export async function drainBroadcasts(batchSize = DEFAULT_BATCH_SIZE): Promise<D
     id: string;
     broadcast_id: string;
     phone_e164: string;
+    body_params: SendComponentInputs | null;
     template_broadcasts: { template_code: string; template_language: string; status: string };
   }[];
 
@@ -117,7 +148,8 @@ export async function drainBroadcasts(batchSize = DEFAULT_BATCH_SIZE): Promise<D
     const result = await sendTemplateNotification({
       phoneE164: row.phone_e164,
       templateName: code,
-      bodyParams: [],
+      bodyParams: row.body_params?.bodyParams ?? [],
+      inputs: row.body_params ?? undefined,
       source: "template_broadcast",
       rawPayloadExtra: { broadcast_id: row.broadcast_id, recipient_id: row.id },
       descriptor: desc,
