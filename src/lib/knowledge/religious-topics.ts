@@ -298,7 +298,7 @@ function categoryForRef(ref: MajlisRef): ReligiousCategory {
   return "reflection";
 }
 
-type MajlisHit = { title: string; content: string; source_url: string | null; theme?: string | null };
+type MajlisHit = { title: string; content: string; source_url: string | null; theme?: string | null; year_hijri?: string | null };
 
 // Legacy fallback: match by title prefix for any row missing structured metadata.
 async function findMajlisByTitle(ref: MajlisRef, category: ReligiousCategory): Promise<MajlisHit[]> {
@@ -323,11 +323,11 @@ async function findMajlisByTitle(ref: MajlisRef, category: ReligiousCategory): P
 }
 
 // Resolve a parsed majlis reference to the matching topic block(s) using the structured
-// metadata columns (category + majlis_number/is_ashura + year), preferring the most recent
-// year. Falls back to title-prefix matching for un-backfilled rows. Returns [] if none.
-export async function findMajlisReflection(query: string): Promise<MajlisHit[]> {
-  const ref = parseMajlisRef(query);
-  if (!ref) return [];
+// metadata columns (category + majlis_number/is_ashura + year). When ref.year is set it is
+// honoured exactly (so "this year" → 1448 returns [] rather than silently serving 1447);
+// when null, the most recent year is returned. Falls back to title-prefix matching for
+// un-backfilled rows. Returns [] if none.
+export async function findMajlisForRef(ref: MajlisRef): Promise<MajlisHit[]> {
   const category = categoryForRef(ref);
 
   let q = getSupabaseAdmin()
@@ -344,7 +344,13 @@ export async function findMajlisReflection(query: string): Promise<MajlisHit[]> 
   // Fallback to legacy title matching if nothing carried structured metadata.
   if (!rows.length) rows = (await findMajlisByTitle(ref, category)) as typeof rows;
 
-  return rows.slice(0, 2).map((t) => ({ title: t.title, content: t.content, source_url: t.source_url ?? null, theme: t.theme ?? null }));
+  return rows.slice(0, 2).map((t) => ({ title: t.title, content: t.content, source_url: t.source_url ?? null, theme: t.theme ?? null, year_hijri: t.year_hijri ?? null }));
+}
+
+export async function findMajlisReflection(query: string): Promise<MajlisHit[]> {
+  const ref = parseMajlisRef(query);
+  if (!ref) return [];
+  return findMajlisForRef(ref);
 }
 
 // --- Overview + facets (multi-representation indexing) ---

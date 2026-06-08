@@ -53,6 +53,8 @@ All Vaaz / majlis / Iqtibasaat / Tazyeen / Lisan questions go through the
 `answer_religious_questions` tool (`src/lib/agent/tools.ts`). Single Lisan **word** lookups use
 `get_lisan_word_meaning` instead.
 
+**Year resolution (1447 ↔ 1448).** Before retrieving, the tool calls `resolveAsharaYear(query, today)` (`ashara-config.ts`) to anchor on the *event*, not the Hijri calendar: explicit `1447/1448` → that year; "last year" → `LAST_COMPLETED_ASHARA_YEAR` (1447, the indexed one); "this year / today / this Ashara / upcoming" → `ACTIVE_ASHARA_YEAR` (1448, not yet posted); no cue → most-recent-available. If the resolved year has no content, the tool returns `not_available` **with** `available_year` + last year's content, and the agent says "1448H isn't posted yet — here's last year (1447H): …" — it never relabels one year's content as another's. Every answer states the concrete year.
+
 **Query routing** (the tool inspects the query and returns an `answer_style`):
 
 | Intent | Trigger | Returns |
