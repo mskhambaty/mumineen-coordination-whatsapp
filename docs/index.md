@@ -18,6 +18,7 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 | [ashara-religious-content.md](./ashara-religious-content.md) | Waaz Talaqi: per-majlis content model, `/admin/ashara` dashboard, daily seed + Lisan translate, theme index, answer routing & length budget |
 | [ollama-ab-testing.md](./ollama-ab-testing.md) | Ollama cloud A/B testing page for model comparison |
 | [permissions.md](./permissions.md) | User roles (`visitor`, `committee`, `admin`), tool access matrix |
+| [access-control.md](./access-control.md) | **Canonical portal role × page matrix** — who can see/do what on each `/admin` page, and the access tiers |
 | [database.md](./database.md) | Supabase schema: all tables, RLS policies, migrations |
 | [site-scraper.md](./site-scraper.md) | Daily site scrape, embedding pipeline, RAG retrieval |
 | [environment.md](./environment.md) | All environment variables, aliases, Vercel setup |
@@ -48,7 +49,9 @@ src/lib/ai/model.ts                      — Central OpenAI model/client configu
 src/lib/email/postmark.ts                — Postmark email service
 src/lib/issues/notify.ts                 — Department issue-contact email + WhatsApp template notifications
 src/lib/agent/tools.ts                   — Tool definitions + execution
-src/lib/permissions.ts                   — Role types + canUseTool()
+src/lib/permissions.ts                   — Agent tool roles + canUseTool()
+src/lib/admin/access.ts                  — Portal page/route access predicates (see docs/access-control.md)
+src/components/admin/AdminNav.tsx        — Portal nav + per-link access tiers
 src/lib/supabase/server.ts               — All Supabase operations
 src/lib/meta/whatsapp.ts                 — Meta Graph API calls + signature verification
 src/lib/whatsapp/send-template.ts        — Standardized template-send pipeline (resolve→validate→send→log) for all notifications

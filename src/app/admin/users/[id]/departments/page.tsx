@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type Membership = {
@@ -34,7 +34,7 @@ export default function UserDepartmentsPage() {
       router.push("/admin/login");
       return;
     }
-    if (!isAdminOrLeadership(currentUser)) {
+    if (!canAccessPortal(currentUser)) {
       router.push("/admin/conversations");
       return;
     }

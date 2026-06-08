@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 
@@ -9,7 +9,7 @@ const MEMBER_SELECT =
 
 // GET: list escalation/support members with their user info and on-call hours.
 export async function GET(req: NextRequest) {
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
 
   const { data, error } = await getSupabaseAdmin()
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
 
 // POST: add an existing user to the support team (membership = role assignment).
 export async function POST(req: NextRequest) {
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
 
   const body = (await req.json().catch(() => ({}))) as { user_id?: unknown; department_id?: unknown };

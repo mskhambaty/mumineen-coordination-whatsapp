@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { canAccessPortal } from "@/lib/admin/access";
 import { ForbiddenError, resolveCallerFromRequest } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -9,8 +10,8 @@ export async function PUT(
 ) {
   try {
     const caller = await resolveCallerFromRequest(req);
-    if (!caller.can_write_all) {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    if (!caller.can_write_all && !canAccessPortal(caller.portal)) {
+      return NextResponse.json({ error: "Portal access required" }, { status: 403 });
     }
 
     const { id } = await params;
@@ -48,8 +49,8 @@ export async function DELETE(
 ) {
   try {
     const caller = await resolveCallerFromRequest(req);
-    if (!caller.can_write_all) {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    if (!caller.can_write_all && !canAccessPortal(caller.portal)) {
+      return NextResponse.json({ error: "Portal access required" }, { status: 403 });
     }
 
     const { id } = await params;

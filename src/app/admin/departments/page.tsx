@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type Department = {
@@ -77,7 +77,7 @@ export default function DepartmentsPage() {
       return;
     }
 
-    if (!isAdminOrLeadership(currentUser)) {
+    if (!canAccessPortal(currentUser)) {
       router.push("/admin/conversations");
       return;
     }

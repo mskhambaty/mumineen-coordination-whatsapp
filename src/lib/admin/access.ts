@@ -16,14 +16,30 @@ export function isAdminOrLeadership(user: PortalUser | null | undefined) {
 // all. Any user that was *added as a portal user* qualifies — role "committee"
 // or "admin" — even if they aren't assigned to any department yet. Visitors are
 // the public/mumineen and must never reach internal portal data, so they are
-// excluded here regardless of any other flag. Per-feature access (inbox, tasks,
-// parking, etc.) is still gated by the more specific predicates below.
+// excluded here regardless of any other flag.
+//
+// This is also the **baseline "internal staff" tier**: most coordination
+// surfaces (Home analytics, the Mumineen roster/registration/parking views, the
+// Workspace task/milestone pages, and Member Management) are open to every
+// portal user. The few exceptions stay on the tighter predicates below
+// (isAdminOrLeadership for Messaging/Prompts/heavy-PII writes, canManageKnowledge
+// for the AI-agent knowledge tools, canManageParking for parking writes/export).
+// See docs/access-control.md for the canonical role × page matrix.
 export function canAccessPortal(user: PortalUser | null | undefined): boolean {
   return user?.role === "committee" || user?.role === "admin";
 }
 
-// Who may open the Mumineen roster page: admins/leadership plus IT department members.
+// Mumineen roster page + reads + routine corrections: any portal user.
+// Heavy roster writes stay tighter — bulk import via canImportMumineen, and
+// full-roster CSV export / member create / registration-gate control remain
+// isAdminOrLeadership at their routes.
 export function canAccessMumineen(user: PortalUser | null | undefined) {
+  return canAccessPortal(user);
+}
+
+// Bulk roster spreadsheet import (overwrites many rows of PII): admins/leadership
+// plus IT department members. Deliberately NOT opened to all portal users.
+export function canImportMumineen(user: PortalUser | null | undefined) {
   return isAdminOrLeadership(user) || user?.is_it === true;
 }
 
@@ -32,38 +48,41 @@ export function canAccessInbox(user: PortalUser | null | undefined) {
   return isAdminOrLeadership(user) || user?.is_support === true;
 }
 
-// Who may upload FAQ/guide documents: admins/leadership plus department PM/HOD.
+// AI-agent knowledge tools (Knowledge Base, Knowledge Gaps, Ashara Daily
+// Content) + FAQ/religious content editors: admins/leadership plus department
+// PM/HOD. Intentionally kept at PM/HOD (not opened to all portal users).
 export function canManageKnowledge(user: PortalUser | null | undefined) {
   return isAdminOrLeadership(user) || user?.is_manager === true;
 }
 
-// Internal PM tools (tasks, milestones, transcript uploads): admins/leadership plus department
-// PM/HOD — the nav's "manage" level. Plain internal members get Registration Analytics + Profile only.
+// Workspace pages (Tasks, Milestones, Upload Transcripts, Daily Digest): open to
+// every portal user. The page is visible to all; the data routes scope content
+// to the caller's own departments (a deptless user simply sees empty lists), and
+// task/milestone *writes* are still governed by dept role in those routes.
 export function canManageInternalTools(user: PortalUser | null | undefined) {
-  return isAdminOrLeadership(user) || user?.is_manager === true;
+  return canAccessPortal(user);
 }
 
-// Who may open the Registration Analytics page: admins/leadership plus any internal user
-// (assigned to a department) — regular team members shouldn't need manager permissions for it.
-// is_manager/is_it kept as fallbacks for sessions stored before is_internal existed.
+// Registration Analytics + Daily Digest + Accommodations: any portal user.
+// (Drill-down detail and per-segment CSV live under the same gate.)
 export function canViewRegistrations(user: PortalUser | null | undefined) {
-  return isAdminOrLeadership(user) || user?.is_internal === true || user?.is_manager === true || user?.is_it === true;
+  return canAccessPortal(user);
 }
 
 // Parking pass tool — full write (assign/revoke/edit lots/export CSV):
-// admins/leadership, IT members, or Transport department members.
+// admins/leadership, IT members, or Transport department members. Heavy writes
+// over household PII stay on this tier.
 export function canManageParking(user: PortalUser | null | undefined) {
   return isAdminOrLeadership(user) || user?.is_it === true || user?.is_transport === true;
 }
 
-// Parking pass tool — read-only additionally for managers (PM/HOD) of any department.
-// No export, no writes for the view-only tier.
+// Parking pass tool — read-only view: any portal user. Writes still require
+// canManageParking.
 export function canViewParking(user: PortalUser | null | undefined) {
-  return canManageParking(user) || user?.is_manager === true;
+  return canAccessPortal(user);
 }
 
-// Accommodations module — same access as parking (admin/leadership, IT, Transport, or manager read-only).
+// Accommodations module — host/guest views + matching: any portal user.
 export function canManageAccommodations(user: PortalUser | null | undefined) {
   return canViewRegistrations(user);
 }
-

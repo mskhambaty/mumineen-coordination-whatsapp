@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type Tally = { responded_families: number; yes_count: number; total_head_count: number };
@@ -119,7 +119,7 @@ export default function NiyazPage() {
       router.push("/admin/login");
       return;
     }
-    if (!isAdminOrLeadership(user)) {
+    if (!canAccessPortal(user)) {
       router.push("/admin/conversations");
       return;
     }

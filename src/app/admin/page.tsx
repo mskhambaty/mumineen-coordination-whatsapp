@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type Department = { id: string; name: string };
@@ -101,8 +101,8 @@ export default function AnalyticsPage() {
       return;
     }
 
-    if (!isAdminOrLeadership(user)) {
-      router.push("/admin/tasks");
+    if (!canAccessPortal(user)) {
+      router.push("/admin/login");
       return;
     }
 

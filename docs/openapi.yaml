@@ -2,7 +2,11 @@ openapi: 3.1.0
 info:
   title: Anjuman e Saifee Coordination API
   version: 1.0.0
-  description: API-first contract for the WhatsApp coordination portal, agent tools, admin dashboard, transcript parser, and task workflows.
+  description: >-
+    API-first contract for the WhatsApp coordination portal, agent tools, admin dashboard,
+    transcript parser, and task workflows. For which account/department role may call each
+    admin route (the role × page matrix and access tiers), see docs/access-control.md — it is
+    the canonical source; per-path prose here summarizes it.
 servers:
   - url: /api
 security:
@@ -156,6 +160,10 @@ paths:
     post:
       tags: [users]
       summary: Create a portal user.
+      description: >-
+        Any portal user (committee or admin) may create users. Only admin/leadership may
+        create a user holding the Admin/Leadership account role (role=admin or
+        global_role=leadership_admin) — otherwise 403.
       security: [{ portalSession: [] }, { adminKey: [] }]
       requestBody:
         required: true
@@ -166,6 +174,7 @@ paths:
         "201": { description: Created user. }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "500": { $ref: "#/components/responses/ServerError" }
   /admin/users/{id}:
     get:
@@ -181,6 +190,11 @@ paths:
     put:
       tags: [users]
       summary: Update one user.
+      description: >-
+        Any portal user (committee or admin) may edit users. Only admin/leadership may grant,
+        change, or modify the Admin/Leadership account role — a non-admin caller that tries to
+        promote a user to admin/leadership, or to edit a user who already holds it, gets 403.
+        DELETE on this path remains admin/leadership only.
       security: [{ portalSession: [] }, { adminKey: [] }]
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
@@ -192,6 +206,7 @@ paths:
         "200": { description: Updated user. }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/ServerError" }
   /admin/users/{id}/departments:

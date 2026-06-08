@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 
@@ -12,7 +12,7 @@ const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 // DELETE: remove a support member (cascades their on-call hours).
 export async function DELETE(req: NextRequest, { params }: RouteContext) {
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
@@ -31,7 +31,7 @@ export async function DELETE(req: NextRequest, { params }: RouteContext) {
 // PATCH: reassign a member to a different department (or null = general fallback).
 // Keeps their on-call hours intact.
 export async function PATCH(req: NextRequest, { params }: RouteContext) {
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
@@ -60,7 +60,7 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
 
 // PUT: replace a member's on-call hours with the provided weekly ranges.
 export async function PUT(req: NextRequest, { params }: RouteContext) {
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
