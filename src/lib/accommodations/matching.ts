@@ -96,8 +96,8 @@ export function scoreMatch(
 export async function suggestMatches(opts?: ScoringOptions): Promise<MatchSuggestion[]> {
   const [guests, hosts] = await Promise.all([buildGuestRollups(), buildHostRollups()]);
 
-  // Only unmatched guests (no pending or confirmed match)
-  const unmatchedGuests = guests.filter((g) => g.current_match_status == null);
+  // Only unmatched guests with attending members
+  const unmatchedGuests = guests.filter((g) => g.current_match_status == null && g.attending_count > 0);
 
   // Sort guests by submitted_at for FIFO ranking
   const sortedGuests = [...unmatchedGuests].sort((a, b) => {
@@ -145,7 +145,7 @@ export type AllocationResult = {
 export async function suggestBestAllocation(opts?: ScoringOptions): Promise<AllocationResult> {
   const [guests, hosts] = await Promise.all([buildGuestRollups(), buildHostRollups()]);
 
-  const unmatchedGuests = guests.filter((g) => g.current_match_status == null);
+  const unmatchedGuests = guests.filter((g) => g.current_match_status == null && g.attending_count > 0);
 
   // Sort smallest families first to maximize families matched (bin-packing heuristic)
   const sortedGuests = [...unmatchedGuests].sort((a, b) => a.attending_count - b.attending_count);

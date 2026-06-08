@@ -114,8 +114,34 @@ const SECTIONS = [
   { id: "accommodation", num: "03", label: "Accommodation" },
   { id: "travel", num: "04", label: "Transport & Travel" },
   { id: "khidmat", num: "05", label: "Khidmat" },
-  { id: "followup", num: "06", label: "Follow-up" },
+  { id: "estimates", num: "06", label: "Estimates" },
+  { id: "followup", num: "07", label: "Follow-up" },
 ];
+
+// ─── Estimates types ──────────────────────────────────────────────────────────
+
+type EstimateSlice = {
+  parking: {
+    local_passes: number;
+    mehman_rental_passes: number;
+    total: number;
+    rahat_analysis: {
+      local_all_over65: number;
+      mehman_over65_rental: number;
+    };
+  };
+  thaals: {
+    rahat_people: number;
+    rahat_thaals: number;
+    non_rahat_people: number;
+    non_rahat_thaals: number;
+    total_people: number;
+    total_thaals: number;
+    wheelchair_people: number;
+  };
+};
+
+type Estimates = { current: EstimateSlice; forecast: EstimateSlice };
 
 // ─── Detail panel ─────────────────────────────────────────────────────────────
 
@@ -699,6 +725,7 @@ export default function RegistrationAnalyticsPage() {
   const [data, setData] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [estimates, setEstimates] = useState<Estimates | null>(null);
 
   const [filters, setFilters] = useState<Filters>({ local_mehman: "", status: "", attending: "" });
   const [detail, setDetail] = useState<DetailRequest | null>(null);
@@ -747,6 +774,10 @@ export default function RegistrationAnalyticsPage() {
     if (!canViewRegistrations(user)) { router.push("/admin/conversations"); return; }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load(filters);
+    apiFetch("/api/admin/registration-analytics/estimates")
+      .then((r) => r.json())
+      .then((d) => setEstimates(d as Estimates))
+      .catch(() => null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
@@ -1367,10 +1398,147 @@ export default function RegistrationAnalyticsPage() {
               </Masonry>
             </SectionBand>
 
-            {/* ════ 06 Follow-up ════ */}
+            {/* ════ 06 Estimates ════ */}
+            <SectionBand
+              id="estimates"
+              num="06"
+              title="Estimates"
+              team="Logistics · Planning"
+              pills={estimates ? (
+                <>
+                  <Pill value={estimates.forecast.parking.total} label="projected passes" />
+                  <Pill value={estimates.forecast.thaals.total_thaals} label="projected thaals" />
+                </>
+              ) : undefined}
+            >
+              {!estimates ? (
+                <p className="pt-4 text-sm text-gray-400">Loading estimates…</p>
+              ) : (
+                <Masonry>
+                  {/* ── Parking Passes ── */}
+                  <SectionCard title="Parking Passes">
+                    <div className="mb-3 grid grid-cols-3 gap-x-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      <span />
+                      <span className="text-right">Current</span>
+                      <span className="text-right">Forecast</span>
+                    </div>
+                    <div className="space-y-1.5 text-sm">
+                      {[
+                        { label: "Local families", cur: estimates.current.parking.local_passes, fore: estimates.forecast.parking.local_passes, note: "" },
+                        { label: "Mehman rental car", cur: estimates.current.parking.mehman_rental_passes, fore: estimates.forecast.parking.mehman_rental_passes, note: "extrapolated from registration rate" },
+                      ].map((row) => (
+                        <div key={row.label} className="grid grid-cols-3 gap-x-3">
+                          <span className="text-gray-600 dark:text-gray-400">
+                            {row.label}
+                            {row.note && <span className="ml-1 block text-[10px] text-gray-400">{row.note}</span>}
+                          </span>
+                          <span className="text-right tabular-nums text-gray-800 dark:text-gray-200">{row.cur.toLocaleString()}</span>
+                          <span className="text-right tabular-nums text-gray-500 dark:text-gray-400">{row.fore.toLocaleString()}</span>
+                        </div>
+                      ))}
+                      <div className="grid grid-cols-3 gap-x-3 border-t border-gray-200 pt-2 dark:border-gray-700">
+                        <span className="font-semibold text-gray-900 dark:text-white">Total passes</span>
+                        <span className="text-right text-lg font-bold tabular-nums text-blue-600 dark:text-blue-400">{estimates.current.parking.total.toLocaleString()}</span>
+                        <span className="text-right text-lg font-bold tabular-nums text-gray-500 dark:text-gray-400">{estimates.forecast.parking.total.toLocaleString()}</span>
+                      </div>
+                    </div>
+
+                    {/* Rahat analysis */}
+                    <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800/40 dark:bg-amber-950/20">
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                        Rahat Pass Analysis <span className="font-normal normal-case">(pending confirmation)</span>
+                      </p>
+                      <div className="mb-1 grid grid-cols-3 gap-x-3 text-xs font-semibold uppercase tracking-wide text-amber-600/70 dark:text-amber-500/70">
+                        <span />
+                        <span className="text-right">Current</span>
+                        <span className="text-right">Forecast</span>
+                      </div>
+                      <div className="space-y-1.5 text-sm">
+                        {[
+                          {
+                            label: "Local families — all members > 65",
+                            cur: estimates.current.parking.rahat_analysis.local_all_over65,
+                            fore: estimates.forecast.parking.rahat_analysis.local_all_over65,
+                          },
+                          {
+                            label: "Mehman families — over 65 + rental",
+                            cur: estimates.current.parking.rahat_analysis.mehman_over65_rental,
+                            fore: estimates.forecast.parking.rahat_analysis.mehman_over65_rental,
+                          },
+                        ].map((row) => (
+                          <div key={row.label} className="grid grid-cols-3 gap-x-3">
+                            <span className="text-amber-800 dark:text-amber-300">{row.label}</span>
+                            <span className="text-right tabular-nums text-amber-900 dark:text-amber-200">{row.cur.toLocaleString()}</span>
+                            <span className="text-right tabular-nums text-amber-700 dark:text-amber-400">{row.fore.toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </SectionCard>
+
+                  {/* ── Mawaid Thaals ── */}
+                  <SectionCard title="Mawaid Thaals (÷ 8)">
+                    <div className="mb-3 grid grid-cols-3 gap-x-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      <span />
+                      <span className="text-right">Current</span>
+                      <span className="text-right">Forecast</span>
+                    </div>
+                    <div className="space-y-3 text-sm">
+                      {/* Rahat block */}
+                      <div className="rounded-lg bg-emerald-50 p-3 dark:bg-emerald-950/20">
+                        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">Rahat</p>
+                        <div className="space-y-1">
+                          {[
+                            { label: "People", cur: estimates.current.thaals.rahat_people, fore: estimates.forecast.thaals.rahat_people },
+                            { label: "Thaals", cur: estimates.current.thaals.rahat_thaals, fore: estimates.forecast.thaals.rahat_thaals, bold: true },
+                          ].map((row) => (
+                            <div key={row.label} className={`grid grid-cols-3 gap-x-3 ${row.bold ? "font-semibold" : ""}`}>
+                              <span className="text-emerald-800 dark:text-emerald-300">{row.label}</span>
+                              <span className="text-right tabular-nums text-emerald-900 dark:text-emerald-200">{row.cur.toLocaleString()}</span>
+                              <span className="text-right tabular-nums text-emerald-700 dark:text-emerald-400">{row.fore.toLocaleString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Non-rahat block */}
+                      <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50">
+                        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Non-Rahat</p>
+                        <div className="space-y-1">
+                          {[
+                            { label: "People", cur: estimates.current.thaals.non_rahat_people, fore: estimates.forecast.thaals.non_rahat_people },
+                            { label: "Thaals", cur: estimates.current.thaals.non_rahat_thaals, fore: estimates.forecast.thaals.non_rahat_thaals, bold: true },
+                          ].map((row) => (
+                            <div key={row.label} className={`grid grid-cols-3 gap-x-3 ${row.bold ? "font-semibold" : ""}`}>
+                              <span className="text-gray-600 dark:text-gray-400">{row.label}</span>
+                              <span className="text-right tabular-nums text-gray-800 dark:text-gray-200">{row.cur.toLocaleString()}</span>
+                              <span className="text-right tabular-nums text-gray-500 dark:text-gray-400">{row.fore.toLocaleString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Total */}
+                      <div className="grid grid-cols-3 gap-x-3 border-t border-gray-200 pt-2 dark:border-gray-700">
+                        <span className="font-semibold text-gray-900 dark:text-white">Total thaals</span>
+                        <span className="text-right text-lg font-bold tabular-nums text-blue-600 dark:text-blue-400">{estimates.current.thaals.total_thaals.toLocaleString()}</span>
+                        <span className="text-right text-lg font-bold tabular-nums text-gray-500 dark:text-gray-400">{estimates.forecast.thaals.total_thaals.toLocaleString()}</span>
+                      </div>
+                      <p className="text-xs text-gray-400">
+                        {estimates.current.thaals.total_people.toLocaleString()} attending now ·{" "}
+                        {estimates.forecast.thaals.total_people.toLocaleString()} projected ·{" "}
+                        {estimates.current.thaals.wheelchair_people} wheelchair (current)
+                      </p>
+                    </div>
+                  </SectionCard>
+                </Masonry>
+              )}
+            </SectionBand>
+
+            {/* ════ 07 Follow-up ════ */}
             <SectionBand
               id="followup"
-              num="06"
+              num="07"
               title="Data Follow-up"
               team="Follow-up · IT"
               pills={<Pill value={missingTotal + dataQualityTotal} label="records need follow-up" warn={missingTotal + dataQualityTotal > 0} />}

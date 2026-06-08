@@ -1,0 +1,209 @@
+import { NextRequest, NextResponse } from "next/server";
+
+import { canViewRegistrations } from "@/lib/admin/access";
+import { requirePortalCaller } from "@/lib/api/portal-auth";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
+
+export const runtime = "nodejs";
+
+type MuminRow = {
+  hof_its: string;
+  is_head: boolean;
+  local_mehman: string | null;
+  age: number | null;
+  rahat_seating: boolean | null;
+  wheelchair: boolean | null;
+  not_attending: boolean | null;
+};
+
+type FamilyRow = {
+  hof_its: string;
+  registration_status: string | null;
+  transport_mode: string | null;
+  acc_type: string | null;
+  utaro_host_its: string | null;
+};
+
+const PAGE = 1000;
+async function fetchAll<T>(
+  buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null }>,
+): Promise<T[]> {
+  const all: T[] = [];
+  let start = 0;
+  for (;;) {
+    const { data } = await buildQuery(start, start + PAGE - 1);
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < PAGE) break;
+    start += PAGE;
+  }
+  return all;
+}
+
+// Parking passes for a local family: 1 base + 1 for every additional 5 people
+// e.g. 1-5 → 1, 6-10 → 2, 11-15 → 3
+function localFamilyPasses(attendingCount: number): number {
+  return Math.ceil(Math.max(attendingCount, 1) / 5);
+}
+
+export async function GET(req: NextRequest) {
+  const auth = await requirePortalCaller(req, canViewRegistrations);
+  if (auth instanceof NextResponse) return auth;
+
+  const supabase = getSupabaseAdmin();
+
+  const [allMembers, allFams] = await Promise.all([
+    fetchAll<MuminRow>((from, to) =>
+      supabase
+        .from("mumineen")
+        .select("hof_its, is_head, local_mehman, age, rahat_seating, wheelchair, not_attending")
+        .eq("roster_active", true)
+        .range(from, to),
+    ),
+    fetchAll<FamilyRow>((from, to) =>
+      supabase
+        .from("families")
+        .select("hof_its, registration_status, transport_mode, acc_type, utaro_host_its")
+        .eq("roster_active", true)
+        .range(from, to),
+    ),
+  ]);
+
+  // Determine local_mehman per family (HOF first, fallback to any member)
+  const hofType = new Map<string, string>();
+  for (const m of allMembers) {
+    if (m.is_head && m.local_mehman) hofType.set(m.hof_its, m.local_mehman);
+  }
+  for (const m of allMembers) {
+    if (!hofType.has(m.hof_its) && m.local_mehman) hofType.set(m.hof_its, m.local_mehman);
+  }
+
+  // Per-family attending counts and accessibility flags
+  type FamStats = {
+    attending: number;
+    over65: number;       // attending members aged > 65
+    rahat: number;        // attending members with rahat_seating = true
+    wheelchair: number;   // attending members with wheelchair = true
+  };
+  const famStats = new Map<string, FamStats>();
+  for (const m of allMembers) {
+    if (m.not_attending === true) continue;
+    const s = famStats.get(m.hof_its) ?? { attending: 0, over65: 0, rahat: 0, wheelchair: 0 };
+    s.attending++;
+    if ((m.age ?? 0) > 65) s.over65++;
+    if (m.rahat_seating === true) s.rahat++;
+    if (m.wheelchair === true) s.wheelchair++;
+    famStats.set(m.hof_its, s);
+  }
+
+  const isRegistered = (status: string | null) =>
+    status === "submitted" || status === "confirmed";
+
+  // Pre-compute Mehman rental rate from registered families so the forecast can extrapolate.
+  // Unregistered Mehman have null transport_mode, so we can't count them directly.
+  const registeredMehmanTotal = allFams.filter(
+    (f) => isRegistered(f.registration_status) && hofType.get(f.hof_its) === "Mehman",
+  ).length;
+  const registeredMehmanRental = allFams.filter(
+    (f) => isRegistered(f.registration_status) && hofType.get(f.hof_its) === "Mehman" && f.transport_mode === "rental",
+  ).length;
+  const mehmanRentalRate = registeredMehmanTotal > 0 ? registeredMehmanRental / registeredMehmanTotal : 0;
+  const totalMehmanFamilies = allFams.filter((f) => hofType.get(f.hof_its) === "Mehman").length;
+
+  function computeEstimates(fams: FamilyRow[], isForecast = false) {
+    let localPasses = 0;
+    let mehmanRentalPasses = 0;
+    let rahatLocalAllOver65 = 0;    // local families where every attending member is > 65
+    let rahatMehmanOver65Rental = 0; // Mehman families: rental + at least one > 65
+
+    let rahatPeople = 0;
+    let nonRahatPeople = 0;
+    let wheelchairPeople = 0;
+
+    // Map host ITS → Mehman guest families staying with them (within this fams scope).
+    // Only Mehman families that have reported a utaro host contribute.
+    const hostGuests = new Map<string, FamilyRow[]>();
+    for (const f of fams) {
+      if (f.acc_type === "utaro" && f.utaro_host_its) {
+        const key = f.utaro_host_its.trim();
+        if (!hostGuests.has(key)) hostGuests.set(key, []);
+        hostGuests.get(key)!.push(f);
+      }
+    }
+
+    for (const f of fams) {
+      const type = hofType.get(f.hof_its);
+      const s = famStats.get(f.hof_its) ?? { attending: 0, over65: 0, rahat: 0, wheelchair: 0 };
+
+      // Parking
+      if (type === "Local") {
+        // Effective headcount = own members + non-rental Mehman guests.
+        // Guests with rental car already have their own pass and drive themselves.
+        let effectiveCount = s.attending;
+        for (const guest of hostGuests.get(f.hof_its) ?? []) {
+          if (guest.transport_mode !== "rental") {
+            effectiveCount += famStats.get(guest.hof_its)?.attending ?? 0;
+          }
+        }
+        localPasses += localFamilyPasses(effectiveCount);
+        if (s.attending > 0 && s.attending === s.over65) rahatLocalAllOver65++;
+      } else if (type === "Mehman") {
+        // For forecast: extrapolate rental passes using the registered rental rate.
+        // For current: only count families that have actually chosen rental.
+        if (isForecast || f.transport_mode === "rental") {
+          if (!isForecast) {
+            mehmanRentalPasses++;
+            if (s.over65 > 0) rahatMehmanOver65Rental++;
+          }
+        }
+      }
+
+      // Thaals (all families)
+      rahatPeople += s.rahat;
+      nonRahatPeople += s.attending - s.rahat;
+      wheelchairPeople += s.wheelchair;
+    }
+
+    // For forecast, apply the rental rate to the full Mehman roster
+    if (isForecast) {
+      mehmanRentalPasses = Math.round(mehmanRentalRate * totalMehmanFamilies);
+      // Extrapolate rahat Mehman rental proportionally from current
+      const rahatRentalRate = registeredMehmanRental > 0 ? rahatMehmanOver65Rental / registeredMehmanRental : 0;
+      // rahatMehmanOver65Rental is still 0 here (not counted in loop for forecast), compute from rate
+      const currentRahatMehmanRental = allFams
+        .filter((f) => isRegistered(f.registration_status) && hofType.get(f.hof_its) === "Mehman" && f.transport_mode === "rental")
+        .filter((f) => (famStats.get(f.hof_its)?.over65 ?? 0) > 0).length;
+      rahatMehmanOver65Rental = Math.round(rahatRentalRate > 0
+        ? rahatRentalRate * mehmanRentalPasses
+        : currentRahatMehmanRental * (totalMehmanFamilies / Math.max(registeredMehmanTotal, 1)));
+    }
+
+    return {
+      parking: {
+        local_passes: localPasses,
+        mehman_rental_passes: mehmanRentalPasses,
+        total: localPasses + mehmanRentalPasses,
+        rahat_analysis: {
+          local_all_over65: rahatLocalAllOver65,
+          mehman_over65_rental: rahatMehmanOver65Rental,
+        },
+      },
+      thaals: {
+        rahat_people: rahatPeople,
+        rahat_thaals: Math.ceil(rahatPeople / 8),
+        non_rahat_people: nonRahatPeople,
+        non_rahat_thaals: Math.ceil(nonRahatPeople / 8),
+        total_people: rahatPeople + nonRahatPeople,
+        total_thaals: Math.ceil((rahatPeople + nonRahatPeople) / 8),
+        wheelchair_people: wheelchairPeople,
+      },
+    };
+  }
+
+  const registeredFams = allFams.filter((f) => isRegistered(f.registration_status));
+
+  return NextResponse.json({
+    current: computeEstimates(registeredFams, false),
+    forecast: computeEstimates(allFams, true),
+  });
+}
