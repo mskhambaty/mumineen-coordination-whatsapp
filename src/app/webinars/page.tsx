@@ -104,6 +104,10 @@ export default function WebinarsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
+    // One-time client-only init from localStorage/sessionStorage — must run in an effect
+    // (reading them during render would cause a hydration mismatch), so the synchronous
+    // setState here is intentional.
+    /* eslint-disable react-hooks/set-state-in-effect */
     const user = readAdminUser();
     const admin = isAdminOrLeadership(user);
     setIsAdmin(admin);
@@ -127,6 +131,7 @@ export default function WebinarsPage() {
       // ignore
     }
     setVerified(false);
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   useEffect(() => {
