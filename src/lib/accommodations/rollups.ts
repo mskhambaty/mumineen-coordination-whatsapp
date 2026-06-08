@@ -170,7 +170,7 @@ export async function buildGuestRollups(): Promise<GuestRow[]> {
     membersByHof.set(m.hof_its, list);
   }
 
-  return families.map((f) => {
+  const rows = families.map((f) => {
     const members = membersByHof.get(f.hof_its) ?? [];
     const attending = members.filter((m) => !m.not_attending);
     const ages = attending.map((m) => m.age).filter((a): a is number => a != null);
@@ -197,6 +197,20 @@ export async function buildGuestRollups(): Promise<GuestRow[]> {
       current_match_status: matchByFamily.get(f.id) ?? null,
     };
   });
+
+  // Sort: submitted_at ASC, then status (matched last), then name
+  const statusOrder = (s: string | null) => s === "confirmed" ? 2 : s === "pending" ? 1 : 0;
+  rows.sort((a, b) => {
+    const aTime = a.submitted_at ? new Date(a.submitted_at).getTime() : Infinity;
+    const bTime = b.submitted_at ? new Date(b.submitted_at).getTime() : Infinity;
+    if (aTime !== bTime) return aTime - bTime;
+    const aStatus = statusOrder(a.current_match_status);
+    const bStatus = statusOrder(b.current_match_status);
+    if (aStatus !== bStatus) return aStatus - bStatus;
+    return (a.head_name ?? "").localeCompare(b.head_name ?? "");
+  });
+
+  return rows;
 }
 
 // --- Host Rollups ---
