@@ -3,10 +3,10 @@ import type OpenAI from "openai";
 import { canUseTool, canUseTaskToolForCaller, publicTools, committeeTools, taskReadTools, taskWriteTools, taskCreateTools, leadershipTools, type AppUser } from "@/lib/permissions";
 import { retrieveReligiousContext, retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
 import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
-import { DEFAULT_ACTIVE_YEAR } from "@/lib/knowledge/ashara-config";
+import { ACTIVE_ASHARA_YEAR, LAST_COMPLETED_ASHARA_YEAR, resolveAsharaYear } from "@/lib/knowledge/ashara-config";
 import {
   availableFacets,
-  findMajlisReflection,
+  findMajlisForRef,
   isDeepQuery,
   isOverviewQuery,
   listMajlisThemes,
@@ -604,46 +604,77 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       );
     case "answer_religious_questions": {
       const query = String(args.query ?? "Ashara majlis Vaaz Talaqi Iqtibasaat");
+      const today = new Date().toISOString().slice(0, 10);
+      // Resolve "this year / today / last year / 1447" to a concrete event year (removes the
+      // 1447↔1448 ambiguity). cue "none" → fall back to the most recent COMPLETED Ashara.
+      const yr = resolveAsharaYear(query, today);
+      const renderHits = (hits: { title: string; content: string; source_url: string | null; theme?: string | null }[]) =>
+        hits.map((t) => `[${t.title}${t.source_url ? ` — Source: ${t.source_url}` : ""}]\n${t.theme ? `Theme: ${t.theme}\n` : ""}${t.content}`).join("\n\n---\n\n");
 
       // 1. Overview intent ("topics of all majalis", "compare") → compact theme list, no full blocks.
       if (isOverviewQuery(query)) {
-        const ym = query.match(/\b(14\d\d)\s*h?\b/i);
-        const year = ym ? ym[1] : DEFAULT_ACTIVE_YEAR;
+        const year = yr.year ?? LAST_COMPLETED_ASHARA_YEAR;
         const themes = await listMajlisThemes(year);
-        if (!themes.length) {
-          return { status: "not_available", answer_style: "overview", year,
-            context: `No indexed majlis themes for Ashara ${year}H yet.` };
+        if (themes.length) {
+          return {
+            status: "ok", source: "religious_overview", answer_style: "overview", year,
+            context: `Majlis themes — Ashara ${year}H:\n` + themes.map((t) => `- ${t.majlisLabel}: ${t.theme}`).join("\n"),
+          };
         }
-        return {
-          status: "ok", source: "religious_overview", answer_style: "overview",
-          context: `Majlis themes — Ashara ${year}H:\n` + themes.map((t) => `- ${t.majlisLabel}: ${t.theme}`).join("\n"),
-        };
+        // Requested year has nothing yet — offer the most recent completed year instead.
+        const altThemes = year !== LAST_COMPLETED_ASHARA_YEAR ? await listMajlisThemes(LAST_COMPLETED_ASHARA_YEAR) : [];
+        if (altThemes.length) {
+          return {
+            status: "not_available", answer_style: "overview", requested_year: year, available_year: LAST_COMPLETED_ASHARA_YEAR,
+            context: `Ashara ${year}H has not taken place yet / is not posted. Tell the user that, then give last year's (Ashara ${LAST_COMPLETED_ASHARA_YEAR}H) overview:\nMajlis themes — Ashara ${LAST_COMPLETED_ASHARA_YEAR}H:\n` + altThemes.map((t) => `- ${t.majlisLabel}: ${t.theme}`).join("\n"),
+          };
+        }
+        return { status: "not_available", answer_style: "overview", year, context: `No indexed majlis themes for Ashara ${year}H yet.` };
       }
 
       // 2. Specific majlis ("Majlis 2", "second waaz", "4th Muharram") → exact block(s).
       // (Structured lookup beats vector search, which mis-ranks majlis ordinals.)
       const ref = parseMajlisRef(query);
       if (ref) {
-        const hits = await findMajlisReflection(query);
-        const facets = await availableFacets(ref);
+        // Year precedence: explicit/relative resolver → in-query year → null (most recent).
+        const targetYear = yr.year ?? ref.year ?? null;
+        const targetRef = { ...ref, year: targetYear };
+        const hits = await findMajlisForRef(targetRef);
         if (hits.length) {
+          const hitYear = hits[0].year_hijri ?? targetYear ?? null;
+          const facets = await availableFacets({ ...ref, year: hitYear });
           return {
             status: "ok",
             source: "religious_topic_exact",
             answer_style: isDeepQuery(query) ? "deep" : "brief",
+            year: hitYear ?? undefined,
             available_facets: facets,
-            context: hits
-              .map((t) => `[${t.title}${t.source_url ? ` — Source: ${t.source_url}` : ""}]\n${t.theme ? `Theme: ${t.theme}\n` : ""}${t.content}`)
-              .join("\n\n---\n\n"),
+            context: renderHits(hits),
           };
         }
-        // Named a majlis but nothing indexed for that year → never fabricate.
+        // Not available for the requested year — is it available for the last completed year?
+        const requestedYear = targetYear ?? ACTIVE_ASHARA_YEAR;
+        if (requestedYear !== LAST_COMPLETED_ASHARA_YEAR) {
+          const altRef = { ...ref, year: LAST_COMPLETED_ASHARA_YEAR };
+          const altHits = await findMajlisForRef(altRef);
+          if (altHits.length) {
+            const facets = await availableFacets(altRef);
+            return {
+              status: "not_available",
+              answer_style: isDeepQuery(query) ? "deep" : "brief",
+              requested_year: requestedYear,
+              available_year: LAST_COMPLETED_ASHARA_YEAR,
+              available_facets: facets,
+              context: `Ashara ${requestedYear}H has not taken place yet / is not posted. Tell the user that plainly, then answer from last year (Ashara ${LAST_COMPLETED_ASHARA_YEAR}H), clearly labelled as that year:\n\n` + renderHits(altHits),
+            };
+          }
+        }
         return {
           status: "not_available",
           answer_style: "brief",
-          year: ref.year ?? DEFAULT_ACTIVE_YEAR,
-          available_facets: facets,
-          context: `No indexed content for that majlis in Ashara ${ref.year ?? DEFAULT_ACTIVE_YEAR}H yet.`,
+          year: requestedYear,
+          available_facets: [],
+          context: `No indexed content for that majlis in Ashara ${requestedYear}H yet.`,
         };
       }
 

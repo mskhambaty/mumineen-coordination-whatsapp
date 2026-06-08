@@ -10,14 +10,15 @@ import { normalizeWord, lookupLisanWord } from "@/lib/knowledge/lisan-words";
 
 type Row = { transliteration: string | null; lisan: string | null; meaning: string | null; example: string | null };
 
-// Wire the supabase mock so .select().eq().limit() returns exactData and
-// .select().ilike().limit() returns arabicData; .rpc() returns suggData.
+// Wire the supabase mock: .eq("norm",…) → exactData, .eq("norm_skeleton",…) → skelData,
+// .ilike() → arabicData, .rpc() → suggData.
 function wire(
-  { exactData = [], arabicData = [], suggData = [] }: { exactData?: Row[]; arabicData?: Row[]; suggData?: Row[] } = {},
+  { exactData = [], skelData = [], arabicData = [], suggData = [] }:
+    { exactData?: Row[]; skelData?: Row[]; arabicData?: Row[]; suggData?: Row[] } = {},
 ) {
   mocks.from.mockReturnValue({
     select: () => ({
-      eq: () => ({ limit: () => Promise.resolve({ data: exactData }) }),
+      eq: (col: string) => ({ limit: () => Promise.resolve({ data: col === "norm_skeleton" ? skelData : exactData }) }),
       ilike: () => ({ limit: () => Promise.resolve({ data: arabicData }) }),
     }),
   });
@@ -51,8 +52,28 @@ describe("lookupLisanWord", () => {
     expect(mocks.rpc).toHaveBeenCalledWith("match_lisan_words", expect.objectContaining({ query_norm: "aaeen" }));
   });
 
-  it("returns not_found when neither exact nor fuzzy matches exist", async () => {
-    wire({ exactData: [], suggData: [] });
+  it("answers directly when exactly one consonant-skeleton match exists", async () => {
+    // "sadqe" has no exact norm, but its skeleton "sdq" maps to one entry → answer it.
+    wire({ exactData: [], skelData: [{ transliteration: "Sadaqa", lisan: "صدقة", meaning: "Charity", example: "" }] });
+    const res = await lookupLisanWord("sadqe");
+    expect(res.status).toBe("ok");
+    expect(res.status === "ok" && res.matches[0].meaning).toBe("Charity");
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("offers numbered did_you_mean when several skeleton matches exist", async () => {
+    wire({ exactData: [], skelData: [
+      { transliteration: "Sidq", lisan: "صدق", meaning: "Truth", example: "" },
+      { transliteration: "Sadaqa", lisan: "صدقة", meaning: "Charity", example: "" },
+    ] });
+    const res = await lookupLisanWord("sadqe");
+    expect(res.status).toBe("did_you_mean");
+    expect(res.status === "did_you_mean" && res.suggestions.map((s) => s.transliteration)).toEqual(["Sidq", "Sadaqa"]);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("returns not_found when neither exact, skeleton, nor fuzzy matches exist", async () => {
+    wire({ exactData: [], skelData: [], suggData: [] });
     expect((await lookupLisanWord("zzzzz")).status).toBe("not_found");
   });
 

@@ -36,6 +36,44 @@ export const ASHARA_ROWS: AsharaRow[] = [
 
 export const DEFAULT_ACTIVE_YEAR = "1448";
 
+// The upcoming/ongoing Ashara (the "event" users mean by "this year / this Ashara"), and
+// the most recent COMPLETED Ashara that actually has indexed content (what "last year" means,
+// and the sensible default when no year is given). We anchor on the EVENT, not the Hijri
+// calendar year — right now it's the tail of 1447H but the next Ashara is 1448H, so "this
+// year's Ashara" means 1448 even though the calendar year is still 1447.
+export const ACTIVE_ASHARA_YEAR = DEFAULT_ACTIVE_YEAR; // "1448"
+export const LAST_COMPLETED_ASHARA_YEAR = "1447";
+
+// First Gregorian day of an Ashara (Majlis 1's date), or null if not in the calendar.
+export function asharaStartIso(year: string): string | null {
+  return ASHARA_CALENDAR[year]?.[0] ?? null;
+}
+
+export type YearCue = "explicit" | "this" | "last" | "today" | "none";
+export type YearResolution = { year: string | null; cue: YearCue; activeStarted: boolean };
+
+// Resolve which Ashara year a religious query refers to, removing the "this year" ambiguity.
+// - explicit "1447/47H" → that year
+// - "last year / previous Ashara" → most-recent completed (LAST_COMPLETED_ASHARA_YEAR)
+// - "this year / this Ashara / upcoming / today" → the active event (ACTIVE_ASHARA_YEAR)
+// - nothing → null (caller defaults to most-recent available)
+// `activeStarted` tells the caller whether the active Ashara has begun (for "today" wording).
+export function resolveAsharaYear(query: string, todayIso: string): YearResolution {
+  const q = ` ${query.toLowerCase()} `;
+  const startIso = asharaStartIso(ACTIVE_ASHARA_YEAR);
+  const activeStarted = !!startIso && todayIso >= startIso;
+
+  const ex = q.match(/\b(14\d\d)\s*h?\b/);
+  if (ex) return { year: ex[1], cue: "explicit", activeStarted };
+  if (/\b(last year|previous year|previous ashara|last ashara|pichhla|pichla|gaya saal|gayu varas)\b/.test(q))
+    return { year: LAST_COMPLETED_ASHARA_YEAR, cue: "last", activeStarted };
+  if (/\b(today|todays|today's|tonight|aaj)\b/.test(q))
+    return { year: ACTIVE_ASHARA_YEAR, cue: "today", activeStarted };
+  if (/\b(this year|this years|this year's|this ashara|current ashara|coming ashara|upcoming ashara|upcoming|aa saal|aa varas)\b/.test(q))
+    return { year: ACTIVE_ASHARA_YEAR, cue: "this", activeStarted };
+  return { year: null, cue: "none", activeStarted };
+}
+
 // Gregorian date (YYYY-MM-DD) of each majlis, indexed to ASHARA_ROWS order
 // (Majlis 1–8, then the combined 9/10 Ashura block). Drives the dashboard's
 // "today's majlis" highlight. Add future years here as they're confirmed.

@@ -21,6 +21,14 @@ export function normalizeWord(s: string): string {
     .trim();
 }
 
+// Consonant skeleton of a normalized transliteration: drop spaces + vowels and collapse
+// runs of the same letter. Dawat transliteration varies the vowels/endings a lot
+// ("sadqe"/"sadaqe"/"sadaqah" all share the skeleton "sdq" with "Sadaqa"), so a skeleton
+// match recovers words that trigram similarity misses. Empty for all-vowel inputs.
+export function skeleton(norm: string): string {
+  return norm.replace(/ /g, "").replace(/[aeiou]/g, "").replace(/(.)\1+/g, "$1");
+}
+
 export type LisanLookup =
   | { status: "ok"; matches: LisanEntry[] }
   | { status: "did_you_mean"; suggestions: LisanEntry[] }
@@ -57,9 +65,29 @@ export async function lookupLisanWord(query: string): Promise<LisanLookup> {
   const exact = (exactData ?? []) as LisanEntry[];
   if (exact.length) return { status: "ok", matches: exact };
 
-  const { data: sugg } = await supabase.rpc("match_lisan_words", { query_norm: norm, match_count: 5 });
+  // Consonant-skeleton match recovers transliteration variants (sadqe → Sadaqa). A single
+  // skeleton hit is confident enough to answer directly; several → numbered "did you mean".
+  const skel = skeleton(norm);
+  if (skel) {
+    const { data: skelData } = await supabase
+      .from("lisan_words")
+      .select("transliteration, lisan, meaning, example, norm")
+      .eq("norm_skeleton", skel)
+      .limit(6);
+    const skelRows = (skelData ?? []) as (LisanEntry & { norm?: string | null })[];
+    if (skelRows.length) {
+      const ranked = skelRows
+        .slice()
+        .sort((a, b) => Math.abs((a.norm ?? "").length - norm.length) - Math.abs((b.norm ?? "").length - norm.length))
+        .map(({ transliteration, lisan, meaning, example }) => ({ transliteration, lisan, meaning, example }));
+      if (ranked.length === 1) return { status: "ok", matches: ranked };
+      return { status: "did_you_mean", suggestions: ranked.slice(0, 4) };
+    }
+  }
+
+  const { data: sugg } = await supabase.rpc("match_lisan_words", { query_norm: norm, match_count: 4 });
   const suggestions = (sugg ?? []) as LisanEntry[];
-  return suggestions.length ? { status: "did_you_mean", suggestions } : { status: "not_found" };
+  return suggestions.length ? { status: "did_you_mean", suggestions: suggestions.slice(0, 4) } : { status: "not_found" };
 }
 
 export type LisanImportRow = {
@@ -85,6 +113,7 @@ export async function importLisanWords(rows: LisanImportRow[]): Promise<number> 
         meaning: (r.meaning ?? "").trim() || null,
         example: (r.example ?? "").trim() || null,
         norm,
+        norm_skeleton: skeleton(norm),
       };
     })
     .filter((r) => (r.transliteration || r.lisan) && r.norm);

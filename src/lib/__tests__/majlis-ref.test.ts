@@ -1,6 +1,36 @@
 import { describe, expect, it } from "vitest";
 
 import { isDeepQuery, isOverviewQuery, parseMajlisRef } from "@/lib/knowledge/religious-topics";
+import { resolveAsharaYear } from "@/lib/knowledge/ashara-config";
+
+describe("resolveAsharaYear (1447↔1448 disambiguation)", () => {
+  const BEFORE = "2026-06-07"; // before Ashara 1448 (starts 2026-06-16)
+  const DURING = "2026-06-20";
+
+  it("explicit hijri year wins", () => {
+    expect(resolveAsharaYear("topic of majlis 1 in 1447", BEFORE)).toMatchObject({ year: "1447", cue: "explicit" });
+    expect(resolveAsharaYear("majlis 4 ashara 1448H", BEFORE)).toMatchObject({ year: "1448", cue: "explicit" });
+  });
+
+  it("'this year / today / this Ashara' resolve to the active event (1448)", () => {
+    expect(resolveAsharaYear("what was the theme of Majlis 7 this Ashara?", BEFORE)).toMatchObject({ year: "1448", cue: "this" });
+    expect(resolveAsharaYear("topic of majlis 1 this year", BEFORE)).toMatchObject({ year: "1448", cue: "this" });
+    expect(resolveAsharaYear("what was today's waaz", BEFORE)).toMatchObject({ year: "1448", cue: "today" });
+  });
+
+  it("'last year' resolves to the most-recent completed Ashara (1447)", () => {
+    expect(resolveAsharaYear("what was the topic of waaz last year", BEFORE)).toMatchObject({ year: "1447", cue: "last" });
+  });
+
+  it("no time cue → null (caller defaults to most-recent available)", () => {
+    expect(resolveAsharaYear("topic of majlis 4", BEFORE)).toMatchObject({ year: null, cue: "none" });
+  });
+
+  it("activeStarted reflects whether Ashara 1448 has begun", () => {
+    expect(resolveAsharaYear("today's waaz", BEFORE).activeStarted).toBe(false);
+    expect(resolveAsharaYear("today's waaz", DURING).activeStarted).toBe(true);
+  });
+});
 
 describe("parseMajlisRef", () => {
   it("parses ordinal-word majlis references", () => {
