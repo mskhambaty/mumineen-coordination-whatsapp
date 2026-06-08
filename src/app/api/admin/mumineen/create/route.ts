@@ -16,7 +16,6 @@ const Body = z.object({
   gender: z.enum(["M", "F"]).nullable().optional(),
   local_mehman: z.enum(["Local", "Mehman"]).nullable().optional(),
   age: z.number().int().min(0).max(150).nullable().optional(),
-  is_adult: z.boolean().nullable().optional(),
   whatsapp_e164: z.string().max(20).nullable().optional(),
   email: z.string().max(200).nullable().optional(),
   jamaat: z.string().max(200).nullable().optional(),
@@ -101,7 +100,7 @@ export async function POST(req: NextRequest) {
       gender: body.gender ?? null,
       local_mehman: body.local_mehman ?? null,
       age: body.age ?? null,
-      is_adult: body.is_adult ?? null,
+      // is_adult is a GENERATED column (age >= 18) — Postgres computes it; never insert it.
       whatsapp_e164: body.whatsapp_e164 ?? null,
       email: body.email ?? null,
       jamaat: body.jamaat ?? null,

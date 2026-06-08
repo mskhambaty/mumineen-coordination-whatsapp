@@ -221,7 +221,6 @@ type AddMuminForm = {
   hof_its: string;
   gender: string;
   age: string;
-  is_adult: boolean;
   whatsapp_e164: string;
   email: string;
   jamaat: string;
@@ -229,7 +228,7 @@ type AddMuminForm = {
 
 const emptyAddForm: AddMuminForm = {
   its: "", full_name: "", prefix: "", is_head: true, hof_its: "",
-  gender: "", age: "", is_adult: false,
+  gender: "", age: "",
   whatsapp_e164: "", email: "", jamaat: "",
 };
 
@@ -530,7 +529,6 @@ export default function MumineenPage() {
         gender: addForm.gender || null,
         local_mehman: "Mehman",
         age: addForm.age ? parseInt(addForm.age, 10) : null,
-        is_adult: addForm.age ? parseInt(addForm.age, 10) >= 18 : addForm.is_adult,
         whatsapp_e164: addForm.whatsapp_e164.trim() || null,
         email: addForm.email.trim() || null,
         jamaat: addForm.jamaat.trim() || null,
