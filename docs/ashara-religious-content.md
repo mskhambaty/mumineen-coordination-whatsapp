@@ -17,10 +17,16 @@ Two tables (see [database.md](./database.md) and `supabase/migrations/`):
   content into here (page_url `religious://topic/<id>`), denormalizing the majlis metadata onto
   each chunk for provenance + filtering. Searched by the `match_religious_content` RPC.
 
-**Categories** (`ReligiousCategory`): `reflection`, `tazyeen`, `al_dars`, `jumla`, `kalema`,
-`unwaan`, plus `misc` for the standalone helper blocks. English categories are indexed directly;
-Lisan ones (jumla/kalema/unwaan) wait in a translation queue until an English translation is
-pasted.
+**Categories** (`ReligiousCategory`) — and what each one IS (this drives routing):
+- `reflection` — **PRIMARY**: the English summary of Syedna TUS's actual sermon. Answer sermon-content questions from here first.
+- `al_dars` — **deeper**: a deep-dive into a specific point of the sermon.
+- `tazyeen` — the masjid **decoration** for that day (own theme, pre-waaz video). **NOT the sermon** — never used to answer sermon-content questions and never related to what was discussed; only on an explicit decoration ask, and offered as a clearly-labelled follow-up.
+- `unwaan` / `kalema` / `jumla` — the majlis **topic** / a **word** / a **sentence** from the sermon (Lisan).
+- `overview` — a curated **year-level overall-theme** block (`majlis_number` null), for "what was the whole Ashara / last year about". Seeded + editable on `/admin/ashara` (the "Overall theme" card).
+- `misc` — the standalone helper blocks.
+
+English categories are indexed directly; Lisan ones (jumla/kalema/unwaan) wait in a translation
+queue until an English translation is pasted.
 
 **Theme** (`religious_topics.theme`) — a one-line gist per block (multi-representation indexing).
 Auto-generated on save by `generateTheme()` (admin-overridable). Powers compact "overview"
@@ -59,6 +65,8 @@ number) inherit the majlis+year (or the offered option) from the previous turn �
 re-calls the tool with the full reference rather than answering from memory.
 
 **Year resolution (1447 ↔ 1448).** Before retrieving, the tool calls `resolveAsharaYear(query, today)` (`ashara-config.ts`) to anchor on the *event*, not the Hijri calendar: explicit `1447/1448` → that year; "last year" → `LAST_COMPLETED_ASHARA_YEAR` (1447, the indexed one); "this year / today / this Ashara / upcoming" → `ACTIVE_ASHARA_YEAR` (1448, not yet posted); no cue → most-recent-available. If the resolved year has no content, the tool returns `not_available` **with** `available_year` + last year's content, and the agent says "1448H isn't posted yet — here's last year (1447H): …" — it never relabels one year's content as another's. Every answer states the concrete year.
+
+**Category-disciplined retrieval.** The tool checks a **specific majlis** first, then **overview** intent (`isOverviewQuery` → the curated `overview` block + per-majlis theme list), then a **category-aware vector fallback**: a decoration question searches `tazyeen`; everything else searches the sermon sources (`reflection`+`al_dars`+`overview`) so the decoration article can never answer a sermon-content question. `retrieveReligiousContext(query, topK, categories)` post-filters by the denormalized `category` on `religious_content`.
 
 **Query routing** (the tool inspects the query and returns an `answer_style`):
 

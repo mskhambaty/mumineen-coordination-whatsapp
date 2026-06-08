@@ -22,13 +22,18 @@ const RELIGIOUS_CONTEXT =
 // topK still caps how much is returned.
 const MATCH_THRESHOLD = 0.3;
 
+type MatchRow = { page_title: string; content: string; source_url?: string | null; category?: string | null };
+
 // Shared retrieval: embed the (context-anchored) query and run a pgvector match RPC,
-// formatting the rows into the agent-facing context block.
+// formatting the rows into the agent-facing context block. `allowedCategories` (religious
+// only) post-filters rows by their denormalized category so e.g. tazyeen (decorations) never
+// leaks into a sermon-content answer.
 async function retrieveContext(
   rpc: "match_site_content" | "match_religious_content",
   contextPrefix: string,
   query: string,
   topK: number,
+  allowedCategories?: string[],
 ): Promise<string> {
   const openai = getAIClient();
   const supabase = getSupabaseAdmin();
@@ -39,10 +44,12 @@ async function retrieveContext(
   });
   const queryEmbedding = embeddingRes.data[0].embedding;
 
+  // When filtering by category, pull a wider window so enough allowed rows survive.
+  const matchCount = allowedCategories ? topK * 3 : topK;
   const { data, error } = await supabase.rpc(rpc, {
     query_embedding: JSON.stringify(queryEmbedding),
     match_threshold: MATCH_THRESHOLD,
-    match_count: topK,
+    match_count: matchCount,
   });
 
   if (error) {
@@ -50,10 +57,15 @@ async function retrieveContext(
     return "";
   }
 
-  if (!data?.length) return "";
+  let rows = (data ?? []) as MatchRow[];
+  if (allowedCategories) {
+    // Keep rows whose category is allowed (or null/unknown, to be safe).
+    rows = rows.filter((r) => !r.category || allowedCategories.includes(r.category)).slice(0, topK);
+  }
+  if (!rows.length) return "";
 
-  return data
-    .map((row: { page_title: string; content: string; source_url?: string | null }) => {
+  return rows
+    .map((row) => {
       const src = row.source_url ? ` — Source: ${row.source_url}` : "";
       return `[${row.page_title}${src}]\n${row.content}`;
     })
@@ -69,7 +81,8 @@ export async function retrieveSiteContext(query: string, topK = 10): Promise<str
 }
 
 // Religious-content retrieval, backing the answer_religious_questions tool. Queries the
-// dedicated religious_content store — never the logistics site_content.
-export async function retrieveReligiousContext(query: string, topK = 5): Promise<string> {
-  return retrieveContext("match_religious_content", RELIGIOUS_CONTEXT, query, topK);
+// dedicated religious_content store — never the logistics site_content. `categories` (e.g.
+// reflection+al_dars+overview for sermon questions) keeps decoration (tazyeen) chunks out.
+export async function retrieveReligiousContext(query: string, topK = 5, categories?: string[]): Promise<string> {
+  return retrieveContext("match_religious_content", RELIGIOUS_CONTEXT, query, topK, categories);
 }

@@ -3,6 +3,19 @@ import { describe, expect, it } from "vitest";
 import { isDeepQuery, isOverviewQuery, parseMajlisRef } from "@/lib/knowledge/religious-topics";
 import { resolveAsharaYear } from "@/lib/knowledge/ashara-config";
 
+describe("isOverviewQuery (broadened whole-Ashara intent)", () => {
+  it("flags whole-Ashara / last-year / overall phrasings", () => {
+    expect(isOverviewQuery("what was the topic for last year's wa'az")).toBe(true);
+    expect(isOverviewQuery("what was the overall theme of ashara")).toBe(true);
+    expect(isOverviewQuery("give me the topics of all majalis")).toBe(true);
+    expect(isOverviewQuery("summary of the whole ashara")).toBe(true);
+  });
+  it("a specific majlis is still parsed, so the tool routes it before overview", () => {
+    expect(parseMajlisRef("topic of majlis 4")?.majlisNum).toBe(4);
+    expect(parseMajlisRef("what was discussed in the 2nd waaz")?.majlisNum).toBe(2);
+  });
+});
+
 describe("resolveAsharaYear (1447↔1448 disambiguation)", () => {
   const BEFORE = "2026-06-07"; // before Ashara 1448 (starts 2026-06-16)
   const DURING = "2026-06-20";

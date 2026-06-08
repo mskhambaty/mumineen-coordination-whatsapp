@@ -7,6 +7,7 @@ import { ACTIVE_ASHARA_YEAR, LAST_COMPLETED_ASHARA_YEAR, resolveAsharaYear } fro
 import {
   availableFacets,
   findMajlisForRef,
+  getOverviewBlock,
   isDeepQuery,
   isOverviewQuery,
   listMajlisThemes,
@@ -611,29 +612,9 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       const renderHits = (hits: { title: string; content: string; source_url: string | null; theme?: string | null }[]) =>
         hits.map((t) => `[${t.title}${t.source_url ? ` — Source: ${t.source_url}` : ""}]\n${t.theme ? `Theme: ${t.theme}\n` : ""}${t.content}`).join("\n\n---\n\n");
 
-      // 1. Overview intent ("topics of all majalis", "compare") → compact theme list, no full blocks.
-      if (isOverviewQuery(query)) {
-        const year = yr.year ?? LAST_COMPLETED_ASHARA_YEAR;
-        const themes = await listMajlisThemes(year);
-        if (themes.length) {
-          return {
-            status: "ok", source: "religious_overview", answer_style: "overview", year,
-            context: `Majlis themes — Ashara ${year}H:\n` + themes.map((t) => `- ${t.majlisLabel}: ${t.theme}`).join("\n"),
-          };
-        }
-        // Requested year has nothing yet — offer the most recent completed year instead.
-        const altThemes = year !== LAST_COMPLETED_ASHARA_YEAR ? await listMajlisThemes(LAST_COMPLETED_ASHARA_YEAR) : [];
-        if (altThemes.length) {
-          return {
-            status: "not_available", answer_style: "overview", requested_year: year, available_year: LAST_COMPLETED_ASHARA_YEAR,
-            context: `Ashara ${year}H has not taken place yet / is not posted. Tell the user that, then give last year's (Ashara ${LAST_COMPLETED_ASHARA_YEAR}H) overview:\nMajlis themes — Ashara ${LAST_COMPLETED_ASHARA_YEAR}H:\n` + altThemes.map((t) => `- ${t.majlisLabel}: ${t.theme}`).join("\n"),
-          };
-        }
-        return { status: "not_available", answer_style: "overview", year, context: `No indexed majlis themes for Ashara ${year}H yet.` };
-      }
-
-      // 2. Specific majlis ("Majlis 2", "second waaz", "4th Muharram") → exact block(s).
-      // (Structured lookup beats vector search, which mis-ranks majlis ordinals.)
+      // 1. Specific majlis ("Majlis 2", "second waaz", "4th Muharram") → exact block(s).
+      // (Checked FIRST so a broad-phrasing overview query can't hijack a specific majlis.
+      // Structured lookup also beats vector search, which mis-ranks majlis ordinals.)
       const ref = parseMajlisRef(query);
       if (ref) {
         // Year precedence: explicit/relative resolver → in-query year → null (most recent).
@@ -678,11 +659,39 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
         };
       }
 
-      // 3. General religious question → vector search fallback.
+      // 2. Overview intent ("what was last year/the whole Ashara about", "topics of all
+      // majalis") → the curated year-level overview block + the per-majlis theme list.
+      if (isOverviewQuery(query)) {
+        const overviewCtx = async (y: string): Promise<string> => {
+          const block = await getOverviewBlock(y);
+          const themes = await listMajlisThemes(y);
+          const parts: string[] = [];
+          if (block) parts.push(`[${block.title}${block.source_url ? ` — Source: ${block.source_url}` : ""}]\n${block.content}`);
+          if (themes.length) parts.push(`Majlis themes — Ashara ${y}H:\n` + themes.map((t) => `- ${t.majlisLabel}: ${t.theme}`).join("\n"));
+          return parts.join("\n\n---\n\n");
+        };
+        const year = yr.year ?? LAST_COMPLETED_ASHARA_YEAR;
+        const ctx = await overviewCtx(year);
+        if (ctx) return { status: "ok", source: "religious_overview", answer_style: "overview", year, context: ctx };
+        const altCtx = year !== LAST_COMPLETED_ASHARA_YEAR ? await overviewCtx(LAST_COMPLETED_ASHARA_YEAR) : "";
+        if (altCtx) {
+          return {
+            status: "not_available", answer_style: "overview", requested_year: year, available_year: LAST_COMPLETED_ASHARA_YEAR,
+            context: `Ashara ${year}H has not taken place yet / is not posted. Tell the user that, then give last year's (Ashara ${LAST_COMPLETED_ASHARA_YEAR}H):\n\n` + altCtx,
+          };
+        }
+        return { status: "not_available", answer_style: "overview", year, context: `No indexed overview for Ashara ${year}H yet.` };
+      }
+
+      // 3. General religious question → category-aware vector fallback. A decoration question
+      // searches tazyeen; everything else searches the sermon sources (reflection + al_dars +
+      // overview) so the decoration article never answers a sermon-content question.
+      const decoration = /\b(tazyeen|tazeen|tazyin|decorat|sajawat|sajaawat|artwork|calligraph)\b/i.test(query);
+      const cats = decoration ? ["tazyeen"] : ["reflection", "al_dars", "overview"];
       return getIndexedInfo(
         query,
         "I could not find this in the indexed religious content yet.",
-        retrieveReligiousContext,
+        (qy, k) => retrieveReligiousContext(qy, k, cats),
         "indexed_religious_content",
       );
     }
