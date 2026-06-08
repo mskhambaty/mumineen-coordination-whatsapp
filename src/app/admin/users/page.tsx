@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessPortal, isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type User = {
@@ -105,6 +105,10 @@ export default function UsersPage() {
       return null;
     }
   });
+  // Only admins/leadership may grant the Admin/Leadership account role. Everyone
+  // else can add/manage users but the Account Role control is locked to Committee.
+  // The server enforces this too (see /api/admin/users PUT/POST).
+  const [currentUserIsAdmin] = useState<boolean>(() => isAdminOrLeadership(readAdminUser()));
   const filteredUsers = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return users;
@@ -149,8 +153,8 @@ export default function UsersPage() {
       router.push("/admin/login");
       return;
     }
-    if (!isAdminOrLeadership(currentUser)) {
-      router.push("/admin/conversations");
+    if (!canAccessPortal(currentUser)) {
+      router.push("/admin/login");
       return;
     }
 
@@ -463,6 +467,7 @@ export default function UsersPage() {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Account Role</label>
                   <select
                     value={newUser.role}
+                    disabled={!currentUserIsAdmin}
                     onChange={(e) => {
                       const role = e.target.value;
                       setNewUser({
@@ -471,12 +476,15 @@ export default function UsersPage() {
                         global_role: role === "admin" ? "leadership_admin" : newUser.global_role,
                       });
                     }}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md disabled:opacity-50"
                   >
                     {USER_ROLE_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>{option.label}</option>
                     ))}
                   </select>
+                  {!currentUserIsAdmin && (
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Only admin/leadership can grant the Admin/Leadership role.</p>
+                  )}
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
@@ -547,6 +555,7 @@ export default function UsersPage() {
                     Account Role
                     <select
                       value={editForm.role}
+                      disabled={!currentUserIsAdmin}
                       onChange={(event) => {
                         const role = event.target.value;
                         setEditForm({
@@ -555,12 +564,15 @@ export default function UsersPage() {
                           global_role: role === "admin" ? "leadership_admin" : editForm.global_role,
                         });
                       }}
-                      className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md"
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded-md disabled:opacity-50"
                     >
                       {USER_ROLE_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
                       ))}
                     </select>
+                    {!currentUserIsAdmin && (
+                      <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">Only admin/leadership can change the account role.</span>
+                    )}
                   </label>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Status

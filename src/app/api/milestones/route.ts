@@ -19,7 +19,12 @@ export async function GET(req: NextRequest) {
 
     if (departmentId) {
       query = query.eq("department_id", departmentId);
-    } else if (!caller.can_read_all) {
+    }
+
+    // Always enforce membership scoping for non-leadership, even when a specific
+    // department_id is requested — a member must not read another department's
+    // milestones by passing its id. Deptless users see nothing.
+    if (!caller.can_read_all) {
       const deptIds = caller.departments.map((d) => d.department_id);
       if (deptIds.length === 0) {
         return NextResponse.json([]);

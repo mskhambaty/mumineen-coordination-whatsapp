@@ -86,11 +86,22 @@ See [database.md](./database.md) for the full schema.
 
 ## Portal (Admin Dashboard) Enforcement
 
+> **The full role × page matrix lives in [access-control.md](./access-control.md).**
+> This section covers the enforcement mechanism; that doc is the canonical list of
+> which pages/actions each role can reach.
+
 The admin dashboard enforces permissions server-side using the same `CallerContext` and permission engine as the WhatsApp agent:
 
 - **Cookie auth:** every `src/app/api/admin/**` route resolves the caller via `resolveCallerFromSession` (src/lib/api/auth.ts), which verifies the HMAC-signed `portal_session` cookie and calls `get_user_permissions_by_id` per request. Role changes and deactivations take effect immediately.
-- **Route guard:** `requirePortalCaller(req, predicate)` (src/lib/api/portal-auth.ts) enforces the same predicates defined in the page gate (src/lib/admin/access.ts): `canAccessInbox`, `canAccessMumineen`, `isAdminOrLeadership`, etc. Returns 401 for invalid/missing session, 403 for predicate failure.
-- **Front door (`canAccessPortal`):** sign-in (`POST /api/admin/auth`), `forgot-password`, and `reset-password` gate on `canAccessPortal(user)` — true for **any non-visitor user** (`role` `committee` or `admin`), regardless of department assignment. Visitors (the public/mumineen) are rejected. This is intentionally broader than `isAdminOrLeadership`: every added portal user can sign in and reset their own password; per-feature predicates above still restrict what they can do once inside.
+- **Route guard:** `requirePortalCaller(req, predicate)` (src/lib/api/portal-auth.ts) enforces the same predicates defined in the page gate (src/lib/admin/access.ts). Returns 401 for invalid/missing session, 403 for predicate failure.
+- **Access tiers** (src/lib/admin/access.ts):
+  - `canAccessPortal` — **baseline internal-staff tier**: any portal login (committee or admin). Home, the Mumineen pages (view), Registration/Accommodations, the Workspace pages (dept-scoped content), and all of Member Management gate on this.
+  - `canAccessInbox` — admin/leadership or on-call support (`is_support`).
+  - `canManageKnowledge` — admin/leadership or department PM/HOD (`is_manager`); the AI-agent knowledge tools.
+  - `isAdminOrLeadership` — admin/leadership only; Messaging, Prompts, Model Testing, and heavy-PII roster actions (full CSV export, member create, registration-gate).
+  - `canImportMumineen` (admin/leadership or IT) and `canManageParking` (admin/leadership, IT, Transport) — the tighter write tiers for bulk roster import and parking pass writes/export.
+- **Admin-promotion carve-out:** all portal users can add/edit users and assign departments, but **only admin/leadership may grant or change the Admin/Leadership account role** — enforced in the `/admin/users` UI and in `POST /api/admin/users` + `PUT /api/admin/users/[id]` (403 otherwise).
+- **Front door (`canAccessPortal`):** sign-in (`POST /api/admin/auth`), `forgot-password`, and `reset-password` gate on `canAccessPortal(user)` — true for **any non-visitor user** (`role` `committee` or `admin`), regardless of department assignment. Visitors (the public/mumineen) are rejected.
 - **`x-admin-key` is server-to-server only:** agent tools and cron jobs send `x-admin-key` (from `ADMIN_API_KEY`), which bypasses the cookie check and passes every guard. This header must never be sent by browser clients.
 
 ## Adding a New Permission Level

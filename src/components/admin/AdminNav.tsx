@@ -5,15 +5,15 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { clearAdminSession } from "@/lib/admin/client";
 
-// access controls who sees a link, matching each page's gate:
-//  admin         = admin/leadership only
-//  inbox         = admin/leadership or escalation support members
-//  manage        = admin/leadership or department PM/HOD
-//  mumineen      = admin/leadership or IT department members
-//  registrations = admin/leadership or any internal (department-assigned) user
-//  parking       = admin/leadership, IT, Transport members, or department PM/HOD (read-only)
-//  any           = any signed-in user
-type Access = "admin" | "inbox" | "manage" | "mumineen" | "registrations" | "parking" | "any";
+// access controls who sees a link, matching each page's gate (see
+// src/lib/admin/access.ts and docs/access-control.md):
+//  admin   = admin/leadership only
+//  inbox   = admin/leadership or escalation/on-call support members
+//  manage  = admin/leadership or department PM/HOD (AI-agent knowledge tools)
+//  portal  = any signed-in portal user (committee or admin). Workspace pages are
+//            "portal" but their content is dept-scoped server-side.
+//  any     = any signed-in user (same as portal in practice; kept for Profile)
+type Access = "admin" | "inbox" | "manage" | "portal" | "any";
 
 type NavLink = { href: string; label: string; access: Access; exact?: boolean };
 
@@ -37,11 +37,11 @@ const dropdownGroups: DropdownGroup[] = [
   {
     label: "Mumineen",
     links: [
-      { href: "/admin/mumineen", label: "Roster", access: "mumineen" },
-      { href: "/admin/registration", label: "Registration Analytics", access: "registrations" },
-      { href: "/admin/accommodations", label: "Accommodations", access: "parking" },
-      { href: "/admin/parking", label: "Parking Passes", access: "parking" },
-      { href: "/admin/niyaz", label: "Niyaz", access: "admin" },
+      { href: "/admin/mumineen", label: "Roster", access: "portal" },
+      { href: "/admin/registration", label: "Registration Analytics", access: "portal" },
+      { href: "/admin/accommodations", label: "Accommodations", access: "portal" },
+      { href: "/admin/parking", label: "Parking Passes", access: "portal" },
+      { href: "/admin/niyaz", label: "Niyaz", access: "portal" },
     ],
   },
   {
@@ -64,25 +64,25 @@ const dropdownGroups: DropdownGroup[] = [
   {
     label: "Workspace",
     links: [
-      { href: "/admin/tasks", label: "Tasks", access: "manage" },
-      { href: "/admin/milestones", label: "Milestones", access: "manage" },
-      { href: "/admin/department-digest", label: "Daily Digest", access: "registrations" },
-      { href: "/admin/upload", label: "Upload Transcripts", access: "manage" },
+      { href: "/admin/tasks", label: "Tasks", access: "portal" },
+      { href: "/admin/milestones", label: "Milestones", access: "portal" },
+      { href: "/admin/department-digest", label: "Daily Digest", access: "portal" },
+      { href: "/admin/upload", label: "Upload Transcripts", access: "portal" },
     ],
   },
   {
     label: "Member Management",
     links: [
-      { href: "/admin/users", label: "Users", access: "admin" },
-      { href: "/admin/departments", label: "Departments", access: "admin" },
-      { href: "/admin/escalation", label: "Escalation & On-call", access: "admin" },
+      { href: "/admin/users", label: "Users", access: "portal" },
+      { href: "/admin/departments", label: "Departments", access: "portal" },
+      { href: "/admin/escalation", label: "Escalation & On-call", access: "portal" },
     ],
   },
 ];
 
 // Inbox is the daily driver — promoted out of a dropdown to a top-level link.
 const standaloneLinks: NavLink[] = [
-  { href: "/admin", label: "Home", access: "admin", exact: true },
+  { href: "/admin", label: "Home", access: "portal", exact: true },
   { href: "/admin/conversations", label: "Inbox", access: "inbox" },
 ];
 
@@ -127,12 +127,11 @@ export default function AdminNav() {
   const [access, setAccess] = useState(readNavAccess);
 
   function canSee(itemAccess: Access) {
-    if (itemAccess === "any") return true;
+    // The nav only renders for a signed-in portal user, so "any"/"portal" are
+    // always visible here; the server still enforces the real gate per route.
+    if (itemAccess === "any" || itemAccess === "portal") return true;
     if (itemAccess === "admin") return access.isAdmin;
     if (itemAccess === "inbox") return access.isAdmin || access.isSupport;
-    if (itemAccess === "mumineen") return access.isAdmin || access.isIt;
-    if (itemAccess === "registrations") return access.isAdmin || access.isInternal || access.isManager || access.isIt;
-    if (itemAccess === "parking") return access.isAdmin || access.isIt || access.isTransport || access.isManager;
     return access.isAdmin || access.isManager; // manage
   }
 

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -49,7 +49,7 @@ export default function EscalationSupportPage() {
       router.push("/admin/login");
       return;
     }
-    if (!isAdminOrLeadership(user)) {
+    if (!canAccessPortal(user)) {
       router.push("/admin/conversations");
       return;
     }

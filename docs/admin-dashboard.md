@@ -4,6 +4,10 @@
 
 The admin dashboard provides a web interface for managing tasks, departments, users, and transcript uploads. It's built with React (Next.js App Router) and Tailwind CSS.
 
+> **Who can see/do what:** [access-control.md](./access-control.md) is the canonical role × page
+> matrix. The per-page "Access" notes below are summaries — if they disagree with that matrix
+> or with [`src/lib/admin/access.ts`](../src/lib/admin/access.ts), the matrix/code win.
+
 ## Pages
 
 ### Login (`/admin/login`)
@@ -12,7 +16,7 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - Forgot password link that calls `POST /api/auth/forgot-password`; reset emails use Postmark template alias `password-reset`
 - Password setup/reset links open `/admin/reset-password`; after a successful password save, the page stores the returned user object and routes into `/admin` (the session itself is set as an httpOnly cookie by the server)
 - Legacy fallback password is read from `ADMIN_FALLBACK_PASSWORD` only and must not be committed to the repo
-- Users with admin/leadership, escalation support, department PM/HOD, or IT access can log in
+- Any portal user (account role `committee` or `admin`) can log in — including users not yet assigned to a department. Visitors (the public) cannot. What they can do once inside is governed by [access-control.md](./access-control.md).
 - Primary admin: mskhambaty@gmail.com (Mufaddal Khambaty)
 
 ### Dashboard Home (`/admin`)
@@ -43,29 +47,29 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - **User Profile panel** (right rail, below Edit FAQ/Prompt) — when the selected sender is a registered roster member, shows their registration profile: status + family size, type (Mehman/Local), origin, accommodation (hotel/utaro), transport, arrival/departure, accessibility, special needs, khidmat interest, plus committee department assignments. Fetched per-conversation from `GET /api/admin/conversations/[phoneE164]/profile`, which strips PII server-side (**age, phone, email, and ITS are never returned**). The same profile (with age) feeds the agent's Sender Context — see [ai-agent.md](./ai-agent.md).
 - Tool Calls pane lists agent actions for the thread with allowed/blocked status and arguments. To stay readable over multi-day threads, it shows only the **last 24 hours** of calls (newest first); older calls collapse behind a **"Show N historic tool calls"** toggle.
 - **Dark mode** toggle (🌙/☀️) in the nav; preference persists in `localStorage("admin_theme")` and falls back to the OS preference on first load
-- Restricted to `role = 'admin'` or `global_role = 'leadership_admin'`
+- Access: admin/leadership **or** on-call/escalation support members (`canAccessInbox`). The **Edit FAQ / Prompt** quick-edit inside the inbox stays admin/leadership only.
 
 ### Escalation & On-call (`/admin/escalation`)
-- Admin/leadership-only management of escalation members, **scoped per department** (see [escalation.md](./escalation.md))
+- **Access: any portal user** can manage escalation members, **scoped per department** (see [escalation.md](./escalation.md)) — so anyone can add **themselves** to on-call, which unlocks the Lead Inbox.
 - Add an existing user as an escalation member **for a specific department** (membership grants Lead Inbox access). The same user can be added to multiple departments.
 - Per-member **on-call hours** editor: weekly recurring time ranges (multiple per day), evaluated in America/Chicago
 - **Routing:** when a chat or issue is escalated, the agent classifies its department (`escalation_department_id` / the issue's `department_id`); notifications go to **that department's on-call members only** (strict — no one is emailed if none are on-call). If no department is determined, **everyone on-call** is notified. One conversation can escalate multiple times over its life; each routes independently.
 - Backed by `GET/POST /api/admin/escalation-support` (POST requires `department_id`) and `DELETE/PUT /api/admin/escalation-support/[id]`. Members live in `escalation_support_members` (now keyed by `(user_id, department_id)`).
 
 ### Analytics (`/admin/analytics`)
-- Leadership/admin-only KPIs over a rolling 30-day window, served by `GET /api/admin/analytics`
+- KPIs over a rolling 30-day window, served by `GET /api/admin/analytics` (shown on the Home dashboard). **Access: any portal user** — aggregate metrics only, no per-message PII.
 - Task metrics: totals by status/priority, overdue list, and per-department breakdown (optional `department_id` filter)
 - Conversation metrics: active/manual/AI conversation counts, inbound vs outbound message volume, messages-by-day series, and top agent tools
 
 ### Registration Analytics (`/admin/registration`)
-- Admin/leadership-only dashboard of registration, accommodation, transport, and khidmat KPIs, served by `GET /api/admin/registration-analytics`, with per-segment drill-downs via `GET /api/admin/registration-analytics/detail?segment=…`.
+- Dashboard of registration, accommodation, transport, and khidmat KPIs, served by `GET /api/admin/registration-analytics`, with per-segment drill-downs via `GET /api/admin/registration-analytics/detail?segment=…`. **Access: any portal user** (committee or admin).
 - Each KPI opens a detail panel listing the matching families or individuals, with search and an **Export CSV** button. The CSV is written with a UTF-8 BOM so Excel (esp. on macOS) renders dashes/non-ASCII correctly instead of mojibake.
 - Most accommodation/transport/status segments are **family-level** (one row per family). The **Awaiting Utaro** segment (`open_to_utaro` — registered, hotel-booked, open to a host) is **individual-level**: one row per roster member of each qualifying family, so the accommodation team sees every member's gender/age and can pivot families via the `HOF ITS` column.
   - **Head** column marks the family head — `Head` for the roster HoF (`mumineen.is_head`, i.e. `its = hof_its`), or `Acting head` for the registrant (`families.submitted_by_its`) when the HoF isn't in the roster (~430 families have no `is_head` member).
   - **Attending** column (`Yes`/`No`) calls out members flagged `not_attending`; all roster members are included so the family picture is complete.
 
 ### Mumineen Roster (`/admin/mumineen`)
-- Admin/leadership and IT-access page for roster import, lookup, registration gate control, and committee corrections.
+- Roster lookup and committee corrections page. **View/lookup/edit: any portal user.** Heavier actions stay tighter: **bulk import** requires IT or admin/leadership (`canImportMumineen`); **full-roster CSV export, member create, and registration-gate control** require admin/leadership.
 - **Download template** links to `/templates/mumineen-roster-template.xlsx`, a static Excel workbook with an upload-ready `Roster` first sheet, plus `Examples` and `Instructions` sheets.
 - The importer reads the first worksheet only. Keep the `Roster` sheet first and fill one row per mumin.
 - Required upload columns are `Hof Id` and `Mumin Id`; optional roster/contact columns include `Fullname`, `Gender`, `Age`, `Jamaat`, `Idara`, `Category`, `Prefix`, `Title`, `Venue (Waaz)`, `City`, `Local/Mehman`, `Arr Place Date`, `Flight Code`, `Daily Trans`, `Whatsapp Link Clicked?`, `whatsapp_e164`, and `email`.
@@ -102,7 +106,7 @@ Two tabs, each feeding a **separate vector store** so logistics and religious an
 - "New Task" button with modal form
 
 ### Departments (`/admin/departments`)
-- Admin-only Internal page for department-oriented roster management.
+- Department-oriented roster management. **Access: any portal user** (create/edit/remove departments and manage memberships).
 - Shows department tiles with create/remove department actions. Department removal is blocked when the department still has members, tasks, or milestones.
 - Selecting a department shows its description, active users, department role controls, remove-from-department action, and a per-membership **Contact for Issues** checkbox.
 - Users marked **Contact for Issues** receive the `assignment-notification` Postmark email and the approved Meta utility template `department_ticket_assigned` when a new issue is created for the department or an existing issue is assigned to it.
@@ -119,6 +123,7 @@ Two tabs, each feeding a **separate vector store** so logistics and religious an
 - "Submit Selected" applies selected creations and updates through the transcript API
 
 ### Users (`/admin/users`)
+- **Access: any portal user** can add/edit users and assign departments. **Only admin/leadership may grant or change the Admin/Leadership account role** — the Account Role control is locked to Committee for non-admins, and `POST /api/admin/users` + `PUT /api/admin/users/[id]` return 403 if a non-admin tries to create/promote/modify an admin-leadership holder. Deleting a user and setting another user's password stay admin/leadership only.
 - Table of all users with inline editing for global_role and status
 - Department filter narrows the list to users in that department only; department roster management now lives on `/admin/departments`.
 - "Add User" button with modal form — includes an inline **Department + role** picker so a department membership is assigned at creation (defaults to the currently filtered department)
@@ -133,7 +138,7 @@ Two tabs, each feeding a **separate vector store** so logistics and religious an
 - Deactivate existing memberships
 
 ### Accommodations (`/admin/accommodations`)
-- **Access:** admin/leadership, IT, Transport, or department PM/HOD (same as Parking).
+- **Access:** any portal user (committee or admin).
 - **Hosts tab:** Upload host spreadsheet (XLSX), view host supply table with capacity, allocated, remaining. Toggle "Include Family/Friends" checkbox per host.
 - **Awaiting Guests tab:** Registered hotel families open to utaro, with demographics (member count, ages, gender mix, wheelchair, hotel name).
 - **Matches tab:** Existing matches with status chips (pending/confirmed/rejected/cancelled). Confirm/reject/cancel actions.

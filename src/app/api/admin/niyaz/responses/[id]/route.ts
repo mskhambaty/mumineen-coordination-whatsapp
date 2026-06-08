@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { num, oneOf } from "@/lib/registration/normalize";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
@@ -14,7 +14,7 @@ type ResponsePatch = { response?: unknown; head_count?: unknown };
 // PATCH /api/admin/niyaz/responses/[id] — correct a single response row (bumps submitted_at so
 // it counts as the latest submission for that family).
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as ResponsePatch;
@@ -43,7 +43,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
 // DELETE /api/admin/niyaz/responses/[id] — remove a single response row.
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   const supabase = getSupabaseAdmin();

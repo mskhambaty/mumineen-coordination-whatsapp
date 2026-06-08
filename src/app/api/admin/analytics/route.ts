@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { canAccessPortal } from "@/lib/admin/access";
 import { ForbiddenError, resolveCallerFromRequest } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { priorityWeight } from "@/lib/tasks/types";
@@ -56,8 +57,10 @@ type ToolAuditRow = {
 export async function GET(req: NextRequest) {
   try {
     const caller = await resolveCallerFromRequest(req);
-    if (!caller.can_read_all) {
-      return NextResponse.json({ error: "Leadership/Admin access required" }, { status: 403 });
+    // Home dashboard analytics are open to every portal user (committee/admin) —
+    // aggregate KPIs only, no per-message PII. Visitors never get a portal session.
+    if (!canAccessPortal(caller.portal)) {
+      return NextResponse.json({ error: "Portal access required" }, { status: 403 });
     }
 
     const supabase = getSupabaseAdmin();

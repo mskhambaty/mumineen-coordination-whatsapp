@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessPortal, isAdminOrLeadership } from "@/lib/admin/access";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 
@@ -8,7 +8,7 @@ const userRoles = new Set(["visitor", "committee", "admin"]);
 const globalRoles = new Set(["member", "pm", "hod", "leadership_admin"]);
 
 export async function GET(req: NextRequest) {
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
 
   const supabase = getSupabaseAdmin();
@@ -73,8 +73,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
+  const callerIsAdmin = isAdminOrLeadership(auth.caller.portal);
 
   const body = await req.json();
   const { display_name, phone_e164, email } = body;
@@ -85,6 +86,14 @@ export async function POST(req: NextRequest) {
       : role === "admin"
         ? "leadership_admin"
         : "member";
+
+  // Only admins/leadership may create a user that holds Admin/Leadership access.
+  if (!callerIsAdmin && (role === "admin" || globalRole === "leadership_admin")) {
+    return NextResponse.json(
+      { error: "Only admin/leadership can grant admin/leadership access" },
+      { status: 403 },
+    );
+  }
 
   if (!display_name || !phone_e164) {
     return NextResponse.json({ error: "display_name and phone_e164 are required" }, { status: 400 });

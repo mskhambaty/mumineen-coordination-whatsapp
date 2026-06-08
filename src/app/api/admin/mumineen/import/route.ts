@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { canAccessMumineen } from "@/lib/admin/access";
+import { canImportMumineen } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { importMumineenRoster } from "@/lib/mumineen/import";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -13,7 +13,7 @@ const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB
 
 // POST: import the mumineen roster from an uploaded Excel/CSV. Idempotent (upsert).
 export async function POST(req: NextRequest) {
-  const auth = await requirePortalCaller(req, canAccessMumineen);
+  const auth = await requirePortalCaller(req, canImportMumineen);
   if (auth instanceof NextResponse) return auth;
 
   // Server-to-server (admin-key) callers have the sentinel id; record null for them.
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
 
 // GET: import history log.
 export async function GET(req: NextRequest) {
-  const auth = await requirePortalCaller(req, canAccessMumineen);
+  const auth = await requirePortalCaller(req, canImportMumineen);
   if (auth instanceof NextResponse) return auth;
 
   const supabase = getSupabaseAdmin();

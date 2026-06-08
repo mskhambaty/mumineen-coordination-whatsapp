@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 
@@ -10,7 +10,7 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; membershipId: string }> },
 ) {
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
 
   const { membershipId } = await params;

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessPortal, isAdminOrLeadership } from "@/lib/admin/access";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 
@@ -11,7 +11,7 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
@@ -33,8 +33,9 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
+  const callerIsAdmin = isAdminOrLeadership(auth.caller.portal);
 
   const { id } = await params;
   const body = await req.json();
@@ -87,6 +88,16 @@ export async function PUT(
   const willBePortalAdmin =
     (updates.role ?? existingUser.role) === "admin" ||
     (updates.global_role ?? existingUser.global_role) === "leadership_admin";
+
+  // Only admins/leadership may grant or alter Admin/Leadership access. Non-admin
+  // portal users can manage everyone else but can neither promote a user to
+  // admin/leadership nor modify someone who already holds it.
+  if (!callerIsAdmin && (willBePortalAdmin || wasPortalAdmin)) {
+    return NextResponse.json(
+      { error: "Only admin/leadership can grant or change admin/leadership access" },
+      { status: 403 },
+    );
+  }
 
   if (wasPortalAdmin && !willBePortalAdmin) {
     const { count, error: countError } = await supabase

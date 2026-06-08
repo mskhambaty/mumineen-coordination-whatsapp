@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { sendAdminWelcomeNotification, type WelcomeNotificationResult } from "@/lib/admin/onboarding";
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 
@@ -21,7 +21,7 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
@@ -53,7 +53,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;

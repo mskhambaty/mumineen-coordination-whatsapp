@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { oneOf, str, ts } from "@/lib/registration/normalize";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
@@ -25,7 +25,7 @@ type InstancePatch = {
 
 // PATCH /api/admin/niyaz/instances/[id] — edit a Niyaz instance's details/status.
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as InstancePatch;

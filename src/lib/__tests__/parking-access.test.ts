@@ -30,17 +30,17 @@ describe("canManageParking", () => {
 });
 
 describe("canViewParking", () => {
-  it("allows everyone who can manage", () => {
-    expect(canViewParking({ is_transport: true })).toBe(true);
-    expect(canViewParking({ is_it: true })).toBe(true);
+  // View is now the baseline portal tier: any signed-in portal user (committee or
+  // admin) can open the parking page; writes/export still require canManageParking.
+  it("allows any portal user (committee or admin)", () => {
+    expect(canViewParking({ role: "committee" })).toBe(true);
     expect(canViewParking({ role: "admin" })).toBe(true);
+    expect(canViewParking({ role: "admin", global_role: "leadership_admin" })).toBe(true);
   });
 
-  it("allows managers of any department (read-only tier)", () => {
-    expect(canViewParking({ is_manager: true })).toBe(true);
-  });
-
-  it("denies plain internal members and null users", () => {
+  it("denies visitors, bare department flags without a portal role, and null users", () => {
+    expect(canViewParking({ role: "visitor" })).toBe(false);
+    expect(canViewParking({ is_manager: true })).toBe(false);
     expect(canViewParking({ is_internal: true })).toBe(false);
     expect(canViewParking(null)).toBe(false);
   });
