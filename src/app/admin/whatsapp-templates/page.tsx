@@ -202,6 +202,34 @@ export default function SendTemplatesPage() {
     }
   }
 
+  async function exportCsv() {
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await apiFetch("/api/admin/templates/audience-export", {
+        method: "POST",
+        body: JSON.stringify({ audience_key: audience, selected_user_ids: selectedUsers, rules: audience === "custom" ? query : undefined }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Export failed");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `audience-${audience}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function send() {
     if (!selectedTpl) return setError("Pick a template.");
     if (!preview) return setError("Run a preview first.");
@@ -352,6 +380,9 @@ export default function SendTemplatesPage() {
           <div className="flex items-center gap-3">
             <button type="button" onClick={runPreview} disabled={busy} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-gray-700">
               Preview audience
+            </button>
+            <button type="button" onClick={exportCsv} disabled={busy} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-gray-700">
+              Export CSV
             </button>
             {preview && (
               <span className="text-sm">
