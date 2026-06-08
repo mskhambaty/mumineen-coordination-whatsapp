@@ -1009,13 +1009,13 @@ export default function RegistrationAnalyticsPage() {
                     </div>
                   </div>
                   <p className="mb-1 text-xs font-medium text-gray-400 uppercase tracking-wide">Families</p>
-                  <HBar label="Submitted" value={summary.submitted_families} total={summary.total_families} color="bg-green-500" />
-                  <HBar label="Pending" value={summary.pending_families} total={summary.total_families} color="bg-amber-400" />
+                  <HBar label="Submitted" value={summary.submitted_families} total={summary.filtered_families} color="bg-green-500" />
+                  <HBar label="Pending" value={summary.pending_families} total={summary.filtered_families} color="bg-amber-400" />
                   {summary.confirmed_families > 0 && (
-                    <HBar label="Confirmed" value={summary.confirmed_families} total={summary.total_families} color="bg-blue-500" />
+                    <HBar label="Confirmed" value={summary.confirmed_families} total={summary.filtered_families} color="bg-blue-500" />
                   )}
                   {summary.cancelled_families > 0 && (
-                    <HBar label="Cancelled" value={summary.cancelled_families} total={summary.total_families} color="bg-red-400" />
+                    <HBar label="Cancelled" value={summary.cancelled_families} total={summary.filtered_families} color="bg-red-400" />
                   )}
                   <p className="mb-1 mt-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Mumineen</p>
                   <HBar label="From registered" value={summary.submitted_mumineen} total={summary.total_mumineen} color="bg-green-500" />
