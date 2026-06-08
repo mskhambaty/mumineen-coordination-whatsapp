@@ -124,6 +124,7 @@ type EstimateSlice = {
   parking: {
     local_passes: number;
     mehman_rental_passes: number;
+    local_over65_members: number;
     total: number;
     rahat_analysis: {
       local_all_over65: number;
@@ -1426,6 +1427,7 @@ export default function RegistrationAnalyticsPage() {
                       {[
                         { label: "Local families", cur: estimates.current.parking.local_passes, fore: estimates.forecast.parking.local_passes, note: "" },
                         { label: "Mehman rental car", cur: estimates.current.parking.mehman_rental_passes, fore: estimates.forecast.parking.mehman_rental_passes, note: "extrapolated from registration rate" },
+                        { label: "Drop-off passes (local 65+)", cur: estimates.current.parking.local_over65_members, fore: estimates.forecast.parking.local_over65_members, note: "individual local members aged > 65" },
                       ].map((row) => (
                         <div key={row.label} className="grid grid-cols-3 gap-x-3">
                           <span className="text-gray-600 dark:text-gray-400">

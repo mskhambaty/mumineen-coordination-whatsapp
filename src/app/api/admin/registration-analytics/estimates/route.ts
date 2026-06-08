@@ -132,6 +132,7 @@ export async function GET(req: NextRequest) {
     let mehmanRentalPasses = 0;
     let rahatLocalAllOver65 = 0;    // local families where every attending member is > 65
     let rahatMehmanOver65Rental = 0; // Mehman families: rental + at least one > 65
+    let localOver65Members = 0;     // individual local attending members aged > 65 (drop-off passes)
 
     let rahatPeople = 0;
     let nonRahatPeople = 0;
@@ -170,6 +171,7 @@ export async function GET(req: NextRequest) {
         }
         localPasses += localFamilyPasses(effectiveCount);
         if (s.attending > 0 && s.attending === s.over65) rahatLocalAllOver65++;
+        localOver65Members += s.over65;
       } else if (type === "Mehman") {
         // For forecast: extrapolate rental passes using the registered rental rate.
         // For current: only count families that have actually chosen rental.
@@ -225,6 +227,7 @@ export async function GET(req: NextRequest) {
         local_passes: localPasses,
         mehman_rental_passes: mehmanRentalPasses,
         total: localPasses + mehmanRentalPasses,
+        local_over65_members: localOver65Members,
         rahat_analysis: {
           local_all_over65: rahatLocalAllOver65,
           mehman_over65_rental: rahatMehmanOver65Rental,
