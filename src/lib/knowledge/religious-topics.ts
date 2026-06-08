@@ -4,7 +4,7 @@ import { deleteReligiousContent, indexReligiousTopic, type ReligiousMeta } from 
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export type ReligiousCategory =
-  | "reflection" | "tazyeen" | "al_dars" | "jumla" | "kalema" | "unwaan" | "misc";
+  | "reflection" | "tazyeen" | "al_dars" | "jumla" | "kalema" | "unwaan" | "overview" | "misc";
 export type ReligiousLanguage = "en" | "lisan";
 export type ReligiousStatus = "indexed" | "pending_translation" | "placeholder";
 
@@ -275,14 +275,32 @@ export function parseMajlisRef(query: string): MajlisRef | null {
   return { lailat, majlisNum, wantsTazyeen, wantsDars, wantsCategory, year: ym ? ym[1] : null };
 }
 
-// "Overview" intent: the user wants a list/comparison across majalis, not one block.
-// (Handled before parseMajlisRef, which only fires when a specific majlis is named.)
+// "Overview" intent: the user wants the whole-Ashara theme / a list across majalis, not one
+// block. Only consulted when NO specific majlis was parsed, so the broad "last year / overall"
+// phrasings here can't hijack a specific-majlis question.
 export function isOverviewQuery(query: string): boolean {
   const q = ` ${query.toLowerCase()} `;
-  return /\b(all|every|each|list|overview|summary)\b/.test(q) && /\bmajlis|majalis|waaz|ashara|theme|topic/.test(q)
+  return (/\b(all|every|each|list|overview|overall|summary|whole|entire)\b/.test(q) && /\b(majlis|majalis|waaz|wa'?az|ashara|theme|topic|year)\b/.test(q))
     || /\b(topics?|themes?|subjects?)\s+of\s+(all|the|every|each)\b/.test(q)
     || /\b(all|every)\s+majalis\b/.test(q)
-    || /\bcompare\b/.test(q);
+    || /\bcompare\b/.test(q)
+    || /\bthis\s+(week|whole ashara|entire ashara)\b/.test(q)
+    // "topic for last year's waaz" / "what was last year about" — but NOT if a majlis is named.
+    || (/\b(last|previous)\s+year('?s)?\b/.test(q) && !/\b(majlis|majalis)\b/.test(q));
+}
+
+// The curated year-level overall-theme block (category "overview"), or null if none/empty.
+export async function getOverviewBlock(year: string): Promise<MajlisHit | null> {
+  const { data } = await getSupabaseAdmin()
+    .from("religious_topics")
+    .select("title, content, source_url, theme, year_hijri")
+    .eq("category", "overview")
+    .eq("year_hijri", year)
+    .limit(1)
+    .maybeSingle();
+  const t = data as (MajlisHit & { year_hijri: string | null }) | null;
+  if (!t || !(t.content ?? "").trim()) return null;
+  return { title: t.title, content: t.content, source_url: t.source_url ?? null, theme: t.theme ?? null, year_hijri: t.year_hijri ?? null };
 }
 
 // "Deep" intent: the user explicitly wants more than the headline.

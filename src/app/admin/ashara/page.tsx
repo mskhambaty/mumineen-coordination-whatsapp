@@ -206,6 +206,38 @@ export default function AsharaDashboardPage() {
     }
   }
 
+  // The curated year-level "overview" block (the bot answers "what was the whole Ashara about").
+  const overviewBlock = useMemo(
+    () => topics.find((t) => t.category === "overview" && t.year_hijri === year) ?? null,
+    [topics, year],
+  );
+
+  async function openOverview() {
+    if (overviewBlock) { setEditing(overviewBlock); return; }
+    setBusyCell("overview");
+    setError(null);
+    try {
+      const res = await apiFetch("/api/admin/religious-topics", {
+        method: "POST",
+        body: JSON.stringify({
+          title: `Overview — Ashara ${year}H`,
+          year_hijri: year, majlis_number: null, is_ashura: false,
+          category: "overview", language: "en", status: "placeholder",
+          source_label: `Reflections — Ashara ${year}H`,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to create");
+      const created = (await res.json()) as { id: string };
+      const fresh = (await (await apiFetch("/api/admin/religious-topics")).json()).topics as Topic[];
+      setTopics(fresh);
+      setEditing(fresh.find((t) => t.id === created.id) ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create");
+    } finally {
+      setBusyCell(null);
+    }
+  }
+
   return (
     <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -286,6 +318,26 @@ export default function AsharaDashboardPage() {
           {error}
         </div>
       )}
+
+      {/* Year-level overall theme block */}
+      <button
+        type="button"
+        onClick={() => void openOverview()}
+        disabled={busyCell === "overview"}
+        className="mb-4 flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-3 text-left shadow-sm transition hover:border-blue-400 dark:border-gray-800 dark:bg-gray-900"
+      >
+        <div>
+          <span className="text-sm font-semibold">Overall theme — Ashara {year}H</span>
+          <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+            {busyCell === "overview" ? "Creating…" : overviewBlock?.content?.trim()
+              ? "Edit the whole-Ashara brief the bot uses for “what was last year about”"
+              : "Not written yet — click to add the whole-Ashara brief"}
+          </span>
+        </div>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${overviewBlock?.content?.trim() ? STATUS_STYLE.indexed : STATUS_STYLE.placeholder}`}>
+          {overviewBlock?.content?.trim() ? "Indexed" : "Empty"}
+        </span>
+      </button>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         {/* Grid */}
