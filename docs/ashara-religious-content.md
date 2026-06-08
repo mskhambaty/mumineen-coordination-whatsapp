@@ -75,6 +75,13 @@ re-calls the tool with the full reference rather than answering from memory.
 
 This reuses the existing escalation queue (`POST /api/escalations` → `conversation_sessions.escalation_status='pending'` → on-call email/WhatsApp → `/admin/conversations` *Escalations* tab). `religious_followup` is **exempt from the 3-inbound-message gate** (deen questions are often the first message). Because a successful escalation returns its deterministic acknowledgment and skips the second model completion, the irrelevant-citation bug (a fatwa decline getting reflection `Source:` lines stapled on) cannot occur on this path.
 
+**Personal rulings (fatwa) → refuse + FLAG, never answer, never escalate.** A personal fiqh / halal-haram / "do I need to fast" question is *not* a Waaz-content question and is *not* something the event team can answer — it belongs with the Aamil Saheb. The model repeatedly issued its own rulings ("dragon fruit is halal", "fasting on Ashura is sunnah not wajib"), so this is now intercepted **deterministically before any model call**:
+- `isPersonalRuling()` (`src/lib/agent/ruling-guard.ts`) — a **keyword fast-path** (ruling-intent tokens: halal/haram, wajib/farz/jaiz, "do I need to", permissibility, "…che ke nai") plus a **cheap classifier** (mirrors `classifyDepartments`, biased to refuse on uncertainty) for paraphrase / Lisan. Keys on *ruling intent*, not topic words, so "what did Maula say about fasting" still answers normally.
+- The gate at the top of `runAgent` returns a fixed **refusal** (`RULING_REFUSAL_REPLY` — redirects to the Aamil Saheb, gives no ruling) and writes one row to `religious_ruling_flags`.
+- **Flag ≠ escalate.** Flagging is awareness-only: a quiet row, **no on-call ping, no pending status**. Surfaced as a count + recent list on `/admin/escalation` (`GET /api/admin/ruling-flags`). Escalation (loud hand-off) stays reserved for emergencies, frustrated users, and unanswerable Waaz-content (`religious_followup`).
+
+**Output sanitizer (`sanitizeFinalReply`).** A model-independent backstop: the high model has leaked raw tool-call directives + corrupt tokens into replies. Any reply containing `to=functions.…`, harmony markers, or CJK/junk script is stripped; if nothing coherent remains it becomes the safe fallback. The real cure is fixing `OPENAI_MODEL_HIGH` (see [environment.md](./environment.md)).
+
 **Query routing** (the tool inspects the query and returns an `answer_style`):
 
 | Intent | Trigger | Returns |

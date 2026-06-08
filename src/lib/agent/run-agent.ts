@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { executeTool, toolDefinitionsFor } from "@/lib/agent/tools";
 import { SYSTEM_PROMPT, loadAgentSystemPrompt } from "@/lib/agent/prompts";
 import { AGENT_TEMPERATURE, AI_MODEL, AI_MODEL_HIGH, chatParams, getAIClient, MAX_AGENT_TOKENS, MAX_FINAL_TOKENS } from "@/lib/ai/model";
+import { isPersonalRuling, flagRulingQuestion, RULING_REFUSAL_REPLY } from "@/lib/agent/ruling-guard";
 import { resolveCallerFromPhone, type CallerContext } from "@/lib/api/auth";
 import type { AppUser } from "@/lib/permissions";
 import { formatSenderProfileForPrompt, getSenderProfile, type SenderProfile } from "@/lib/mumineen/sender-profile";
@@ -136,7 +137,8 @@ export const RELIGIOUS_GUIDANCE_RULE = `\n\n## Religious & Vaaz Questions (Iqtib
   (2) ITALICIZE every transliteration and Lisan/Arabic term with underscores — e.g. _Mushtari_, _saʿaadat_, _sadaqa_, _sabr_, _Aab_.
   (3) Use a bullet list ("- ") or numbered list ("1.") whenever you give multiple points, characteristics, or candidate words (e.g. the five characteristics, or a "did you mean" list).
   This styling is expected on EVERY Waaz Talaqi / word answer. Keep it dignified: NO emojis, keep honorifics (SA/AS/TUS/RA) and the reverent tone. Leave the final "Source: ..." line in PLAIN text (no bold/italic) so the link stays clickable.
-- Cannot answer from the reflections — hand it to the team (do NOT improvise): when a genuine Waaz / deen / Iqtibasaat question has NO usable match in the answer_religious_questions result, OR it is a personal fatwa / fiqh ruling (is X halal/haram for me, should I fast/pray X) or sectarian/theological debate, you MUST NOT give a ruling, an Aamil-Saheb redirect, or any improvised answer. Instead call move_to_escalation with category "religious_followup", priority "normal", and reason = a short, neutral paraphrase of the question (the question text only — no extra personal data). The system then sends a fixed team-follow-up reply on its own — after escalating, do NOT add your own wording, a ruling, or any "Source:" line. This path is ONLY for genuine deen/Waaz questions: for logistics (hotels, registration, ITS, transport, accommodation) keep using get_site_content_faq / move_to_escalation as before; for content-free closings or acknowledgements use [[NO_REPLY]] — never escalate those.
+- NEVER issue a personal religious ruling (a fatwa) from general knowledge. Whether something is halal/haram, wajib/farz/jaiz, obligatory or permitted, or whether someone personally should fast/pray/do matam, etc. is NOT yours to answer — even if a reflection mentions the topic. (Such fatwa questions are intercepted before they reach you; if one slips through, do NOT answer it and do NOT improvise a ruling.)
+- Cannot answer a Waaz-CONTENT question from the reflections — hand it to the team (do NOT improvise): when a genuine Waaz / deen / Iqtibasaat question (what was discussed / explained) has NO usable match in the answer_religious_questions result, call move_to_escalation with category "religious_followup", priority "normal", and reason = a short, neutral paraphrase of the question (the question text only — no extra personal data). The system then sends a fixed team-follow-up reply on its own — after escalating, do NOT add your own wording, a ruling, or any "Source:" line. This path is ONLY for genuine deen/Waaz content questions: for logistics (hotels, registration, ITS, transport, accommodation) keep using get_site_content_faq / move_to_escalation as before; for content-free closings or acknowledgements use [[NO_REPLY]] — never escalate those.
 - Word meanings go to the dictionary, NEVER to general knowledge: any request for the meaning of a single word or short phrase ("what does X mean", "meaning of X", "X ni maana", or just a bare word like "takht" or "aaeen") MUST be answered via get_lisan_word_meaning. Do NOT answer a Lisan/Arabic word's meaning from your own knowledge and do NOT route it to answer_religious_questions. If the dictionary has no exact match, use its did_you_mean / not_found result (below) — do not then guess the meaning yourself.
 - Lisan ud Dawat word meanings come from get_lisan_word_meaning (an exact dictionary lookup), text only. Keep these SHORT — just the word, its meaning, and the example sentence if present (1–2 lines). No long preamble.
   - status "ok": give the *bold word* (+ _transliteration_), then its meaning on one line, and the example if present. If there are multiple exact entries, list them briefly.
@@ -327,6 +329,16 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     return "I received your message, but I cannot read that message type yet. Please send a text message and I will help.";
   }
 
+  // HARD GUARD (before any model call): a personal religious ruling — halal/haram, wajib/farz,
+  // "do I need to fast" — is not something we answer or escalate; it belongs with the Aamil Saheb.
+  // The model has repeatedly issued its own rulings, so we intercept here, reply with a fixed
+  // refusal, and quietly FLAG it (awareness only — NOT an on-call escalation). Never the model.
+  const rulingCheck = await isPersonalRuling(input.message);
+  if (rulingCheck.ruling) {
+    await flagRulingQuestion(input.phoneE164, input.message, rulingCheck.via);
+    return RULING_REFUSAL_REPLY;
+  }
+
   const client = getAIClient();
 
   const callerPromise: Promise<CallerContext | undefined> = input.callerContext
@@ -380,7 +392,7 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   const firstMessage = firstResponse.choices[0]?.message;
 
   if (!firstMessage?.tool_calls?.length) {
-    return firstMessage?.content?.trim() || fallbackReply();
+    return sanitizeFinalReply(firstMessage?.content?.trim() || fallbackReply());
   }
 
   messages.push(firstMessage);
@@ -453,10 +465,41 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     });
   }
 
-  const reply = finalResponse.choices[0]?.message?.content?.trim() || fallbackReply();
+  const reply = sanitizeFinalReply(finalResponse.choices[0]?.message?.content?.trim() || fallbackReply());
+  // If sanitizing reduced a garbled reply to the safe fallback, don't decorate it with citations.
+  if (reply === fallbackReply()) return reply;
   // Guarantee the show-source rule: if a Waaz Talaqi / Lisan tool returned a source and the
   // model's reply didn't cite it, append the source line deterministically.
   return ensureSourcesCited(reply, sources);
+}
+
+// --- Output sanitizer (safety net for a misbehaving model) ---
+// Independent of the model: the high model has leaked raw tool-call directives and corrupt
+// tokens straight into replies (e.g. "to=functions.move_to_escalation 天天中彩票…json {…}"). Such
+// output must NEVER reach a user. We strip leaked tool-call syntax and non-Latin/non-Arabic junk
+// script; if nothing coherent remains, fall back to a safe message. (The real cure for the
+// corruption is fixing OPENAI_MODEL_HIGH — see docs/environment.md — this is the backstop.)
+const LEAKED_TOOLCALL_RE =
+  /(to\s*=\s*functions\.|functions\.[a-z_]+\s*[({]|<\|[a-z_]+\|>|"category"\s*:\s*"[a-z_]+")/i;
+// CJK ideographs, Hiragana, Katakana, Hangul — never legitimately in an English/Lisan(Arabic) reply.
+const GARBAGE_SCRIPT_RE = /[぀-ヿ㐀-鿿가-힯]/;
+
+export function looksLeakedOrGarbled(reply: string): boolean {
+  return LEAKED_TOOLCALL_RE.test(reply) || GARBAGE_SCRIPT_RE.test(reply);
+}
+
+export function sanitizeFinalReply(reply: string): string {
+  if (!looksLeakedOrGarbled(reply)) return reply;
+  const cleaned = reply
+    .replace(/to\s*=\s*functions\.[^\n]*/gi, "")
+    .replace(/<\|[a-z_]+\|>/gi, "")
+    .replace(/\{[^{}]*"(category|priority|reason|department)"\s*:[^{}]*\}/gi, "")
+    .replace(/[぀-ヿ㐀-鿿가-힯]+/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  // If what's left (minus any dangling Source: lines) isn't a coherent answer, use the fallback.
+  const body = cleaned.replace(/^source:.*$/gim, "").trim();
+  return body.length >= 40 ? cleaned : fallbackReply();
 }
 
 // --- Deterministic source citation (Issue #43) ---

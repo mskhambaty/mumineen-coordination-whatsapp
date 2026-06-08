@@ -496,6 +496,19 @@ paths:
         "201": { description: Created issue. }
         "400": { $ref: "#/components/responses/BadRequest" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /admin/ruling-flags:
+    get:
+      tags: [conversations]
+      summary: Flagged personal religious-ruling (fatwa) questions — awareness only, not escalations.
+      description: >-
+        Counts + recent personal fiqh / halal-haram questions the assistant refused (redirecting to
+        the Aamil Saheb) and quietly flagged via the deterministic ruling guard. NOT escalations —
+        no one is paged. Phone is masked to the last 4 digits. Admin/leadership only.
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      responses:
+        "200": { description: "{ total, unreviewed, recent[] } of flagged ruling questions." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /admin/escalation-support:
     get:
       tags: [conversations, users]

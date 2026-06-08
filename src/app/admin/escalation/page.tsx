@@ -25,6 +25,8 @@ type Department = { id: string; name: string };
 type Tally = { label: string; count: number };
 type RecentReason = { reason: string; category: string; priority: string; escalated_at: string | null };
 type Breakdown = { total: number; pending: number; by_category: Tally[]; by_priority: Tally[]; recent: RecentReason[] };
+type RulingFlag = { phone_last4: string; message: string; detected_by: string; reviewed: boolean; created_at: string };
+type RulingFlags = { total: number; unreviewed: number; recent: RulingFlag[] };
 
 export default function EscalationSupportPage() {
   const router = useRouter();
@@ -36,6 +38,8 @@ export default function EscalationSupportPage() {
   const [selectedDeptId, setSelectedDeptId] = useState("");
   const [filterDeptId, setFilterDeptId] = useState("all");
   const [breakdown, setBreakdown] = useState<Breakdown | null>(null);
+  const [rulingFlags, setRulingFlags] = useState<RulingFlags | null>(null);
+  const [showFlags, setShowFlags] = useState(false);
   const [showReasons, setShowReasons] = useState(false);
   const [expandedHours, setExpandedHours] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -61,13 +65,15 @@ export default function EscalationSupportPage() {
     setLoading(true);
     setError(null);
     try {
-      const [membersRes, usersRes, deptRes, breakdownRes] = await Promise.all([
+      const [membersRes, usersRes, deptRes, breakdownRes, flagsRes] = await Promise.all([
         apiFetch("/api/admin/escalation-support"),
         apiFetch("/api/admin/users"),
         apiFetch("/api/departments"),
         apiFetch("/api/admin/escalations/breakdown"),
+        apiFetch("/api/admin/ruling-flags"),
       ]);
       if (breakdownRes.ok) setBreakdown((await breakdownRes.json()) as Breakdown);
+      if (flagsRes.ok) setRulingFlags((await flagsRes.json()) as RulingFlags);
       const membersData = await membersRes.json().catch(() => ({}));
       if (!membersRes.ok) throw new Error(membersData.error ?? "Failed to load support team");
       const list = (membersData.members ?? []) as SupportMember[];
@@ -271,6 +277,31 @@ export default function EscalationSupportPage() {
                 </ul>
               )}
             </div>
+          )}
+        </div>
+      )}
+
+      {rulingFlags && rulingFlags.total > 0 && (
+        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-5 shadow-sm dark:border-amber-900 dark:bg-amber-950/30">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Religious ruling questions (flagged, not escalated)</h2>
+            <span className="text-sm text-gray-500 dark:text-gray-400">{rulingFlags.total} total</span>
+          </div>
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+            Personal fiqh / halal-haram questions the assistant declined (and redirected to the Aamil Saheb). Awareness only — no one was paged.
+          </p>
+          <button type="button" onClick={() => setShowFlags((v) => !v)} className="mt-2 text-sm font-medium text-amber-700 hover:text-amber-800 dark:text-amber-400">
+            {showFlags ? "Hide" : "Show"} recent questions ({rulingFlags.recent.length})
+          </button>
+          {showFlags && (
+            <ul className="mt-2 space-y-2">
+              {rulingFlags.recent.map((f, i) => (
+                <li key={i} className="text-sm">
+                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300">…{f.phone_last4}</span>
+                  <span className="ml-2 text-gray-700 dark:text-gray-300">{f.message}</span>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       )}

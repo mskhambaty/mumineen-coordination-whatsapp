@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { collectSources, ensureSourcesCited, newSourceCollector } from "@/lib/agent/run-agent";
+import {
+  collectSources,
+  ensureSourcesCited,
+  newSourceCollector,
+  looksLeakedOrGarbled,
+  sanitizeFinalReply,
+} from "@/lib/agent/run-agent";
 
 const URL2 = "https://blogs.jameasaifiyah.edu/reflection/ashara/1447h/reflections-majlis-2-5/";
 const URL7 = "https://blogs.jameasaifiyah.edu/reflection/ashara/1447h/reflections-majlis-7-6/";
@@ -66,5 +72,33 @@ describe("ensureSourcesCited", () => {
 
   it("leaves replies untouched when there are no sources", () => {
     expect(ensureSourcesCited("Which hotels have a shuttle?", newSourceCollector())).toBe("Which hotels have a shuttle?");
+  });
+});
+
+describe("sanitizeFinalReply (high-model garbage safety net)", () => {
+  const FALLBACK = "I am sorry, I could not produce a reliable answer just now. Please check official Anjuman announcements or try again shortly.";
+
+  it("detects leaked tool-call syntax and CJK garbage", () => {
+    expect(looksLeakedOrGarbled('to=functions.move_to_escalation {"category":"religious_followup"}')).toBe(true);
+    expect(looksLeakedOrGarbled("天天中彩票这个")).toBe(true);
+    expect(looksLeakedOrGarbled("Majlis 7 was about the Sun (Shams).")).toBe(false);
+  });
+
+  it("replaces a wholly-leaked reply with the safe fallback (the real screenshot bug)", () => {
+    const leaked =
+      'to=functions.move_to_escalation 天天中彩票这个уҷson {"category":"religious_followup","priority":"normal","reason":"User is asking whether fasting on Ashura is required."}';
+    expect(sanitizeFinalReply(leaked)).toBe(FALLBACK);
+  });
+
+  it("passes a clean reply through unchanged", () => {
+    const clean = "*Majlis 7 — Shams (the Sun)*: connection with Wali Allah and the radiance of guidance.";
+    expect(sanitizeFinalReply(clean)).toBe(clean);
+  });
+
+  it("strips a stray garbage token but keeps a substantive answer", () => {
+    const dirty = "Majlis 7 was about the Sun (Shams), a motif for the radiance of divine guidance in the waaz. 天天";
+    const out = sanitizeFinalReply(dirty);
+    expect(out).not.toMatch(/[一-鿿]/);
+    expect(out).toContain("Shams");
   });
 });
