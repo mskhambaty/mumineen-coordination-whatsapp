@@ -29,6 +29,13 @@ export function skeleton(norm: string): string {
   return norm.replace(/ /g, "").replace(/[aeiou]/g, "").replace(/(.)\1+/g, "$1");
 }
 
+// ~7% of dictionary rows bundle several word-forms in one entry, e.g.
+// "Ne'mat - Ne'am, An'um" / "نعمة - نعم، انعم". Split on the form separators so each form is
+// indexed/searched on its own (the whole-entry norm/skeleton never matches a single word).
+export function splitForms(s: string | null | undefined): string[] {
+  return (s ?? "").split(/\s+-\s+|[,،/;]/).map((p) => p.trim()).filter(Boolean);
+}
+
 export type LisanLookup =
   | { status: "ok"; matches: LisanEntry[] }
   | { status: "did_you_mean"; suggestions: LisanEntry[] }
@@ -42,6 +49,16 @@ export async function lookupLisanWord(query: string): Promise<LisanLookup> {
 
   // Lisan-script input: match the lisan column directly.
   if (ARABIC_RE.test(q)) {
+    // Exact match against an individual form (handles compound entries like
+    // "نعمة - نعم، انعم" where the whole `lisan` field never equals a single word).
+    const { data: formData } = await supabase
+      .from("lisan_words")
+      .select("transliteration, lisan, meaning, example")
+      .contains("lisan_forms", [q])
+      .limit(3);
+    const formRows = (formData ?? []) as LisanEntry[];
+    if (formRows.length) return { status: "ok", matches: formRows.slice(0, 3) };
+
     const { data } = await supabase
       .from("lisan_words")
       .select("transliteration, lisan, meaning, example")
@@ -50,7 +67,7 @@ export async function lookupLisanWord(query: string): Promise<LisanLookup> {
     const rows = (data ?? []) as LisanEntry[];
     const exact = rows.filter((r) => (r.lisan ?? "").trim() === q);
     if (exact.length) return { status: "ok", matches: exact.slice(0, 3) };
-    if (rows.length) return { status: "did_you_mean", suggestions: rows };
+    if (rows.length) return { status: "did_you_mean", suggestions: rows.slice(0, 3) };
     return { status: "not_found" };
   }
 
@@ -69,11 +86,20 @@ export async function lookupLisanWord(query: string): Promise<LisanLookup> {
   // skeleton hit is confident enough to answer directly; several → numbered "did you mean".
   const skel = skeleton(norm);
   if (skel) {
-    const { data: skelData } = await supabase
+    // Match a per-form skeleton first (so "nemat" finds the "Ne'mat" form inside a compound
+    // entry); fall back to the legacy whole-entry skeleton for any un-backfilled row.
+    let { data: skelData } = await supabase
       .from("lisan_words")
       .select("transliteration, lisan, meaning, example, norm")
-      .eq("norm_skeleton", skel)
+      .contains("skeleton_forms", [skel])
       .limit(6);
+    if (!skelData?.length) {
+      ({ data: skelData } = await supabase
+        .from("lisan_words")
+        .select("transliteration, lisan, meaning, example, norm")
+        .eq("norm_skeleton", skel)
+        .limit(6));
+    }
     const skelRows = (skelData ?? []) as (LisanEntry & { norm?: string | null })[];
     if (skelRows.length) {
       const ranked = skelRows
@@ -107,6 +133,10 @@ export async function importLisanWords(rows: LisanImportRow[]): Promise<number> 
       const transliteration = (r.transliteration ?? "").trim() || null;
       const lisan = (r.lisan ?? "").trim() || null;
       const norm = normalizeWord(transliteration ?? lisan ?? "");
+      const skeleton_forms = Array.from(
+        new Set(splitForms(transliteration).map((f) => skeleton(normalizeWord(f))).filter(Boolean)),
+      );
+      const lisan_forms = Array.from(new Set(splitForms(lisan)));
       return {
         transliteration,
         lisan,
@@ -114,6 +144,8 @@ export async function importLisanWords(rows: LisanImportRow[]): Promise<number> 
         example: (r.example ?? "").trim() || null,
         norm,
         norm_skeleton: skeleton(norm),
+        skeleton_forms,
+        lisan_forms,
       };
     })
     .filter((r) => (r.transliteration || r.lisan) && r.norm);
