@@ -35,6 +35,7 @@ type SearchResult = {
   city: string | null;
   hof_its: string | null;
   is_head: boolean;
+  is_acting_head: boolean;
   whatsapp_e164: string | null;
   email: string | null;
   idara: string | null;
@@ -258,6 +259,7 @@ export default function MumineenPage() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[] | null>(null);
+  const [truncated, setTruncated] = useState(false);
   const [searching, setSearching] = useState(false);
   const [selected, setSelected] = useState<SearchResult | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -472,8 +474,10 @@ export default function MumineenPage() {
       const res = await apiFetch(`/api/admin/mumineen/search?q=${encodeURIComponent(term)}`);
       const data = await res.json().catch(() => ({}));
       setResults(res.ok ? ((data.results as SearchResult[]) ?? []) : []);
+      setTruncated(res.ok ? Boolean(data.truncated) : false);
     } catch {
       setResults([]);
+      setTruncated(false);
     } finally {
       setSearching(false);
     }
@@ -668,7 +672,11 @@ export default function MumineenPage() {
                     >
                       <td className="px-2 py-1.5 font-medium">
                         {r.full_name ?? "—"}
-                        {r.is_head && <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">Head</span>}
+                        {r.is_head ? (
+                          <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">Head</span>
+                        ) : r.is_acting_head ? (
+                          <span className="ml-1.5 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-400" title="Roster HOF not in registration data — acting head is the eldest member">Acting head</span>
+                        ) : null}
                       </td>
                       <td className="px-2 py-1.5 font-mono text-xs">{r.its}</td>
                       <td className="px-2 py-1.5 font-mono text-xs text-gray-500">{r.hof_its ?? "—"}</td>
@@ -685,9 +693,9 @@ export default function MumineenPage() {
                         )}
                       </td>
                       <td className="px-2 py-1.5">
-                        {r.hof_its && r.family?.registration_status === "submitted" ? (
+                        {r.is_acting_head && r.hof_its && r.family?.registration_status === "submitted" ? (
                           <button type="button" onClick={(e) => { e.stopPropagation(); unregisterFamily(r.hof_its!); }} className="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950">Unregister</button>
-                        ) : r.is_head && r.family && (r.family.registration_status === "not_started" || r.family.registration_status == null) ? (
+                        ) : r.is_acting_head && r.hof_its && r.family && (r.family.registration_status === "not_started" || r.family.registration_status == null) ? (
                           <button type="button" onClick={(e) => { e.stopPropagation(); markFamilyNotAttending(r.hof_its!); }} className="rounded border border-amber-300 px-2 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-50 dark:border-amber-900 dark:text-amber-300 dark:hover:bg-amber-950">Family not attending</button>
                         ) : (
                           <span className="text-gray-300 dark:text-gray-600">—</span>
@@ -697,7 +705,7 @@ export default function MumineenPage() {
                   ))}
                 </tbody>
               </table>
-              {results.length === 50 && <p className="mt-2 text-xs text-gray-400">Showing first 50 matches — refine your search.</p>}
+              {truncated && <p className="mt-2 text-xs text-gray-400">Showing the first 50 matching families — refine your search.</p>}
             </div>
           )
         )}
