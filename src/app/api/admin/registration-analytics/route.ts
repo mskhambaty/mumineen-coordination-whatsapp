@@ -298,6 +298,27 @@ export async function GET(req: NextRequest) {
   const arrivalsByDate = Array.from(arrivalMap.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, count]) => ({ date, count }));
+
+  // Group by date + hour for reception scheduling (replaces airport breakdown)
+  const arrivalsByDatetimeMap = new Map<string, { date: string; time: string; count: number }>();
+  for (const m of mehmanAttending) {
+    if (m.arrival_at) {
+      const date = m.arrival_at.slice(0, 10);
+      const hasTime = m.arrival_at.length > 10 && (m.arrival_at[10] === "T" || m.arrival_at[10] === " ");
+      const time = hasTime ? m.arrival_at.slice(11, 13) + ":00" : "";
+      const key = `${date}|${time}`;
+      const existing = arrivalsByDatetimeMap.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        arrivalsByDatetimeMap.set(key, { date, time, count: 1 });
+      }
+    }
+  }
+  const arrivalsByDatetime = Array.from(arrivalsByDatetimeMap.values()).sort(
+    (a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time),
+  );
+
   const departuresByDate = Array.from(departureMap.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, count]) => ({ date, count }));
@@ -407,6 +428,7 @@ export async function GET(req: NextRequest) {
     transport,
     airports,
     arrivals_by_date: arrivalsByDate,
+    arrivals_by_datetime: arrivalsByDatetime,
     departures_by_date: departuresByDate,
     gender,
     age_groups: ageGroups,

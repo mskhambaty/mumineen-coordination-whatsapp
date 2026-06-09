@@ -49,6 +49,7 @@ type Analytics = {
   };
   airports: { ORD: number; MDW: number; not_set: number };
   arrivals_by_date: { date: string; count: number }[];
+  arrivals_by_datetime: { date: string; time: string; count: number }[];
   departures_by_date: { date: string; count: number }[];
   gender: { label: string; count: number }[];
   age_groups: {
@@ -739,7 +740,6 @@ export default function RegistrationAnalyticsPage() {
 
   // Section-level local filters
   const [hotelSearch, setHotelSearch] = useState("");
-  const [airportFilter, setAirportFilter] = useState("");
   const [khidmatDeptFilter, setKhidmatDeptFilter] = useState("");
 
 
@@ -830,7 +830,6 @@ export default function RegistrationAnalyticsPage() {
   const transportTotal = data
     ? data.transport.rideshare + data.transport.rental + data.transport.commute_with_utaro + data.transport.other + data.transport.not_set
     : 0;
-  const airportTotal = data ? data.airports.ORD + data.airports.MDW + data.airports.not_set : 0;
   const missingTotal = data
     ? data.missing_data.no_whatsapp + data.missing_data.no_email + data.missing_data.no_arrival + data.missing_data.no_airport + data.missing_data.no_flight_no
     : 0;
@@ -1296,20 +1295,7 @@ export default function RegistrationAnalyticsPage() {
                   )}
                 </SectionCard>
 
-                <SectionCard
-                  title="Arrival Dates (Mehman)"
-                  filterSlot={
-                    <InlineSelect
-                      value={airportFilter}
-                      onChange={setAirportFilter}
-                      options={[
-                        { value: "", label: "All airports" },
-                        { value: "ORD", label: "ORD — O'Hare" },
-                        { value: "MDW", label: "MDW — Midway" },
-                      ]}
-                    />
-                  }
-                >
+                <SectionCard title="Arrival Dates (Mehman)">
                   {data.arrivals_by_date.length === 0 ? (
                     <p className="text-sm text-gray-400">No arrival data yet</p>
                   ) : (
@@ -1322,19 +1308,39 @@ export default function RegistrationAnalyticsPage() {
                           drill({ segment: "arrival_date", value: date, label: `Arrivals on ${date}`, detailLabel: "Arrival · Flight · Airport" })
                         }
                       />
-                      <div className="mt-3">
-                        <HBar label="ORD — O'Hare" value={data.airports.ORD} total={airportTotal} color="bg-blue-500"
-                          onClick={() => drill({ segment: "airport", value: "ORD", label: "Flying into ORD (O'Hare)", detailLabel: "Arrival · Flight" })}
-                        />
-                        <HBar label="MDW — Midway" value={data.airports.MDW} total={airportTotal} color="bg-sky-400"
-                          onClick={() => drill({ segment: "airport", value: "MDW", label: "Flying into MDW (Midway)", detailLabel: "Arrival · Flight" })}
-                        />
-                        {data.airports.not_set > 0 && (
-                          <HBar label="Airport not set" value={data.airports.not_set} total={airportTotal} color="bg-gray-300"
-                            onClick={() => drill({ segment: "airport", value: "not_set", label: "Mehman — No airport selected", detailLabel: "Arrival · Flight" })}
-                          />
-                        )}
-                      </div>
+                      {data.arrivals_by_datetime.length > 0 && (
+                        <div className="mt-3 overflow-x-auto">
+                          <table className="min-w-full text-xs">
+                            <thead>
+                              <tr className="border-b border-gray-100 text-left text-gray-400">
+                                <th className="pb-1 pr-4 font-medium">Date</th>
+                                <th className="pb-1 pr-4 font-medium">Time</th>
+                                <th className="pb-1 text-right font-medium">Count</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {data.arrivals_by_datetime.map(({ date, time, count }, i) => {
+                                const prevDate = i > 0 ? data.arrivals_by_datetime[i - 1].date : null;
+                                return (
+                                  <tr key={`${date}|${time}`} className="border-b border-gray-50">
+                                    <td className="py-1 pr-4 text-gray-500">
+                                      {date !== prevDate ? date : ""}
+                                    </td>
+                                    <td className="py-1 pr-4 text-gray-700">
+                                      {time ? (
+                                        new Date(`1970-01-01T${time}:00`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
+                                      ) : (
+                                        <span className="italic text-gray-400">Time not set</span>
+                                      )}
+                                    </td>
+                                    <td className="py-1 text-right font-medium text-gray-700">{count}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </>
                   )}
                 </SectionCard>
