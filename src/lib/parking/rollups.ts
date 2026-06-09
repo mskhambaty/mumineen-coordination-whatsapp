@@ -67,6 +67,7 @@ export type HouseholdRow = {
   member_count: number;
   eligible: boolean;
   suggested_passes: number;
+  utaro_guest_count: number;
   rahat_count: number;
   wheelchair_count: number;
   senior_count: number;
@@ -116,6 +117,7 @@ export function buildHouseholdRow(
     // Default pass rule: local household with ≥1 attending member; mehman only if they rented a car.
     eligible: attendingCount > 0 && (localMehman === "Local" || (localMehman === "Mehman" && family.transport_mode === "rental")),
     suggested_passes,
+    utaro_guest_count: guestFamilies.reduce((sum, g) => sum + g.attendingCount, 0),
     rahat_count: attending.filter((m) => m.rahat_seating || m.wheelchair).length,
     wheelchair_count: attending.filter((m) => m.wheelchair).length,
     senior_count: attending.filter((m) => (m.age ?? -1) >= 65).length,

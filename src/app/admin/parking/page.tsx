@@ -829,6 +829,7 @@ export default function ParkingPage() {
                     ))}
                     {r.kids_under_7 > 0 && <Badge label={`Kids <7 ×${r.kids_under_7}`} />}
                     {r.transport_mode === "rental" && <Badge label="Rental" />}
+                    {r.utaro_guest_count > 0 && <Badge label={`Utaro ×${r.utaro_guest_count}`} tone="blue" />}
                   </div>
                 </td>
                 <td className="px-3 py-2">
