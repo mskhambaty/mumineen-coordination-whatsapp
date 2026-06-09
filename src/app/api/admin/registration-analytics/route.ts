@@ -276,7 +276,7 @@ export async function GET(req: NextRequest) {
 
   // ── Airport & travel (attending mehman) ──────────────────────────────────────
 
-  const mehmanAttending = members.filter((m) => m.local_mehman === "Mehman" && !m.not_attending);
+  const mehmanAttending = members.filter((m) => m.local_mehman === "Mehman" && !m.not_attending && isSubmitted(m.hof_its));
   const airports = {
     ORD: mehmanAttending.filter((m) => m.airport === "ORD").length,
     MDW: mehmanAttending.filter((m) => m.airport === "MDW").length,
