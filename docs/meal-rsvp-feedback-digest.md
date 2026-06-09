@@ -35,7 +35,7 @@ uses the same classifier to route issues to the right department when the agent 
 so they don't sit untriaged. (`POST /api/feedback` + `recordFeedback` remain as a programmatic
 insert path for future admin/manual entry, but are no longer wired to the agent.)
 
-## 3. Nightly department digest (22:00 UTC)
+## 3. Nightly department digest (03:00 UTC (10pm Chicago, CDT))
 
 Before aggregating, the cron **mines the last 24h of raw conversations** for feedback
 (`src/lib/digest/mine-conversations.ts`) — the single source of digest feedback. This is **batched** —
@@ -61,7 +61,7 @@ Recipients opt out via `department_members.daily_feedback_digest` (default **ON*
 departments gets N messages. The **all-up** summary (one per day, `department_id` null) goes to
 admin/leadership plus **Project Management** and **Leadership** department members.
 
-Cron: `/api/cron/department-digest` (22:00 UTC, `?date=` override). Portal: `/admin/department-digest`
+Cron: `/api/cron/department-digest` (03:00 UTC (10pm Chicago, CDT), `?date=` override). Portal: `/admin/department-digest`
 + `GET /api/admin/department-digest`, **access-scoped**: a department member sees only their own
 departments' summaries; admin/leadership and Project Management / Leadership members see every
 department plus the all-up. Summaries are stored per day for historical reference.
