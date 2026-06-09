@@ -1,0 +1,31 @@
+# claw-message-sender / claw-sender.service
+#
+# Install to /etc/systemd/system/claw-sender.service (edit paths/user first).
+# Link the sender interactively ONCE to scan the QR before enabling this.
+#
+# Fully independent of claw-ingester — stop/start either without affecting the other.
+
+[Unit]
+Description=Claw WhatsApp send service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=asc
+WorkingDirectory=/home/asc/claw-message-sender
+Environment=AUTH_DIR=/home/asc/claw-message-sender/auth-send
+Environment=SEND_PORT=8766
+Environment=LOG_LEVEL=info
+# SEND_TOKEN is required (service exits if unset). Put it in a chmod 600 env file:
+EnvironmentFile=/home/asc/claw-message-sender/.env
+ExecStart=/usr/bin/node /home/asc/claw-message-sender/index.js
+Restart=on-failure
+RestartSec=10
+
+# index.js exits 1 when logged out / banned (or if SEND_TOKEN is missing).
+# Do NOT restart on exit 1 — a logout needs a human re-link per the runbook.
+RestartPreventExitStatus=1
+
+[Install]
+WantedBy=multi-user.target

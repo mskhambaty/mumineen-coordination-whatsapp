@@ -1,0 +1,27 @@
+# claw-message-ingester / claw-ingester.service
+#
+# Install to /etc/systemd/system/claw-ingester.service (edit paths/user first).
+# Link the listener interactively ONCE to scan the QR before enabling this.
+
+[Unit]
+Description=Claw WhatsApp group message ingester
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=asc
+WorkingDirectory=/home/asc/claw-message-ingester
+Environment=AUTH_DIR=/home/asc/claw-message-ingester/auth
+Environment=CAPTURE_DIR=/home/asc/.openclaw/data/captures
+Environment=LOG_LEVEL=info
+ExecStart=/usr/bin/node /home/asc/claw-message-ingester/index.js
+Restart=on-failure
+RestartSec=10
+
+# index.js exits 1 when the WhatsApp account is logged out / banned.
+# Do NOT restart in that case — it needs a human re-link per the runbook.
+RestartPreventExitStatus=1
+
+[Install]
+WantedBy=multi-user.target
