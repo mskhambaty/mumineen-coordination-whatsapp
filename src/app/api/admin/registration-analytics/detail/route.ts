@@ -212,10 +212,10 @@ export async function GET(req: NextRequest) {
 
     // Fetch names for all roster members so families whose head isn't imported still get a name.
     // Prefer the head (is_head=true) — if absent, fall back to any member of that family.
-    const allHofs = await fetchAll<{ its: string; hof_its: string; full_name: string | null; whatsapp_e164: string | null; local_mehman: string | null; is_head: boolean }>((from, to) =>
+    const allHofs = await fetchAll<{ its: string; hof_its: string; full_name: string | null; whatsapp_e164: string | null; local_mehman: string | null; is_head: boolean; not_attending: boolean }>((from, to) =>
       supabase
         .from("mumineen")
-        .select("its, hof_its, full_name, whatsapp_e164, local_mehman, is_head")
+        .select("its, hof_its, full_name, whatsapp_e164, local_mehman, is_head, not_attending")
         .eq("roster_active", true)
         .range(from, to),
     );
@@ -225,6 +225,12 @@ export async function GET(req: NextRequest) {
       if (!hofMap.has(m.hof_its) || m.is_head) {
         hofMap.set(m.hof_its, { full_name: m.full_name, whatsapp_e164: m.whatsapp_e164, local_mehman: m.local_mehman });
       }
+    }
+    // Attending headcount per family (roster members not flagged not_attending). Surfaced on the
+    // registration_status drill so committee can export attendance per household.
+    const attendingByHof = new Map<string, number>();
+    for (const m of allHofs) {
+      if (!m.not_attending) attendingByHof.set(m.hof_its, (attendingByHof.get(m.hof_its) ?? 0) + 1);
     }
 
     let fams = allFams;
@@ -293,6 +299,9 @@ export async function GET(req: NextRequest) {
         email: "",
         detail,
         hof_its: f.hof_its,
+        // Attending headcount for the family — only on the registration_status (registered/pending)
+        // drill, where committee wants per-household attendance in the export.
+        attending: segment === "registration_status" ? String(attendingByHof.get(f.hof_its) ?? 0) : undefined,
         // Pass utaro host fields through for the panel to render separately
         utaro_host_name: f.utaro_host_name ?? undefined,
         utaro_host_its: f.utaro_host_its ?? undefined,
