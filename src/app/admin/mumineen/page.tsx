@@ -6,7 +6,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { canAccessMumineen, isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
-type Stats = { mumineen: number; adults: number; families: number; registered_families: number; cancelled_families: number; mehmaan: number; local: number };
+type Stats = { mumineen: number; adults: number; families: number; registered_families: number; mehmaan: number; local: number };
 
 type FamilyDetail = {
   registration_status: string | null;
@@ -23,8 +23,6 @@ type FamilyDetail = {
   utaro_host_email: string | null;
   transport_mode: string | null;
   transport_detail: string | null;
-  cancelled_at: string | null;
-  cancelled_reason: string | null;
 };
 
 type SearchResult = {
@@ -494,23 +492,25 @@ export default function MumineenPage() {
     searchTimer.current = setTimeout(() => runSearch(term), 300);
   }
 
-  async function registrationAction(hofIts: string, action: "cancel" | "reopen") {
-    const verb = action === "cancel" ? "Cancel" : "Reopen";
-    const reason =
-      action === "cancel" ? window.prompt(`Cancel registration for family ${hofIts}?\nOptional reason:`, "") : "";
-    if (action === "cancel" && reason === null) return; // user dismissed the prompt
-    if (action === "reopen" && !window.confirm(`Reopen registration for family ${hofIts}? They will be able to submit the form again.`)) return;
+  async function unregisterFamily(hofIts: string) {
+    if (
+      !window.confirm(
+        `Unregister family ${hofIts}? This resets them to pending, ERASES all submitted registration details (accommodation, transport, travel), and clears every member's not-attending flag. This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
     setError(null);
     try {
       const res = await apiFetch("/api/admin/mumineen/registration", {
         method: "POST",
-        body: JSON.stringify({ hof_its: hofIts, action, reason }),
+        body: JSON.stringify({ hof_its: hofIts, action: "unregister" }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? `${verb} failed`);
+      if (!res.ok) throw new Error(data.error ?? "Unregister failed");
       await Promise.all([runSearch(query.trim()), loadStats()]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : `${verb} failed`);
+      setError(err instanceof Error ? err.message : "Unregister failed");
     }
   }
 
@@ -574,7 +574,6 @@ export default function MumineenPage() {
     { label: "Adults (RSVP targets)", value: stats?.adults },
     { label: "Families", value: stats?.families },
     { label: "Registered families", value: stats?.registered_families },
-    { label: "Cancelled", value: stats?.cancelled_families },
   ];
 
   return (
@@ -679,19 +678,15 @@ export default function MumineenPage() {
                       <td className="px-2 py-1.5">{r.city ?? "—"}</td>
                       <td className="px-2 py-1.5">{r.whatsapp_e164 ?? "—"}</td>
                       <td className="px-2 py-1.5">
-                        {r.family?.registration_status === "submitted" || r.family?.registration_status === "confirmed" ? (
-                          <span className="text-green-600 dark:text-green-400">{r.family.registration_status}</span>
-                        ) : r.family?.registration_status === "cancelled" ? (
-                          <span className="text-red-500">cancelled</span>
+                        {r.family?.registration_status === "submitted" ? (
+                          <span className="text-green-600 dark:text-green-400">submitted</span>
                         ) : (
                           <span className="text-gray-400">{r.family?.registration_status ?? "—"}</span>
                         )}
                       </td>
                       <td className="px-2 py-1.5">
-                        {r.hof_its && (r.family?.registration_status === "submitted" || r.family?.registration_status === "confirmed") ? (
-                          <button type="button" onClick={(e) => { e.stopPropagation(); registrationAction(r.hof_its!, "cancel"); }} className="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950">Cancel</button>
-                        ) : r.hof_its && r.family?.registration_status === "cancelled" ? (
-                          <button type="button" onClick={(e) => { e.stopPropagation(); registrationAction(r.hof_its!, "reopen"); }} className="rounded border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800">Reopen</button>
+                        {r.hof_its && r.family?.registration_status === "submitted" ? (
+                          <button type="button" onClick={(e) => { e.stopPropagation(); unregisterFamily(r.hof_its!); }} className="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950">Unregister</button>
                         ) : r.is_head && r.family && (r.family.registration_status === "not_started" || r.family.registration_status == null) ? (
                           <button type="button" onClick={(e) => { e.stopPropagation(); markFamilyNotAttending(r.hof_its!); }} className="rounded border border-amber-300 px-2 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-50 dark:border-amber-900 dark:text-amber-300 dark:hover:bg-amber-950">Family not attending</button>
                         ) : (
@@ -1071,8 +1066,6 @@ export default function MumineenPage() {
                       <Field label="Utaro host email" value={selected.family.utaro_host_email} />
                       <Field label="Transport mode" value={selected.family.transport_mode} />
                       <Field label="Transport detail" value={selected.family.transport_detail} />
-                      <Field label="Cancelled" value={fmtDateTime(selected.family.cancelled_at)} />
-                      <Field label="Cancel reason" value={selected.family.cancelled_reason} />
                     </Section>
                   )}
                 </>

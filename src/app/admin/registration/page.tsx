@@ -15,9 +15,7 @@ type Analytics = {
     total_families: number;
     filtered_families: number;
     submitted_families: number;
-    confirmed_families: number;
     pending_families: number;
-    cancelled_families: number;
     total_mumineen: number;
     submitted_mumineen: number;
     pending_mumineen: number;
@@ -78,7 +76,7 @@ type Analytics = {
 
 type Filters = {
   local_mehman: "" | "Local" | "Mehman";
-  status: "" | "submitted" | "pending" | "cancelled" | "confirmed";
+  status: "" | "submitted" | "pending";
   attending: "" | "true";
 };
 
@@ -906,7 +904,6 @@ export default function RegistrationAnalyticsPage() {
               <Chip label="All" active={filters.status === ""} onClick={() => applyFilter({ status: "" })} />
               <Chip label="Submitted" active={filters.status === "submitted"} onClick={() => applyFilter({ status: filters.status === "submitted" ? "" : "submitted" })} />
               <Chip label="Pending" active={filters.status === "pending"} onClick={() => applyFilter({ status: filters.status === "pending" ? "" : "pending" })} />
-              <Chip label="Cancelled" active={filters.status === "cancelled"} onClick={() => applyFilter({ status: filters.status === "cancelled" ? "" : "cancelled" })} />
             </div>
           </div>
 
@@ -1026,12 +1023,6 @@ export default function RegistrationAnalyticsPage() {
                   <p className="mb-1 text-xs font-medium text-gray-400 uppercase tracking-wide">Families</p>
                   <HBar label="Submitted" value={summary.submitted_families} total={summary.filtered_families} color="bg-green-500" />
                   <HBar label="Pending" value={summary.pending_families} total={summary.filtered_families} color="bg-amber-400" />
-                  {summary.confirmed_families > 0 && (
-                    <HBar label="Confirmed" value={summary.confirmed_families} total={summary.filtered_families} color="bg-blue-500" />
-                  )}
-                  {summary.cancelled_families > 0 && (
-                    <HBar label="Cancelled" value={summary.cancelled_families} total={summary.filtered_families} color="bg-red-400" />
-                  )}
                   <p className="mb-1 mt-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Mumineen</p>
                   <HBar label="From registered" value={summary.submitted_mumineen} total={summary.total_mumineen} color="bg-green-500" />
                   <HBar label="Pending" value={summary.pending_mumineen} total={summary.total_mumineen} color="bg-amber-400" />

@@ -130,7 +130,7 @@ export async function buildGuestRollups(): Promise<GuestRow[]> {
       .from("families")
       .select("id, hof_its, registration_status, acc_type, open_to_utaro, submitted_at, hotel_name, hotel_lat, hotel_lon")
       .eq("roster_active", true)
-      .in("registration_status", ["submitted", "confirmed"])
+      .eq("registration_status", "submitted")
       .eq("acc_type", "hotel")
       .eq("open_to_utaro", true)
       .range(from, to),

@@ -34,11 +34,11 @@ const FAMILIES = [
   // Registered + hotel + open: included. HoF (100) is in the roster → natural head.
   { hof_its: "100", registration_status: "submitted", acc_type: "hotel", hotel_name: "Hyatt", open_to_utaro: true, submitted_by_its: "100" },
   // Registered + hotel + open: included. HoF (200) NOT in roster → registrant 201 is acting head.
-  { hof_its: "200", registration_status: "confirmed", acc_type: "hotel", hotel_name: "Hilton", open_to_utaro: true, submitted_by_its: "201" },
+  { hof_its: "200", registration_status: "submitted", acc_type: "hotel", hotel_name: "Hilton", open_to_utaro: true, submitted_by_its: "201" },
   // Not open to a host → excluded.
   { hof_its: "300", registration_status: "submitted", acc_type: "hotel", hotel_name: "Westin", open_to_utaro: false, submitted_by_its: "300" },
   // Not registered → excluded.
-  { hof_its: "400", registration_status: "pending", acc_type: "hotel", hotel_name: "Marriott", open_to_utaro: true, submitted_by_its: null },
+  { hof_its: "400", registration_status: "not_started", acc_type: "hotel", hotel_name: "Marriott", open_to_utaro: true, submitted_by_its: null },
 ];
 
 const MUMINEEN = [
@@ -101,5 +101,33 @@ describe("GET /api/admin/registration-analytics/detail — open_to_utaro", () =>
     requirePortalCaller.mockResolvedValue(NextResponse.json({ error: "forbidden" }, { status: 403 }));
     const res = await GET(req());
     expect(res.status).toBe(403);
+  });
+});
+
+describe("GET /api/admin/registration-analytics/detail — registration_status drill", () => {
+  const STATUS_FAMILIES = [
+    { hof_its: "900", registration_status: "not_started", acc_type: null, hotel_name: null, open_to_utaro: null, submitted_by_its: null },
+    { hof_its: "901", registration_status: "submitted", acc_type: "hotel", hotel_name: "Hyatt", open_to_utaro: false, submitted_by_its: "901" },
+  ];
+  const STATUS_MUMINEEN = [
+    { its: "900", hof_its: "900", is_head: true, full_name: "Pending Head", local_mehman: "Mehman", whatsapp_e164: null },
+    { its: "901", hof_its: "901", is_head: true, full_name: "Registered Head", local_mehman: "Mehman", whatsapp_e164: null },
+  ];
+
+  beforeEach(() => {
+    getSupabaseAdmin.mockReturnValue(stubSupabase({ families: STATUS_FAMILIES, mumineen: STATUS_MUMINEEN }));
+  });
+
+  it("returns live not_started families for the pending drill (value=pending)", async () => {
+    // Regression: the funnel counts not_started as pending, so the pending drill must too.
+    const json = await (await GET(req("segment=registration_status&value=pending"))).json();
+    expect(json.rows.map((r: { hof_its: string }) => r.hof_its)).toEqual(["900"]);
+    expect(json.count).toBe(1);
+  });
+
+  it("returns registered families for the submitted drill (value=submitted)", async () => {
+    const json = await (await GET(req("segment=registration_status&value=submitted"))).json();
+    expect(json.rows.map((r: { hof_its: string }) => r.hof_its)).toEqual(["901"]);
+    expect(json.count).toBe(1);
   });
 });

@@ -38,8 +38,7 @@ async function registeredFamilyIds(): Promise<string[]> {
     .from("families")
     .select("id")
     .eq("roster_active", true)
-    .is("cancelled_at", null)
-    .in("registration_status", ["submitted", "confirmed"]);
+    .eq("registration_status", "submitted");
   return ((data ?? []) as { id: string }[]).map((f) => f.id);
 }
 

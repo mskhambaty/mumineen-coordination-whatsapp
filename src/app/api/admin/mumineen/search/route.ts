@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
         "idara, category, prefix, title, venue, local_mehman, is_adult, " +
         "arrival_at, arrival_flight_no, departure_at, departure_flight_no, airport, daily_trans, roster_arrival_raw, roster_flight_code, " +
         "rahat_seating, wheelchair, special_needs, wants_khidmat, not_attending, khidmat_department_ids, whatsapp_link_clicked, updated_at, " +
-        "family:families!mumineen_family_id_fkey(registration_status, submitted_at, submitted_by_its, acc_type, hotel_name, hotel_address, open_to_utaro, utaro_host_name, utaro_host_its, utaro_host_address, utaro_host_whatsapp_e164, utaro_host_email, transport_mode, transport_detail, cancelled_at, cancelled_reason)",
+        "family:families!mumineen_family_id_fkey(registration_status, submitted_at, submitted_by_its, acc_type, hotel_name, hotel_address, open_to_utaro, utaro_host_name, utaro_host_its, utaro_host_address, utaro_host_whatsapp_e164, utaro_host_email, transport_mode, transport_detail)",
     )
     .eq("roster_active", true)
     .or(`its.ilike.%${safe}%,full_name.ilike.%${safe}%,whatsapp_e164.ilike.%${safe}%,hof_its.ilike.%${safe}%,jamaat.ilike.%${safe}%,category.ilike.%${safe}%`)
