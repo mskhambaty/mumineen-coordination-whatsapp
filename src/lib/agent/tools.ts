@@ -579,8 +579,9 @@ async function getIndexedInfo(
   fallbackMessage: string,
   retrieve: (q: string, topK?: number) => Promise<string>,
   source: string,
+  topK = 5,
 ) {
-  const context = await retrieve(query, 5);
+  const context = await retrieve(query, topK);
 
   if (!context) {
     return {
@@ -599,11 +600,14 @@ async function getIndexedInfo(
 async function runTool(name: string, args: ToolInput, context: ToolContext) {
   switch (name) {
     case "get_site_content_faq":
+      // topK=10: curated FAQ chunks were being crowded out of a top-5 window; a wider
+      // window lets the specific FAQ (e.g. WiFi, bathrooms) reach the model reliably.
       return getIndexedInfo(
         String(args.query ?? "Ashara 1448 Chicago visitor information"),
         "I could not find an answer in the indexed site content yet.",
         retrieveSiteContext,
         "indexed_site_content",
+        10,
       );
     case "answer_religious_questions": {
       const query = String(args.query ?? "Ashara majlis Vaaz Talaqi Iqtibasaat");

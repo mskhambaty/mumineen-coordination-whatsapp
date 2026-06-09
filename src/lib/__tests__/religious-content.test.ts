@@ -34,10 +34,16 @@ describe("retrieveReligiousContext", () => {
 
     const out = await retrieveReligiousContext("what was majlis 1 about");
 
-    expect(mocks.rpc).toHaveBeenCalledTimes(1);
+    // Dual-embed: the query is embedded twice (raw + event-anchored) and the match RPC is
+    // run once per embedding — both against the religious store, never the site one. The
+    // identical row returned by both runs is deduped before formatting.
+    expect(mocks.rpc).toHaveBeenCalledTimes(2);
     expect(mocks.rpc.mock.calls[0][0]).toBe("match_religious_content");
+    expect(mocks.rpc.mock.calls[1][0]).toBe("match_religious_content");
     expect(out).toContain("[Reflections — Majlis 1]");
     expect(out).toContain("al-Falak al-Muheet");
+    // Deduped — the row appears exactly once even though both runs returned it.
+    expect(out.match(/Reflections — Majlis 1/g)).toHaveLength(1);
   });
 
   it("returns empty string when the RPC errors (fail-soft)", async () => {

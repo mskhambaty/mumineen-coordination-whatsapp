@@ -22,7 +22,7 @@ POST /api/whatsapp/webhook          (src/app/api/whatsapp/webhook/route.ts)
     ├─ getOrCreateWhatsappUser()     (src/lib/supabase/server.ts) — upsert user + role
     ├─ touchConversationSession()    (src/lib/supabase/server.ts)
     ├─ runAgent()                    (src/lib/agent/run-agent.ts)
-    │       ├─ retrieveSiteContext() (src/lib/scraper/retrieve-site-context.ts) — RAG lookup
+    │       ├─ retrieveSiteContext() (src/lib/scraper/retrieve-site-context.ts) — RAG lookup over curated FAQ/docs
     │       ├─ OpenAI Chat (via src/lib/ai/model.ts, tools enabled)
     │       └─ executeTool()         (src/lib/agent/tools.ts) — if tool called
     │               └─ canUseTool()  (src/lib/permissions.ts) — role check
@@ -31,18 +31,19 @@ POST /api/whatsapp/webhook          (src/app/api/whatsapp/webhook/route.ts)
     └─ touchConversationSession()    (src/lib/supabase/server.ts) — update last_message_at
 ```
 
-## Cron Flow
+## Knowledge base (RAG corpus)
 
-```
-Vercel Cron (vercel.json)
-    │ POST /api/cron/scrape  (******
-    ▼
-scrapeSite()                        (src/lib/scraper/scrape-site.ts)
-    ├─ fetch pages from chicagorelaycenter.com
-    ├─ parse with cheerio → content chunks
-    ├─ embed with AI_EMBEDDING_MODEL from src/lib/ai/model.ts
-    └─ upsert to site_content table  (Supabase)
-```
+The agent's `get_site_content_faq` retrieves from `site_content`, which is now populated
+**only by curated content** — there is no website scraper. Chunks come from:
+
+- Uploaded documents (`knowledge://<docId>`) — Knowledge Base page
+- Per-department FAQ buckets (`faqbucket://<deptId>`) — Knowledge Base page
+- Conversation-learned / knowledge-gap FAQs (`faqsheet://...`)
+- The public relay updates feed (`updates://relay`)
+
+> The daily `chicagorelaycenter.com` scraper was retired (June 2026): it produced ~70% of the
+> corpus as generic homepage boilerplate that crowded out the curated answers and caused the
+> agent to deny indexed info (e.g. WiFi). All real answers live in the curated stores above.
 
 ## External Services
 
@@ -101,5 +102,5 @@ POST /api/admin/auth/logout  (public — no session required)
 | Supabase | `src/lib/supabase/` | All database reads and writes |
 | Meta | `src/lib/meta/` | Meta Graph API calls, signature verification |
 | WhatsApp Parser | `src/lib/whatsapp/` | Raw webhook payload → typed structs |
-| Scraper | `src/lib/scraper/` | Site fetch, chunking, embedding, retrieval |
+| Retrieval | `src/lib/scraper/retrieve-site-context.ts` | RAG vector search over curated `site_content` (scraper retired) |
 | Env | `src/lib/env.ts` | Env var lookup with mixed-case alias support |

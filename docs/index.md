@@ -20,7 +20,7 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 | [permissions.md](./permissions.md) | User roles (`visitor`, `committee`, `admin`), tool access matrix |
 | [access-control.md](./access-control.md) | **Canonical portal role × page matrix** — who can see/do what on each `/admin` page, and the access tiers |
 | [database.md](./database.md) | Supabase schema: all tables, RLS policies, migrations |
-| [site-scraper.md](./site-scraper.md) | Daily site scrape, embedding pipeline, RAG retrieval |
+| [site-scraper.md](./site-scraper.md) | RAG retrieval over curated content (website scraper retired) |
 | [environment.md](./environment.md) | All environment variables, aliases, Vercel setup |
 | [email.md](./email.md) | Postmark password reset and daily task digest email |
 | [contributing.md](./contributing.md) | Rules for adding features, updating docs, new files |
@@ -37,7 +37,6 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 
 ```
 src/app/api/whatsapp/webhook/route.ts    — Meta webhook handler (GET + POST)
-src/app/api/cron/scrape/route.ts         — Daily scrape cron endpoint
 src/app/api/cron/daily-digest/route.ts   — Daily task digest email cron endpoint
 src/app/api/ollama/models/route.ts       — Ollama model list proxy
 src/app/api/ollama/chat/route.ts         — Ollama A/B chat completion endpoint
@@ -61,8 +60,8 @@ src/lib/accommodations/import.ts         — Host spreadsheet XLSX import (upser
 src/lib/accommodations/rollups.ts        — Guest/host demographic rollups + capacity math
 src/lib/accommodations/matching.ts       — Matching logic, confirm/reject lifecycle
 src/lib/whatsapp/parser.ts               — Incoming webhook payload parsing
-src/lib/scraper/scrape-site.ts           — Cheerio scraper + OpenAI embedding
-src/lib/scraper/retrieve-site-context.ts — RAG vector search
+src/lib/scraper/retrieve-site-context.ts — RAG vector search over curated site_content
+src/lib/knowledge/index-content.ts       — Embed + index curated docs/FAQ buckets into site_content
 src/lib/knowledge/religious-topics.ts    — Waaz Talaqi topics: routing, themes, overview/facets
 src/app/admin/ashara/page.tsx            — Ashara Daily Content dashboard (per-majlis grid)
 src/lib/env.ts                           — Env var lookup with alias support
@@ -74,7 +73,7 @@ src/lib/feedback/record.ts               — Append-only feedback capture (area�
 src/lib/whatsapp/audience.ts             — Send-console audience resolution + free/paid window split
 src/lib/whatsapp/broadcast.ts            — Throttled template broadcast engine (queue + drain)
 src/lib/digest/run.ts                    — Nightly department digest: aggregate→AI→store→distribute
-src/app/api/cron/department-digest/route.ts — Nightly department digest cron (22:00 UTC)
+src/app/api/cron/department-digest/route.ts — Nightly department digest cron (03:00 UTC (10pm Chicago, CDT))
 src/app/api/cron/broadcast-drain/route.ts   — Template broadcast drain cron (every minute)
 ```
 

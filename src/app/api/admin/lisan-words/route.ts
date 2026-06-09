@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { canManageKnowledge } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { countLisanWords, importLisanWords, type LisanImportRow } from "@/lib/knowledge/lisan-words";
-import { scraperInternals } from "@/lib/scraper/scrape-site";
+import { parseCsv } from "@/lib/util/csv";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const csv = Buffer.from(await file.arrayBuffer()).toString("utf8");
-    const rows = scraperInternals.parseCsv(csv);
+    const rows = parseCsv(csv);
     if (rows.length < 2) {
       return NextResponse.json({ error: "CSV has no data rows" }, { status: 422 });
     }

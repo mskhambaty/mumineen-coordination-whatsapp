@@ -1,84 +1,47 @@
-# Site Scraper & RAG Context
+# RAG Retrieval (site scraper retired)
 
-## Overview
+## Status
 
-A daily cron job fetches pages from the official Chicago Relay Center site, extracts content, generates embeddings, and stores them in Supabase.  
-At query time, the agent retrieves the most relevant chunks and injects them into the system prompt.
+The daily **website scraper was retired in June 2026.** It fetched
+`ashara1448relay.chicagojamaat.org` and sliced the single-page site into ~160 chunks of generic
+homepage/navigation boilerplate. That boilerplate made up ~70% of the `site_content` corpus and
+crowded out the curated answers in vector search — the agent would deny information that was
+actually indexed (the WiFi password incident). Since every real answer lives in curated content,
+the scraper was deleted (cron, routes, `scrape-site.ts`) and its rows purged.
 
-## Files
+**Removed:** `src/lib/scraper/scrape-site.ts`, `/api/cron/scrape`, `/api/admin/scrape`, the
+`/api/cron/scrape` entry in `vercel.json`, and the "Run scrape" button on the Prompt page.
 
-| File | Purpose |
-|------|---------|
-| `src/lib/scraper/scrape-site.ts` | Fetches, parses, embeds, and stores site content |
-| `src/lib/scraper/retrieve-site-context.ts` | Embeds a query and runs vector search |
-| `src/app/api/cron/scrape/route.ts` | Cron HTTP endpoint |
-| `supabase/migrations/20260529134500_site_content.sql` | `site_content` table + indexes |
-| `supabase/migrations/20260529134501_match_site_content.sql` | `match_site_content` RPC |
+## What populates the RAG corpus now
 
-## Scrape Pipeline (`scrapeSite`)
+`site_content` is filled **only by curated content**, all managed from the admin UI:
 
-1. Iterate over `PAGES_TO_SCRAPE`:
-   ```
-   / /schedule /parking /registration /directions /faq /contact
-   ```
-2. Fetch each page from `https://www.chicagorelaycenter.com{path}`.
-3. Parse with Cheerio: extract `<h1>`/`<h2>`/`<h3>` + following paragraph text.  
-   Chunks shorter than 30 characters are discarded.  
-   Each chunk is trimmed to 1500 characters.
-4. Embed all chunks using `AI_EMBEDDING_MODEL` from `src/lib/ai/model.ts` in batches of 100.
-5. Mark all existing `site_content` rows as `is_current = false`.
-6. Insert new rows with `is_current = true`.
+| Source | `page_url` namespace | Managed on |
+|--------|----------------------|------------|
+| Uploaded documents (CSV/Excel/Word/PDF) | `knowledge://<docId>` | Knowledge Base page |
+| Per-department FAQ buckets | `faqbucket://<deptId>` | Knowledge Base page |
+| Conversation-learned / knowledge-gap FAQs | `faqsheet://...` | Knowledge Gaps page |
+| Public relay updates feed | `updates://relay` | Relay Updates page |
 
-**Placeholder filtering:** short "coming soon / being finalized / will be published" chunks are
-skipped during scraping (`isPlaceholderChunk` in `scrape-site.ts`). Such placeholder pages carry no
-real answers but match many queries and tell the agent things are "being finalized", which poisons
-retrieval — so they are never indexed even if the crawler discovers them.
+Indexing lives in [`src/lib/knowledge/index-content.ts`](../src/lib/knowledge/index-content.ts)
+(`indexChunksForPage`, `indexKnowledgeChunks`, `indexFaqBucket`).
 
 ## RAG Retrieval (`retrieveSiteContext`)
 
-1. Prefix the query with a short **event-context anchor** (`EVENT_CONTEXT`), then embed it with
-   `AI_EMBEDDING_MODEL` from `src/lib/ai/model.ts`. The anchor is what lets terse questions
-   (e.g. just "accommodation") retrieve as well as fully-phrased ones — without it, one-word
-   queries embed too far from the event-specific chunks to clear the floor.
-2. Call `match_site_content` Supabase RPC with:
-   - `match_threshold: 0.42` (cosine similarity — modest, since `text-embedding-3-small`
-     similarities run lower in absolute terms; too high drops valid matches)
-   - `match_count: 5` (top-K results)
-3. Format results as `[Page Title]\nContent` blocks separated by `---`.
-4. Inject into the agent system prompt under `## Current Site Information`.
+[`src/lib/scraper/retrieve-site-context.ts`](../src/lib/scraper/retrieve-site-context.ts):
 
-If retrieval fails or returns no results, the agent continues without site context.
-
-## Cron Endpoint
-
-```
-POST /api/cron/scrape
-Authorization: ******
-```
-
-Configured in `vercel.json` for daily execution.  
-If the `Authorization` header does not match `CRON_SECRET`, returns `401 Unauthorized`.
-
-### Manual trigger
-
-Admins can re-scrape on demand from the **Prompt** page — a **Run scrape** button next to the
-`get_site_content_faq` tool calls `POST /api/admin/scrape` (same work as the cron, gated by the
-admin key instead of `CRON_SECRET`). This avoids waiting for the daily cron after a site update.
-
-## Adding or Changing Scraped Pages
-
-Edit the `PAGES_TO_SCRAPE` array in `scrape-site.ts`.  
-No migration needed — new pages are just additional rows in `site_content`.
+1. **Dual-embed** the query — once raw (so specific terms like "wifi password" rank the right
+   FAQ chunk highest) and once anchored with an event-context prefix (so terse one-word
+   questions still match). Both use `AI_EMBEDDING_MODEL` from `src/lib/ai/model.ts`.
+2. Call the `match_site_content` RPC for each embedding with `match_threshold = 0.3`, merge
+   raw-first, and dedupe.
+3. `get_site_content_faq` requests a **top-10** window (`getIndexedInfo(..., 10)` in
+   `src/lib/agent/tools.ts`) so a single-chunk FAQ can't be crowded out.
+4. Format as `[Page Title — Source: <url>]\nContent` blocks and inject into the agent context.
 
 ## Changing the Embedding Model
 
-If you switch from `text-embedding-3-small` (1536 dimensions) to a different model:
-1. Update the model string in both `scrape-site.ts` and `retrieve-site-context.ts`.
-2. Create a migration to change the `embedding` column dimensions in `site_content`.
-3. Re-run the scrape cron to regenerate all embeddings.
-
-## Tuning Retrieval
-
-- **`match_threshold`** — lower values return more (potentially less relevant) results.
-- **`topK`** (`match_count`) — increase to inject more context, at the cost of more tokens.
-- Both are hardcoded in `retrieve-site-context.ts`; move to env vars if tuning is frequent.
+If you switch from `text-embedding-3-small` (1536 dims):
+1. Update the model string in `retrieve-site-context.ts` and `index-content.ts`.
+2. Migrate the `embedding` column dimensions in `site_content` + `religious_content`.
+3. Re-index all curated content (re-upload docs / re-save FAQ buckets).

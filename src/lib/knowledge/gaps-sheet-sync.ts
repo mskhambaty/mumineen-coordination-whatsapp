@@ -1,6 +1,7 @@
 import { chunkText, indexChunksForPage } from "@/lib/knowledge/index-content";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { optionalEnv } from "@/lib/env";
+import { parseCsv } from "@/lib/util/csv";
 
 export const GAPS_SHEET_PAGE_URL_PREFIX = "faqsheet://";
 
@@ -132,34 +133,3 @@ function buildContent(row: SheetRow): string {
   return lines.join("\n");
 }
 
-// Minimal CSV parser (same logic as scrape-site.ts).
-function parseCsv(csv: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = "";
-  let inQuotes = false;
-
-  for (let i = 0; i < csv.length; i++) {
-    const char = csv[i];
-    const next = csv[i + 1];
-
-    if (char === '"') {
-      if (inQuotes && next === '"') { field += '"'; i++; }
-      else inQuotes = !inQuotes;
-      continue;
-    }
-    if (char === "," && !inQuotes) { row.push(field); field = ""; continue; }
-    if ((char === "\n" || char === "\r") && !inQuotes) {
-      if (char === "\r" && next === "\n") i++;
-      row.push(field);
-      if (row.some((c) => c.trim())) rows.push(row);
-      row = []; field = "";
-      continue;
-    }
-    field += char;
-  }
-
-  row.push(field);
-  if (row.some((c) => c.trim())) rows.push(row);
-  return rows;
-}
