@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { canManageKnowledge } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
+import LearnFromConversations from "@/components/admin/LearnFromConversations";
 
 type Gap = {
   id: string;
@@ -214,6 +215,10 @@ export default function KnowledgeGapsPage() {
           </table>
         </div>
       )}
+
+      <div className="mt-10">
+        <LearnFromConversations />
+      </div>
     </main>
   );
 }
