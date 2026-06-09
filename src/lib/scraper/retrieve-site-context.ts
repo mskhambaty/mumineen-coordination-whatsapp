@@ -22,7 +22,7 @@ const RELIGIOUS_CONTEXT =
 // topK still caps how much is returned.
 const MATCH_THRESHOLD = 0.3;
 
-type MatchRow = { page_title: string; content: string; source_url?: string | null; category?: string | null };
+type MatchRow = { page_title: string; content: string; source_url?: string | null; category?: string | null; year_hijri?: string | null };
 
 // Shared retrieval: embed the (context-anchored) query and run a pgvector match RPC,
 // formatting the rows into the agent-facing context block. `allowedCategories` (religious
@@ -34,6 +34,7 @@ async function retrieveContext(
   query: string,
   topK: number,
   allowedCategories?: string[],
+  allowedYear?: string | null,
 ): Promise<string> {
   const openai = getAIClient();
   const supabase = getSupabaseAdmin();
@@ -50,8 +51,8 @@ async function retrieveContext(
     openai.embeddings.create({ model: AI_EMBEDDING_MODEL, input: `${contextPrefix} ${query}` }),
   ]);
 
-  // When filtering by category, pull a wider window so enough allowed rows survive.
-  const matchCount = allowedCategories ? topK * 3 : topK;
+  // When filtering by category/year, pull a wider window so enough allowed rows survive.
+  const matchCount = allowedCategories || allowedYear ? topK * 3 : topK;
   const runMatch = (embedding: number[]) =>
     supabase.rpc(rpc, {
       query_embedding: JSON.stringify(embedding),
@@ -74,10 +75,14 @@ async function retrieveContext(
   }
   if (allowedCategories) {
     // Keep rows whose category is allowed (or null/unknown, to be safe).
-    rows = rows.filter((r) => !r.category || allowedCategories.includes(r.category)).slice(0, topK);
-  } else {
-    rows = rows.slice(0, topK);
+    rows = rows.filter((r) => !r.category || allowedCategories.includes(r.category));
   }
+  if (allowedYear) {
+    // STRICT year scoping: a 1448 query must not match the embedded 1447 rows (and vice-versa).
+    // Null-year rows (e.g. the misc guardrail block) are excluded when a concrete year is required.
+    rows = rows.filter((r) => r.year_hijri === allowedYear);
+  }
+  rows = rows.slice(0, topK);
   if (!rows.length) return "";
 
   return rows
@@ -99,6 +104,11 @@ export async function retrieveSiteContext(query: string, topK = 10): Promise<str
 // Religious-content retrieval, backing the answer_religious_questions tool. Queries the
 // dedicated religious_content store — never the logistics site_content. `categories` (e.g.
 // reflection+al_dars+overview for sermon questions) keeps decoration (tazyeen) chunks out.
-export async function retrieveReligiousContext(query: string, topK = 5, categories?: string[]): Promise<string> {
-  return retrieveContext("match_religious_content", RELIGIOUS_CONTEXT, query, topK, categories);
+export async function retrieveReligiousContext(
+  query: string,
+  topK = 5,
+  categories?: string[],
+  year?: string | null,
+): Promise<string> {
+  return retrieveContext("match_religious_content", RELIGIOUS_CONTEXT, query, topK, categories, year);
 }

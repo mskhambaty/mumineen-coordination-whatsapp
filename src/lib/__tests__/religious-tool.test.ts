@@ -61,10 +61,11 @@ describe("answer_religious_questions tool", () => {
       { user: visitor, phoneE164: "+1555" },
     );
 
-    // Sermon-content fallback searches the sermon categories (decoration/tazyeen excluded).
-    expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith("what is vaaz talaqi", 5, ["reflection", "al_dars", "overview"]);
+    // Sermon-content fallback searches the sermon categories (decoration/tazyeen excluded),
+    // year-scoped (null = no time cue → most-recent indexed).
+    expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith("what is vaaz talaqi", 5, ["reflection", "al_dars", "overview"], null);
     expect(mocks.retrieveSiteContext).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ status: "ok", source: "indexed_religious_content" });
+    expect(result).toMatchObject({ status: "ok", decision: "answer", source: "indexed_religious_content" });
   });
 
   it("reports no match when the religious store is empty", async () => {
@@ -74,7 +75,7 @@ describe("answer_religious_questions tool", () => {
       { query: "obscure" },
       { user: visitor, phoneE164: "+1555" },
     );
-    expect(result).toMatchObject({ status: "no_indexed_match" });
+    expect(result).toMatchObject({ decision: "not_found" });
   });
 });
 

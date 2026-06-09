@@ -4,6 +4,19 @@ import { executeTool, toolDefinitionsFor } from "@/lib/agent/tools";
 import { SYSTEM_PROMPT, loadAgentSystemPrompt } from "@/lib/agent/prompts";
 import { AGENT_TEMPERATURE, AI_MODEL, AI_MODEL_HIGH, chatParams, getAIClient, MAX_AGENT_TOKENS, MAX_FINAL_TOKENS } from "@/lib/ai/model";
 import { isPersonalRuling, flagRulingQuestion, RULING_REFUSAL_REPLY } from "@/lib/agent/ruling-guard";
+import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
+import {
+  NOT_FOUND_REPLY,
+  THIS_YEAR_OFFER_LAST,
+  maybeSingleWordQuery,
+  renderLisanReply,
+  isDidYouMeanFollowUp,
+  pickDidYouMeanCandidate,
+  isAffirmative,
+  isClearlySocial,
+  hasReligiousSignal,
+  yearLabelMismatch,
+} from "@/lib/agent/religious-guard";
 import { resolveCallerFromPhone, type CallerContext } from "@/lib/api/auth";
 import type { AppUser } from "@/lib/permissions";
 import { formatSenderProfileForPrompt, getSenderProfile, type SenderProfile } from "@/lib/mumineen/sender-profile";
@@ -357,15 +370,45 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     return RULING_REFUSAL_REPLY;
   }
 
+  // History is needed both for the model and for the deterministic follow-up pre-routes below.
+  const history = await getRecentMessages(input.phoneE164, HISTORY_MESSAGE_LIMIT).catch(() => []);
+  const lastOutbound = [...history].reverse().find((t) => t.direction === "outbound")?.body?.trim() ?? "";
+
+  // PRE-ROUTE A5: a numeric / "the second one" pick after a dictionary did-you-mean list is
+  // resolved deterministically from the prior message — never answered from model memory.
+  if (isDidYouMeanFollowUp(input.message, lastOutbound)) {
+    const word = pickDidYouMeanCandidate(input.message, lastOutbound);
+    if (word) return renderLisanReply(await lookupLisanWord(word));
+  }
+
+  // PRE-ROUTE (step 2): a single-word / "what does X mean" lookup goes straight to the dictionary,
+  // never to the religious vector path or a no-tool model answer. Social/affirmative bare words
+  // pass through (an affirmative belongs to the offer-last follow-up below, not the dictionary).
+  if (!isClearlySocial(input.message) && !isAffirmative(input.message)) {
+    const sw = maybeSingleWordQuery(input.message);
+    if (sw) {
+      const lookup = await lookupLisanWord(sw.word);
+      // Latin bare token that isn't in the dictionary (e.g. a logistics term) falls through.
+      if (lookup.status !== "not_found" || sw.forceAnswer) return renderLisanReply(lookup);
+    }
+  }
+
+  // PRE-ROUTE A6: an affirmative reply to THIS_YEAR_OFFER_LAST → force the stored topic at 1447H
+  // through the normal grounded path (topic derived from history, not reconstructed by the model).
+  let effectiveMessage = input.message;
+  if (lastOutbound === THIS_YEAR_OFFER_LAST && isAffirmative(input.message)) {
+    const topic = priorOfferTopic(history);
+    if (topic) effectiveMessage = `${topic} (Ashara 1447H)`;
+  }
+
   const client = getAIClient();
 
   const callerPromise: Promise<CallerContext | undefined> = input.callerContext
     ? Promise.resolve(input.callerContext)
     : resolveCallerFromPhone(input.phoneE164).catch(() => undefined);
 
-  const [callerContext, history, systemPromptText, departmentSection, senderProfile] = await Promise.all([
+  const [callerContext, systemPromptText, departmentSection, senderProfile] = await Promise.all([
     callerPromise,
-    getRecentMessages(input.phoneE164, HISTORY_MESSAGE_LIMIT).catch(() => []),
     loadAgentSystemPrompt(),
     loadDepartmentsForPrompt(),
     getSenderProfile(input.phoneE164).catch(() => null),
@@ -400,6 +443,17 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     messages.push({ role: "user", content: input.message.slice(0, MAX_HISTORY_CHARS) });
   }
 
+  // If an offer-last "yes" rewrote the message, replace the last user turn with the forced topic
+  // so the model retrieves the stored 1447 topic instead of seeing a bare "yes".
+  if (effectiveMessage !== input.message) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        messages[i] = { role: "user", content: effectiveMessage.slice(0, MAX_HISTORY_CHARS) };
+        break;
+      }
+    }
+  }
+
   const firstResponse = await client.chat.completions.create({
     ...chatParams(AI_MODEL, { maxTokens: MAX_AGENT_TOKENS, temperature: AGENT_TEMPERATURE }),
     messages,
@@ -409,13 +463,22 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
 
   const firstMessage = firstResponse.choices[0]?.message;
 
+  // NO-TOOL GUARD (A4): the model answered without retrieving. Let clearly-social messages
+  // (greeting, thanks, dua, chant, bare affirmation) through; refuse anything carrying a positive
+  // religious/deen signal (e.g. "who is the 53rd dai") so it can't answer deen from memory; leave
+  // logistics-shaped / ambiguous messages on the existing behavior.
   if (!firstMessage?.tool_calls?.length) {
-    return sanitizeFinalReply(firstMessage?.content?.trim() || fallbackReply());
+    const content = sanitizeFinalReply(firstMessage?.content?.trim() || fallbackReply());
+    if (isClearlySocial(input.message)) return content;
+    if (hasReligiousSignal(input.message)) return NOT_FOUND_REPLY;
+    return content;
   }
 
   messages.push(firstMessage);
 
   let escalationAck: string | null = null;
+  let religiousDecision: string | null = null;
+  let groundedYear: string | null = null;
   const sources = newSourceCollector();
 
   for (const toolCall of firstMessage.tool_calls) {
@@ -443,6 +506,12 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
       escalationAck = escalationAcknowledgment(toolResult);
     }
 
+    if (toolCall.function.name === "answer_religious_questions") {
+      const r = toolResult as { decision?: string; year?: string | null };
+      religiousDecision = r.decision ?? null;
+      groundedYear = r.year ?? null;
+    }
+
     collectSources(sources, toolCall.function.name, toolResult);
 
     messages.push({
@@ -457,6 +526,22 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   // keeps assisting normally.
   if (escalationAck) {
     return escalationAck;
+  }
+
+  // DETERMINISTIC religious decisions — the model never narrates a refusal/offer (no citations,
+  // no improvisation). Only a grounded "answer" proceeds to the (constrained) final completion.
+  if (religiousDecision === "not_found") return NOT_FOUND_REPLY;
+  if (religiousDecision === "offer_last") return THIS_YEAR_OFFER_LAST;
+  if (religiousDecision === "answer") {
+    messages.push({
+      role: "system",
+      content:
+        "Answer ONLY from the tool result passages above — never add a fact that is not present in them. " +
+        (groundedYear
+          ? `State the Ashara year as exactly ${groundedYear}H and mention no other Hijri year.`
+          : "Do not state any Hijri year.") +
+        ' If a passage carries a "Source:" URL keep it; otherwise add no source line.',
+    });
   }
 
   // High-model routing for Waaz Talaqi / Lisan answers (PR #82): generate the final answer with
@@ -488,9 +573,27 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   const reply = sanitizeFinalReply(finalResponse.choices[0]?.message?.content?.trim() || fallbackReply());
   // If sanitizing reduced a garbled reply to the safe fallback, don't decorate it with citations.
   if (reply === fallbackReply()) return reply;
+  // YEAR-LABEL post-check (step 8): a grounded religious answer must state ONLY the source row's
+  // year (or no year for a null-year guardrail block). On any mismatch, fail safe to NOT_FOUND.
+  if (religiousDecision === "answer" && yearLabelMismatch(reply, groundedYear)) return NOT_FOUND_REPLY;
   // Guarantee the show-source rule: if a Waaz Talaqi / Lisan tool returned a source and the
   // model's reply didn't cite it, append the source line deterministically.
   return ensureSourcesCited(reply, sources);
+}
+
+// Derive the topic a THIS_YEAR_OFFER_LAST offer was about: the inbound message immediately before
+// that offer in history. Deterministic — used to honour an "offer last year?" → "yes" follow-up
+// without the model reconstructing the topic from a bare "yes".
+function priorOfferTopic(history: { direction: string; body?: string | null }[]): string | null {
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].direction === "outbound" && history[i].body?.trim() === THIS_YEAR_OFFER_LAST) {
+      for (let j = i - 1; j >= 0; j--) {
+        const body = history[j].body?.trim();
+        if (history[j].direction === "inbound" && body) return body;
+      }
+    }
+  }
+  return null;
 }
 
 // --- Output sanitizer (safety net for a misbehaving model) ---

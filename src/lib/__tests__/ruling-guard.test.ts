@@ -116,6 +116,7 @@ describe("flagRulingQuestion", () => {
 describe("RULING_REFUSAL_REPLY", () => {
   it("is a polite refusal that redirects to the Aamil Saheb and gives no ruling", () => {
     expect(RULING_REFUSAL_REPLY).toContain("Aamil Saheb");
-    expect(RULING_REFUSAL_REPLY.toLowerCase()).toContain("not able to give a ruling");
+    expect(RULING_REFUSAL_REPLY.toLowerCase()).toContain("personal ruling");
+    expect(RULING_REFUSAL_REPLY.toLowerCase()).toContain("not able to answer");
   });
 });
