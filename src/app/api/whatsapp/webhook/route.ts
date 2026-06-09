@@ -18,7 +18,8 @@ import { insertPendingMessage, runCoalescedInbound } from "@/lib/whatsapp/coales
 import { extractIncomingMessages, type IncomingWhatsAppMessage } from "@/lib/whatsapp/parser";
 import { applyBroadcastStatuses, extractStatusUpdates, markBroadcastReplied } from "@/lib/whatsapp/broadcast-status";
 import { resolveFamilyForPhone } from "@/lib/rsvp/family";
-import { recordNiyazButtonResponse, type NiyazLevel, type NiyazScope } from "@/lib/rsvp/meal-rsvp";
+import { recordFamilyHeadCount, recordNiyazButtonResponse, type NiyazLevel, type NiyazScope } from "@/lib/rsvp/meal-rsvp";
+import { consumePrompt, findOpenPrompt } from "@/lib/rsvp/niyaz-prompt";
 
 export const runtime = "nodejs";
 // The reply is generated in an after() background task that runs up to two sequential model
@@ -120,6 +121,12 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
   // message we sent (the payload carries level|scope|date; the phone identifies the responder).
   if (message.buttonPayload && message.buttonPayload.startsWith("niyaz|")) {
     await handleNiyazButton(message, user.id);
+    return true;
+  }
+
+  // Free-text family head-count reply: if there's an open RSVP prompt for this number and the message
+  // contains a number, record the family head count for that prompt's date and confirm.
+  if (message.body.trim() && /\d/.test(message.body) && (await handleNiyazHeadCount(message, user.id))) {
     return true;
   }
 
@@ -245,6 +252,31 @@ async function handleNiyazButton(message: IncomingWhatsAppMessage, userId: strin
     rawPayload: { source: "niyaz_rsvp_button", payload: message.buttonPayload, meta_response: metaResponse },
   });
   await touchConversationSession({ phoneE164: message.phoneE164, userId });
+}
+
+// Record a free-text head-count reply against the caller's most recent open prompt. Returns false
+// (so the message flows to the agent) when there's no open prompt or no number in the message.
+async function handleNiyazHeadCount(message: IncomingWhatsAppMessage, userId: string | undefined): Promise<boolean> {
+  const prompt = await findOpenPrompt(message.phoneE164);
+  if (!prompt || !prompt.family_id) return false;
+  const m = message.body.match(/\d{1,3}/);
+  if (!m) return false;
+  const count = Math.min(999, parseInt(m[0], 10));
+
+  await recordFamilyHeadCount(prompt.family_id, prompt.event_date, count, message.phoneE164);
+  await consumePrompt(prompt.id);
+
+  const day = new Date(`${prompt.event_date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+  const reply = `Shukran! Recorded ${count} from your family attending for ${day}. Reply with a new number if it changes.`;
+  const metaResponse = await sendWhatsAppText(message.phoneE164, reply);
+  await recordOutboundMessage({
+    phoneE164: message.phoneE164,
+    body: reply,
+    whatsappMessageId: metaResponse.messages?.[0]?.id,
+    rawPayload: { source: "niyaz_rsvp_headcount", event_date: prompt.event_date, head_count: count, meta_response: metaResponse },
+  });
+  await touchConversationSession({ phoneE164: message.phoneE164, userId });
+  return true;
 }
 
 function niyazConfirmation(level: NiyazLevel, scope: NiyazScope, date: string): string {

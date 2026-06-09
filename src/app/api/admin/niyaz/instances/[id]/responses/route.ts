@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { canAccessPortal } from "@/lib/admin/access";
+import { getFamilyHeadCounts } from "@/lib/rsvp/meal-rsvp";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 
@@ -46,8 +47,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const attending = rows.filter((r) => r.attending);
   const notAttending = rows.filter((r) => !r.attending);
 
+  // Free-text family head counts for this event (separate input from the per-mumin button responses).
+  const headcounts = await getFamilyHeadCounts(id);
+  const headcountTotal = headcounts.reduce((sum, h) => sum + (h.head_count ?? 0), 0);
+
   return NextResponse.json({
     responses: rows,
+    headcounts,
     summary: {
       responded: rows.length,
       yes_adults: attending.filter(isAdult).length,
@@ -56,6 +62,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       no_adults: notAttending.filter(isAdult).length,
       no_kids: notAttending.filter((r) => !isAdult(r)).length,
       no_families: new Set(notAttending.map((r) => r.family_id)).size,
+      headcount_families: headcounts.length,
+      headcount_total: headcountTotal,
     },
   });
 }

@@ -43,6 +43,8 @@ type Summary = {
   no_adults: number;
   no_kids: number;
   no_families: number;
+  headcount_families: number;
+  headcount_total: number;
 };
 
 type InstanceForm = {
@@ -54,15 +56,20 @@ type InstanceForm = {
 };
 
 type Composer = {
+  mode: "buttons" | "headcount";
   audience: "specific_its" | "all_mumineen" | "all_hof" | "all_adults";
   its: string;
   onlyNonResponders: boolean;
   level: "ind" | "fam";
   templateCode: string;
+  registrationMessage: string;
+  exampleResponse: string;
 };
 
+type HeadCount = { id: string; head_count: number; responded_by_phone: string | null; updated_at: string; family: { hof_its: string | null } | null };
+
 const emptyInstanceForm: InstanceForm = { title: "", event_date: "", meal: "", serving_type: "", description: "" };
-const emptyComposer: Composer = { audience: "specific_its", its: "", onlyNonResponders: false, level: "ind", templateCode: "" };
+const emptyComposer: Composer = { mode: "buttons", audience: "specific_its", its: "", onlyNonResponders: false, level: "ind", templateCode: "", registrationMessage: "", exampleResponse: "" };
 
 const inputCls =
   "block w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-950";
@@ -86,6 +93,7 @@ export default function NiyazPage() {
   // Per-event detail
   const [selected, setSelected] = useState<NiyazEvent | null>(null);
   const [responses, setResponses] = useState<RespRow[]>([]);
+  const [headcounts, setHeadcounts] = useState<HeadCount[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [templates, setTemplates] = useState<{ name: string }[]>([]);
   const [composer, setComposer] = useState<Composer>(emptyComposer);
@@ -122,6 +130,7 @@ export default function NiyazPage() {
     const data = await res.json().catch(() => ({}));
     if (res.ok) {
       setResponses((data.responses as RespRow[]) ?? []);
+      setHeadcounts((data.headcounts as HeadCount[]) ?? []);
       setSummary((data.summary as Summary) ?? null);
     }
   }, []);
@@ -224,6 +233,9 @@ export default function NiyazPage() {
           only_non_responders: composer.onlyNonResponders,
           level: composer.level,
           template_code: composer.templateCode,
+          mode: composer.mode,
+          registration_message: composer.registrationMessage || undefined,
+          example_response: composer.exampleResponse || undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -358,6 +370,12 @@ export default function NiyazPage() {
             <h2 className="mb-1 text-lg font-semibold">Send RSVP request</h2>
             <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">{selected.title || dayLabel(selected.eventDate)} · {dayLabel(selected.eventDate)}</p>
             <div className="space-y-3">
+              <label className="block text-xs uppercase tracking-wide text-gray-400">Response type
+                <select value={composer.mode} onChange={(e) => setComposer({ ...composer, mode: e.target.value as Composer["mode"] })} className={inputCls}>
+                  <option value="buttons">Buttons (yes/no per meal)</option>
+                  <option value="headcount">Head count (free-text reply)</option>
+                </select>
+              </label>
               <label className="block text-xs uppercase tracking-wide text-gray-400">Level
                 <select value={composer.level} onChange={(e) => setComposer({ ...composer, level: e.target.value as Composer["level"] })} className={inputCls}>
                   <option value="ind">Individual (records the responder)</option>
@@ -389,6 +407,16 @@ export default function NiyazPage() {
                   ))}
                 </select>
               </label>
+              {composer.mode === "headcount" && (
+                <>
+                  <label className="block text-xs uppercase tracking-wide text-gray-400">Message ({"{{registration_message}}"}) — leave blank to auto-generate
+                    <textarea value={composer.registrationMessage} onChange={(e) => setComposer({ ...composer, registrationMessage: e.target.value })} rows={2} className={inputCls} placeholder="Niyaz RSVP for tomorrow — reply with how many will attend." />
+                  </label>
+                  <label className="block text-xs uppercase tracking-wide text-gray-400">Example reply ({"{{example_response}}"})
+                    <input value={composer.exampleResponse} onChange={(e) => setComposer({ ...composer, exampleResponse: e.target.value })} className={inputCls} placeholder="4" />
+                  </label>
+                </>
+              )}
               <div className="text-sm text-gray-600 dark:text-gray-300">
                 Recipients: <span className="font-semibold">{count ?? "…"}</span>
                 {unresolved.length > 0 && <span className="ml-2 text-amber-600">Unresolved ITS: {unresolved.join(", ")}</span>}
@@ -407,9 +435,24 @@ export default function NiyazPage() {
               {summary && (
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   Yes {summary.yes_adults + summary.yes_kids} ({summary.yes_families} fam) · No {summary.no_adults + summary.no_kids} ({summary.no_families} fam)
+                  {summary.headcount_families ? ` · Head counts: ${summary.headcount_total} (${summary.headcount_families} fam)` : ""}
                 </p>
               )}
             </div>
+
+            {headcounts.length > 0 && (
+              <div className="mb-4 rounded-md border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-950">
+                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Family head counts</h3>
+                <div className="max-h-40 overflow-auto text-sm">
+                  {headcounts.map((h) => (
+                    <div key={h.id} className="flex justify-between border-t border-gray-100 py-1 dark:border-gray-800">
+                      <span className="font-mono text-xs">{h.family?.hof_its ?? "—"}</span>
+                      <span className="font-semibold">{h.head_count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {responses.length === 0 ? (
               <p className="text-sm text-gray-500 dark:text-gray-400">No responses yet.</p>
             ) : (

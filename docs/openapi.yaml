@@ -1527,6 +1527,9 @@ paths:
                 only_non_responders: { type: boolean }
                 level: { type: string, enum: [ind, fam] }
                 template_code: { type: string }
+                mode: { type: string, enum: [buttons, headcount], description: "buttons = quick-reply RSVP; headcount = free-text family head count (logs a prompt for the numeric reply)." }
+                registration_message: { type: string, description: "Head-count mode: {{registration_message}} (auto-generated if omitted)." }
+                example_response: { type: string, description: "Head-count mode: {{example_response}} (default 4)." }
       responses:
         "200": { description: "{ status: started, broadcastId, total, … }." }
         "400": { $ref: "#/components/responses/BadRequest" }

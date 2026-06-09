@@ -182,6 +182,51 @@ export function scopeToEntries(scope: NiyazScope, date: string): NiyazRsvpEntry[
   }
 }
 
+// --- Free-text family head counts (niyaz_family_headcount) ---
+
+// Record a whole-family head count for a date (applies to every event that day). One number = the
+// day's total attending heads from that family. Upserts per (event, family).
+export async function recordFamilyHeadCount(
+  familyId: string,
+  date: string,
+  headCount: number,
+  phone?: string | null,
+): Promise<number> {
+  const events = (await getEvents()).filter((e) => e.eventDate === date);
+  if (events.length === 0) return 0;
+  const rows = events.map((e) => ({
+    registration_instance_id: e.id,
+    family_id: familyId,
+    head_count: headCount,
+    source: "whatsapp",
+    responded_by_phone: phone ?? null,
+  }));
+  const { error } = await getSupabaseAdmin()
+    .from("niyaz_family_headcount")
+    .upsert(rows, { onConflict: "registration_instance_id,family_id" });
+  if (error) throw new Error(error.message);
+  return rows.length;
+}
+
+export type FamilyHeadCountRow = {
+  id: string;
+  family_id: string;
+  head_count: number;
+  responded_by_phone: string | null;
+  updated_at: string;
+  family: { hof_its: string | null } | null;
+};
+
+// Family head-count rows for one event (for the admin event detail).
+export async function getFamilyHeadCounts(instanceId: string): Promise<FamilyHeadCountRow[]> {
+  const { data } = await getSupabaseAdmin()
+    .from("niyaz_family_headcount")
+    .select("id, family_id, head_count, responded_by_phone, updated_at, family:families!niyaz_family_headcount_family_id_fkey(hof_its)")
+    .eq("registration_instance_id", instanceId)
+    .order("updated_at", { ascending: false });
+  return (data ?? []) as unknown as FamilyHeadCountRow[];
+}
+
 // Record a daily-template button tap: individual (just this mumin) or family (whole family).
 export async function recordNiyazButtonResponse(input: {
   level: NiyazLevel;

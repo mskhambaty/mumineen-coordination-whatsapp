@@ -55,6 +55,16 @@ resolves the **family/mumin from the sender's phone** (`resolveFamilyForPhone`),
 the recorded responses (`GET /api/admin/niyaz/instances/[id]/responses`, reads `niyaz_rsvp`).
 Outbound quick-reply payloads are emitted by `buildSendComponents` (`src/lib/whatsapp/templates.ts`).
 
+The composer also supports a **head-count** mode (free-text family RSVP): pick "Head count" as the
+response type and a button-less template (variables `person_name`, `registration_message`,
+`family_members`, `example_response`). The send writes a **`niyaz_rsvp_prompts`** row per recipient
+(phone → family + date) instead of button payloads. When the family **replies with a number**, the
+webhook (`handleNiyazHeadCount`) matches the latest open prompt for that phone, records the count in
+**`niyaz_family_headcount`** (per event/family, applied to that day's events) via `recordFamilyHeadCount`,
+consumes the prompt, and confirms. The event-detail panel shows these family head counts
+(`getFamilyHeadCounts`) alongside the per-mumin button responses. (`niyaz_rsvp_prompts` +
+`niyaz_family_headcount`: `supabase/migrations/20260609120000_*`.)
+
 ## 2. Feedback
 
 Append-only, department-tagged, sentiment-scored — `feedback_entries`

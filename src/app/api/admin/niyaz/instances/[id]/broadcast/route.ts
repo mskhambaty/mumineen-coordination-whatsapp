@@ -4,7 +4,7 @@ import { z } from "zod";
 import { canAccessPortal, isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getEvents } from "@/lib/rsvp/meal-rsvp";
-import { buildNiyazSend, resolveNiyazAudience, type NiyazAudienceKind } from "@/lib/rsvp/niyaz-prompt";
+import { buildNiyazSend, createHeadCountPrompts, resolveNiyazAudience, type NiyazAudienceKind } from "@/lib/rsvp/niyaz-prompt";
 import { createBroadcast } from "@/lib/whatsapp/broadcast";
 import { resolveApprovedTemplate } from "@/lib/whatsapp/send-template";
 import { MAPPABLE_FIELDS, type Binding, type VariableBindings } from "@/lib/whatsapp/templates";
@@ -19,18 +19,27 @@ const bodySchema = z.object({
   only_non_responders: z.boolean().optional(),
   level: z.enum(["ind", "fam"]),
   template_code: z.string().min(1),
+  // "buttons" = quick-reply RSVP (per-mumin/family yes/no); "headcount" = free-text family head count.
+  mode: z.enum(["buttons", "headcount"]).optional(),
+  registration_message: z.string().optional(),
+  example_response: z.string().optional(),
 });
 
 const FIELD_KEYS = new Set(MAPPABLE_FIELDS.map((f) => f.key));
 
-// Bind a template variable token: name→full_name field, day/meal→static labels, any roster field→field.
-function bindToken(token: string, dayLabel: string, mealLabel: string): Binding {
+type BindCtx = { dayLabel: string; mealLabel: string; registrationMessage: string; exampleResponse: string };
+
+// Bind a template variable token to a per-recipient field or a per-send static value.
+function bindToken(token: string, ctx: BindCtx): Binding {
   const t = token.toLowerCase();
-  if (t === "name" || t === "full_name") return { kind: "field", field: "full_name" };
+  if (t === "name" || t === "person_name" || t === "full_name") return { kind: "field", field: "full_name" };
+  if (t === "family_members") return { kind: "field", field: "family_members" };
   if (FIELD_KEYS.has(token)) return { kind: "field", field: token };
-  if (["day", "date", "when", "days"].includes(t)) return { kind: "static", value: dayLabel };
-  if (["meal", "meals"].includes(t)) return { kind: "static", value: mealLabel };
-  return { kind: "static", value: dayLabel };
+  if (["day", "date", "when", "days"].includes(t)) return { kind: "static", value: ctx.dayLabel };
+  if (["meal", "meals"].includes(t)) return { kind: "static", value: ctx.mealLabel };
+  if (["registration_message", "message", "reg_message"].includes(t)) return { kind: "static", value: ctx.registrationMessage };
+  if (["example_response", "example", "example_reply"].includes(t)) return { kind: "static", value: ctx.exampleResponse };
+  return { kind: "static", value: ctx.dayLabel };
 }
 
 async function eventDate(id: string): Promise<string | null> {
@@ -72,6 +81,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Invalid body", details: parsed.error.flatten() }, { status: 400 });
   }
   const { audience, its, only_non_responders, level, template_code } = parsed.data;
+  const mode = parsed.data.mode ?? "buttons";
 
   const { recipients, unresolvedIts } = await resolveNiyazAudience({ date, audience, its, onlyNonResponders: only_non_responders, level });
   if (recipients.length === 0) {
@@ -86,21 +96,37 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   const { dayLabel, mealLabel, quickReplyButtons } = await buildNiyazSend(date, level);
+  const ctx: BindCtx = {
+    dayLabel,
+    mealLabel,
+    registrationMessage: parsed.data.registration_message?.trim() || `Niyaz RSVP for ${dayLabel}: ${mealLabel}.`,
+    exampleResponse: parsed.data.example_response?.trim() || "4",
+  };
   const bindings: VariableBindings = { body: {} };
-  for (const tok of desc.bodyVars) bindings.body![tok] = bindToken(tok, dayLabel, mealLabel);
-  if (desc.header?.format === "TEXT" && desc.headerVar) bindings.header = bindToken(desc.headerVar, dayLabel, mealLabel);
+  for (const tok of desc.bodyVars) bindings.body![tok] = bindToken(tok, ctx);
+  if (desc.header?.format === "TEXT" && desc.headerVar) bindings.header = bindToken(desc.headerVar, ctx);
 
   const result = await createBroadcast({
     templateCode: template_code,
     templateLanguage: desc.language,
     recipients,
     variableBindings: bindings,
-    quickReplyButtons,
+    // Buttons mode stamps the date into quick-reply payloads; head-count mode is a free-text template
+    // (no buttons) and instead logs a pending prompt so the numeric reply maps back to this date.
+    quickReplyButtons: mode === "buttons" ? quickReplyButtons : undefined,
     triggeredByUserId: auth.caller?.user_id ?? null,
   });
 
   if ("error" in result) {
     return NextResponse.json({ error: result.error, unresolved_its: unresolvedIts }, { status: 400 });
   }
-  return NextResponse.json({ status: "started", ...result, unresolved_its: unresolvedIts });
+
+  if (mode === "headcount") {
+    await createHeadCountPrompts(
+      recipients.map((r) => ({ phone: r.phone, familyId: r.familyId })),
+      date,
+    );
+  }
+
+  return NextResponse.json({ status: "started", mode, ...result, unresolved_its: unresolvedIts });
 }

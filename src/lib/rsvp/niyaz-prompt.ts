@@ -112,6 +112,23 @@ export async function resolveNiyazAudience(opts: {
     }
   }
 
+  // Attach a computed `family_members` field (the family's member names) so the family template's
+  // {{family_members}} variable can be personalized per recipient.
+  const famIds = [...new Set(recipients.map((r) => r.familyId).filter(Boolean))] as string[];
+  if (famIds.length > 0) {
+    const { data } = await supabase.from("mumineen").select("family_id, full_name").in("family_id", famIds).eq("roster_active", true);
+    const byFam = new Map<string, string[]>();
+    for (const m of (data ?? []) as { family_id: string; full_name: string | null }[]) {
+      if (!m.full_name) continue;
+      const arr = byFam.get(m.family_id) ?? [];
+      arr.push(m.full_name);
+      byFam.set(m.family_id, arr);
+    }
+    for (const r of recipients) {
+      if (r.familyId) r.fields = { ...(r.fields ?? {}), family_members: (byFam.get(r.familyId) ?? []).join(", ") };
+    }
+  }
+
   if (opts.onlyNonResponders) {
     const instanceIds = (await getEvents()).filter((e) => e.eventDate === opts.date).map((e) => e.id);
     if (instanceIds.length > 0) {
@@ -132,6 +149,38 @@ export async function resolveNiyazAudience(opts: {
   }
 
   return { recipients, unresolvedIts };
+}
+
+// --- Free-text head-count prompts (date↔reply mapping) ---
+
+// Log a pending head-count prompt per recipient when the family free-text template is sent, so a
+// later numeric reply can be tied back to this date.
+export async function createHeadCountPrompts(rows: { phone: string; familyId: string | null }[], date: string): Promise<void> {
+  if (rows.length === 0) return;
+  await getSupabaseAdmin()
+    .from("niyaz_rsvp_prompts")
+    .insert(rows.map((r) => ({ phone_e164: r.phone, family_id: r.familyId, event_date: date })));
+}
+
+export type OpenPrompt = { id: string; family_id: string | null; event_date: string };
+
+// The most recent unconsumed head-count prompt for a phone (within ~2 days).
+export async function findOpenPrompt(phone: string): Promise<OpenPrompt | null> {
+  const since = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  const { data } = await getSupabaseAdmin()
+    .from("niyaz_rsvp_prompts")
+    .select("id, family_id, event_date")
+    .eq("phone_e164", phone)
+    .is("consumed_at", null)
+    .gte("sent_at", since)
+    .order("sent_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data as OpenPrompt | null) ?? null;
+}
+
+export async function consumePrompt(id: string): Promise<void> {
+  await getSupabaseAdmin().from("niyaz_rsvp_prompts").update({ consumed_at: new Date().toISOString() }).eq("id", id);
 }
 
 // Day label, meal label, and the quick-reply button payloads for a date. Both-meal days get four

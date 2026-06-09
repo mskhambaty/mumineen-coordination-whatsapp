@@ -8,6 +8,7 @@ const requirePortalCaller = vi.fn();
 const getEvents = vi.fn();
 const resolveNiyazAudience = vi.fn();
 const buildNiyazSend = vi.fn();
+const createHeadCountPrompts = vi.fn(async () => undefined);
 const createBroadcast = vi.fn();
 const resolveApprovedTemplate = vi.fn();
 
@@ -17,6 +18,7 @@ vi.mock("@/lib/rsvp/meal-rsvp", () => ({ getEvents: (...a: unknown[]) => getEven
 vi.mock("@/lib/rsvp/niyaz-prompt", () => ({
   resolveNiyazAudience: (...a: unknown[]) => resolveNiyazAudience(...a),
   buildNiyazSend: (...a: unknown[]) => buildNiyazSend(...a),
+  createHeadCountPrompts: (...a: unknown[]) => createHeadCountPrompts(...a),
 }));
 vi.mock("@/lib/whatsapp/broadcast", () => ({ createBroadcast: (...a: unknown[]) => createBroadcast(...a) }));
 vi.mock("@/lib/whatsapp/send-template", () => ({ resolveApprovedTemplate: (...a: unknown[]) => resolveApprovedTemplate(...a) }));
@@ -77,6 +79,27 @@ describe("POST niyaz broadcast", () => {
     expect(arg.variableBindings.body.name).toEqual({ kind: "field", field: "full_name" });
     expect(arg.variableBindings.body.day.kind).toBe("static");
     expect(arg.variableBindings.body.meal.value).toBe("lunch & dinner");
+    expect(arg.quickReplyButtons).toHaveLength(1); // buttons mode keeps payloads
+    expect(createHeadCountPrompts).not.toHaveBeenCalled();
+  });
+
+  it("head-count mode: no quick-reply payloads, logs prompts, binds family_members/message/example", async () => {
+    requirePortalCaller.mockResolvedValue(allow());
+    resolveApprovedTemplate.mockResolvedValue({ name: "niyaz_rsvp_family_count", language: "en_US", bodyVars: ["person_name", "registration_message", "family_members", "example_response"], header: null, headerVar: null, urlButtons: [] });
+    resolveNiyazAudience.mockResolvedValue({ recipients: [{ phone: "+15551234567", familyId: "f1", muminId: "m1", fields: { full_name: "Test", family_members: "A, B" } }], unresolvedIts: [] });
+    createBroadcast.mockResolvedValue({ broadcastId: "b2", total: 1, free: 0, paid: 1, skipped: 0, estCostUsd: 0 });
+    const res = await POST(postReq({ audience: "all_hof", level: "fam", template_code: "niyaz_rsvp_family_count", mode: "headcount" }), { params });
+    expect(res.status).toBe(200);
+    const arg = createBroadcast.mock.calls[0][0] as {
+      quickReplyButtons?: unknown;
+      variableBindings: { body: Record<string, { kind: string; field?: string; value?: string }> };
+    };
+    expect(arg.quickReplyButtons).toBeUndefined();
+    expect(arg.variableBindings.body.person_name).toEqual({ kind: "field", field: "full_name" });
+    expect(arg.variableBindings.body.family_members).toEqual({ kind: "field", field: "family_members" });
+    expect(arg.variableBindings.body.registration_message.kind).toBe("static");
+    expect(arg.variableBindings.body.example_response.value).toBe("4");
+    expect(createHeadCountPrompts).toHaveBeenCalledTimes(1);
   });
 });
 
