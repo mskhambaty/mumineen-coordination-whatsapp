@@ -868,32 +868,42 @@ export default function ParkingPage() {
                 </td>
                 {canManage && (
                   <td className="relative px-3 py-2 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      {r.suggested_passes > 0 && (() => {
-                        const remaining = Math.max(0, r.suggested_passes - r.passes.length);
-                        const count = Math.min(remaining, assignCount[r.family_id] ?? remaining);
-                        return remaining > 0 ? (
-                          <input
-                            type="number"
-                            min={1}
-                            max={remaining}
-                            value={count}
-                            onChange={(e) => {
-                              const v = Math.max(1, Math.min(remaining, parseInt(e.target.value) || 1));
-                              setAssignCount((prev) => ({ ...prev, [r.family_id]: v }));
-                            }}
-                            className="w-12 rounded border border-gray-300 px-1 py-1 text-center text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
-                          />
-                        ) : null;
-                      })()}
+                    {r.suggested_passes > 0 && r.passes.length >= r.suggested_passes ? (
                       <button
                         type="button"
-                        onClick={() => setAssignFor(assignFor === r.family_id ? null : r.family_id)}
-                        className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                        onClick={() => Promise.all(r.passes.map((p) => revokePass(p.id)))}
+                        className="rounded-md border border-red-200 px-2 py-1 text-xs text-red-500 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950"
                       >
-                        Assign
+                        Unassign
                       </button>
-                    </div>
+                    ) : (
+                      <div className="flex items-center justify-end gap-1.5">
+                        {r.suggested_passes > 0 && (() => {
+                          const remaining = Math.max(0, r.suggested_passes - r.passes.length);
+                          const count = Math.min(remaining, assignCount[r.family_id] ?? remaining);
+                          return remaining > 0 ? (
+                            <input
+                              type="number"
+                              min={1}
+                              max={remaining}
+                              value={count}
+                              onChange={(e) => {
+                                const v = Math.max(1, Math.min(remaining, parseInt(e.target.value) || 1));
+                                setAssignCount((prev) => ({ ...prev, [r.family_id]: v }));
+                              }}
+                              className="w-12 rounded border border-gray-300 px-1 py-1 text-center text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+                            />
+                          ) : null;
+                        })()}
+                        <button
+                          type="button"
+                          onClick={() => setAssignFor(assignFor === r.family_id ? null : r.family_id)}
+                          className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                        >
+                          Assign
+                        </button>
+                      </div>
+                    )}
                     {assignFor === r.family_id && (
                       <AssignMenu
                         lots={lots}
