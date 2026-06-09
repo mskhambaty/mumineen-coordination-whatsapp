@@ -80,16 +80,34 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const escalatedAt = new Date().toISOString();
+
+  // Compute SLA deadline for the triage desk.
+  let slaDeadline: string | null = null;
+  try {
+    const { computeSlaDeadline } = await import("@/lib/escalation/sla");
+    const deadline = await computeSlaDeadline(priority as "urgent" | "normal", new Date(escalatedAt));
+    slaDeadline = deadline.toISOString();
+  } catch {
+    // SLA config unavailable — leave deadline null
+  }
+
   const { data, error } = await supabase
     .from("conversation_sessions")
     .update({
       escalation_status: "pending",
+      escalation_stage: "pending",
       escalation_reason: reason || null,
       escalation_priority: priority,
       escalation_category: category,
-      escalated_at: new Date().toISOString(),
+      escalated_at: escalatedAt,
       escalation_source: source,
       escalation_department_id: escalationDepartmentId,
+      escalation_sla_deadline: slaDeadline,
+      // Reset assignment fields in case this is a re-escalation
+      escalation_assigned_to: null,
+      escalation_assigned_at: null,
+      linked_task_id: null,
     })
     .eq("phone_e164", phone)
     .select("id, phone_e164, escalation_status, escalation_priority, escalation_category, escalation_department_id")
@@ -100,6 +118,20 @@ export async function POST(req: NextRequest) {
   }
   if (!data) {
     return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
+  }
+
+  // Log escalation activity for the triage desk timeline.
+  try {
+    const { logEscalationActivity } = await import("@/lib/escalation/activity");
+    await logEscalationActivity({
+      sessionId: data.id,
+      phoneE164: phone,
+      action: "escalated",
+      actorLabel: source === "ai" ? "AI Agent" : source === "rule" ? "System Rule" : "Manual",
+      details: { reason, priority, category },
+    });
+  } catch {
+    // fire-and-forget
   }
 
   // Notify escalation team members via email + WhatsApp. Best-effort: a

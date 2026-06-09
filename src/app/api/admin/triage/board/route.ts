@@ -15,6 +15,7 @@ type SessionRow = {
   phone_e164: string;
   user_id: string | null;
   escalation_stage: string;
+  escalation_status: string | null;
   escalation_priority: string | null;
   escalation_category: string | null;
   escalation_reason: string | null;
@@ -68,15 +69,17 @@ export async function GET(req: NextRequest) {
 
   const supabase = getSupabaseAdmin();
 
-  // ---- 1. Active escalation tickets (anything that is not 'none') ----------
+  // ---- 1. Active escalation tickets ----------------------------------------
+  // Include both new-style (escalation_stage != 'none') AND legacy tickets
+  // where escalation_stage is still 'none' but escalation_status is 'pending'.
   const { data: sessions, error: sessionsError } = await supabase
     .from("conversation_sessions")
     .select(
-      "id, phone_e164, user_id, escalation_stage, escalation_priority, " +
+      "id, phone_e164, user_id, escalation_stage, escalation_status, escalation_priority, " +
         "escalation_category, escalation_reason, escalated_at, " +
         "escalation_sla_deadline, escalation_assigned_to, linked_task_id, last_message_at",
     )
-    .neq("escalation_stage", "none")
+    .or("escalation_stage.neq.none,and(escalation_stage.eq.none,escalation_status.eq.pending)")
     .order("escalated_at", { ascending: false })
     .limit(500);
 
@@ -187,11 +190,18 @@ export async function GET(req: NextRequest) {
     const task = r.linked_task_id ? taskMap.get(r.linked_task_id) ?? null : null;
     const deptName = task?.department_id ? deptMap.get(task.department_id) ?? null : null;
 
+    // Normalize legacy tickets: if escalation_stage is 'none' but escalation_status
+    // is 'pending', treat it as stage 'pending' for the triage board.
+    const stage =
+      r.escalation_stage === "none" && r.escalation_status === "pending"
+        ? "pending"
+        : r.escalation_stage;
+
     return {
       session_id: r.id,
       phone_e164: r.phone_e164,
       display_name: user ?? r.phone_e164,
-      escalation_stage: r.escalation_stage,
+      escalation_stage: stage,
       escalation_priority: r.escalation_priority ?? "normal",
       escalation_category: r.escalation_category ?? "uncategorized",
       escalation_reason: r.escalation_reason,
