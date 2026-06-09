@@ -4,6 +4,7 @@ import { geocodeAddress, importAccommodationHosts } from "@/lib/accommodations/i
 import { buildHostRollups } from "@/lib/accommodations/rollups";
 import { requireAdminKey } from "@/lib/api/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { z } from "zod";
 
 export const runtime = "nodejs";
 
@@ -129,6 +130,78 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+  }
+}
+
+// --- Schema for create/update host ---
+const hostSchema = z.object({
+  id: z.string().uuid().optional(), // if present → update; if absent → create
+  hof_its: z.string().min(1, "ITS is required"),
+  first_name: z.string().optional().default(""),
+  last_name: z.string().optional().default(""),
+  address: z.string().optional().default(""),
+  city: z.string().optional().default(""),
+  mobile: z.string().optional().default(""),
+  capacity_mehman: z.coerce.number().int().min(0).default(0),
+  capacity_family_friends: z.coerce.number().int().min(0).default(0),
+  gender_preference: z.string().optional().default(""),
+  sahebo_preference: z.string().optional().default(""),
+  pet_type: z.string().optional().default(""),
+  days_after_ashura: z.coerce.number().int().nullable().optional(),
+});
+
+/**
+ * PUT /api/admin/accommodations/hosts — Create or update a single host record.
+ * Body: host fields (include `id` to update, omit to create).
+ */
+export async function PUT(req: NextRequest) {
+  if (!requireAdminKey(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const body = await req.json();
+    const parsed = hostSchema.parse(body);
+    const supabase = getSupabaseAdmin();
+
+    const record = {
+      hof_its: parsed.hof_its,
+      first_name: parsed.first_name || null,
+      last_name: parsed.last_name || null,
+      address: parsed.address || null,
+      city: parsed.city || null,
+      mobile: parsed.mobile || null,
+      capacity_mehman: parsed.capacity_mehman,
+      capacity_family_friends: parsed.capacity_family_friends,
+      gender_preference: parsed.gender_preference || null,
+      sahebo_preference: parsed.sahebo_preference || null,
+      pet_type: parsed.pet_type || null,
+      days_after_ashura: parsed.days_after_ashura ?? null,
+      can_provide_utaro: true,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (parsed.id) {
+      // Update existing
+      const { error } = await supabase
+        .from("accommodation_hosts")
+        .update(record)
+        .eq("id", parsed.id);
+      if (error) throw new Error(error.message);
+      return NextResponse.json({ ok: true, action: "updated" });
+    } else {
+      // Create new
+      const { error } = await supabase
+        .from("accommodation_hosts")
+        .insert({ ...record, created_at: new Date().toISOString() });
+      if (error) throw new Error(error.message);
+      return NextResponse.json({ ok: true, action: "created" }, { status: 201 });
+    }
+  } catch (e) {
+    if (e instanceof z.ZodError) {
+      return NextResponse.json({ error: e.issues.map(err => err.message).join(", ") }, { status: 400 });
+    }
     return NextResponse.json({ error: (e as Error).message }, { status: 400 });
   }
 }

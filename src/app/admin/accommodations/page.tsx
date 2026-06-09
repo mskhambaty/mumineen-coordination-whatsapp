@@ -9,6 +9,8 @@ import { canManageParking } from "@/lib/admin/access";
 type HostRow = {
   id: string;
   hof_its: string;
+  first_name: string | null;
+  last_name: string | null;
   display_name: string;
   address: string | null;
   city: string | null;
@@ -20,6 +22,9 @@ type HostRow = {
   pending_allocated: number;
   remaining_capacity: number;
   gender_preference: string | null;
+  pet_type: string | null;
+  sahebo_preference: string | null;
+  days_after_ashura: number | null;
   distance_to_masjid_km: number | null;
   host_family_size: number | null;
   email: string | null;
@@ -131,6 +136,31 @@ export default function AccommodationsPage() {
 
   // Algorithm info expanded
   const [showAlgo, setShowAlgo] = useState(false);
+
+  // Host form modal state
+  type HostFormData = {
+    id?: string;
+    hof_its: string;
+    first_name: string;
+    last_name: string;
+    address: string;
+    city: string;
+    mobile: string;
+    capacity_mehman: number;
+    capacity_family_friends: number;
+    gender_preference: string;
+    sahebo_preference: string;
+    pet_type: string;
+    days_after_ashura: number | null;
+  };
+  const emptyHostForm: HostFormData = {
+    hof_its: "", first_name: "", last_name: "", address: "", city: "", mobile: "",
+    capacity_mehman: 0, capacity_family_friends: 0, gender_preference: "", sahebo_preference: "",
+    pet_type: "", days_after_ashura: null,
+  };
+  const [hostFormOpen, setHostFormOpen] = useState(false);
+  const [hostForm, setHostForm] = useState<HostFormData>(emptyHostForm);
+  const [hostFormSaving, setHostFormSaving] = useState(false);
 
   // Auth gate
   const canWrite = (() => {
@@ -341,6 +371,52 @@ export default function AccommodationsPage() {
     }
   }
 
+  function openAddHost() {
+    setHostForm(emptyHostForm);
+    setHostFormOpen(true);
+  }
+
+  function openEditHost(h: HostRow) {
+    setHostForm({
+      id: h.id,
+      hof_its: h.hof_its,
+      first_name: h.first_name ?? "",
+      last_name: h.last_name ?? "",
+      address: h.address ?? "",
+      city: h.city ?? "",
+      mobile: "",
+      capacity_mehman: h.capacity_mehman,
+      capacity_family_friends: h.capacity_family_friends,
+      gender_preference: h.gender_preference ?? "",
+      sahebo_preference: h.sahebo_preference ?? "",
+      pet_type: h.pet_type ?? "",
+      days_after_ashura: h.days_after_ashura,
+    });
+    setHostFormOpen(true);
+  }
+
+  async function handleSaveHost(e: React.FormEvent) {
+    e.preventDefault();
+    setHostFormSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/accommodations/hosts", {
+        method: "PUT",
+        headers: { ...headers(), "Content-Type": "application/json" },
+        body: JSON.stringify(hostForm),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setSuccessMsg(`Host ${data.action}`);
+      setHostFormOpen(false);
+      fetchHosts();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setHostFormSaving(false);
+    }
+  }
+
   async function handleCreateMatch(guestFamilyId: string, hostId: string, memberCount: number) {
     const ok = window.confirm(
       "This will create a PENDING match linkage only.\n\n" +
@@ -509,6 +585,11 @@ export default function AccommodationsPage() {
                 </button>
               </form>
             )}
+            {canWrite && (
+              <button onClick={openAddHost} className="px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700">
+                + Add Host
+              </button>
+            )}
             <button onClick={exportHosts} className="px-3 py-1.5 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 ml-auto">
               Export XLSX
             </button>
@@ -532,6 +613,7 @@ export default function AccommodationsPage() {
                   <th className="p-2">Gender Pref</th>
                   <th className="p-2">Email</th>
                   <th className="p-2">Distance</th>
+                  {canWrite && <th className="p-2">Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -578,6 +660,11 @@ export default function AccommodationsPage() {
                           : "—"
                       }
                     </td>
+                    {canWrite && (
+                      <td className="p-2">
+                        <button onClick={() => openEditHost(h)} className="px-1.5 py-0.5 text-xs bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 rounded hover:bg-yellow-200">✏️ Edit</button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -591,6 +678,80 @@ export default function AccommodationsPage() {
             Pending: {hosts.reduce((s, h) => s + h.pending_allocated, 0)} |
             Remaining: {hosts.reduce((s, h) => s + h.remaining_capacity, 0)}
           </div>
+
+          {/* Host Add/Edit Modal */}
+          {hostFormOpen && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setHostFormOpen(false)}>
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                <h2 className="text-lg font-bold mb-4">{hostForm.id ? "Edit Host" : "Add Host"}</h2>
+                <form onSubmit={handleSaveHost} className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">ITS *</label>
+                      <input type="text" required value={hostForm.hof_its} onChange={(e) => setHostForm({ ...hostForm, hof_its: e.target.value })} disabled={!!hostForm.id} className="w-full px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600 disabled:opacity-50" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">First Name</label>
+                      <input type="text" value={hostForm.first_name} onChange={(e) => setHostForm({ ...hostForm, first_name: e.target.value })} className="w-full px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Last Name</label>
+                      <input type="text" value={hostForm.last_name} onChange={(e) => setHostForm({ ...hostForm, last_name: e.target.value })} className="w-full px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Mobile</label>
+                      <input type="text" value={hostForm.mobile} onChange={(e) => setHostForm({ ...hostForm, mobile: e.target.value })} className="w-full px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Address</label>
+                    <input type="text" value={hostForm.address} onChange={(e) => setHostForm({ ...hostForm, address: e.target.value })} className="w-full px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">City</label>
+                      <input type="text" value={hostForm.city} onChange={(e) => setHostForm({ ...hostForm, city: e.target.value })} className="w-full px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Cap (mehman)</label>
+                      <input type="number" min={0} value={hostForm.capacity_mehman} onChange={(e) => setHostForm({ ...hostForm, capacity_mehman: parseInt(e.target.value) || 0 })} className="w-full px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Cap (F&F)</label>
+                      <input type="number" min={0} value={hostForm.capacity_family_friends} onChange={(e) => setHostForm({ ...hostForm, capacity_family_friends: parseInt(e.target.value) || 0 })} className="w-full px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Gender Preference</label>
+                      <select value={hostForm.gender_preference} onChange={(e) => setHostForm({ ...hostForm, gender_preference: e.target.value })} className="w-full px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600">
+                        <option value="">No preference</option>
+                        <option value="Bairo">Bairo (women only)</option>
+                        <option value="Mardo">Mardo (men only)</option>
+                        <option value="Either / Both">Either / Both</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Sahebo Preference</label>
+                      <input type="text" value={hostForm.sahebo_preference} onChange={(e) => setHostForm({ ...hostForm, sahebo_preference: e.target.value })} className="w-full px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Pet Type</label>
+                      <input type="text" value={hostForm.pet_type} onChange={(e) => setHostForm({ ...hostForm, pet_type: e.target.value })} className="w-full px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600" placeholder="e.g. Dog, Cat" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Days After Ashura</label>
+                      <input type="number" min={0} value={hostForm.days_after_ashura ?? ""} onChange={(e) => setHostForm({ ...hostForm, days_after_ashura: e.target.value ? parseInt(e.target.value) : null })} className="w-full px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-3">
+                    <button type="button" onClick={() => setHostFormOpen(false)} className="px-3 py-1.5 text-sm border rounded hover:bg-gray-100 dark:hover:bg-gray-700">Cancel</button>
+                    <button type="submit" disabled={hostFormSaving} className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50">
+                      {hostFormSaving ? "Saving…" : hostForm.id ? "Save Changes" : "Create Host"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
