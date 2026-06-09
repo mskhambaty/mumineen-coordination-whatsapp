@@ -67,16 +67,6 @@ export default function EscalationPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const user = readAdminUser();
-    if (!user || !canAccessPortal(user)) {
-      router.push("/admin/login");
-      return;
-    }
-    void loadAll();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router]);
-
   async function loadAll() {
     setLoading(true);
     setError(null);
@@ -108,6 +98,16 @@ export default function EscalationPage() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    const user = readAdminUser();
+    if (!user || !canAccessPortal(user)) {
+      router.push("/admin/login");
+      return;
+    }
+    void loadAll();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router]);
 
   // ─── Escalation team ──────────────────────────────────────────────────────
 

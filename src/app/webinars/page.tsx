@@ -205,7 +205,7 @@ type GateState = "checking" | "gate" | "open";
 export default function WebinarsPage() {
   const [gateState, setGateState] = useState<GateState>("checking");
   const [guestName, setGuestName] = useState<string | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdmin] = useState(() => isAdminOrLeadership(readAdminUser()));
 
   const [webinars, setWebinars] = useState<Webinar[]>([]);
   const [loadingWebinars, setLoadingWebinars] = useState(true);
@@ -227,10 +227,7 @@ export default function WebinarsPage() {
 
   // ── Session / admin check ────────────────────────────────────────────────────
   useEffect(() => {
-    const user = readAdminUser();
-    const admin = isAdminOrLeadership(user);
-    setIsAdmin(admin);
-    if (admin) {
+    if (isAdmin) {
       setGateState("open");
       return;
     }
@@ -244,6 +241,8 @@ export default function WebinarsPage() {
       }
     } catch { /* ignore */ }
     setGateState("gate");
+  // isAdmin is stable (initialized once from localStorage, never changes)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Fetch webinars once verified ─────────────────────────────────────────────
