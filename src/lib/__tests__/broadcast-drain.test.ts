@@ -1,0 +1,122 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// Regression test for the duplicate-send bug: drainBroadcasts must claim a batch atomically via the
+// claim_broadcast_recipients RPC (which flips rows 'queued' -> 'sending' under FOR UPDATE SKIP
+// LOCKED) and send only the rows that RPC returns — never re-select by status and send. That claim
+// is what stops two overlapping drains from grabbing the same recipient and double-sending.
+
+const resolveApprovedTemplate = vi.fn(async () => ({ name: "t", language: "en_US" }));
+const sendTemplateNotification = vi.fn(async () => ({ status: "sent" as const, waMessageId: "wamid.1" }));
+
+vi.mock("@/lib/whatsapp/send-template", () => ({
+  resolveApprovedTemplate: (...a: unknown[]) => resolveApprovedTemplate(...a),
+  sendTemplateNotification: (...a: unknown[]) => sendTemplateNotification(...a),
+}));
+vi.mock("@/lib/whatsapp/audience", () => ({ previewAudience: vi.fn(), utilityMessageCostUsd: () => 0.04 }));
+vi.mock("@/lib/whatsapp/templates", () => ({ resolveBindings: vi.fn() }));
+vi.mock("@/lib/supabase/server", () => ({ getSupabaseAdmin: () => supabase }));
+
+type ClaimRow = { id: string; broadcast_id: string; phone_e164: string; body_params: unknown; template_code: string; template_language: string };
+
+let claimRows: ClaimRow[] = [];
+let runningBroadcasts: { id: string }[] = [];
+let pendingCount = 0;
+const rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
+const updateCalls: { table: string; values: Record<string, unknown>; eqVal?: unknown }[] = [];
+
+const supabase = {
+  rpc: vi.fn(async (fn: string, args: Record<string, unknown>) => {
+    rpcCalls.push({ fn, args });
+    if (fn === "claim_broadcast_recipients") return { data: claimRows, error: null };
+    return { data: null, error: null };
+  }),
+  from: (table: string) => {
+    const state: { values?: Record<string, unknown>; eqVal?: unknown; head: boolean } = { head: false };
+    const builder: Record<string, unknown> = {
+      select: (_cols: string, opts?: { head?: boolean }) => {
+        if (opts?.head) state.head = true;
+        return builder;
+      },
+      update: (values: Record<string, unknown>) => {
+        state.values = values;
+        return builder;
+      },
+      eq: (_field: string, val: unknown) => {
+        state.eqVal = val;
+        return builder;
+      },
+      in: () => builder,
+      then: (resolve: (v: unknown) => unknown) => {
+        if (state.values !== undefined) {
+          updateCalls.push({ table, values: state.values, eqVal: state.eqVal });
+          return Promise.resolve({ data: null, error: null }).then(resolve);
+        }
+        if (table === "template_broadcasts") return Promise.resolve({ data: runningBroadcasts, error: null }).then(resolve);
+        if (state.head) return Promise.resolve({ count: pendingCount, error: null }).then(resolve);
+        return Promise.resolve({ data: [], error: null }).then(resolve);
+      },
+    };
+    return builder;
+  },
+};
+
+import { drainBroadcasts } from "@/lib/whatsapp/broadcast";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  rpcCalls.length = 0;
+  updateCalls.length = 0;
+  claimRows = [];
+  runningBroadcasts = [];
+  pendingCount = 0;
+  sendTemplateNotification.mockResolvedValue({ status: "sent", waMessageId: "wamid.1" });
+});
+
+describe("drainBroadcasts", () => {
+  it("claims a batch atomically via the RPC and sends only the claimed rows", async () => {
+    claimRows = [
+      { id: "r1", broadcast_id: "b1", phone_e164: "+13125550001", body_params: { bodyParams: ["a"] }, template_code: "t", template_language: "en_US" },
+      { id: "r2", broadcast_id: "b1", phone_e164: "+13125550002", body_params: { bodyParams: ["b"] }, template_code: "t", template_language: "en_US" },
+    ];
+
+    const result = await drainBroadcasts(150);
+
+    // Recipients are claimed through the atomic RPC (not a status-filtered SELECT).
+    const claim = rpcCalls.find((c) => c.fn === "claim_broadcast_recipients");
+    expect(claim).toBeDefined();
+    expect(claim?.args).toMatchObject({ p_batch_size: 150 });
+
+    // Exactly one send per claimed recipient — no duplicates.
+    expect(sendTemplateNotification).toHaveBeenCalledTimes(2);
+    expect(sendTemplateNotification.mock.calls.map((c) => (c[0] as { phoneE164: string }).phoneE164)).toEqual([
+      "+13125550001",
+      "+13125550002",
+    ]);
+
+    // Each sent row is settled to 'sent', and the sent counter is bumped atomically.
+    const sentUpdates = updateCalls.filter((u) => u.table === "template_broadcast_recipients" && u.values.send_status === "sent");
+    expect(sentUpdates.map((u) => u.eqVal)).toEqual(["r1", "r2"]);
+    expect(rpcCalls.filter((c) => c.fn === "bump_broadcast_counter" && c.args.p_field === "count_sent")).toHaveLength(2);
+
+    expect(result.processed).toBe(2);
+  });
+
+  it("does nothing (no sends) when the claim returns no rows", async () => {
+    claimRows = [];
+    const result = await drainBroadcasts();
+    expect(sendTemplateNotification).not.toHaveBeenCalled();
+    expect(result.processed).toBe(0);
+  });
+
+  it("marks a failed send as 'failed' and bumps the failed counter", async () => {
+    claimRows = [
+      { id: "r1", broadcast_id: "b1", phone_e164: "+13125550001", body_params: { bodyParams: ["a"] }, template_code: "t", template_language: "en_US" },
+    ];
+    sendTemplateNotification.mockResolvedValueOnce({ status: "failed" as const, error: "send failed" } as never);
+
+    await drainBroadcasts();
+
+    expect(updateCalls.some((u) => u.values.send_status === "failed" && u.eqVal === "r1")).toBe(true);
+    expect(rpcCalls.filter((c) => c.fn === "bump_broadcast_counter" && c.args.p_field === "count_failed")).toHaveLength(1);
+  });
+});
