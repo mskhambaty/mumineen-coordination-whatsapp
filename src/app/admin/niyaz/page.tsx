@@ -60,21 +60,9 @@ type InstanceForm = {
   description: string;
 };
 
-type Composer = {
-  mode: "buttons" | "headcount";
-  audience: "specific_its" | "all_mumineen" | "all_hof" | "all_adults";
-  its: string;
-  onlyNonResponders: boolean;
-  level: "ind" | "fam";
-  templateCode: string;
-  registrationMessage: string;
-  exampleResponse: string;
-};
-
 type HeadCount = { id: string; head_count: number; responded_by_phone: string | null; updated_at: string; family: { hof_its: string | null } | null };
 
 const emptyInstanceForm: InstanceForm = { title: "", event_date: "", hijri_date: "", meal: "", serving_type: "", description: "" };
-const emptyComposer: Composer = { mode: "buttons", audience: "specific_its", its: "", onlyNonResponders: false, level: "ind", templateCode: "", registrationMessage: "", exampleResponse: "" };
 
 const inputCls =
   "block w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-950";
@@ -95,17 +83,11 @@ export default function NiyazPage() {
   const [form, setForm] = useState<InstanceForm>(emptyInstanceForm);
   const [saving, setSaving] = useState(false);
 
-  // Per-event detail
+  // Per-event detail (responses view; the Send RSVP composer is removed for now)
   const [selected, setSelected] = useState<NiyazEvent | null>(null);
   const [responses, setResponses] = useState<RespRow[]>([]);
   const [headcounts, setHeadcounts] = useState<HeadCount[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
-  const [templates, setTemplates] = useState<{ name: string }[]>([]);
-  const [composer, setComposer] = useState<Composer>(emptyComposer);
-  const [count, setCount] = useState<number | null>(null);
-  const [unresolved, setUnresolved] = useState<string[]>([]);
-  const [sending, setSending] = useState(false);
-  const [sendMsg, setSendMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const user = readAdminUser();
@@ -125,11 +107,6 @@ export default function NiyazPage() {
     if (res.ok) setEvents(((await res.json()).instances as NiyazEvent[]) ?? []);
   }
 
-  async function loadTemplates() {
-    const res = await apiFetch("/api/admin/templates");
-    if (res.ok) setTemplates((((await res.json()).templates as { name: string }[]) ?? []).map((t) => ({ name: t.name })));
-  }
-
   const loadResponses = useCallback(async (instanceId: string) => {
     const res = await apiFetch(`/api/admin/niyaz/instances/${instanceId}/responses`);
     const data = await res.json().catch(() => ({}));
@@ -142,38 +119,8 @@ export default function NiyazPage() {
 
   function selectEvent(e: NiyazEvent) {
     setSelected(e);
-    setSendMsg(null);
-    setComposer(emptyComposer);
-    setCount(null);
-    setUnresolved([]);
     void loadResponses(e.id);
-    if (templates.length === 0) void loadTemplates();
   }
-
-  // Live recipient-count preview for the composer.
-  useEffect(() => {
-    if (!selected) return;
-    const q = new URLSearchParams({
-      audience: composer.audience,
-      level: composer.level,
-      only_non_responders: String(composer.onlyNonResponders),
-      its: composer.its,
-    });
-    let cancelled = false;
-    void apiFetch(`/api/admin/niyaz/instances/${selected.id}/broadcast?${q.toString()}`).then(async (res) => {
-      if (cancelled) return;
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setCount((data.count as number) ?? 0);
-        setUnresolved((data.unresolved_its as string[]) ?? []);
-      } else {
-        setCount(null);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [selected, composer.audience, composer.level, composer.onlyNonResponders, composer.its]);
 
   function openCreate() {
     setEditingId(null);
@@ -223,40 +170,6 @@ export default function NiyazPage() {
     }
   }
 
-  async function sendBroadcast() {
-    if (!selected) return;
-    if (!composer.templateCode) {
-      setSendMsg("Pick a template first.");
-      return;
-    }
-    setSending(true);
-    setSendMsg(null);
-    try {
-      const res = await apiFetch(`/api/admin/niyaz/instances/${selected.id}/broadcast`, {
-        method: "POST",
-        body: JSON.stringify({
-          audience: composer.audience,
-          its: composer.its.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean),
-          only_non_responders: composer.onlyNonResponders,
-          level: composer.level,
-          template_code: composer.templateCode,
-          mode: composer.mode,
-          registration_message: composer.registrationMessage || undefined,
-          example_response: composer.exampleResponse || undefined,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Send failed");
-      const unres = (data.unresolved_its as string[]) ?? [];
-      setSendMsg(`Queued ${data.total ?? 0} message(s).${unres.length ? ` Unresolved ITS: ${unres.join(", ")}.` : ""}`);
-      await loadResponses(selected.id);
-    } catch (err) {
-      setSendMsg(err instanceof Error ? err.message : "Send failed");
-    } finally {
-      setSending(false);
-    }
-  }
-
   const num = "px-2 py-1.5 text-right tabular-nums";
 
   return (
@@ -265,7 +178,7 @@ export default function NiyazPage() {
         <div>
           <h1 className="text-xl font-bold">Niyaz Registration</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            RSVP is collected per day via WhatsApp buttons. Click an event to see responses and send a request.
+            Click an event to see its RSVP responses.
           </p>
         </div>
         <button type="button" onClick={openCreate} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
@@ -377,74 +290,11 @@ export default function NiyazPage() {
       </div>
 
       {selected && (
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {/* Send composer */}
-          <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-            <h2 className="mb-1 text-lg font-semibold">Send RSVP request</h2>
-            <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">{selected.title || dayLabel(selected.eventDate)} · {dayLabel(selected.eventDate)}</p>
-            <div className="space-y-3">
-              <label className="block text-xs uppercase tracking-wide text-gray-400">Response type
-                <select value={composer.mode} onChange={(e) => setComposer({ ...composer, mode: e.target.value as Composer["mode"] })} className={inputCls}>
-                  <option value="buttons">Buttons (yes/no per meal)</option>
-                  <option value="headcount">Head count (free-text reply)</option>
-                </select>
-              </label>
-              <label className="block text-xs uppercase tracking-wide text-gray-400">Level
-                <select value={composer.level} onChange={(e) => setComposer({ ...composer, level: e.target.value as Composer["level"] })} className={inputCls}>
-                  <option value="ind">Individual (records the responder)</option>
-                  <option value="fam">Family (records the whole family)</option>
-                </select>
-              </label>
-              <label className="block text-xs uppercase tracking-wide text-gray-400">Audience
-                <select value={composer.audience} onChange={(e) => setComposer({ ...composer, audience: e.target.value as Composer["audience"] })} className={inputCls}>
-                  <option value="specific_its">Specific ITS (test)</option>
-                  <option value="all_mumineen">All mumineen</option>
-                  <option value="all_hof">All HOF (one per family)</option>
-                  <option value="all_adults">All adults</option>
-                </select>
-              </label>
-              {composer.audience === "specific_its" && (
-                <label className="block text-xs uppercase tracking-wide text-gray-400">ITS numbers (comma/space separated)
-                  <textarea value={composer.its} onChange={(e) => setComposer({ ...composer, its: e.target.value })} rows={2} className={inputCls} placeholder="40495151, 30412345" />
-                </label>
-              )}
-              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-                <input type="checkbox" checked={composer.onlyNonResponders} onChange={(e) => setComposer({ ...composer, onlyNonResponders: e.target.checked })} />
-                Only those who haven&apos;t responded to this event
-              </label>
-              <label className="block text-xs uppercase tracking-wide text-gray-400">Template
-                <select value={composer.templateCode} onChange={(e) => setComposer({ ...composer, templateCode: e.target.value })} className={inputCls}>
-                  <option value="">Select an approved template…</option>
-                  {templates.map((t) => (
-                    <option key={t.name} value={t.name}>{t.name}</option>
-                  ))}
-                </select>
-              </label>
-              {composer.mode === "headcount" && (
-                <>
-                  <label className="block text-xs uppercase tracking-wide text-gray-400">Message ({"{{registration_message}}"}) — leave blank to auto-generate
-                    <textarea value={composer.registrationMessage} onChange={(e) => setComposer({ ...composer, registrationMessage: e.target.value })} rows={2} className={inputCls} placeholder="Niyaz RSVP for tomorrow — reply with how many will attend." />
-                  </label>
-                  <label className="block text-xs uppercase tracking-wide text-gray-400">Example reply ({"{{example_response}}"})
-                    <input value={composer.exampleResponse} onChange={(e) => setComposer({ ...composer, exampleResponse: e.target.value })} className={inputCls} placeholder="4" />
-                  </label>
-                </>
-              )}
-              <div className="text-sm text-gray-600 dark:text-gray-300">
-                Recipients: <span className="font-semibold">{count ?? "…"}</span>
-                {unresolved.length > 0 && <span className="ml-2 text-amber-600">Unresolved ITS: {unresolved.join(", ")}</span>}
-              </div>
-              <button type="button" onClick={sendBroadcast} disabled={sending || !count} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-700">
-                {sending ? "Sending…" : "Send"}
-              </button>
-              {sendMsg && <p className="text-sm text-gray-600 dark:text-gray-300">{sendMsg}</p>}
-            </div>
-          </div>
-
+        <div className="mt-6">
           {/* Responses */}
           <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <div className="mb-3 flex items-baseline justify-between gap-2">
-              <h2 className="text-lg font-semibold">Responses</h2>
+              <h2 className="text-lg font-semibold">Responses — {selected.title || dayLabel(selected.eventDate)}</h2>
               {summary && (
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   Yes {summary.yes_adults + summary.yes_kids} ({summary.yes_families} fam) · No {summary.no_adults + summary.no_kids} ({summary.no_families} fam)
