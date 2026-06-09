@@ -100,6 +100,9 @@ export async function GET(req: NextRequest) {
     { wch: 12 }, // Flight No
   ];
 
+  // AutoFilter on header row so every column gets a value-picker dropdown
+  ws["!autofilter"] = { ref: "A1:I1" };
+
   XLSX.utils.book_append_sheet(wb, ws, "Arrivals");
 
   const bytes = new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }) as number[]);
