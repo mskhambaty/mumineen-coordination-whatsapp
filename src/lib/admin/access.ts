@@ -6,6 +6,7 @@ export type PortalUser = {
   is_it?: boolean | null;
   is_internal?: boolean | null;
   is_transport?: boolean | null;
+  is_helpdesk?: boolean | null;
 };
 
 export function isAdminOrLeadership(user: PortalUser | null | undefined) {
@@ -45,7 +46,7 @@ export function canImportMumineen(user: PortalUser | null | undefined) {
 
 // Who may open the Lead Inbox: admins/leadership plus on-call support members.
 export function canAccessInbox(user: PortalUser | null | undefined) {
-  return isAdminOrLeadership(user) || user?.is_support === true;
+  return isAdminOrLeadership(user) || user?.is_helpdesk === true || user?.is_support === true;
 }
 
 // AI-agent knowledge tools (Knowledge Base, Knowledge Gaps, Ashara Daily

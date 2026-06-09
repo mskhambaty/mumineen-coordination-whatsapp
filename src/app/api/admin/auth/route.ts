@@ -24,14 +24,14 @@ export async function POST(req: NextRequest) {
     const emailPattern = emailMatchPattern(email);
     let { data: user, error } = await supabase
       .from("whatsapp_users")
-      .select("id, display_name, email, global_role, role, password_hash")
+      .select("id, display_name, email, global_role, role, is_helpdesk, password_hash")
       .ilike("email", emailPattern)
       .maybeSingle();
 
     if (error?.message.includes("password_hash")) {
       const fallbackResult = await supabase
         .from("whatsapp_users")
-        .select("id, display_name, email, global_role, role")
+        .select("id, display_name, email, global_role, role, is_helpdesk")
         .ilike("email", emailPattern)
         .maybeSingle();
       user = fallbackResult.data ? { ...fallbackResult.data, password_hash: null } : null;

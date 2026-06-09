@@ -18,7 +18,7 @@ export async function GET(
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("whatsapp_users")
-    .select("id, display_name, phone_e164, email, role, global_role, status")
+    .select("id, display_name, phone_e164, email, role, global_role, status, is_helpdesk")
     .eq("id", id)
     .single();
 
@@ -66,6 +66,12 @@ export async function PUT(
   if (body.display_name !== undefined) updates.display_name = body.display_name;
   if (body.phone_e164 !== undefined) updates.phone_e164 = body.phone_e164;
   if (body.email !== undefined) updates.email = body.email;
+  if (body.is_helpdesk !== undefined) {
+    if (!callerIsAdmin) {
+      return NextResponse.json({ error: "Only admin/leadership can grant or revoke helpdesk access" }, { status: 403 });
+    }
+    updates.is_helpdesk = Boolean(body.is_helpdesk);
+  }
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "No updates provided" }, { status: 400 });
   }
@@ -122,7 +128,7 @@ export async function PUT(
     .from("whatsapp_users")
     .update(updates)
     .eq("id", id)
-    .select("id, display_name, phone_e164, email, role, global_role, status")
+    .select("id, display_name, phone_e164, email, role, global_role, status, is_helpdesk")
     .single();
 
   if (error) {
