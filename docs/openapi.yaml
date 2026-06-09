@@ -1290,6 +1290,57 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /admin/mumineen/registration:
+    post:
+      summary: Committee change of a family's registration status
+      description: >
+        Cancel or reopen a family's registration, or mark the whole family as not attending.
+        Requires a portal caller with Mumineen access (canAccessMumineen). `not_attending`
+        sets the family's status to `submitted`, flags every active roster member
+        `not_attending=true`, and reseeds the family's per-mumin Niyaz RSVP to attending=false.
+        It is rejected with 409 if the family is already `submitted`/`confirmed`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hof_its, action]
+              properties:
+                hof_its:
+                  type: string
+                  description: Head-of-family ITS identifying the family.
+                action:
+                  type: string
+                  enum: [cancel, reopen, not_attending]
+                reason:
+                  type: string
+                  nullable: true
+                  description: Optional cancellation reason (action=cancel only).
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  hof_its:
+                    type: string
+                  status:
+                    type: string
+        "400":
+          description: Missing hof_its or invalid action.
+        "401":
+          description: Caller not authenticated.
+        "403":
+          description: Caller lacks Mumineen access.
+        "404":
+          description: Family not found (action=not_attending).
+        "409":
+          description: Family already registered (action=not_attending).
   /register:
     get:
       tags: [registration]
