@@ -200,7 +200,7 @@ export async function PUT(req: NextRequest) {
     }
   } catch (e) {
     if (e instanceof z.ZodError) {
-      return NextResponse.json({ error: e.errors.map(err => err.message).join(", ") }, { status: 400 });
+      return NextResponse.json({ error: e.issues.map(err => err.message).join(", ") }, { status: 400 });
     }
     return NextResponse.json({ error: (e as Error).message }, { status: 400 });
   }
