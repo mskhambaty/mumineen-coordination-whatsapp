@@ -260,10 +260,10 @@ export async function GET(req: NextRequest) {
   const activeStages = ["pending", "picked_up", "waiting_on_department"] as const;
   const activeTickets = tickets.filter((t) => (activeStages as readonly string[]).includes(t.escalation_stage));
 
-  const open_count = activeTickets.filter((t) => t.escalation_stage === "pending").length;
-  const pending_count = activeTickets.filter(
-    (t) => t.escalation_stage === "picked_up" || t.escalation_stage === "waiting_on_department",
-  ).length;
+  // open_count = ALL active tickets (pending + picked_up + waiting_on_department)
+  const open_count = activeTickets.length;
+  // pending_count = tickets waiting to be claimed (pending stage only)
+  const pending_count = activeTickets.filter((t) => t.escalation_stage === "pending").length;
   const breaching_count = activeTickets.filter(
     (t) => t.escalation_sla_deadline && new Date(t.escalation_sla_deadline) < now,
   ).length;
