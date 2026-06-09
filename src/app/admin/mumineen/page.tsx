@@ -514,6 +514,22 @@ export default function MumineenPage() {
     }
   }
 
+  async function markFamilyNotAttending(hofIts: string) {
+    if (!window.confirm(`Mark family ${hofIts} as not attending? This registers them and marks all members not attending.`)) return;
+    setError(null);
+    try {
+      const res = await apiFetch("/api/admin/mumineen/registration", {
+        method: "POST",
+        body: JSON.stringify({ hof_its: hofIts, action: "not_attending" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to mark family not attending");
+      await Promise.all([runSearch(query.trim()), loadStats()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to mark family not attending");
+    }
+  }
+
   async function submitAddMumin(e: React.FormEvent) {
     e.preventDefault();
     if (addSaving) return;
@@ -676,6 +692,8 @@ export default function MumineenPage() {
                           <button type="button" onClick={(e) => { e.stopPropagation(); registrationAction(r.hof_its!, "cancel"); }} className="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950">Cancel</button>
                         ) : r.hof_its && r.family?.registration_status === "cancelled" ? (
                           <button type="button" onClick={(e) => { e.stopPropagation(); registrationAction(r.hof_its!, "reopen"); }} className="rounded border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800">Reopen</button>
+                        ) : r.is_head && r.family && (r.family.registration_status === "not_started" || r.family.registration_status == null) ? (
+                          <button type="button" onClick={(e) => { e.stopPropagation(); markFamilyNotAttending(r.hof_its!); }} className="rounded border border-amber-300 px-2 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-50 dark:border-amber-900 dark:text-amber-300 dark:hover:bg-amber-950">Family not attending</button>
                         ) : (
                           <span className="text-gray-300 dark:text-gray-600">—</span>
                         )}
