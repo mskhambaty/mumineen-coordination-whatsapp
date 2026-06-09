@@ -372,6 +372,7 @@ function HBar({
   label,
   value,
   total,
+  pctOf,
   color = "bg-blue-500",
   onClick,
   trailing,
@@ -379,11 +380,13 @@ function HBar({
   label: string;
   value: number;
   total: number;
+  pctOf?: number;
   color?: string;
   onClick?: () => void;
   trailing?: ReactNode;
 }) {
-  const pct = total > 0 ? (value / total) * 100 : 0;
+  const barPct = total > 0 ? (value / total) * 100 : 0;
+  const pct = pctOf !== undefined ? (pctOf > 0 ? (value / pctOf) * 100 : 0) : barPct;
   return (
     <div
       role={onClick ? "button" : undefined}
@@ -400,7 +403,7 @@ function HBar({
       <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
         <div
           className={`${color} h-2.5 rounded-full transition-all duration-500`}
-          style={{ width: `${pct}%` }}
+          style={{ width: `${barPct}%` }}
         />
       </div>
       <span className="w-24 shrink-0 text-right text-sm">
@@ -835,6 +838,9 @@ export default function RegistrationAnalyticsPage() {
   const top7ArrivalSlots = data
     ? [...data.arrivals_by_datetime].sort((a, b) => b.count - a.count).slice(0, 7)
     : [];
+  const totalMehmanArrivals = data
+    ? data.arrivals_by_datetime.reduce((sum, d) => sum + d.count, 0)
+    : 0;
   const missingTotal = data
     ? data.missing_data.no_whatsapp + data.missing_data.no_email + data.missing_data.no_arrival + data.missing_data.no_airport + data.missing_data.no_flight_no
     : 0;
@@ -1378,6 +1384,7 @@ export default function RegistrationAnalyticsPage() {
                             label={label}
                             value={count}
                             total={top7ArrivalSlots[0].count}
+                            pctOf={totalMehmanArrivals}
                             color="bg-indigo-500"
                           />
                         );
