@@ -128,4 +128,18 @@ describe("GET /api/admin/registration-analytics — funnel counts", () => {
     const res = await GET(req());
     expect(res.status).toBe(403);
   });
+
+  it("buckets ages into 0-5 / 6-17 / 18-39 / 40+ with 60+ as an overlapping subset", async () => {
+    const ages: (number | null)[] = [3, 10, 25, 45, 70, null];
+    const mems = ages.map((age, i) => ({ ...member(`m${i}`, "F"), age }));
+    getSupabaseAdmin.mockReturnValue(stubSupabase({ families: [family("F", "submitted")], mumineen: mems, departments: [] }));
+
+    const { age_groups } = await (await GET(req())).json();
+    expect(age_groups.age_0_5).toBe(1); // 3
+    expect(age_groups.age_6_17).toBe(1); // 10
+    expect(age_groups.age_18_39).toBe(1); // 25
+    expect(age_groups.age_40_plus).toBe(2); // 45, 70
+    expect(age_groups.age_60_plus).toBe(1); // 70 — also counted in 40+
+    expect(age_groups.unknown).toBe(1); // null
+  });
 });
