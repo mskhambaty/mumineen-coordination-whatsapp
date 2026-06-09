@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { canViewRegistrations } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
+import { jamaatCountry } from "@/lib/registration/jamaat-country";
 import { isPendingStatus, isRegisteredStatus, matchesStatusFilter } from "@/lib/registration/status";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -12,6 +13,7 @@ type MuminRow = {
   full_name: string | null;
   hof_its: string;
   gender: string | null;
+  jamaat: string | null;
   age: number | null;
   is_adult: boolean | null;
   is_head: boolean;
@@ -79,7 +81,7 @@ export async function GET(req: NextRequest) {
       supabase
         .from("mumineen")
         .select(
-          "its, full_name, hof_its, gender, age, is_adult, is_head, local_mehman, arrival_at, departure_at, arrival_flight_no, airport, not_attending, rahat_seating, wheelchair, special_needs, wants_khidmat, khidmat_department_ids, whatsapp_e164, email",
+          "its, full_name, hof_its, gender, jamaat, age, is_adult, is_head, local_mehman, arrival_at, departure_at, arrival_flight_no, airport, not_attending, rahat_seating, wheelchair, special_needs, wants_khidmat, khidmat_department_ids, whatsapp_e164, email",
         )
         .eq("roster_active", true)
         .range(from, to),
@@ -325,6 +327,19 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => b[1] - a[1])
     .map(([label, count]) => ({ label, count }));
 
+  // ── Origin (country, derived from home jamaat) ────────────────────────────────
+  // Where the (filtered) attending members come from. Most useful under the Mehman filter, but
+  // respects whatever filters are active. Country is a heuristic mapping of the free-text jamaat
+  // (see jamaatCountry); blank jamaats are omitted. Sorted by headcount, ties alphabetical.
+  const countryMap = new Map<string, number>();
+  for (const m of attending) {
+    const c = jamaatCountry(m.jamaat);
+    if (c) countryMap.set(c, (countryMap.get(c) ?? 0) + 1);
+  }
+  const countries = Array.from(countryMap.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([label, count]) => ({ label, count }));
+
   // ── Age groups ───────────────────────────────────────────────────────────────
 
   // Non-overlapping brackets partitioning all known ages.
@@ -423,6 +438,7 @@ export async function GET(req: NextRequest) {
     arrivals_by_datetime: arrivalsByDatetime,
     departures_by_date: departuresByDate,
     gender,
+    countries,
     age_groups: ageGroups,
     khidmat: {
       wants: wantsKhidmat,
