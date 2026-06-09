@@ -41,10 +41,10 @@ async function fetchAll<T>(
   return all;
 }
 
-// Parking passes for a local family: 1 base + 1 for every additional 5 people
-// e.g. 1-5 → 1, 6-10 → 2, 11-15 → 3
+// Parking passes for a local family: 1 per every 5 people (rounded up).
+// e.g. 1-5 → 1, 6-10 → 2, 11-15 → 3. Zero attending = 0 passes.
 function localFamilyPasses(attendingCount: number): number {
-  return Math.ceil(Math.max(attendingCount, 1) / 5);
+  return attendingCount > 0 ? Math.ceil(attendingCount / 5) : 0;
 }
 
 export async function GET(req: NextRequest) {
