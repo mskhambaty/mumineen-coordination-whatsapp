@@ -96,7 +96,7 @@ export default function TriagePage() {
     async function initialLoad() {
       await Promise.all([
         fetchBoard(),
-        apiFetch("/api/admin/departments").then(async (res) => {
+        apiFetch("/api/admin/mumineen/departments").then(async (res) => {
           if (!res.ok) return;
           const data = (await res.json()) as
             | { departments: Department[] }
