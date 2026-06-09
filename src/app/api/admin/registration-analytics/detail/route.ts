@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canViewRegistrations } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { isRegisteredStatus, matchesStatusFilter } from "@/lib/registration/status";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -85,10 +85,10 @@ export type DetailRow = {
 
 export async function GET(req: NextRequest) {
   // Per-person drill-down rows carry ITS, full name, phone, and email across the
-  // whole roster, so the detail view + its CSV export are admin/leadership only —
-  // even though the headline KPI counts (/registration-analytics) are open to all
-  // portal users.
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  // whole roster. The detail view is open to all portal users for operational use,
+  // but mass CSV export of registrants remains admin/leadership only (see
+  // /api/admin/mumineen/export).
+  const auth = await requirePortalCaller(req, canViewRegistrations);
   if (auth instanceof NextResponse) return auth;
 
   const { searchParams } = new URL(req.url);

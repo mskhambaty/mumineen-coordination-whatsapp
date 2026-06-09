@@ -48,8 +48,8 @@ independent: a person's department role does not change their account role and v
 |---|---|---|---|---|---|
 | **Home** (`/admin`) | ✅ | ✅ | ✅ | ✅ | Aggregate analytics only. |
 | **Inbox** (`/admin/conversations`) | ✅ | ❌ | ❌ | ❌ | …unless added to escalation/on-call (`is_support`), then ✅. Anyone can add themselves on the Escalation page. *Edit FAQ/Prompt quick-edit stays admin/leadership only.* |
-| **Mumineen → Roster** | ✅ | 👁 | 👁 | 👁 | View/lookup/edit open to all portal users. **Bulk import** = import tier; **full CSV export, member create, registration-gate** = admin tier. |
-| **Mumineen → Registration Analytics** | ✅ | ✅ | ✅ | ✅ | Includes drill-down detail + per-segment CSV. |
+| **Mumineen → Roster** | ✅ | 👁 | 👁 | 👁 | View/lookup/edit/create open to all portal users. **Bulk import** = import tier; **full CSV export, registration-gate** = admin tier. |
+| **Mumineen → Registration Analytics** | ✅ | ✅ | ✅ | ✅ | Includes drill-down detail + per-segment CSV. Mass registrant export remains admin tier. |
 | **Mumineen → Accommodations** | ✅ | ✅ | ✅ | ✅ | Host/guest views + matching. |
 | **Mumineen → Parking Passes** | ✅ | 👁 | 👁 | 👁 | View open to all portal users. **Assign/revoke/edit lots/export** = parking-write tier (admin, IT, Transport). |
 | **Mumineen → Niyaz** | ✅ | ✅ | ✅ | ✅ | |

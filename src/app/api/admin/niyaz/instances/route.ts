@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { dateStr, oneOf, str } from "@/lib/registration/normalize";
 import { getEventTallies } from "@/lib/rsvp/meal-rsvp";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -23,7 +23,7 @@ type InstanceBody = {
 // GET /api/admin/niyaz/instances — Niyaz events ordered by date, each with per-event attendance
 // tallies (yes/no split by adult/kid/family + thaal count), from the niyaz_event_tallies view.
 export async function GET(req: NextRequest) {
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
 
   try {
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/admin/niyaz/instances — create a Niyaz event (day + meal + serving type).
 export async function POST(req: NextRequest) {
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
 
   const body = (await req.json().catch(() => ({}))) as InstanceBody;
