@@ -9,21 +9,16 @@ import { apiFetch, readAdminUser } from "@/lib/admin/client";
 type Meal = "lunch" | "dinner";
 type ServingType = "thaal" | "packet";
 
-// One Niyaz event with its per-event attendance tallies (from the niyaz_event_tallies view).
+// One Niyaz event with a single combined RSVP count (per-mumin yes + family head counts).
 type NiyazEvent = {
   id: string;
   title: string;
   eventDate: string; // YYYY-MM-DD
+  hijriDate: string | null;
   meal: Meal | null;
   servingType: ServingType | null;
   description: string | null;
-  yesAdults: number;
-  yesKids: number;
-  yesFamilies: number;
-  thaalCount: number;
-  noAdults: number;
-  noKids: number;
-  noFamilies: number;
+  rsvpCount: number;
 };
 
 type RespRow = {
@@ -50,6 +45,7 @@ type Summary = {
 type InstanceForm = {
   title: string;
   event_date: string;
+  hijri_date: string;
   meal: "" | Meal;
   serving_type: "" | ServingType;
   description: string;
@@ -68,7 +64,7 @@ type Composer = {
 
 type HeadCount = { id: string; head_count: number; responded_by_phone: string | null; updated_at: string; family: { hof_its: string | null } | null };
 
-const emptyInstanceForm: InstanceForm = { title: "", event_date: "", meal: "", serving_type: "", description: "" };
+const emptyInstanceForm: InstanceForm = { title: "", event_date: "", hijri_date: "", meal: "", serving_type: "", description: "" };
 const emptyComposer: Composer = { mode: "buttons", audience: "specific_its", its: "", onlyNonResponders: false, level: "ind", templateCode: "", registrationMessage: "", exampleResponse: "" };
 
 const inputCls =
@@ -181,6 +177,7 @@ export default function NiyazPage() {
     setForm({
       title: e.title,
       event_date: e.eventDate ?? "",
+      hijri_date: e.hijriDate ?? "",
       meal: e.meal ?? "",
       serving_type: e.servingType ?? "",
       description: e.description ?? "",
@@ -199,6 +196,7 @@ export default function NiyazPage() {
       const payload = {
         title: form.title,
         event_date: form.event_date || null,
+        hijri_date: form.hijri_date || null,
         meal: form.meal || null,
         serving_type: form.serving_type || null,
         description: form.description,
@@ -280,6 +278,9 @@ export default function NiyazPage() {
             <label className="text-xs uppercase tracking-wide text-gray-400">Day
               <input type="date" value={form.event_date} onChange={(e) => setForm({ ...form, event_date: e.target.value })} className={inputCls} />
             </label>
+            <label className="text-xs uppercase tracking-wide text-gray-400">Hijri date
+              <input value={form.hijri_date} onChange={(e) => setForm({ ...form, hijri_date: e.target.value })} className={inputCls} placeholder="2 Muharram al-Haram 1448H" />
+            </label>
             <label className="text-xs uppercase tracking-wide text-gray-400">Meal
               <select value={form.meal} onChange={(e) => setForm({ ...form, meal: e.target.value as InstanceForm["meal"] })} className={inputCls}>
                 <option value="">—</option>
@@ -319,13 +320,7 @@ export default function NiyazPage() {
               <thead className="text-xs uppercase text-gray-400">
                 <tr>
                   <th className="px-2 py-1.5">Event</th>
-                  <th className="px-2 py-1.5 text-right">Yes adults</th>
-                  <th className="px-2 py-1.5 text-right">Yes kids</th>
-                  <th className="px-2 py-1.5 text-right">Yes families</th>
-                  <th className="px-2 py-1.5 text-right">Thaals</th>
-                  <th className="px-2 py-1.5 text-right">No adults</th>
-                  <th className="px-2 py-1.5 text-right">No kids</th>
-                  <th className="px-2 py-1.5 text-right">No families</th>
+                  <th className="px-2 py-1.5 text-right">RSVP</th>
                   <th className="px-2 py-1.5"></th>
                 </tr>
               </thead>
@@ -340,16 +335,11 @@ export default function NiyazPage() {
                       <div className="font-medium">{e.title || dayLabel(e.eventDate)}</div>
                       <div className="text-xs text-gray-500 dark:text-gray-400">
                         {dayLabel(e.eventDate)}
+                        {e.meal ? ` · ${e.meal}` : ""}
                         {e.servingType ? ` · ${e.servingType}` : ""}
                       </div>
                     </td>
-                    <td className={num}>{e.yesAdults}</td>
-                    <td className={num}>{e.yesKids}</td>
-                    <td className={num}>{e.yesFamilies}</td>
-                    <td className={`${num} font-semibold`}>{e.thaalCount}</td>
-                    <td className={`${num} text-gray-500`}>{e.noAdults}</td>
-                    <td className={`${num} text-gray-500`}>{e.noKids}</td>
-                    <td className={`${num} text-gray-500`}>{e.noFamilies}</td>
+                    <td className={`${num} font-semibold`}>{e.rsvpCount}</td>
                     <td className="px-2 py-1.5" onClick={(ev) => ev.stopPropagation()}>
                       <button type="button" onClick={() => openEdit(e)} className="rounded border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
                         Edit

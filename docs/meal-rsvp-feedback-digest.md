@@ -10,10 +10,11 @@ RSVP is tracked **per mumin per event** in `niyaz_rsvp`, collected day-by-day vi
 templates (§1a). (It was initially defaulted from arrival dates; that's been retired — see the
 default-rule note below.)
 
-- **Events** live in `rsvp_registration_instance` (`meal` `lunch`|`dinner`, `event_date`,
-  `serving_type` `thaal`|`packet`, unique `(event_date, meal)`). Ashara 1448H = **20 events**: a
-  **Pehli Raat thaal (Jun 14)**, Jun 15–23 lunch (thaal) + dinner (packet), and a **dinner thaal
-  (Jun 24)**. (`supabase/migrations/20260606100500_seed_*`, corrected in `20260608130000_niyaz_event_corrections`.)
+- **Events** live in `rsvp_registration_instance` (`title`, `event_date`, `hijri_date`, `meal`
+  `lunch`|`dinner`, `serving_type` `thaal`|`packet`, `description`, unique `(event_date, meal)`).
+  Ashara 1448H = **19 events**: **Pehli Raat (Jun 14, dinner)**, **1st Moharram (Jun 15, dinner
+  only)**, **2nd–9th Moharram (Jun 16–23, lunch + dinner)**, **10th Moharram (Jun 24, dinner only)**.
+  (Finalized in `supabase/migrations/20260609130000_niyaz_events_hijri_and_recreate`.)
 - **`niyaz_rsvp`** (`20260608131000_*`): one row per `(registration_instance_id, mumin_id)` with
   `attending boolean`, `family_id`, and `source` (`default`|`registration`|`whatsapp`|`admin`). RLS
   on, service-role access only. `rsvp_responses` is retired (left empty) for the meal flow.

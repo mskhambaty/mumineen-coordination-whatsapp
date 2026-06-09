@@ -10,11 +10,12 @@ export const runtime = "nodejs";
 const MEALS = ["lunch", "dinner"] as const;
 const SERVING_TYPES = ["thaal", "packet"] as const;
 
-const INSTANCE_COLS = "id, title, event_date, meal, serving_type, description, updated_at";
+const INSTANCE_COLS = "id, title, event_date, hijri_date, meal, serving_type, description, updated_at";
 
 type InstancePatch = {
   title?: unknown;
   event_date?: unknown;
+  hijri_date?: unknown;
   meal?: unknown;
   serving_type?: unknown;
   description?: unknown;
@@ -36,6 +37,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (body.title !== undefined) patch.title = title;
   if (body.event_date !== undefined) patch.event_date = dateStr(body.event_date);
+  if (body.hijri_date !== undefined) patch.hijri_date = str(body.hijri_date);
   if (body.meal !== undefined) patch.meal = oneOf(body.meal, MEALS);
   if (body.serving_type !== undefined) patch.serving_type = oneOf(body.serving_type, SERVING_TYPES);
   if (body.description !== undefined) patch.description = str(body.description);

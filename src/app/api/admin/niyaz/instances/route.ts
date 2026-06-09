@@ -14,6 +14,7 @@ const SERVING_TYPES = ["thaal", "packet"] as const;
 type InstanceBody = {
   title?: unknown;
   event_date?: unknown;
+  hijri_date?: unknown;
   meal?: unknown;
   serving_type?: unknown;
   description?: unknown;
@@ -51,6 +52,7 @@ export async function POST(req: NextRequest) {
       title,
       status: "open",
       event_date: dateStr(body.event_date),
+      hijri_date: str(body.hijri_date),
       meal: oneOf(body.meal, MEALS),
       serving_type: oneOf(body.serving_type, SERVING_TYPES),
       description: str(body.description),

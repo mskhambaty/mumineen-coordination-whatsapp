@@ -12,6 +12,7 @@ export type NiyazEvent = {
   id: string;
   title: string;
   eventDate: string; // YYYY-MM-DD
+  hijriDate: string | null;
   meal: Meal | null;
   servingType: string | null; // 'thaal' | 'packet'
   description: string | null;
@@ -21,6 +22,7 @@ type RawEvent = {
   id: string;
   title: string | null;
   event_date: string;
+  hijri_date: string | null;
   meal: Meal | null;
   serving_type: string | null;
   description: string | null;
@@ -29,6 +31,7 @@ const toEvent = (r: RawEvent): NiyazEvent => ({
   id: r.id,
   title: r.title ?? "",
   eventDate: r.event_date,
+  hijriDate: r.hijri_date,
   meal: r.meal,
   servingType: r.serving_type,
   description: r.description,
@@ -38,7 +41,7 @@ const toEvent = (r: RawEvent): NiyazEvent => ({
 export async function getEvents(): Promise<NiyazEvent[]> {
   const { data } = await getSupabaseAdmin()
     .from("rsvp_registration_instance")
-    .select("id, title, event_date, meal, serving_type, description")
+    .select("id, title, event_date, hijri_date, meal, serving_type, description")
     .not("event_date", "is", null)
     .order("event_date", { ascending: true })
     .order("meal", { ascending: true });
@@ -251,12 +254,17 @@ export type EventTally = NiyazEvent & {
   noAdults: number;
   noKids: number;
   noFamilies: number;
+  headcountHeads: number; // sum of free-text family head counts for this event
+  rsvpCount: number; // total attending people = per-mumin yes + family head counts
 };
 
-// Per-event attendance tallies for the admin page, from the niyaz_event_tallies view.
+// Per-event attendance tallies for the admin page: per-mumin yes/no from the niyaz_event_tallies
+// view, plus the free-text family head-count totals, combined into a single rsvpCount.
 export async function getEventTallies(): Promise<EventTally[]> {
+  const supabase = getSupabaseAdmin();
   const events = await getEvents();
-  const { data } = await getSupabaseAdmin()
+
+  const { data } = await supabase
     .from("niyaz_event_tallies")
     .select("instance_id, yes_adults, yes_kids, yes_families, thaal_count, no_adults, no_kids, no_families");
 
@@ -273,17 +281,29 @@ export async function getEventTallies(): Promise<EventTally[]> {
   const byId = new Map<string, Row>();
   for (const r of (data ?? []) as Row[]) byId.set(r.instance_id, r);
 
+  // Family head-count totals per event.
+  const { data: hc } = await supabase.from("niyaz_family_headcount").select("registration_instance_id, head_count");
+  const headsById = new Map<string, number>();
+  for (const r of (hc ?? []) as { registration_instance_id: string; head_count: number }[]) {
+    headsById.set(r.registration_instance_id, (headsById.get(r.registration_instance_id) ?? 0) + (r.head_count ?? 0));
+  }
+
   return events.map((event) => {
     const t = byId.get(event.id);
+    const yesAdults = Number(t?.yes_adults ?? 0);
+    const yesKids = Number(t?.yes_kids ?? 0);
+    const headcountHeads = headsById.get(event.id) ?? 0;
     return {
       ...event,
-      yesAdults: Number(t?.yes_adults ?? 0),
-      yesKids: Number(t?.yes_kids ?? 0),
+      yesAdults,
+      yesKids,
       yesFamilies: Number(t?.yes_families ?? 0),
       thaalCount: Number(t?.thaal_count ?? 0),
       noAdults: Number(t?.no_adults ?? 0),
       noKids: Number(t?.no_kids ?? 0),
       noFamilies: Number(t?.no_families ?? 0),
+      headcountHeads,
+      rsvpCount: yesAdults + yesKids + headcountHeads,
     };
   });
 }

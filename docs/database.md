@@ -486,14 +486,15 @@ One row per Niyaz meal occasion. See [meal-rsvp-feedback-digest.md](./meal-rsvp-
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | uuid | PK |
-| `title` | text | e.g. `Lunch (thaal) — Mon, Jun 15` |
+| `title` | text | e.g. `2nd Moharram ul Haram` |
 | `event_date` | date | The day of the event |
+| `hijri_date` | text | Hijri date label, e.g. `2 Muharram al-Haram 1448H` (nullable) |
 | `meal` | text | `lunch` \| `dinner` (nullable) |
 | `serving_type` | text | `thaal` \| `packet` (nullable) |
 | `description` | text | Nullable |
 | `status`, `event_at`, `venue_*`, `opens_at`, `closes_at` | — | Legacy columns, no longer surfaced in the UI |
 
-Unique `(event_date, meal)`. Ashara 1448H = 20 events (Pehli Raat thaal Jun 14; Jun 15–23 lunch+dinner; dinner thaal Jun 24).
+Unique `(event_date, meal)`. Ashara 1448H = 19 events (Pehli Raat Jun 14 dinner; 1st Moharram Jun 15 dinner only; 2nd–9th Moharram Jun 16–23 lunch+dinner; 10th Moharram Jun 24 dinner only).
 
 ### `niyaz_rsvp`
 
