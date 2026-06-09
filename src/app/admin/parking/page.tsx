@@ -321,6 +321,7 @@ export default function ParkingPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null); // bulk-assign result message
   const [assignFor, setAssignFor] = useState<string | null>(null); // family_id with open assign menu
+  const [assignCount, setAssignCount] = useState<Record<string, number>>({});
   const [page, setPage] = useState(1);
   // Bulk "fill lot" flow: selection spans pages and survives search narrowing; it clears
   // on server-filter changes (the set it was built against changed) and after an assign.
@@ -419,10 +420,10 @@ export default function ParkingPage() {
     });
   }
 
-  async function assignPass(familyId: string, lotId: string, notes: string) {
+  async function assignPass(familyId: string, lotId: string, notes: string, count = 1) {
     const res = await apiFetch("/api/admin/parking/passes", {
       method: "POST",
-      body: JSON.stringify({ family_id: familyId, lot_id: lotId, notes }),
+      body: JSON.stringify({ family_id: familyId, lot_id: lotId, notes, count }),
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -831,8 +832,17 @@ export default function ParkingPage() {
                   </div>
                 </td>
                 <td className="px-3 py-2">
+                  {r.suggested_passes > 0 && (
+                    <div className={`mb-1 text-xs font-semibold tabular-nums ${
+                      r.passes.length >= r.suggested_passes
+                        ? "text-green-600 dark:text-green-400"
+                        : "text-gray-500 dark:text-gray-400"
+                    }`}>
+                      {r.passes.length}/{r.suggested_passes}
+                    </div>
+                  )}
                   <div className="flex flex-wrap gap-1">
-                    {r.passes.length === 0 && <span className="text-xs text-gray-400">—</span>}
+                    {r.passes.length === 0 && r.suggested_passes === 0 && <span className="text-xs text-gray-400">—</span>}
                     {r.passes.map((p) => (
                       <span
                         key={p.id}
@@ -857,17 +867,42 @@ export default function ParkingPage() {
                 </td>
                 {canManage && (
                   <td className="relative px-3 py-2 text-right">
-                    <button
-                      type="button"
-                      onClick={() => setAssignFor(assignFor === r.family_id ? null : r.family_id)}
-                      className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                    >
-                      Assign
-                    </button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      {r.suggested_passes > 0 && (() => {
+                        const remaining = Math.max(0, r.suggested_passes - r.passes.length);
+                        const count = Math.min(remaining, assignCount[r.family_id] ?? remaining);
+                        return remaining > 0 ? (
+                          <input
+                            type="number"
+                            min={1}
+                            max={remaining}
+                            value={count}
+                            onChange={(e) => {
+                              const v = Math.max(1, Math.min(remaining, parseInt(e.target.value) || 1));
+                              setAssignCount((prev) => ({ ...prev, [r.family_id]: v }));
+                            }}
+                            className="w-12 rounded border border-gray-300 px-1 py-1 text-center text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+                          />
+                        ) : null;
+                      })()}
+                      <button
+                        type="button"
+                        onClick={() => setAssignFor(assignFor === r.family_id ? null : r.family_id)}
+                        className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                      >
+                        Assign
+                      </button>
+                    </div>
                     {assignFor === r.family_id && (
                       <AssignMenu
                         lots={lots}
-                        onAssign={(lotId, notes) => assignPass(r.family_id, lotId, notes)}
+                        onAssign={(lotId, notes) => {
+                          const remaining = Math.max(0, r.suggested_passes - r.passes.length);
+                          const count = r.suggested_passes > 0
+                            ? Math.min(remaining, assignCount[r.family_id] ?? remaining)
+                            : 1;
+                          return assignPass(r.family_id, lotId, notes, Math.max(1, count));
+                        }}
                         onClose={() => setAssignFor(null)}
                       />
                     )}

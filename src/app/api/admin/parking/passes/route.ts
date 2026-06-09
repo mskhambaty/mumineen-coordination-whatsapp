@@ -16,30 +16,36 @@ export async function POST(req: NextRequest) {
     family_id?: unknown;
     lot_id?: unknown;
     notes?: unknown;
+    count?: unknown;
   };
   const familyId = typeof body.family_id === "string" ? body.family_id : "";
   const lotId = typeof body.lot_id === "string" ? body.lot_id : "";
   if (!familyId || !lotId) {
     return NextResponse.json({ error: "Missing family_id or lot_id." }, { status: 400 });
   }
+  const count =
+    typeof body.count === "number" && Number.isInteger(body.count) && body.count >= 1 && body.count <= 10
+      ? body.count
+      : 1;
 
-  const { data: pass, error } = await getSupabaseAdmin()
-    .from("parking_passes")
-    .insert({
-      family_id: familyId,
-      lot_id: lotId,
-      notes: typeof body.notes === "string" && body.notes.trim() ? body.notes.trim() : null,
-      // Server-to-server (admin-key) callers have a sentinel id, not a user row.
-      assigned_by: auth.caller.user_id === "admin-api" ? null : auth.caller.user_id,
-    })
-    .select("id, family_id, lot_id, notes, created_at")
-    .single();
-  if (error) {
-    // FK violations (bad family/lot id) surface as 400s; anything else is a 500.
-    const status = error.code === "23503" ? 400 : 500;
-    return NextResponse.json({ error: error.message }, { status });
+  const supabase = getSupabaseAdmin();
+  const assignedBy = auth.caller.user_id === "admin-api" ? null : auth.caller.user_id;
+  const notes = typeof body.notes === "string" && body.notes.trim() ? body.notes.trim() : null;
+
+  const passes = [];
+  for (let i = 0; i < count; i++) {
+    const { data: pass, error } = await supabase
+      .from("parking_passes")
+      .insert({ family_id: familyId, lot_id: lotId, notes, assigned_by: assignedBy })
+      .select("id, family_id, lot_id, notes, created_at")
+      .single();
+    if (error) {
+      const status = error.code === "23503" ? 400 : 500;
+      return NextResponse.json({ error: error.message }, { status });
+    }
+    passes.push(pass);
   }
-  return NextResponse.json({ ok: true, pass });
+  return NextResponse.json({ ok: true, passes });
 }
 
 // DELETE /api/admin/parking/passes?id=<pass-id> — revoke (hard delete, idempotent).

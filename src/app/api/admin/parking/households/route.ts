@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
     fetchAll<FamilyRow>((from, to) =>
       supabase
         .from("families")
-        .select("id, hof_its, transport_mode, roster_active")
+        .select("id, hof_its, transport_mode, utaro_host_its, roster_active")
         .eq("roster_active", true)
         .order("hof_its")
         .range(from, to),
@@ -113,8 +113,33 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Attending headcount per family — needed to compute effective pass count for utaro hosts.
+  const famAttending = new Map<string, number>();
+  for (const [hofIts, mems] of membersByHof) {
+    famAttending.set(hofIts, mems.filter((m) => !m.not_attending).length);
+  }
+
+  // Map host hof_its → list of guest families staying there (for effective headcount).
+  // utaro_host_its is the host family's hof_its entered by the guest during registration.
+  const hostGuests = new Map<string, { attendingCount: number; transport_mode: string | null }[]>();
+  for (const f of families) {
+    const hostIts = f.utaro_host_its?.trim();
+    if (!hostIts) continue;
+    const entry = { attendingCount: famAttending.get(f.hof_its) ?? 0, transport_mode: f.transport_mode };
+    const list = hostGuests.get(hostIts);
+    if (list) list.push(entry);
+    else hostGuests.set(hostIts, [entry]);
+  }
+
   const rows = families
-    .map((f) => buildHouseholdRow(f, membersByHof.get(f.hof_its) ?? [], passesByFamily.get(f.id) ?? []))
+    .map((f) =>
+      buildHouseholdRow(
+        f,
+        membersByHof.get(f.hof_its) ?? [],
+        passesByFamily.get(f.id) ?? [],
+        hostGuests.get(f.hof_its) ?? [],
+      ),
+    )
     .filter((r) => r.member_count > 0);
 
   const filtered = rows.filter((r) => matchesFilters(r, filters)).sort((a, b) => a.head_name.localeCompare(b.head_name));

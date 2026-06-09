@@ -11,7 +11,7 @@ import {
   type RollupMember,
 } from "@/lib/parking/rollups";
 
-const family: RollupFamily = { id: "f1", hof_its: "10000001", transport_mode: null };
+const family: RollupFamily = { id: "f1", hof_its: "10000001", transport_mode: null, utaro_host_its: null };
 
 function member(overrides: Partial<RollupMember> = {}): RollupMember {
   return {
@@ -80,6 +80,47 @@ describe("buildHouseholdRow", () => {
     expect(buildHouseholdRow({ ...family, transport_mode: "rental" }, [mehman], []).eligible).toBe(true);
     expect(buildHouseholdRow({ ...family, transport_mode: "rideshare" }, [mehman], []).eligible).toBe(false);
     expect(buildHouseholdRow(family, [mehman], []).eligible).toBe(false);
+  });
+
+  it("suggested_passes: local family of 3 gets 1 pass", () => {
+    const row = buildHouseholdRow(family, [
+      member({ is_head: true }), member({}), member({}),
+    ], []);
+    expect(row.suggested_passes).toBe(1);
+  });
+
+  it("suggested_passes: local family of 3 hosting 5 non-rental guests gets 2 passes", () => {
+    const row = buildHouseholdRow(
+      family,
+      [member({ is_head: true }), member({}), member({})],
+      [],
+      [{ attendingCount: 5, transport_mode: "commute_with_utaro" }],
+    );
+    expect(row.suggested_passes).toBe(2); // ceil((3+5)/5) = 2
+  });
+
+  it("suggested_passes: rental guests excluded from host's effective headcount", () => {
+    const row = buildHouseholdRow(
+      family,
+      [member({ is_head: true }), member({}), member({})],
+      [],
+      [{ attendingCount: 5, transport_mode: "rental" }],
+    );
+    expect(row.suggested_passes).toBe(1); // rental guests have own pass; ceil(3/5) = 1
+  });
+
+  it("suggested_passes: mehman rental gets 1, mehman non-rental gets 0", () => {
+    const mehman = member({ is_head: true, local_mehman: "Mehman" });
+    expect(buildHouseholdRow({ ...family, transport_mode: "rental" }, [mehman], []).suggested_passes).toBe(1);
+    expect(buildHouseholdRow({ ...family, transport_mode: "rideshare" }, [mehman], []).suggested_passes).toBe(0);
+  });
+
+  it("suggested_passes: all-not-attending local family gets 0 passes", () => {
+    const row = buildHouseholdRow(family, [
+      member({ is_head: true, not_attending: true }),
+      member({ not_attending: true }),
+    ], []);
+    expect(row.suggested_passes).toBe(0);
   });
 
   it("counts rahat members (rahat_seating or wheelchair) and seniors separately", () => {

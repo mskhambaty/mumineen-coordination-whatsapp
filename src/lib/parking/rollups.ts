@@ -28,7 +28,13 @@ export type RollupFamily = {
   id: string;
   hof_its: string;
   transport_mode: string | null;
+  utaro_host_its: string | null;
 };
+
+// Same formula as the estimates route — kept here so parking page and estimates stay in sync.
+export function localFamilyPasses(attendingCount: number): number {
+  return attendingCount > 0 ? Math.ceil(attendingCount / 5) : 0;
+}
 
 export type RollupMember = {
   hof_its: string;
@@ -60,6 +66,7 @@ export type HouseholdRow = {
   transport_mode: string | null;
   member_count: number;
   eligible: boolean;
+  suggested_passes: number;
   rahat_count: number;
   wheelchair_count: number;
   senior_count: number;
@@ -70,10 +77,13 @@ export type HouseholdRow = {
   passes: PassInfo[];
 };
 
+// guestFamilies: utaro guests staying with this household (non-rental guests share the
+// host's parking pass, so their headcount adds to the host's effective count).
 export function buildHouseholdRow(
   family: RollupFamily,
   members: RollupMember[],
   passes: PassInfo[],
+  guestFamilies: { attendingCount: number; transport_mode: string | null }[] = [],
 ): HouseholdRow {
   const head = members.find((m) => m.is_head) ?? members[0] ?? null;
   const localMehman = head?.local_mehman ?? null;
@@ -81,6 +91,20 @@ export function buildHouseholdRow(
   // take no parking spot and should not influence eligibility or criteria flags.
   const attending = members.filter((m) => !m.not_attending);
   const attendingCount = attending.length;
+
+  // Suggested passes follow the estimates formula exactly:
+  // Local: ceil((own attending + non-rental guest attending) / 5)
+  // Mehman rental: 1 pass per family
+  let suggested_passes = 0;
+  if (localMehman === "Local") {
+    const guestCount = guestFamilies
+      .filter((g) => g.transport_mode !== "rental")
+      .reduce((sum, g) => sum + g.attendingCount, 0);
+    suggested_passes = localFamilyPasses(attendingCount + guestCount);
+  } else if (localMehman === "Mehman" && family.transport_mode === "rental") {
+    suggested_passes = 1;
+  }
+
   return {
     family_id: family.id,
     hof_its: family.hof_its,
@@ -91,6 +115,7 @@ export function buildHouseholdRow(
     member_count: attendingCount,
     // Default pass rule: local household with ≥1 attending member; mehman only if they rented a car.
     eligible: attendingCount > 0 && (localMehman === "Local" || (localMehman === "Mehman" && family.transport_mode === "rental")),
+    suggested_passes,
     rahat_count: attending.filter((m) => m.rahat_seating || m.wheelchair).length,
     wheelchair_count: attending.filter((m) => m.wheelchair).length,
     senior_count: attending.filter((m) => (m.age ?? -1) >= 65).length,
