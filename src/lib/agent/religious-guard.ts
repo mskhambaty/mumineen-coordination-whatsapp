@@ -93,8 +93,11 @@ export function isAffirmative(message: string): boolean {
 // ─── No-tool guard: does the message carry a positive religious/deen signal (A4)? ────────────
 // Keyed to catch deen questions ("who is the 53rd dai", "when did the nas happen") while leaving
 // logistics and ambiguous messages untouched. Social check is applied separately and FIRST.
+// NOTE: "ashara" (the event name) is intentionally NOT a religious signal — it appears in
+// almost every logistics question (e.g. "my Ashara raza got transferred"), so it was wrongly
+// routing registration/account questions to the religious-only path. Keep "aashura" (the day).
 const RELIGIOUS_SIGNAL_RE =
-  /\b(waaz|wa'?az|bayan|sermon|majlis|majalis|ashara|aashura|muharram|moharram|tazyeen|reflection|iqtibas|al[\s-]?dars|duroos|lisan|imam|husain|hussain|hasan|fatema|fatima|karbala|shahadat|shahaadat|maula|aqa|dai|du'?aat|nas|mansoos|deen|namaz|namaaz|roza|matam|maatam|ziyarat|sajda|quran|qur'?an|hadith|ayat|surah|aqaid|shariat|tariqat|haqiqat)\b/i;
+  /\b(waaz|wa'?az|bayan|sermon|majlis|majalis|aashura|muharram|moharram|tazyeen|reflection|iqtibas|al[\s-]?dars|duroos|lisan|imam|husain|hussain|hasan|fatema|fatima|karbala|shahadat|shahaadat|maula|aqa|dai|du'?aat|nas|mansoos|deen|namaz|namaaz|roza|matam|maatam|ziyarat|sajda|quran|qur'?an|hadith|ayat|surah|aqaid|shariat|tariqat|haqiqat)\b/i;
 
 export function hasReligiousSignal(message: string): boolean {
   if (RELIGIOUS_SIGNAL_RE.test(message)) return true;

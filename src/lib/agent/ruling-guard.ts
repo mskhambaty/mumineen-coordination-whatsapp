@@ -22,8 +22,10 @@ const RULING_PATTERNS: RegExp[] = [
   /\b(halal|haraam|haram|makruh|makrooh|mubah)\b/i,
   /\b(wajib|waajib|farz|fardh|fard|jaiz|jaaez|naajaiz|na-?jaiz)\b/i,
   /\b(fatwa|fatwah|permissible|impermissible|obligatory|mandatory|compulsory|sinful|gunah|gunaah)\b/i,
-  // Permissibility / obligation phrasing.
-  /\b(is it (allowed|permitted|permissible)|am i allowed|are we allowed|do i need to|do we need to|need(ed)? to (fast|pray|do|wear|keep|observe))\b/i,
+  // Permissibility / obligation phrasing. NOTE: "do i/we need to" must be followed by a
+  // religious act — otherwise logistics ("do I need to register / provide a raza letter")
+  // was wrongly caught as a fatwa and refused.
+  /\b(is it (allowed|permitted|permissible)|am i allowed|are we allowed|(do (i|we) )?need(ed)? to (fast|pray|wear|observe|keep\s+roza|keep\s+fast|do\s+matam))\b/i,
   // "should/do/must/can I|we|women|men <religious act>"
   /\b(do|should|must|can|may)\s+(i|we|one|she|he|women|men|ladies|a\s+\w+)\b[^?]*\b(fast|roza|namaz|namaaz|pray|matam|maatam|wear|observe|keep\s+roza)\b/i,
   // Lisan/Gujarati: "... che ke nai" (is it / isn't it), "farz che", "karva joiye" (should one do).
