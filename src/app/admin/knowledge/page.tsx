@@ -82,6 +82,9 @@ export default function KnowledgePage() {
 
   const [buckets, setBuckets] = useState<FaqBucket[]>([]);
   const [editing, setEditing] = useState<FaqBucket | null>(null);
+  // Expandable per-document content viewer: which doc is open, and its loaded chunks (or "loading").
+  const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
+  const [docChunks, setDocChunks] = useState<Record<string, { section: string; content: string }[] | "loading" | "error">>({});
   const [migrating, setMigrating] = useState(false);
   const [migrateMsg, setMigrateMsg] = useState<string | null>(null);
 
@@ -251,6 +254,24 @@ export default function KnowledgePage() {
       if (tab === "faq") setLogisticsDocs(filterOut); else setReligiousDocs(filterOut);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete");
+    }
+  }
+
+  async function toggleDocContent(doc: KnowledgeDoc) {
+    if (expandedDoc === doc.id) {
+      setExpandedDoc(null);
+      return;
+    }
+    setExpandedDoc(doc.id);
+    if (docChunks[doc.id] && docChunks[doc.id] !== "error") return; // already loaded
+    setDocChunks((prev) => ({ ...prev, [doc.id]: "loading" }));
+    try {
+      const res = await apiFetch(`/api/knowledge/${doc.id}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to load content");
+      setDocChunks((prev) => ({ ...prev, [doc.id]: (data.chunks ?? []) as { section: string; content: string }[] }));
+    } catch {
+      setDocChunks((prev) => ({ ...prev, [doc.id]: "error" }));
     }
   }
 
@@ -441,35 +462,75 @@ export default function KnowledgePage() {
               ) : documents.length === 0 ? (
                 <tr><td colSpan={tab === "faq" ? 8 : 7} className="px-5 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No documents yet. Upload one above.</td></tr>
               ) : (
-                documents.map((doc) => (
-                  <tr key={doc.id}>
-                    <td className="px-5 py-4 text-sm font-medium" title={doc.error ?? undefined}>{doc.title}</td>
-                    <td className="px-5 py-4 text-sm uppercase text-gray-500 dark:text-gray-400">{doc.file_type}</td>
-                    {tab === "faq" && (
-                      <td className="px-5 py-4 text-sm text-gray-600 dark:text-gray-300">{doc.department?.name ?? "—"}</td>
-                    )}
-                    <td className="px-5 py-4">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_CLASSES[doc.status]}`}>{doc.status}</span>
-                      {doc.status === "failed" && doc.error && (
-                        <span className="mt-1 block max-w-xs text-xs text-red-600 dark:text-red-400">{doc.error}</span>
+                documents.flatMap((doc) => {
+                  const colSpan = tab === "faq" ? 8 : 7;
+                  const rows = [
+                    <tr key={doc.id}>
+                      <td className="px-5 py-4 text-sm font-medium" title={doc.error ?? undefined}>{doc.title}</td>
+                      <td className="px-5 py-4 text-sm uppercase text-gray-500 dark:text-gray-400">{doc.file_type}</td>
+                      {tab === "faq" && (
+                        <td className="px-5 py-4 text-sm text-gray-600 dark:text-gray-300">{doc.department?.name ?? "—"}</td>
                       )}
-                    </td>
-                    <td className="px-5 py-4 text-sm text-gray-600 dark:text-gray-300">{doc.chunk_count}</td>
-                    <td className="px-5 py-4 text-sm text-gray-600 dark:text-gray-300">
-                      {doc.uploader?.display_name ?? (doc.file_type === "faq" ? "Learned from chat" : "—")}
-                    </td>
-                    <td className="px-5 py-4 text-sm text-gray-500 dark:text-gray-400">{formatDate(doc.created_at)}</td>
-                    <td className="px-5 py-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => void remove(doc)}
-                        className="text-sm text-red-600 hover:text-red-700 dark:text-red-400"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                      <td className="px-5 py-4">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_CLASSES[doc.status]}`}>{doc.status}</span>
+                        {doc.status === "failed" && doc.error && (
+                          <span className="mt-1 block max-w-xs text-xs text-red-600 dark:text-red-400">{doc.error}</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-4 text-sm text-gray-600 dark:text-gray-300">{doc.chunk_count}</td>
+                      <td className="px-5 py-4 text-sm text-gray-600 dark:text-gray-300">
+                        {doc.uploader?.display_name ?? (doc.file_type === "faq" ? "Learned from chat" : "—")}
+                      </td>
+                      <td className="px-5 py-4 text-sm text-gray-500 dark:text-gray-400">{formatDate(doc.created_at)}</td>
+                      <td className="px-5 py-4 text-right">
+                        <div className="flex items-center justify-end gap-3">
+                          {doc.status === "indexed" && (
+                            <button
+                              type="button"
+                              onClick={() => void toggleDocContent(doc)}
+                              className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                            >
+                              {expandedDoc === doc.id ? "Hide" : "View"}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void remove(doc)}
+                            className="text-sm text-red-600 hover:text-red-700 dark:text-red-400"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>,
+                  ];
+                  if (expandedDoc === doc.id) {
+                    const content = docChunks[doc.id];
+                    rows.push(
+                      <tr key={`${doc.id}-content`} className="bg-gray-50 dark:bg-gray-800/40">
+                        <td colSpan={colSpan} className="px-5 py-4">
+                          {content === "loading" || content === undefined ? (
+                            <p className="text-sm text-gray-500 dark:text-gray-400">Loading content…</p>
+                          ) : content === "error" ? (
+                            <p className="text-sm text-red-600 dark:text-red-400">Could not load content.</p>
+                          ) : content.length === 0 ? (
+                            <p className="text-sm text-gray-500 dark:text-gray-400">No indexed chunks for this document.</p>
+                          ) : (
+                            <div className="space-y-3">
+                              {content.map((chunk, i) => (
+                                <div key={chunk.section ?? i} className="rounded-md border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
+                                  <div className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-400">Chunk {i + 1}</div>
+                                  <pre className="whitespace-pre-wrap break-words font-sans text-sm text-gray-700 dark:text-gray-300">{chunk.content}</pre>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                      </tr>,
+                    );
+                  }
+                  return rows;
+                })
               )}
             </tbody>
           </table>

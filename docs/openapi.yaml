@@ -614,6 +614,20 @@ paths:
         "422": { description: No extractable text (e.g. scanned PDF). }
         "500": { $ref: "#/components/responses/ServerError" }
   /knowledge/{id}:
+    get:
+      tags: [conversations]
+      summary: Get a document's indexed chunk content for review.
+      description: >-
+        Returns the actual chunks embedded for this document (from site_content for logistics
+        uploads, religious_content for religious uploads) so admins can review whether the
+        indexed content is still relevant before deleting/re-uploading.
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { description: "{ id, title, store, status, chunks: [{ section, content }] }." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: Document not found. }
+        "500": { $ref: "#/components/responses/ServerError" }
     delete:
       tags: [conversations]
       summary: Delete a document and remove its vectors from its store.
