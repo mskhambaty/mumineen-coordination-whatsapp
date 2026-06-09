@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
+import { isRegisteredStatus, matchesStatusFilter } from "@/lib/registration/status";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -132,7 +133,7 @@ export async function GET(req: NextRequest) {
       fams
         .filter(
           (f) =>
-            (f.registration_status === "submitted" || f.registration_status === "confirmed") &&
+            isRegisteredStatus(f.registration_status) &&
             f.acc_type === "hotel" &&
             f.open_to_utaro &&
             (value === "" || f.hotel_name?.trim().toLowerCase() === value.toLowerCase()),
@@ -230,11 +231,7 @@ export async function GET(req: NextRequest) {
 
     // Apply family filters
     if (statusFilter) {
-      if (statusFilter === "submitted") {
-        fams = fams.filter((f) => f.registration_status === "submitted" || f.registration_status === "confirmed");
-      } else {
-        fams = fams.filter((f) => (f.registration_status ?? "pending") === statusFilter);
-      }
+      fams = fams.filter((f) => matchesStatusFilter(f.registration_status, statusFilter));
     }
 
     if (localMehmanFilter) {
@@ -252,15 +249,11 @@ export async function GET(req: NextRequest) {
     } else if (segment === "transport") {
       fams = fams.filter((f) => (f.transport_mode ?? "") === value);
     } else if (segment === "registration_status") {
-      if (value === "submitted") {
-        fams = fams.filter((f) => f.registration_status === "submitted" || f.registration_status === "confirmed");
-      } else {
-        fams = fams.filter((f) => (f.registration_status ?? "pending") === value);
-      }
+      fams = fams.filter((f) => matchesStatusFilter(f.registration_status, value));
     } else if (segment === "host") {
       // value is the host key from the analytics response: "its:<its>" or "name:<normalized name>".
       fams = fams.filter((f) => {
-        if (f.registration_status !== "submitted" && f.registration_status !== "confirmed") return false;
+        if (!isRegisteredStatus(f.registration_status)) return false;
         if (f.acc_type !== "utaro") return false;
         const its = f.utaro_host_its?.trim();
         const normName = (f.utaro_host_name ?? "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -329,18 +322,11 @@ export async function GET(req: NextRequest) {
           .range(from, to),
       );
       if (statusFilter) {
-        let filtered = allFams;
-        if (statusFilter === "submitted") {
-          filtered = allFams.filter((f) => f.registration_status === "submitted" || f.registration_status === "confirmed");
-        } else {
-          filtered = allFams.filter((f) => (f.registration_status ?? "pending") === statusFilter);
-        }
+        const filtered = allFams.filter((f) => matchesStatusFilter(f.registration_status, statusFilter));
         submittedHofIts = new Set(filtered.map((f) => f.hof_its));
       } else if (segment.startsWith("missing_")) {
         submittedHofIts = new Set(
-          allFams
-            .filter((f) => f.registration_status === "submitted" || f.registration_status === "confirmed")
-            .map((f) => f.hof_its),
+          allFams.filter((f) => isRegisteredStatus(f.registration_status)).map((f) => f.hof_its),
         );
       }
     }

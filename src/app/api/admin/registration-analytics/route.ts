@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { canViewRegistrations } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
+import { isPendingStatus, isRegisteredStatus, matchesStatusFilter } from "@/lib/registration/status";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -119,33 +120,20 @@ export async function GET(req: NextRequest) {
   let fams = allFams;
   if (hofItsSet) fams = fams.filter((f) => hofItsSet.has(f.hof_its));
   if (statusFilter) {
-    if (statusFilter === "submitted") {
-      fams = fams.filter((f) => f.registration_status === "submitted" || f.registration_status === "confirmed");
-    } else if (statusFilter === "pending") {
-      fams = fams.filter(
-        (f) => !f.registration_status || f.registration_status === "pending" || f.registration_status === "not_started",
-      );
-    } else {
-      fams = fams.filter((f) => f.registration_status === statusFilter);
-    }
+    fams = fams.filter((f) => matchesStatusFilter(f.registration_status, statusFilter));
   }
 
   // ── Summary ──────────────────────────────────────────────────────────────────
 
-  const famStatusMap = new Map(fams.map((f) => [f.hof_its, f.registration_status ?? "pending"]));
-  const isSubmitted = (hofIts: string) => {
-    const s = famStatusMap.get(hofIts);
-    return s === "submitted" || s === "confirmed";
-  };
+  const famStatusMap = new Map(fams.map((f) => [f.hof_its, f.registration_status]));
+  const isSubmitted = (hofIts: string) => isRegisteredStatus(famStatusMap.get(hofIts) ?? null);
+  // Families still pending submission, within the current (status-filtered) set.
+  const pendingHofs = new Set(fams.filter((f) => isPendingStatus(f.registration_status)).map((f) => f.hof_its));
 
   const totalFamilies = allFams.length; // always unfiltered for context
-  const submittedFamilies = fams.filter(
-    (f) => f.registration_status === "submitted" || f.registration_status === "confirmed",
-  ).length;
+  const submittedFamilies = fams.filter((f) => isRegisteredStatus(f.registration_status)).length;
   const confirmedFamilies = fams.filter((f) => f.registration_status === "confirmed").length;
-  const pendingFamilies = fams.filter(
-    (f) => !f.registration_status || f.registration_status === "pending" || f.registration_status === "not_started",
-  ).length;
+  const pendingFamilies = fams.filter((f) => isPendingStatus(f.registration_status)).length;
   const cancelledFamilies = fams.filter((f) => f.registration_status === "cancelled").length;
 
   const attending = members.filter((m) => !m.not_attending);
@@ -153,7 +141,10 @@ export async function GET(req: NextRequest) {
   const localCount = members.filter((m) => m.local_mehman === "Local").length;
   const mehmanCount = members.filter((m) => m.local_mehman === "Mehman").length;
   const submittedMumineen = members.filter((m) => isSubmitted(m.hof_its)).length;
-  const pendingMumineen = members.length - submittedMumineen;
+  // Count members of pending families directly — NOT total minus submitted. The subtraction
+  // wrongly absorbs members of families the status filter removed (e.g. under the Pending filter
+  // famStatusMap has no submitted families, so total-submitted ballooned to the whole roster).
+  const pendingMumineen = members.filter((m) => pendingHofs.has(m.hof_its)).length;
 
   // ── Registration timeline ────────────────────────────────────────────────────
 
@@ -174,9 +165,7 @@ export async function GET(req: NextRequest) {
 
   // ── Accommodation ────────────────────────────────────────────────────────────
 
-  const registeredFams = fams.filter(
-    (f) => f.registration_status === "submitted" || f.registration_status === "confirmed",
-  );
+  const registeredFams = fams.filter((f) => isRegisteredStatus(f.registration_status));
 
   // People per family = ALL attending members of that household, regardless of the
   // local_mehman member filter — keeps people counts consistent with the paired
