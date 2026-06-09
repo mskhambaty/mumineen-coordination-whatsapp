@@ -80,6 +80,7 @@ type Filters = {
   local_mehman: "" | "Local" | "Mehman";
   status: "" | "submitted" | "pending";
   attending: "" | "true";
+  gender: "" | "M" | "F";
 };
 
 type DetailRow = {
@@ -171,6 +172,7 @@ function DetailPanel({
     if (filters.local_mehman) params.set("local_mehman", filters.local_mehman);
     if (filters.status) params.set("status", filters.status);
     if (filters.attending) params.set("attending", filters.attending);
+    if (filters.gender) params.set("gender", filters.gender);
     apiFetch(`/api/admin/registration-analytics/detail?${params}`)
       .then((r) => r.json())
       .then((d) => { setRows(d.rows ?? []); setLoading(false); })
@@ -739,7 +741,7 @@ export default function RegistrationAnalyticsPage() {
   const [error, setError] = useState<string | null>(null);
   const [estimates, setEstimates] = useState<Estimates | null>(null);
 
-  const [filters, setFilters] = useState<Filters>({ local_mehman: "", status: "", attending: "" });
+  const [filters, setFilters] = useState<Filters>({ local_mehman: "", status: "", attending: "", gender: "" });
   const [detail, setDetail] = useState<DetailRequest | null>(null);
   // KPI counts are open to every portal user; the per-person drill-down + CSV
   // export (ITS/name/phone/email) is admin/leadership only — matched by the
@@ -762,6 +764,7 @@ export default function RegistrationAnalyticsPage() {
         if (f.local_mehman) params.set("local_mehman", f.local_mehman);
         if (f.status) params.set("status", f.status);
         if (f.attending) params.set("attending", f.attending);
+        if (f.gender) params.set("gender", f.gender);
         const url = `/api/admin/registration-analytics${params.toString() ? `?${params}` : ""}`;
         const res = await apiFetch(url);
         const json = await res.json().catch(() => ({}));
@@ -824,7 +827,7 @@ export default function RegistrationAnalyticsPage() {
   const fmtDate = (iso: string) =>
     new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
-  const activeFilterCount = [filters.local_mehman, filters.status, filters.attending].filter(Boolean).length;
+  const activeFilterCount = [filters.local_mehman, filters.status, filters.attending, filters.gender].filter(Boolean).length;
 
   const summary = data?.summary;
   const regRate =
@@ -923,8 +926,17 @@ export default function RegistrationAnalyticsPage() {
             </div>
           </div>
 
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-gray-400">Gender</span>
+            <div className="flex gap-1">
+              <Chip label="All" active={filters.gender === ""} onClick={() => applyFilter({ gender: "" })} />
+              <Chip label="Male" active={filters.gender === "M"} onClick={() => applyFilter({ gender: filters.gender === "M" ? "" : "M" })} />
+              <Chip label="Female" active={filters.gender === "F"} onClick={() => applyFilter({ gender: filters.gender === "F" ? "" : "F" })} />
+            </div>
+          </div>
+
           {activeFilterCount > 0 && (
-            <button type="button" onClick={() => applyFilter({ local_mehman: "", status: "", attending: "" })} className="ml-auto text-xs text-red-500 hover:text-red-700">
+            <button type="button" onClick={() => applyFilter({ local_mehman: "", status: "", attending: "", gender: "" })} className="ml-auto text-xs text-red-500 hover:text-red-700">
               Clear all
             </button>
           )}

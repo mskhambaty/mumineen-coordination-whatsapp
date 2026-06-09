@@ -70,6 +70,7 @@ export async function GET(req: NextRequest) {
   const localMehmanFilter = searchParams.get("local_mehman"); // "Local" | "Mehman" | null
   const statusFilter = searchParams.get("status"); // "submitted" | "pending" | null
   const attendingFilter = searchParams.get("attending"); // "true" | null
+  const genderFilter = searchParams.get("gender"); // "M" | "F" | null
 
   const supabase = getSupabaseAdmin();
 
@@ -107,6 +108,9 @@ export async function GET(req: NextRequest) {
   let members = allMembers;
   if (localMehmanFilter) members = members.filter((m) => m.local_mehman === localMehmanFilter);
   if (attendingFilter === "true") members = members.filter((m) => !m.not_attending);
+  // Gender is a member-level filter (like attending): it scopes the mumineen/demographic metrics
+  // and member drill-downs, but never the family funnel (families aren't gendered).
+  if (genderFilter) members = members.filter((m) => (m.gender ?? "").trim() === genderFilter);
 
   // Family-level filter: when filtering by local_mehman, restrict to families whose HoF matches.
   // When filtering by status, restrict families accordingly.
@@ -385,7 +389,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     generated_at: new Date().toISOString(),
-    filters: { local_mehman: localMehmanFilter, status: statusFilter, attending: attendingFilter },
+    filters: { local_mehman: localMehmanFilter, status: statusFilter, attending: attendingFilter, gender: genderFilter },
     summary: {
       total_families: totalFamilies,
       filtered_families: fams.length,
