@@ -97,6 +97,7 @@ export async function GET(req: NextRequest) {
   const localMehmanFilter = searchParams.get("local_mehman");
   const statusFilter = searchParams.get("status");
   const attendingFilter = searchParams.get("attending");
+  const genderFilter = searchParams.get("gender");
 
   const supabase = getSupabaseAdmin();
 
@@ -168,6 +169,9 @@ export async function GET(req: NextRequest) {
     }
     if (attendingFilter === "true") {
       display = display.filter((m) => !m.not_attending);
+    }
+    if (genderFilter) {
+      display = display.filter((m) => (m.gender ?? "").trim() === genderFilter);
     }
 
     // Group families together (by hof_its), head first within each, then by name.
@@ -357,6 +361,7 @@ export async function GET(req: NextRequest) {
     // Global member filters
     if (localMehmanFilter) allMembers = allMembers.filter((m) => m.local_mehman === localMehmanFilter);
     if (attendingFilter === "true") allMembers = allMembers.filter((m) => !m.not_attending);
+    if (genderFilter) allMembers = allMembers.filter((m) => (m.gender ?? "").trim() === genderFilter);
     if (submittedHofIts && statusFilter) {
       allMembers = allMembers.filter((m) => submittedHofIts!.has(m.hof_its));
     }

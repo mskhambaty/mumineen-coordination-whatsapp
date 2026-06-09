@@ -143,4 +143,17 @@ describe("GET /api/admin/registration-analytics — funnel counts", () => {
     expect(age_groups.age_60_plus).toBe(1); // 70
     expect(age_groups.unknown).toBe(1); // null
   });
+
+  it("applies the member-level gender filter to mumineen metrics but not the family funnel", async () => {
+    const mems = [
+      { ...member("a", "F"), gender: "M" },
+      { ...member("b", "F"), gender: "M" },
+      { ...member("c", "F"), gender: "F" },
+    ];
+    getSupabaseAdmin.mockReturnValue(stubSupabase({ families: [family("F", "submitted")], mumineen: mems, departments: [] }));
+
+    const { summary } = await (await GET(req("gender=F"))).json();
+    expect(summary.total_mumineen).toBe(1); // only the single F member
+    expect(summary.total_families).toBe(1); // family funnel unaffected by gender
+  });
 });
