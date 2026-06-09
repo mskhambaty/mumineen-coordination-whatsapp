@@ -787,6 +787,7 @@ export default function ParkingPage() {
               <th className="px-3 py-2">Type</th>
               <th className="px-3 py-2">Phone</th>
               <th className="px-3 py-2">Criteria</th>
+              <th className="px-3 py-2">Guests</th>
               <th className="px-3 py-2">Passes</th>
               {canManage && <th className="px-3 py-2" />}
             </tr>
@@ -829,8 +830,14 @@ export default function ParkingPage() {
                     ))}
                     {r.kids_under_7 > 0 && <Badge label={`Kids <7 ×${r.kids_under_7}`} />}
                     {r.transport_mode === "rental" && <Badge label="Rental" />}
-                    {r.utaro_guest_count > 0 && <Badge label={`Utaro ×${r.utaro_guest_count}`} tone="blue" />}
                   </div>
+                </td>
+                <td className="px-3 py-2 text-sm">
+                  {r.utaro_guest_count > 0 ? (
+                    <span className="font-medium text-gray-700 dark:text-gray-300">{r.utaro_guest_count}</span>
+                  ) : (
+                    <span className="text-gray-400">—</span>
+                  )}
                 </td>
                 <td className="px-3 py-2">
                   {r.suggested_passes > 0 && (
@@ -923,7 +930,7 @@ export default function ParkingPage() {
             ))}
             {!loading && visible.length === 0 && (
               <tr>
-                <td colSpan={canManage ? 7 : 5} className="px-3 py-8 text-center text-sm text-gray-400">
+                <td colSpan={canManage ? 8 : 6} className="px-3 py-8 text-center text-sm text-gray-400">
                   No households match the current filters.
                 </td>
               </tr>
