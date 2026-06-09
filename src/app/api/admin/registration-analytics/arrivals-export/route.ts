@@ -103,11 +103,13 @@ export async function GET(req: NextRequest) {
   XLSX.utils.book_append_sheet(wb, ws, "Arrivals");
 
   const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as Uint8Array;
+  const blob = new Blob([buf], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
 
-  return new NextResponse(buf, {
+  return new NextResponse(blob, {
     status: 200,
     headers: {
-      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "Content-Disposition": 'attachment; filename="mehman-arrivals.xlsx"',
     },
   });
