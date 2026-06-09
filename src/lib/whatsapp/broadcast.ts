@@ -106,25 +106,26 @@ export async function createBroadcast(input: CreateBroadcastInput): Promise<Crea
 
 export type DrainResult = { processed: number; broadcastsTouched: number };
 
-// Process up to `batchSize` queued recipients across running broadcasts. Called by the drain cron
-// (and once inline after creation for immediacy). Idempotent and safe to run concurrently-ish: it
-// claims rows by flipping them out of 'queued' as it sends.
+// Process up to `batchSize` pending recipients across running broadcasts. Called by the drain cron
+// (and once inline after creation for immediacy). Safe to run concurrently: it claims a batch
+// atomically (flipping rows 'queued' -> 'sending' under FOR UPDATE SKIP LOCKED) BEFORE sending, so
+// two overlapping drains can never grab the same recipient and double-send. Rows stuck in 'sending'
+// from a drain that died mid-batch are reclaimed by the RPC after a stale window.
 export async function drainBroadcasts(batchSize = DEFAULT_BATCH_SIZE): Promise<DrainResult> {
   const supabase = getSupabaseAdmin();
 
-  const { data: queued } = await supabase
-    .from("template_broadcast_recipients")
-    .select("id, broadcast_id, phone_e164, body_params, template_broadcasts!inner(template_code, template_language, status)")
-    .eq("send_status", "queued")
-    .eq("template_broadcasts.status", "running")
-    .limit(batchSize);
+  const { data: claimed, error: claimErr } = await supabase.rpc("claim_broadcast_recipients", {
+    p_batch_size: batchSize,
+  });
+  if (claimErr) throw new Error(`Failed to claim broadcast recipients: ${claimErr.message}`);
 
-  const rows = (queued ?? []) as unknown as {
+  const rows = (claimed ?? []) as {
     id: string;
     broadcast_id: string;
     phone_e164: string;
     body_params: SendComponentInputs | null;
-    template_broadcasts: { template_code: string; template_language: string; status: string };
+    template_code: string;
+    template_language: string;
   }[];
 
   if (rows.length === 0) {
@@ -139,7 +140,7 @@ export async function drainBroadcasts(batchSize = DEFAULT_BATCH_SIZE): Promise<D
 
   for (const row of rows) {
     touched.add(row.broadcast_id);
-    const code = row.template_broadcasts.template_code;
+    const code = row.template_code;
     if (!descriptors.has(code)) {
       descriptors.set(code, await resolveApprovedTemplate(code).catch(() => null));
     }
@@ -175,15 +176,18 @@ export async function drainBroadcasts(batchSize = DEFAULT_BATCH_SIZE): Promise<D
   return { processed, broadcastsTouched: touched.size };
 }
 
-// Increment a broadcast counter without an RPC (read-modify-write; fine at this scale/cadence).
+// Atomically increment a broadcast counter (UPDATE col = col + 1 in the DB). Must not be a JS
+// read-modify-write: concurrent drains bumping the same broadcast would lose increments.
 async function bumpCounter(broadcastId: string, field: "count_sent" | "count_failed") {
-  const supabase = getSupabaseAdmin();
-  const { data } = await supabase.from("template_broadcasts").select(field).eq("id", broadcastId).single();
-  const current = (data as Record<string, number> | null)?.[field] ?? 0;
-  await supabase.from("template_broadcasts").update({ [field]: current + 1 }).eq("id", broadcastId);
+  const { error } = await getSupabaseAdmin().rpc("bump_broadcast_counter", {
+    p_broadcast_id: broadcastId,
+    p_field: field,
+  });
+  if (error) console.error("Failed to bump broadcast counter:", field, error.message);
 }
 
-// Mark broadcasts with no remaining queued recipients as completed.
+// Mark broadcasts with no remaining pending recipients as completed. 'sending' counts as pending —
+// a broadcast isn't done until every claimed recipient has settled (sent/failed).
 async function finalizeCompletedBroadcasts() {
   const supabase = getSupabaseAdmin();
   const { data: running } = await supabase.from("template_broadcasts").select("id").eq("status", "running");
@@ -192,7 +196,7 @@ async function finalizeCompletedBroadcasts() {
       .from("template_broadcast_recipients")
       .select("id", { count: "exact", head: true })
       .eq("broadcast_id", b.id)
-      .eq("send_status", "queued");
+      .in("send_status", ["queued", "sending"]);
     if ((count ?? 0) === 0) {
       await supabase.from("template_broadcasts").update({ status: "completed", finished_at: new Date().toISOString() }).eq("id", b.id);
     }
