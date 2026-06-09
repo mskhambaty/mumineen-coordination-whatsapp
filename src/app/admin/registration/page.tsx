@@ -547,63 +547,6 @@ function VBars({
   );
 }
 
-function DateTimeBars({
-  data,
-  color = "bg-blue-500",
-  height = 80,
-}: {
-  data: { date: string; time: string; count: number }[];
-  color?: string;
-  height?: number;
-}) {
-  if (data.length === 0)
-    return <p className="py-6 text-center text-sm text-gray-400">No data yet</p>;
-  const max = Math.max(...data.map((d) => d.count), 1);
-  const fmtTime = (t: string) => {
-    if (!t) return "?";
-    const h = parseInt(t.slice(0, 2), 10);
-    return h === 0 ? "12AM" : h < 12 ? `${h}AM` : h === 12 ? "12PM" : `${h - 12}PM`;
-  };
-  const fmtDate = (d: string) => {
-    const [, m, day] = d.split("-");
-    return `${parseInt(m)}/${parseInt(day)}`;
-  };
-  return (
-    <div className="mt-3 overflow-x-auto">
-      <div className="flex min-w-0 items-end gap-0" style={{ height: `${height + 36}px` }}>
-        {data.map((d, i) => {
-          const isNewDate = i === 0 || data[i - 1].date !== d.date;
-          return (
-            <div key={`${d.date}|${d.time}`} className="flex items-end">
-              {isNewDate && i > 0 && <div className="w-3" />}
-              <div
-                className="group relative flex flex-col items-center justify-end"
-                style={{ height: `${height + 36}px`, width: "36px" }}
-              >
-                <div
-                  className={`w-full min-h-[2px] ${color} rounded-t-sm opacity-75 transition-opacity group-hover:opacity-100`}
-                  style={{ height: `${(d.count / max) * height}px` }}
-                />
-                <div className="pointer-events-none absolute bottom-full mb-1 hidden rounded bg-gray-800 px-2 py-1 text-xs text-white group-hover:block whitespace-nowrap">
-                  {fmtDate(d.date)} {d.time ? fmtTime(d.time) : "?"}: {d.count}
-                </div>
-                <span className="mt-0.5 text-[9px] text-gray-400 leading-none text-center">
-                  {fmtTime(d.time)}
-                </span>
-                {isNewDate && (
-                  <span className="text-[8px] text-gray-500 leading-none text-center mt-0.5">
-                    {fmtDate(d.date)}
-                  </span>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function SectionCard({
   title,
   children,
@@ -797,6 +740,7 @@ export default function RegistrationAnalyticsPage() {
 
   // Section-level local filters
   const [hotelSearch, setHotelSearch] = useState("");
+  const [airportFilter, setAirportFilter] = useState("");
   const [khidmatDeptFilter, setKhidmatDeptFilter] = useState("");
 
 
@@ -887,6 +831,10 @@ export default function RegistrationAnalyticsPage() {
   const transportTotal = data
     ? data.transport.rideshare + data.transport.rental + data.transport.commute_with_utaro + data.transport.other + data.transport.not_set
     : 0;
+  const airportTotal = data ? data.airports.ORD + data.airports.MDW + data.airports.not_set : 0;
+  const top7ArrivalSlots = data
+    ? [...data.arrivals_by_datetime].sort((a, b) => b.count - a.count).slice(0, 7)
+    : [];
   const missingTotal = data
     ? data.missing_data.no_whatsapp + data.missing_data.no_email + data.missing_data.no_arrival + data.missing_data.no_airport + data.missing_data.no_flight_no
     : 0;
@@ -1352,7 +1300,20 @@ export default function RegistrationAnalyticsPage() {
                   )}
                 </SectionCard>
 
-                <SectionCard title="Arrival Dates (Mehman)">
+                <SectionCard
+                  title="Arrival Dates (Mehman)"
+                  filterSlot={
+                    <InlineSelect
+                      value={airportFilter}
+                      onChange={setAirportFilter}
+                      options={[
+                        { value: "", label: "All airports" },
+                        { value: "ORD", label: "ORD — O'Hare" },
+                        { value: "MDW", label: "MDW — Midway" },
+                      ]}
+                    />
+                  }
+                >
                   {data.arrivals_by_date.length === 0 ? (
                     <p className="text-sm text-gray-400">No arrival data yet</p>
                   ) : (
@@ -1365,10 +1326,63 @@ export default function RegistrationAnalyticsPage() {
                           drill({ segment: "arrival_date", value: date, label: `Arrivals on ${date}`, detailLabel: "Arrival · Flight · Airport" })
                         }
                       />
-                      {data.arrivals_by_datetime.length > 0 && (
-                        <DateTimeBars data={data.arrivals_by_datetime} color="bg-blue-400" height={80} />
-                      )}
+                      <div className="mt-3">
+                        <HBar label="ORD — O'Hare" value={data.airports.ORD} total={airportTotal} color="bg-blue-500"
+                          onClick={() => drill({ segment: "airport", value: "ORD", label: "Flying into ORD (O'Hare)", detailLabel: "Arrival · Flight" })}
+                        />
+                        <HBar label="MDW — Midway" value={data.airports.MDW} total={airportTotal} color="bg-sky-400"
+                          onClick={() => drill({ segment: "airport", value: "MDW", label: "Flying into MDW (Midway)", detailLabel: "Arrival · Flight" })}
+                        />
+                        {data.airports.not_set > 0 && (
+                          <HBar label="Airport not set" value={data.airports.not_set} total={airportTotal} color="bg-gray-300"
+                            onClick={() => drill({ segment: "airport", value: "not_set", label: "Mehman — No airport selected", detailLabel: "Arrival · Flight" })}
+                          />
+                        )}
+                      </div>
                     </>
+                  )}
+                </SectionCard>
+
+                <SectionCard
+                  title="Arrival Schedule — Top Slots (Mehman)"
+                  filterSlot={
+                    <button
+                      onClick={() => {
+                        const a = document.createElement("a");
+                        a.href = "/api/admin/registration-analytics/arrivals-export";
+                        a.download = "mehman-arrivals.xlsx";
+                        a.click();
+                      }}
+                      className="rounded border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                    >
+                      Export Excel
+                    </button>
+                  }
+                >
+                  {top7ArrivalSlots.length === 0 ? (
+                    <p className="text-sm text-gray-400">No arrival data yet</p>
+                  ) : (
+                    <div className="mt-1 space-y-0">
+                      {top7ArrivalSlots.map(({ date, time, count }) => {
+                        const [, m, day] = date.split("-");
+                        const h = time ? parseInt(time.slice(0, 2), 10) : null;
+                        const timeLabel = h === null ? "Time not set"
+                          : h === 0 ? "12:00 AM"
+                          : h < 12 ? `${h}:00 AM`
+                          : h === 12 ? "12:00 PM"
+                          : `${h - 12}:00 PM`;
+                        const label = `${parseInt(m)}/${parseInt(day)} · ${timeLabel}`;
+                        return (
+                          <HBar
+                            key={`${date}|${time}`}
+                            label={label}
+                            value={count}
+                            total={top7ArrivalSlots[0].count}
+                            color="bg-indigo-500"
+                          />
+                        );
+                      })}
+                    </div>
                   )}
                 </SectionCard>
 
