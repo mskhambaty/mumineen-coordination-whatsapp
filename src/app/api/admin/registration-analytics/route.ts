@@ -323,11 +323,14 @@ export async function GET(req: NextRequest) {
 
   // ── Age groups ───────────────────────────────────────────────────────────────
 
+  // Non-overlapping brackets partitioning all known ages.
   const ageGroups = {
-    under_12: attending.filter((m) => m.age !== null && m.age < 12).length,
-    teen_12_17: attending.filter((m) => m.age !== null && m.age >= 12 && m.age <= 17).length,
-    adult_18_59: attending.filter((m) => m.age !== null && m.age >= 18 && m.age <= 59).length,
-    senior_60_plus: attending.filter((m) => m.age !== null && m.age >= 60).length,
+    age_0_5: attending.filter((m) => m.age !== null && m.age <= 5).length,
+    age_6_11: attending.filter((m) => m.age !== null && m.age >= 6 && m.age <= 11).length,
+    age_12_17: attending.filter((m) => m.age !== null && m.age >= 12 && m.age <= 17).length,
+    age_18_39: attending.filter((m) => m.age !== null && m.age >= 18 && m.age <= 39).length,
+    age_40_59: attending.filter((m) => m.age !== null && m.age >= 40 && m.age <= 59).length,
+    age_60_plus: attending.filter((m) => m.age !== null && m.age >= 60).length,
     unknown: attending.filter((m) => m.age === null).length,
   };
 
