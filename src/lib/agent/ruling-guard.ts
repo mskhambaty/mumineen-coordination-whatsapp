@@ -9,7 +9,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 // escalation: no on-call ping, no "pending" hand-off — just a logged row the team can review.
 
 export const RULING_REFUSAL_REPLY =
-  "This is a personal religious matter, so I'm not able to give a ruling myself. For the correct guidance for your situation, please ask your Aamil Saheb or his representative.";
+  "For a personal ruling like this, please ask your Aamil Saheb — that's the right place for proper guidance. I can only share from the published Ashara Mubaraka reflections, so I'm not able to answer this one myself.";
 
 export type RulingDetection = { ruling: boolean; via: "keyword" | "classifier" | "none" };
 

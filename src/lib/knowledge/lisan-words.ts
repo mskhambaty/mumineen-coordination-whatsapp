@@ -7,7 +7,7 @@ export type LisanEntry = {
   example: string | null;
 };
 
-const ARABIC_RE = /[؀-ۿ]/;
+export const ARABIC_RE = /[؀-ۿ]/;
 
 // Normalize a transliteration for matching: strip diacritics/macrons, lowercase,
 // drop punctuation, collapse whitespace. Used identically at import and lookup time.

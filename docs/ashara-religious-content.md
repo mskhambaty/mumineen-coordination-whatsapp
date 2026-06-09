@@ -82,6 +82,16 @@ This reuses the existing escalation queue (`POST /api/escalations` → `conversa
 
 **Output sanitizer (`sanitizeFinalReply`).** A model-independent backstop: the high model has leaked raw tool-call directives + corrupt tokens into replies. Any reply containing `to=functions.…`, harmony markers, or CJK/junk script is stripped; if nothing coherent remains it becomes the safe fallback. The real cure is fixing `OPENAI_MODEL_HIGH` (see [environment.md](./environment.md)).
 
+**Grounding guard — only answer from indexed published content (`run-agent.ts` + `religious-guard.ts`).** The model never narrates a religious refusal/offer and never answers a deen question from general knowledge. Deterministic flow, in order:
+1. **Ruling pre-gate** (`isPersonalRuling`) → `RULING_REFUSAL_REPLY` (Aamil Saheb), flagged.
+2. **Single-word dictionary pre-route** (`maybeSingleWordQuery` → `lookupLisanWord`): a bare word / "what does X mean" / "X ni maana" (incl. Lisan script) answers straight from `lisan_words` with `Source: Lisan ud Dawat dictionary`; a Latin word not in the dictionary falls through (so a logistics term isn't misrouted).
+3. **Did-you-mean numeric pick** (A5) and **offer-last "yes"** (A6) are resolved from history deterministically — never reconstructed by the model.
+4. **`answer_religious_questions` returns a `decision`** — `answer` (the model narrates, constrained to the passages + the source row's `year_hijri`), `offer_last` → `THIS_YEAR_OFFER_LAST`, or `not_found` → `NOT_FOUND_REPLY`. Retrieval is **year-scoped** on both surfaces: the vector path filters hits by `year_hijri` (zero 1448 rows, so a 1448 query can't relabel the embedded 1447 rows); the topics path (`getOverviewBlock` / `findMajlisForRef`) now also filters `status='indexed'` (so the 54 un-indexed 1448 rows never leak — `listMajlisThemes` / `availableFacets` already did).
+5. **No-tool guard** (A4): if the model returns no tool call, a clearly-social message passes, a positive religious signal (e.g. "who is the 53rd dai") → `NOT_FOUND_REPLY`, and logistics/ambiguous is left unchanged.
+6. **Year-label post-check** (`yearLabelMismatch`): a grounded answer that states a Hijri year ≠ the source row's year fails safe to `NOT_FOUND_REPLY`; a null-year guardrail block must state no year.
+
+`NOT_FOUND_REPLY` / `THIS_YEAR_OFFER_LAST` / `RULING_REFUSAL_REPLY` carry **no `Source:` line** — citations attach only to grounded answers whose rows have a `source_url`.
+
 **Query routing** (the tool inspects the query and returns an `answer_style`):
 
 | Intent | Trigger | Returns |

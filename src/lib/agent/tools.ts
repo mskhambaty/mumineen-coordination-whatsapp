@@ -611,61 +611,42 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
     case "answer_religious_questions": {
       const query = String(args.query ?? "Ashara majlis Vaaz Talaqi Iqtibasaat");
       const today = new Date().toISOString().slice(0, 10);
-      // Resolve "this year / today / last year / 1447" to a concrete event year (removes the
-      // 1447↔1448 ambiguity). cue "none" → fall back to the most recent COMPLETED Ashara.
+      // Resolve "this year / today / last year / 1447" to a concrete event year. cue "none" → null.
       const yr = resolveAsharaYear(query, today);
       const renderHits = (hits: { title: string; content: string; source_url: string | null; theme?: string | null }[]) =>
         hits.map((t) => `[${t.title}${t.source_url ? ` — Source: ${t.source_url}` : ""}]\n${t.theme ? `Theme: ${t.theme}\n` : ""}${t.content}`).join("\n\n---\n\n");
+      const yearFromContext = (s: string): string | null => {
+        const m = s.match(/Ashara\s+(14\d\d)\s*H/i);
+        return m ? m[1] : null;
+      };
 
-      // 1. Specific majlis ("Majlis 2", "second waaz", "4th Muharram") → exact block(s).
-      // (Checked FIRST so a broad-phrasing overview query can't hijack a specific majlis.
-      // Structured lookup also beats vector search, which mis-ranks majlis ordinals.)
+      // Decision contract (consumed deterministically by runAgent — the model only narrates an
+      // "answer"): { decision: "answer", year, context, ... } | { decision: "offer_last" } |
+      // { decision: "not_found" }. Only INDEXED + year-correct content qualifies as an answer.
+
+      // 1. Specific majlis ("Majlis 2", "second waaz", "4th Muharram") → exact indexed block(s).
       const ref = parseMajlisRef(query);
       if (ref) {
-        // Year precedence: explicit/relative resolver → in-query year → null (most recent).
         const targetYear = yr.year ?? ref.year ?? null;
-        const targetRef = { ...ref, year: targetYear };
-        const hits = await findMajlisForRef(targetRef);
+        const hits = await findMajlisForRef({ ...ref, year: targetYear });
         if (hits.length) {
           const hitYear = hits[0].year_hijri ?? targetYear ?? null;
           const facets = await availableFacets({ ...ref, year: hitYear });
           return {
-            status: "ok",
-            source: "religious_topic_exact",
+            status: "ok", decision: "answer", source: "religious_topic_exact",
             answer_style: isDeepQuery(query) ? "deep" : "brief",
-            year: hitYear ?? undefined,
-            available_facets: facets,
-            context: renderHits(hits),
+            year: hitYear, available_facets: facets, context: renderHits(hits),
           };
         }
-        // Not available for the requested year — is it available for the last completed year?
-        const requestedYear = targetYear ?? ACTIVE_ASHARA_YEAR;
-        if (requestedYear !== LAST_COMPLETED_ASHARA_YEAR) {
-          const altRef = { ...ref, year: LAST_COMPLETED_ASHARA_YEAR };
-          const altHits = await findMajlisForRef(altRef);
-          if (altHits.length) {
-            const facets = await availableFacets(altRef);
-            return {
-              status: "not_available",
-              answer_style: isDeepQuery(query) ? "deep" : "brief",
-              requested_year: requestedYear,
-              available_year: LAST_COMPLETED_ASHARA_YEAR,
-              available_facets: facets,
-              context: `Ashara ${requestedYear}H has not taken place yet / is not posted. Tell the user that plainly, then answer from last year (Ashara ${LAST_COMPLETED_ASHARA_YEAR}H), clearly labelled as that year:\n\n` + renderHits(altHits),
-            };
-          }
+        // Explicitly asked for the active (unpublished) year, but last year has it → offer.
+        if (targetYear === ACTIVE_ASHARA_YEAR) {
+          const altHits = await findMajlisForRef({ ...ref, year: LAST_COMPLETED_ASHARA_YEAR });
+          if (altHits.length) return { decision: "offer_last", year: LAST_COMPLETED_ASHARA_YEAR };
         }
-        return {
-          status: "not_available",
-          answer_style: "brief",
-          year: requestedYear,
-          available_facets: [],
-          context: `No indexed content for that majlis in Ashara ${requestedYear}H yet.`,
-        };
+        return { decision: "not_found" };
       }
 
-      // 2. Overview intent ("what was last year/the whole Ashara about", "topics of all
-      // majalis") → the curated year-level overview block + the per-majlis theme list.
+      // 2. Overview intent → curated year-level block + per-majlis theme list (both status-filtered).
       if (isOverviewQuery(query)) {
         const overviewCtx = async (y: string): Promise<string> => {
           const block = await getOverviewBlock(y);
@@ -677,28 +658,31 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
         };
         const year = yr.year ?? LAST_COMPLETED_ASHARA_YEAR;
         const ctx = await overviewCtx(year);
-        if (ctx) return { status: "ok", source: "religious_overview", answer_style: "overview", year, context: ctx };
-        const altCtx = year !== LAST_COMPLETED_ASHARA_YEAR ? await overviewCtx(LAST_COMPLETED_ASHARA_YEAR) : "";
-        if (altCtx) {
-          return {
-            status: "not_available", answer_style: "overview", requested_year: year, available_year: LAST_COMPLETED_ASHARA_YEAR,
-            context: `Ashara ${year}H has not taken place yet / is not posted. Tell the user that, then give last year's (Ashara ${LAST_COMPLETED_ASHARA_YEAR}H):\n\n` + altCtx,
-          };
+        if (ctx) return { status: "ok", decision: "answer", source: "religious_overview", answer_style: "overview", year, context: ctx };
+        if (year === ACTIVE_ASHARA_YEAR) {
+          const altCtx = await overviewCtx(LAST_COMPLETED_ASHARA_YEAR);
+          if (altCtx) return { decision: "offer_last", year: LAST_COMPLETED_ASHARA_YEAR };
         }
-        return { status: "not_available", answer_style: "overview", year, context: `No indexed overview for Ashara ${year}H yet.` };
+        return { decision: "not_found" };
       }
 
-      // 3. General religious question → category-aware vector fallback. A decoration question
-      // searches tazyeen; everything else searches the sermon sources (reflection + al_dars +
-      // overview) so the decoration article never answers a sermon-content question.
+      // 3. General religious question → YEAR-SCOPED, category-aware vector fallback. A 1448 query
+      // is year-filtered to nothing (zero 1448 rows) so it can't relabel the embedded 1447 rows.
       const decoration = /\b(tazyeen|tazeen|tazyin|decorat|sajawat|sajaawat|artwork|calligraph)\b/i.test(query);
       const cats = decoration ? ["tazyeen"] : ["reflection", "al_dars", "overview"];
-      return getIndexedInfo(
-        query,
-        "I could not find this in the indexed religious content yet.",
-        (qy, k) => retrieveReligiousContext(qy, k, cats),
-        "indexed_religious_content",
-      );
+      const targetYear = yr.year ?? null;
+      const ctx = await retrieveReligiousContext(query, 5, cats, targetYear);
+      if (ctx) {
+        return {
+          status: "ok", decision: "answer", source: "indexed_religious_content",
+          year: targetYear ?? yearFromContext(ctx), context: ctx,
+        };
+      }
+      if (targetYear === ACTIVE_ASHARA_YEAR) {
+        const altCtx = await retrieveReligiousContext(query, 5, cats, LAST_COMPLETED_ASHARA_YEAR);
+        if (altCtx) return { decision: "offer_last", year: LAST_COMPLETED_ASHARA_YEAR };
+      }
+      return { decision: "not_found" };
     }
     case "get_lisan_word_meaning":
       return lookupLisanWord(String(args.word ?? ""));

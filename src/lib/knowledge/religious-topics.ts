@@ -296,6 +296,7 @@ export async function getOverviewBlock(year: string): Promise<MajlisHit | null> 
     .select("title, content, source_url, theme, year_hijri")
     .eq("category", "overview")
     .eq("year_hijri", year)
+    .eq("status", "indexed")
     .limit(1)
     .maybeSingle();
   const t = data as (MajlisHit & { year_hijri: string | null }) | null;
@@ -351,7 +352,8 @@ export async function findMajlisForRef(ref: MajlisRef): Promise<MajlisHit[]> {
   let q = getSupabaseAdmin()
     .from("religious_topics")
     .select("title, content, source_url, theme, year_hijri")
-    .eq("category", category);
+    .eq("category", category)
+    .eq("status", "indexed");
   if (ref.year) q = q.eq("year_hijri", ref.year);
   if (ref.lailat) q = q.eq("is_ashura", true);
   else q = q.eq("majlis_number", ref.majlisNum);
