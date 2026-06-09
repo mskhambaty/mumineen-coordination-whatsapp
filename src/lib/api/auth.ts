@@ -82,7 +82,6 @@ type PortalPermissions = {
   global_role: string | null;
   departments: { department_id: string; department_name: string; dept_role: string }[];
   is_escalation_support: boolean;
-  is_helpdesk: boolean;
 };
 
 // Mirrors buildPortalSessionUser / the isItMember-style helpers in supabase/server.ts,
@@ -99,7 +98,6 @@ export function derivePortalFlags(perms: PortalPermissions): PortalUser {
     role: perms.role,
     global_role: perms.global_role,
     is_support: perms.is_escalation_support,
-    is_helpdesk: perms.is_helpdesk,
     is_manager: isManager,
     is_it: isIt,
     is_transport: isTransport,
@@ -152,7 +150,6 @@ export async function resolveCallerFromSession(req: Request): Promise<CallerCont
       global_role: (result.global_role as string) ?? null,
       departments,
       is_escalation_support: result.is_escalation_support === true,
-      is_helpdesk: result.is_helpdesk === true,
     }),
   };
 }
@@ -172,7 +169,6 @@ export const ADMIN_API_CALLER: CallerContext = {
     role: "admin",
     global_role: "leadership_admin",
     is_support: true,
-    is_helpdesk: true,
     is_manager: true,
     is_it: true,
     is_transport: true,

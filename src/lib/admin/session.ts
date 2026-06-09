@@ -12,7 +12,6 @@ export type PortalSessionSourceUser = {
   email: string | null;
   role: string | null;
   global_role: string | null;
-  is_helpdesk?: boolean | null;
 };
 
 export type PortalSessionUser = {
@@ -22,7 +21,6 @@ export type PortalSessionUser = {
   role: string | null;
   global_role: string | null;
   is_support: boolean;
-  is_helpdesk: boolean;
   is_manager: boolean;
   is_it: boolean;
   is_transport: boolean;
@@ -45,7 +43,6 @@ export async function buildPortalSessionUser(user: PortalSessionSourceUser): Pro
     role: user.role,
     global_role: user.global_role,
     is_support: isSupport,
-    is_helpdesk: user.is_helpdesk === true,
     is_manager: isManager,
     is_it: isIt,
     is_transport: isTransport,

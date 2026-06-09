@@ -6,25 +6,24 @@ export type PortalUser = {
   is_it?: boolean | null;
   is_internal?: boolean | null;
   is_transport?: boolean | null;
-  is_helpdesk?: boolean | null;
 };
 
 export function isAdminOrLeadership(user: PortalUser | null | undefined) {
   return user?.role === "admin" || user?.global_role === "leadership_admin";
 }
 
-// Front-door check for the staff portal: who may sign in / reset a password at
-// all. Any user that was *added as a portal user* qualifies — role "committee"
-// or "admin" — even if they aren't assigned to any department yet. Visitors are
-// the public/mumineen and must never reach internal portal data, so they are
-// excluded here regardless of any other flag.
-//
-// This is also the **baseline "internal staff" tier**: most coordination
-// surfaces (Home analytics, the Mumineen roster/registration/parking views, the
-// Workspace task/milestone pages, and Member Management) are open to every
-// portal user. The few exceptions stay on the tighter predicates below
-// (isAdminOrLeadership for Messaging/Prompts/heavy-PII writes, canManageKnowledge
-// for the AI-agent knowledge tools, canManageParking for parking writes/export).
+// Front-door sign-in check: who may log in at all. Committee, Admin/Leadership,
+// and Helpdesk users may sign in. Visitors (the public/mumineen) are always
+// rejected. Helpdesk users land on the Inbox only — all data routes still
+// require canAccessPortal (committee/admin), so they can't reach anything else.
+export function canSignIn(user: PortalUser | null | undefined): boolean {
+  return user?.role === "committee" || user?.role === "admin" || user?.role === "helpdesk";
+}
+
+// Baseline "internal staff" tier: any committee or admin user. Most coordination
+// surfaces (Home analytics, Mumineen roster/registration/parking, Workspace
+// tasks/milestones, Member Management) require this. Helpdesk is intentionally
+// excluded — they only get canAccessInbox.
 // See docs/access-control.md for the canonical role × page matrix.
 export function canAccessPortal(user: PortalUser | null | undefined): boolean {
   return user?.role === "committee" || user?.role === "admin";
@@ -44,9 +43,10 @@ export function canImportMumineen(user: PortalUser | null | undefined) {
   return isAdminOrLeadership(user) || user?.is_it === true;
 }
 
-// Who may open the Lead Inbox: admins/leadership plus on-call support members.
+// Who may open the Lead Inbox: admins/leadership, on-call support members, or
+// users with the dedicated helpdesk role.
 export function canAccessInbox(user: PortalUser | null | undefined) {
-  return isAdminOrLeadership(user) || user?.is_helpdesk === true || user?.is_support === true;
+  return isAdminOrLeadership(user) || user?.role === "helpdesk" || user?.is_support === true;
 }
 
 // AI-agent knowledge tools (Knowledge Base, Knowledge Gaps, Ashara Daily

@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
-import { canAccessPortal } from "@/lib/admin/access";
+import { canSignIn } from "@/lib/admin/access";
 import { emailMatchPattern } from "@/lib/admin/email";
 import { verifyPassword } from "@/lib/admin/passwords";
 import { buildPortalSessionUser } from "@/lib/admin/session";
@@ -24,14 +24,14 @@ export async function POST(req: NextRequest) {
     const emailPattern = emailMatchPattern(email);
     let { data: user, error } = await supabase
       .from("whatsapp_users")
-      .select("id, display_name, email, global_role, role, is_helpdesk, password_hash")
+      .select("id, display_name, email, global_role, role, password_hash")
       .ilike("email", emailPattern)
       .maybeSingle();
 
     if (error?.message.includes("password_hash")) {
       const fallbackResult = await supabase
         .from("whatsapp_users")
-        .select("id, display_name, email, global_role, role, is_helpdesk")
+        .select("id, display_name, email, global_role, role")
         .ilike("email", emailPattern)
         .maybeSingle();
       user = fallbackResult.data ? { ...fallbackResult.data, password_hash: null } : null;
@@ -54,9 +54,8 @@ export async function POST(req: NextRequest) {
       global_role: user.global_role,
     });
 
-    // Any non-visitor portal user may sign in, including those not yet assigned
-    // to a department. Visitors (the public/mumineen) are rejected.
-    if (!canAccessPortal(sessionUser)) {
+    // committee, admin, and helpdesk users may sign in. Visitors are rejected.
+    if (!canSignIn(sessionUser)) {
       return NextResponse.json({ error: "Access denied. Internal team access required." }, { status: 403 });
     }
 

@@ -24,6 +24,7 @@ type DropdownGroup = {
 
 type NavAccess = {
   isAdmin: boolean;
+  isHelpdesk: boolean;
   isSupport: boolean;
   isManager: boolean;
   isIt: boolean;
@@ -91,7 +92,7 @@ const trailingLinks: NavLink[] = [
 ];
 
 function readNavAccess(): NavAccess {
-  const empty = { isAdmin: false, isSupport: false, isManager: false, isIt: false, isInternal: false, isTransport: false };
+  const empty = { isAdmin: false, isHelpdesk: false, isSupport: false, isManager: false, isIt: false, isInternal: false, isTransport: false };
   if (typeof window === "undefined") return empty;
 
   try {
@@ -100,6 +101,7 @@ function readNavAccess(): NavAccess {
       | null;
     return {
       isAdmin: user?.role === "admin" || user?.global_role === "leadership_admin",
+      isHelpdesk: user?.role === "helpdesk",
       isSupport: user?.is_support === true,
       isManager: user?.is_manager === true,
       isIt: user?.is_it === true,
@@ -127,6 +129,8 @@ export default function AdminNav() {
   const [access, setAccess] = useState(readNavAccess);
 
   function canSee(itemAccess: Access) {
+    // Helpdesk users see only the inbox and their own profile — nothing else.
+    if (access.isHelpdesk) return itemAccess === "inbox" || itemAccess === "any";
     // The nav only renders for a signed-in portal user, so "any"/"portal" are
     // always visible here; the server still enforces the real gate per route.
     if (itemAccess === "any" || itemAccess === "portal") return true;

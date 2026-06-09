@@ -15,7 +15,6 @@ type User = {
   role: string;
   global_role: string;
   status: string;
-  is_helpdesk?: boolean | null;
   last_login_at?: string | null;
   department_membership_id?: string | null;
   department_role?: string | null;
@@ -46,6 +45,7 @@ type DepartmentMembership = {
 const USER_ROLE_OPTIONS = [
   { value: "committee", label: "Committee" },
   { value: "admin", label: "Admin / Leadership" },
+  { value: "helpdesk", label: "Helpdesk / Escalation" },
 ];
 
 const DEPT_ROLE_OPTIONS = [
@@ -192,7 +192,7 @@ export default function UsersPage() {
     void loadData();
   }, [router, selectedDepartmentId]);
 
-  async function updateUser(id: string, field: string, value: string | boolean) {
+  async function updateUser(id: string, field: string, value: string) {
     try {
       const res = await apiFetch(`/api/admin/users/${id}`, {
         method: "PUT",
@@ -588,31 +588,6 @@ export default function UsersPage() {
                     </select>
                   </label>
                 </div>
-                {currentUserIsAdmin && (
-                  <label className="flex items-center gap-3 cursor-pointer select-none">
-                    <div className="relative inline-flex h-5 w-9 shrink-0">
-                      <input
-                        type="checkbox"
-                        checked={editingUser?.is_helpdesk === true}
-                        onChange={async (event) => {
-                          if (!editingUser) return;
-                          const next = event.target.checked;
-                          await updateUser(editingUser.id, "is_helpdesk", next);
-                          setEditingUser((u) => u ? { ...u, is_helpdesk: next } : u);
-                        }}
-                        className="peer sr-only"
-                      />
-                      <span className="pointer-events-none absolute inset-0 rounded-full bg-gray-200 dark:bg-gray-600 peer-checked:bg-blue-600 transition-colors" />
-                      <span className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
-                    </div>
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      HelpDesk / Escalation access
-                      <span className="ml-1.5 text-xs font-normal text-gray-400 dark:text-gray-500">
-                        (allows inbox access)
-                      </span>
-                    </span>
-                  </label>
-                )}
                 <div className="flex justify-end space-x-3">
                   <button
                     type="button"

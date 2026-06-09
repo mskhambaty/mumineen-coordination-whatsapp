@@ -37,8 +37,11 @@ export default function AdminLoginPage() {
       // Honor a deep-link redirect (e.g. from an escalation email) when present.
       const redirect = new URLSearchParams(window.location.search).get("redirect");
       const isAdmin = data.user?.role === "admin" || data.user?.global_role === "leadership_admin";
+      const isHelpdesk = data.user?.role === "helpdesk";
       if (redirect && redirect.startsWith("/admin")) {
         router.push(redirect);
+      } else if (isHelpdesk) {
+        router.push("/admin/conversations");
       } else if (isAdmin) {
         router.push("/admin");
       } else if (data.user?.is_support) {
