@@ -411,7 +411,8 @@ export async function GET(req: NextRequest) {
         filtered = allMembers.filter((m) => {
           if (m.not_attending) return false;
           if (value === "age_0_5") return m.age !== null && m.age <= 5;
-          if (value === "age_6_17") return m.age !== null && m.age >= 6 && m.age <= 17;
+          if (value === "age_6_11") return m.age !== null && m.age >= 6 && m.age <= 11;
+          if (value === "age_12_17") return m.age !== null && m.age >= 12 && m.age <= 17;
           if (value === "age_18_39") return m.age !== null && m.age >= 18 && m.age <= 39;
           if (value === "age_40_59") return m.age !== null && m.age >= 40 && m.age <= 59;
           if (value === "age_60_plus") return m.age !== null && m.age >= 60;

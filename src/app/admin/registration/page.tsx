@@ -52,7 +52,8 @@ type Analytics = {
   gender: { label: string; count: number }[];
   age_groups: {
     age_0_5: number;
-    age_6_17: number;
+    age_6_11: number;
+    age_12_17: number;
     age_18_39: number;
     age_40_59: number;
     age_60_plus: number;
@@ -1068,11 +1069,12 @@ export default function RegistrationAnalyticsPage() {
 
                 <SectionCard title="Age Groups (Attending)">
                   {([
-                    { label: "0–5", key: "age_group", value: "age_0_5", count: data.age_groups.age_0_5, color: "bg-yellow-400" },
-                    { label: "6–17", key: "age_group", value: "age_6_17", count: data.age_groups.age_6_17, color: "bg-orange-400" },
-                    { label: "18–39", key: "age_group", value: "age_18_39", count: data.age_groups.age_18_39, color: "bg-blue-500" },
-                    { label: "40–59", key: "age_group", value: "age_40_59", count: data.age_groups.age_40_59, color: "bg-indigo-500" },
-                    { label: "60+", key: "age_group", value: "age_60_plus", count: data.age_groups.age_60_plus, color: "bg-purple-500" },
+                    { label: "Under 5 (0–5)", key: "age_group", value: "age_0_5", count: data.age_groups.age_0_5, color: "bg-yellow-400" },
+                    { label: "Child (6–11)", key: "age_group", value: "age_6_11", count: data.age_groups.age_6_11, color: "bg-amber-500" },
+                    { label: "Teen (12–17)", key: "age_group", value: "age_12_17", count: data.age_groups.age_12_17, color: "bg-orange-400" },
+                    { label: "Adult (18–39)", key: "age_group", value: "age_18_39", count: data.age_groups.age_18_39, color: "bg-blue-500" },
+                    { label: "OTH (40–59)", key: "age_group", value: "age_40_59", count: data.age_groups.age_40_59, color: "bg-indigo-500" },
+                    { label: "Senior (60+)", key: "age_group", value: "age_60_plus", count: data.age_groups.age_60_plus, color: "bg-purple-500" },
                     ...(data.age_groups.unknown > 0 ? [{ label: "Age unknown", key: "age_group", value: "unknown", count: data.age_groups.unknown, color: "bg-gray-300" }] : []),
                   ] as const).map((row) => (
                     <HBar key={row.value} label={row.label} value={row.count} total={summary.attending} color={row.color}
