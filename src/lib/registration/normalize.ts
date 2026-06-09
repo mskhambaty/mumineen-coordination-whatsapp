@@ -20,6 +20,14 @@ export const ts = (v: unknown) => {
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 };
+// Date-only (YYYY-MM-DD) for Postgres `date` columns — keeps the calendar day intact
+// (no timezone shift that `ts` would introduce by going through toISOString()).
+export const dateStr = (v: unknown) => {
+  const s = str(v);
+  if (!s) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+};
 export const oneOf = (v: unknown, allowed: readonly string[]) => {
   const s = str(v);
   return s && allowed.includes(s) ? s : null;

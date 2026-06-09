@@ -1,3 +1,4 @@
+import { getMealAttendanceTotals } from "@/lib/rsvp/meal-rsvp";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 // Aggregate a day's activity per department for the nightly digest. Pulls only cleanly
@@ -129,45 +130,15 @@ export async function aggregateAllUpExtras(date: string): Promise<AllUpExtras> {
     .gte("created_at", start)
     .lte("created_at", end);
 
-  // Next day's meals.
+  // Next day's meals — per-mumin attending head counts (niyaz_rsvp), split by meal.
   const next = new Date(`${date}T00:00:00.000Z`);
   next.setUTCDate(next.getUTCDate() + 1);
   const nextDate = next.toISOString().slice(0, 10);
-
-  const { data: slots } = await supabase
-    .from("rsvp_registration_instance")
-    .select("id, meal")
-    .eq("event_date", nextDate);
-
-  let lunch = 0;
-  let dinner = 0;
-  for (const slot of (slots ?? []) as { id: string; meal: string }[]) {
-    const total = await latestAttendingHeadCount(slot.id);
-    if (slot.meal === "lunch") lunch += total;
-    else dinner += total;
-  }
+  const meals = await getMealAttendanceTotals(nextDate);
 
   return {
     questions_flagged: gapsCount ?? 0,
     untriaged_issues: untriagedCount ?? 0,
-    meals_next_day: { date: (slots ?? []).length ? nextDate : null, lunch_attending: lunch, dinner_attending: dinner },
+    meals_next_day: { date: meals.date, lunch_attending: meals.lunch, dinner_attending: meals.dinner },
   };
-}
-
-// Sum of the latest 'yes' head counts per family for one meal slot.
-async function latestAttendingHeadCount(instanceId: string): Promise<number> {
-  const { data } = await getSupabaseAdmin()
-    .from("rsvp_responses")
-    .select("family_id, response, head_count, submitted_at")
-    .eq("registration_instance_id", instanceId)
-    .order("submitted_at", { ascending: false });
-
-  const seen = new Set<string>();
-  let total = 0;
-  for (const r of (data ?? []) as { family_id: string; response: string | null; head_count: number | null }[]) {
-    if (seen.has(r.family_id)) continue;
-    seen.add(r.family_id);
-    if (r.response === "yes") total += r.head_count ?? 0;
-  }
-  return total;
 }

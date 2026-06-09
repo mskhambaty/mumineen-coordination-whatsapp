@@ -203,7 +203,7 @@ export const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "get_family_meal_rsvps",
       description:
-        "Get the caller's family's current jaman (meal) RSVP grid for Ashara — every lunch (thaal) and dinner (packets) day, with whether the family is down as attending and the head count. Use this to show the user what you already have on file before confirming or changing it, and to see which days are still unanswered. RSVP is tracked for the whole family.",
+        "Get the caller's family's current jaman (meal) Niyaz RSVP for Ashara — every event (Pehli Raat, lunch thaals, dinners) with how many of the family are currently down as attending vs. their family size. RSVP is pre-set for everyone from their arrival date, so use this to show what's already on file before changing it. RSVP is tracked for the whole family.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
@@ -212,27 +212,26 @@ export const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "set_family_meal_rsvps",
       description:
-        "Record or update the caller's family's jaman (meal) RSVP. Use when the user tells you which days/meals they will attend and how many. Always confirm the parsed result back to the user. Each entry sets one meal (lunch or dinner) for either specific dates or ALL days of that meal (omit dates or set all=true). Examples: 'lunch all days, 5 of us' -> {meal:'lunch', attending:true, head_count:5, all:true}; 'no dinners' -> {meal:'dinner', attending:false, all:true}; 'lunch on the 16th and 17th, 3 people' -> {meal:'lunch', attending:true, head_count:3, dates:['2026-06-16','2026-06-17']}. RSVP applies to the whole family.",
+        "Update the caller's family's jaman (meal) Niyaz RSVP. Attendance is already pre-set for everyone from their arrival date, so use this mainly to record CHANGES — most often when the family says they will NOT attend on some day(s). Each entry marks the family attending (true) or not (false) for specific dates, or for ALL days (omit dates or set all=true), optionally narrowed to one meal. The change applies to the WHOLE family. Always confirm back to the user. Examples: 'we won't be there on the 16th' -> {attending:false, dates:['2026-06-16']}; 'skip all the dinners' -> {attending:false, meal:'dinner', all:true}; 'actually we ARE coming the 20th' -> {attending:true, dates:['2026-06-20']}.",
       parameters: {
         type: "object",
         properties: {
           entries: {
             type: "array",
-            description: "One or more meal instructions to apply.",
+            description: "One or more RSVP changes to apply.",
             items: {
               type: "object",
               properties: {
-                meal: { type: "string", enum: ["lunch", "dinner"], description: "Which meal." },
-                attending: { type: "boolean", description: "true if the family will attend this meal, false if not." },
-                head_count: { type: "number", description: "Number of family members attending this meal (omit when not attending)." },
+                attending: { type: "boolean", description: "true if the family will attend, false if not." },
                 dates: {
                   type: "array",
                   items: { type: "string", description: "A date in YYYY-MM-DD." },
-                  description: "Specific days to apply to. Omit to apply to every day of this meal.",
+                  description: "Specific days to apply to. Omit (or set all=true) to apply to every day.",
                 },
-                all: { type: "boolean", description: "Set true to apply to every day of this meal (same as omitting dates)." },
+                meal: { type: "string", enum: ["lunch", "dinner"], description: "Narrow to one meal; omit to apply to every event on the day(s)." },
+                all: { type: "boolean", description: "Set true to apply to every day (same as omitting dates)." },
               },
-              required: ["meal", "attending"],
+              required: ["attending"],
               additionalProperties: false,
             },
           },

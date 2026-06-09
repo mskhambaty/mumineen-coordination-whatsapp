@@ -4,21 +4,35 @@ One system across three concerns for the days of Ashara: capturing jaman (meal) 
 experience feedback over WhatsApp, rolling them up into a nightly per-department briefing, and a
 manual console for broadcasting approved templates.
 
-## 1. Meal RSVP (jaman)
+## 1. Niyaz RSVP (jaman) — per-mumin, defaulted from arrival
 
-The existing RSVP tables are reused as a **meal-slot grid** — no new tables:
+RSVP is tracked **per mumin per event** in `niyaz_rsvp`, pre-populated for everyone so the kitchen
+has accurate counts without waiting for replies.
 
-- `rsvp_registration_instance` gains `meal` (`lunch`|`dinner`), `event_date`, `serving_type`
-  (`thaal`|`packet`) and a unique `(event_date, meal)` index. Each row is one meal slot. Seeded for
-  Ashara 1448H: **Sun Jun 14 dinner only (Pheli Raat), Mon Jun 15 → Wed Jun 24 (Ashura) lunch +
-  dinner**, America/Chicago. (`supabase/migrations/20260606100000_*`, `..._100500_seed_*`.)
-- `rsvp_responses` is reused unchanged — one updatable row per submitter per slot, latest-wins,
-  `head_count` = number attending that meal.
+- **Events** live in `rsvp_registration_instance` (`meal` `lunch`|`dinner`, `event_date`,
+  `serving_type` `thaal`|`packet`, unique `(event_date, meal)`). Ashara 1448H = **20 events**: a
+  **Pehli Raat thaal (Jun 14)**, Jun 15–23 lunch (thaal) + dinner (packet), and a **dinner thaal
+  (Jun 24)**. (`supabase/migrations/20260606100500_seed_*`, corrected in `20260608130000_niyaz_event_corrections`.)
+- **`niyaz_rsvp`** (`20260608131000_*`): one row per `(registration_instance_id, mumin_id)` with
+  `attending boolean`, `family_id`, and `source` (`default`|`registration`|`whatsapp`|`admin`). RLS
+  on, service-role access only. `rsvp_responses` is retired (left empty) for the meal flow.
+- **Default rule** (calendar date, America/Chicago): `not_attending` ⇒ No; no `arrival_at` ⇒ Yes;
+  else Yes when `event_date ≥ arrival date`. Applied by the backfill (`20260608132000_*`, all
+  registered active mumineen) and the SQL function **`seed_family_niyaz_rsvp(family)`**, which the
+  registration submit/edit calls (`src/app/api/register/route.ts`) — it recomputes only
+  `default`/`registration` rows, never clobbering a `whatsapp`/`admin` override.
+- **Adult/kid/family + thaal counts** come from the **`niyaz_event_tallies`** view
+  (`20260608133000_*`): per event, yes/no split by `mumineen.is_adult` (null = adult) and by family,
+  plus `thaal_count = ceil(attending heads / 8)`.
 
-Code: `src/lib/rsvp/family.ts` (phone → roster family), `src/lib/rsvp/meal-rsvp.ts` (grid read,
-record, `applyMealRsvps` with date-range expansion). API: `GET/POST /api/rsvp/meals`
-(self-scoped via `x-whatsapp-from`, Zod-validated). Agent tools: `get_family_meal_rsvps`,
-`set_family_meal_rsvps` (public; guidance in `MEAL_RSVP_FEEDBACK_RULE`).
+Code: `src/lib/rsvp/family.ts` (phone → roster family), `src/lib/rsvp/meal-rsvp.ts`
+(`getFamilyNiyazGrid`, `setFamilyNiyazRsvp` whole-family cascade, `getEventTallies`,
+`getMealAttendanceTotals`). API: `GET/POST /api/rsvp/meals` (self-scoped via `x-whatsapp-from`,
+Zod-validated; POST entries are `{attending, dates?, meal?, all?}` — a change cascades to the whole
+family). Agent tools: `get_family_meal_rsvps`, `set_family_meal_rsvps` (public; the agent mainly
+records *changes* — guidance in `MEAL_RSVP_FEEDBACK_RULE`). Admin: `/admin/niyaz` shows the events
+sorted by date with the eight count columns + thaal count, backed by
+`GET /api/admin/niyaz/instances` (reads the tallies view).
 
 ## 2. Feedback
 

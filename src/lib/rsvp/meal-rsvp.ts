@@ -1,225 +1,208 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { resolveFamilyForPhone } from "@/lib/rsvp/family";
 
-// Meal-RSVP domain over the reused RSVP tables: each rsvp_registration_instance row with a
-// (event_date, meal) is one meal slot; each rsvp_responses row is a family's latest answer for
-// a slot (head_count = number attending that meal). One updatable row per submitter per slot,
-// latest-wins — matching the existing rsvp_responses shape.
+// Per-mumin Niyaz attendance over the `niyaz_rsvp` table: one row per (event, mumin), `attending`
+// pre-seeded from each person's arrival date (migration + seed_family_niyaz_rsvp) and later
+// overridden by the WhatsApp bot (whole-family cascade) or an admin. Each Niyaz event is one
+// rsvp_registration_instance row with an (event_date, meal). head_count is gone — adult/kid/family
+// counts come from joining mumineen.is_adult in the niyaz_event_tallies view.
 
 export type Meal = "lunch" | "dinner";
 
-export type MealSlot = {
+export type NiyazEvent = {
   id: string;
+  title: string;
   eventDate: string; // YYYY-MM-DD
-  meal: Meal;
+  meal: Meal | null;
   servingType: string | null; // 'thaal' | 'packet'
-  status: string;
+  description: string | null;
 };
 
-export type MealGridRow = MealSlot & {
-  attending: boolean | null; // null = no response yet
-  headCount: number | null;
+type RawEvent = {
+  id: string;
+  title: string | null;
+  event_date: string;
+  meal: Meal | null;
+  serving_type: string | null;
+  description: string | null;
 };
-
-// One instruction from the agent: set a meal for specific dates (or all dates of that meal).
-export type MealRsvpEntry = {
-  meal: Meal;
-  attending: boolean;
-  headCount?: number | null;
-  dates?: string[]; // specific YYYY-MM-DD days; omit (or all=true) to apply to every slot of this meal
-  all?: boolean;
-};
-
-// All seeded meal slots, ordered by day then meal.
-export async function getMealSlots(): Promise<MealSlot[]> {
-  const { data } = await getSupabaseAdmin()
-    .from("rsvp_registration_instance")
-    .select("id, event_date, meal, serving_type, status")
-    .not("event_date", "is", null)
-    .not("meal", "is", null)
-    .order("event_date", { ascending: true })
-    .order("meal", { ascending: true });
-
-  return ((data ?? []) as RawSlot[]).map(toSlot);
-}
-
-type RawSlot = { id: string; event_date: string; meal: Meal; serving_type: string | null; status: string };
-const toSlot = (r: RawSlot): MealSlot => ({
+const toEvent = (r: RawEvent): NiyazEvent => ({
   id: r.id,
+  title: r.title ?? "",
   eventDate: r.event_date,
   meal: r.meal,
   servingType: r.serving_type,
-  status: r.status,
+  description: r.description,
 });
 
-// The family's current grid: every meal slot, merged with the family's latest response (if any).
-export async function getFamilyMealGrid(familyId: string): Promise<MealGridRow[]> {
-  const slots = await getMealSlots();
-
-  const { data: responses } = await getSupabaseAdmin()
-    .from("rsvp_responses")
-    .select("registration_instance_id, response, head_count, submitted_at")
-    .eq("family_id", familyId)
-    .order("submitted_at", { ascending: false });
-
-  // Latest response per instance (rows already sorted newest-first).
-  const latestByInstance = new Map<string, { response: string | null; head_count: number | null }>();
-  for (const row of (responses ?? []) as { registration_instance_id: string; response: string | null; head_count: number | null }[]) {
-    if (!latestByInstance.has(row.registration_instance_id)) {
-      latestByInstance.set(row.registration_instance_id, { response: row.response, head_count: row.head_count });
-    }
-  }
-
-  return slots.map((slot) => {
-    const r = latestByInstance.get(slot.id);
-    return {
-      ...slot,
-      attending: r ? r.response === "yes" : null,
-      headCount: r ? r.head_count : null,
-    };
-  });
+// All Niyaz events (instances with an event_date), ordered by day then meal.
+export async function getEvents(): Promise<NiyazEvent[]> {
+  const { data } = await getSupabaseAdmin()
+    .from("rsvp_registration_instance")
+    .select("id, title, event_date, meal, serving_type, description")
+    .not("event_date", "is", null)
+    .order("event_date", { ascending: true })
+    .order("meal", { ascending: true });
+  return ((data ?? []) as RawEvent[]).map(toEvent);
 }
 
-export type MealGridTotal = {
-  instanceId: string;
-  eventDate: string;
-  meal: Meal;
-  servingType: string | null;
-  respondedFamilies: number;
-  attendingFamilies: number;
-  totalHeadCount: number;
+export type FamilyGridRow = {
+  event: NiyazEvent;
+  attending: number; // family members marked attending for this event
+  total: number; // family members with an RSVP row for this event
 };
 
-// Per-slot kitchen totals across all families: how many families responded, how many are attending,
-// and the summed head count — using each family's latest response per slot.
-export async function getMealGridTotals(): Promise<MealGridTotal[]> {
-  const slots = await getMealSlots();
-  if (slots.length === 0) return [];
-
+// The caller's family grid: every event with how many of the family are attending vs total.
+export async function getFamilyNiyazGrid(familyId: string): Promise<FamilyGridRow[]> {
+  const events = await getEvents();
   const { data } = await getSupabaseAdmin()
-    .from("rsvp_responses")
-    .select("registration_instance_id, family_id, response, head_count, submitted_at")
-    .in(
-      "registration_instance_id",
-      slots.map((s) => s.id),
-    )
-    .order("submitted_at", { ascending: false });
+    .from("niyaz_rsvp")
+    .select("registration_instance_id, attending")
+    .eq("family_id", familyId);
 
-  // Latest response per (instance, family).
-  const seen = new Set<string>();
-  const agg = new Map<string, { responded: number; attending: number; head: number }>();
-  for (const s of slots) agg.set(s.id, { responded: 0, attending: 0, head: 0 });
+  const agg = new Map<string, { yes: number; total: number }>();
+  for (const r of (data ?? []) as { registration_instance_id: string; attending: boolean }[]) {
+    const a = agg.get(r.registration_instance_id) ?? { yes: 0, total: 0 };
+    a.total += 1;
+    if (r.attending) a.yes += 1;
+    agg.set(r.registration_instance_id, a);
+  }
 
-  for (const r of (data ?? []) as { registration_instance_id: string; family_id: string; response: string | null; head_count: number | null }[]) {
-    const key = `${r.registration_instance_id}|${r.family_id}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const a = agg.get(r.registration_instance_id);
-    if (!a) continue;
-    a.responded++;
-    if (r.response === "yes") {
-      a.attending++;
-      a.head += r.head_count ?? 0;
+  return events.map((event) => {
+    const a = agg.get(event.id) ?? { yes: 0, total: 0 };
+    return { event, attending: a.yes, total: a.total };
+  });
+}
+
+// One instruction from the agent/admin: mark a family attending (or not) for specific dates (or all
+// days), optionally narrowed to one meal. Omit dates (or set all=true) to apply to every event.
+export type NiyazRsvpEntry = {
+  attending: boolean;
+  dates?: string[]; // specific YYYY-MM-DD days
+  meal?: Meal; // narrow to lunch or dinner; omit for both
+  all?: boolean;
+};
+
+export type ApplyResult = { updated: number; grid: FamilyGridRow[] };
+
+// Apply RSVP changes for the family owning `familyId`. Cascades to ALL roster_active family members
+// for each matched event; a "yes" never flips a member flagged not_attending. Upserts overwrite the
+// per-mumin row (whatsapp/admin override the arrival-date default). Returns the refreshed grid.
+export async function setFamilyNiyazRsvp(
+  familyId: string,
+  entries: NiyazRsvpEntry[],
+  opts: { source: "whatsapp" | "admin"; phone?: string | null; recordedBy?: string | null },
+): Promise<ApplyResult> {
+  const supabase = getSupabaseAdmin();
+  const events = await getEvents();
+
+  // Last entry wins per event.
+  const decisions = new Map<string, boolean>();
+  for (const entry of entries) {
+    const dateSet = entry.all || !entry.dates || entry.dates.length === 0 ? null : new Set(entry.dates);
+    for (const ev of events) {
+      if (dateSet && !dateSet.has(ev.eventDate)) continue;
+      if (entry.meal && ev.meal !== entry.meal) continue;
+      decisions.set(ev.id, entry.attending);
+    }
+  }
+  if (decisions.size === 0) return { updated: 0, grid: await getFamilyNiyazGrid(familyId) };
+
+  const { data: members } = await supabase
+    .from("mumineen")
+    .select("id, not_attending")
+    .eq("family_id", familyId)
+    .eq("roster_active", true);
+  const memberList = (members ?? []) as { id: string; not_attending: boolean }[];
+
+  const rows: Record<string, unknown>[] = [];
+  for (const [instanceId, attending] of decisions) {
+    for (const m of memberList) {
+      if (attending && m.not_attending) continue; // don't pull a not-attending member into a "yes"
+      rows.push({
+        registration_instance_id: instanceId,
+        mumin_id: m.id,
+        family_id: familyId,
+        attending,
+        source: opts.source,
+        responded_by_phone: opts.phone ?? null,
+        recorded_by: opts.recordedBy ?? null,
+      });
     }
   }
 
-  return slots.map((s) => {
-    const a = agg.get(s.id)!;
+  if (rows.length > 0) {
+    for (let i = 0; i < rows.length; i += 500) {
+      const { error } = await supabase
+        .from("niyaz_rsvp")
+        .upsert(rows.slice(i, i + 500), { onConflict: "registration_instance_id,mumin_id" });
+      if (error) throw new Error(error.message);
+    }
+  }
+
+  return { updated: rows.length, grid: await getFamilyNiyazGrid(familyId) };
+}
+
+export type EventTally = NiyazEvent & {
+  yesAdults: number;
+  yesKids: number;
+  yesFamilies: number;
+  thaalCount: number;
+  noAdults: number;
+  noKids: number;
+  noFamilies: number;
+};
+
+// Per-event attendance tallies for the admin page, from the niyaz_event_tallies view.
+export async function getEventTallies(): Promise<EventTally[]> {
+  const events = await getEvents();
+  const { data } = await getSupabaseAdmin()
+    .from("niyaz_event_tallies")
+    .select("instance_id, yes_adults, yes_kids, yes_families, thaal_count, no_adults, no_kids, no_families");
+
+  type Row = {
+    instance_id: string;
+    yes_adults: number;
+    yes_kids: number;
+    yes_families: number;
+    thaal_count: number | string;
+    no_adults: number;
+    no_kids: number;
+    no_families: number;
+  };
+  const byId = new Map<string, Row>();
+  for (const r of (data ?? []) as Row[]) byId.set(r.instance_id, r);
+
+  return events.map((event) => {
+    const t = byId.get(event.id);
     return {
-      instanceId: s.id,
-      eventDate: s.eventDate,
-      meal: s.meal,
-      servingType: s.servingType,
-      respondedFamilies: a.responded,
-      attendingFamilies: a.attending,
-      totalHeadCount: a.head,
+      ...event,
+      yesAdults: Number(t?.yes_adults ?? 0),
+      yesKids: Number(t?.yes_kids ?? 0),
+      yesFamilies: Number(t?.yes_families ?? 0),
+      thaalCount: Number(t?.thaal_count ?? 0),
+      noAdults: Number(t?.no_adults ?? 0),
+      noKids: Number(t?.no_kids ?? 0),
+      noFamilies: Number(t?.no_families ?? 0),
     };
   });
 }
 
-// Record (or update) one family's RSVP for one meal slot, latest-wins per submitter. Rebuilds the
-// behavior of the former niyaz/record helper against the intact rsvp_responses table.
-export async function recordMealRsvp(input: {
-  instanceId: string;
-  familyId: string;
-  muminId?: string | null;
-  attending: boolean;
-  headCount?: number | null;
-  source: "whatsapp" | "admin";
-  phone?: string | null;
-  recordedBy?: string | null;
-}): Promise<void> {
+// Attending head counts for one calendar day, split by meal — for the nightly department digest.
+export async function getMealAttendanceTotals(date: string): Promise<{ date: string | null; lunch: number; dinner: number }> {
+  const events = (await getEvents()).filter((e) => e.eventDate === date);
+  if (events.length === 0) return { date: null, lunch: 0, dinner: 0 };
+
   const supabase = getSupabaseAdmin();
-  const fields = {
-    registration_instance_id: input.instanceId,
-    family_id: input.familyId,
-    submitted_by_mumin_id: input.muminId ?? null,
-    response: input.attending ? "yes" : "no",
-    head_count: input.attending ? (input.headCount ?? null) : 0,
-    source: input.source,
-    recorded_by: input.recordedBy ?? null,
-    responded_by_phone: input.phone ?? null,
-    submitted_at: new Date().toISOString(),
-  };
-
-  // Keep one updatable row per identified submitter per slot.
-  if (input.muminId) {
-    const { data: existing } = await supabase
-      .from("rsvp_responses")
-      .select("id")
-      .eq("registration_instance_id", input.instanceId)
-      .eq("submitted_by_mumin_id", input.muminId)
-      .maybeSingle();
-    if (existing) {
-      const { error } = await supabase.from("rsvp_responses").update(fields).eq("id", existing.id);
-      if (error) throw new Error(error.message);
-      return;
-    }
+  let lunch = 0;
+  let dinner = 0;
+  for (const ev of events) {
+    const { count } = await supabase
+      .from("niyaz_rsvp")
+      .select("id", { count: "exact", head: true })
+      .eq("registration_instance_id", ev.id)
+      .eq("attending", true);
+    if (ev.meal === "lunch") lunch += count ?? 0;
+    else dinner += count ?? 0;
   }
-
-  const { error } = await supabase.from("rsvp_responses").insert(fields);
-  if (error) throw new Error(error.message);
-}
-
-export type ApplyResult = { updated: number; grid: MealGridRow[] };
-
-// Apply a batch of agent-parsed RSVP entries for the family owning `phone`, then return the
-// refreshed grid. Entries with no `dates` (or all=true) apply to every slot of that meal.
-export async function applyMealRsvps(
-  phone: string,
-  entries: MealRsvpEntry[],
-  opts: { source: "whatsapp" | "admin"; recordedBy?: string | null } = { source: "whatsapp" },
-): Promise<ApplyResult | { error: string }> {
-  const family = await resolveFamilyForPhone(phone);
-  if (!family) return { error: "no_family_for_phone" };
-
-  const slots = await getMealSlots();
-  const byKey = new Map<string, MealSlot>();
-  for (const s of slots) byKey.set(`${s.eventDate}|${s.meal}`, s);
-
-  let updated = 0;
-  for (const entry of entries) {
-    const targetDates =
-      entry.all || !entry.dates || entry.dates.length === 0
-        ? slots.filter((s) => s.meal === entry.meal).map((s) => s.eventDate)
-        : entry.dates;
-
-    for (const date of targetDates) {
-      const slot = byKey.get(`${date}|${entry.meal}`);
-      if (!slot) continue; // ignore dates outside the seeded grid
-      await recordMealRsvp({
-        instanceId: slot.id,
-        familyId: family.familyId,
-        muminId: family.muminId,
-        attending: entry.attending,
-        headCount: entry.headCount ?? null,
-        source: opts.source,
-        phone,
-        recordedBy: opts.recordedBy ?? null,
-      });
-      updated++;
-    }
-  }
-
-  return { updated, grid: await getFamilyMealGrid(family.familyId) };
+  return { date, lunch, dinner };
 }

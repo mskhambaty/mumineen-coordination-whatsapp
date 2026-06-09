@@ -479,6 +479,45 @@ Updates shown on the public relay-center page (and indexed for the WhatsApp agen
 
 Index: `(published, date desc)`.
 
+### `rsvp_registration_instance` (Niyaz events)
+
+One row per Niyaz meal occasion. See [meal-rsvp-feedback-digest.md](./meal-rsvp-feedback-digest.md).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `title` | text | e.g. `Lunch (thaal) — Mon, Jun 15` |
+| `event_date` | date | The day of the event |
+| `meal` | text | `lunch` \| `dinner` (nullable) |
+| `serving_type` | text | `thaal` \| `packet` (nullable) |
+| `description` | text | Nullable |
+| `status`, `event_at`, `venue_*`, `opens_at`, `closes_at` | — | Legacy columns, no longer surfaced in the UI |
+
+Unique `(event_date, meal)`. Ashara 1448H = 20 events (Pehli Raat thaal Jun 14; Jun 15–23 lunch+dinner; dinner thaal Jun 24).
+
+### `niyaz_rsvp`
+
+Per-mumin attendance for each Niyaz event, pre-seeded from arrival dates and overridden by the bot/admin.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `registration_instance_id` | uuid | FK → `rsvp_registration_instance.id` (on delete cascade) |
+| `mumin_id` | uuid | FK → `mumineen.id` (on delete cascade) |
+| `family_id` | uuid | FK → `families.id` (on delete set null) — denormalized for grouping |
+| `attending` | boolean | |
+| `source` | text | `default` \| `registration` \| `whatsapp` \| `admin` |
+| `responded_by_phone` | text | Nullable |
+| `recorded_by` | text | Nullable (admin id) |
+| `created_at` / `updated_at` | timestamptz | `updated_at` trigger-managed |
+
+Unique `(registration_instance_id, mumin_id)`. RLS enabled (service-role access only). Default rule
+(America/Chicago calendar date): `not_attending` ⇒ No; no `arrival_at` ⇒ Yes; else Yes when
+`event_date ≥ arrival date`. View **`niyaz_event_tallies`** aggregates per event: yes/no split by
+`mumineen.is_adult` (null = adult) and by family, plus `thaal_count = ceil(attending heads / 8)`.
+Function **`seed_family_niyaz_rsvp(p_family_id uuid)`** (re)defaults one family's rows from current
+arrival dates without clobbering `whatsapp`/`admin` overrides; called on registration submit/edit.
+
 ## Supabase RPC Function
 
 `match_site_content(query_embedding, match_threshold, match_count)` — vector similarity search.  

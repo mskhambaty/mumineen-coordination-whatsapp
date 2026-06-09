@@ -1,31 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { canAccessPortal } from "@/lib/admin/access";
-import { oneOf, str, ts } from "@/lib/registration/normalize";
+import { isAdminOrLeadership } from "@/lib/admin/access";
+import { dateStr, oneOf, str } from "@/lib/registration/normalize";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 
 export const runtime = "nodejs";
 
-const STATUSES = ["draft", "open", "closed"] as const;
+const MEALS = ["lunch", "dinner"] as const;
+const SERVING_TYPES = ["thaal", "packet"] as const;
 
-const INSTANCE_COLS =
-  "id, title, status, event_at, venue_name, venue_address, description, opens_at, closes_at, created_at, updated_at";
+const INSTANCE_COLS = "id, title, event_date, meal, serving_type, description, updated_at";
 
 type InstancePatch = {
   title?: unknown;
-  event_at?: unknown;
-  venue_name?: unknown;
-  venue_address?: unknown;
+  event_date?: unknown;
+  meal?: unknown;
+  serving_type?: unknown;
   description?: unknown;
-  status?: unknown;
-  opens_at?: unknown;
-  closes_at?: unknown;
 };
 
-// PATCH /api/admin/niyaz/instances/[id] — edit a Niyaz instance's details/status.
+// PATCH /api/admin/niyaz/instances/[id] — edit a Niyaz event's day / meal / serving type / details.
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requirePortalCaller(req, canAccessPortal);
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as InstancePatch;
@@ -38,13 +35,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // Only set provided fields, so a partial edit doesn't blank others.
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (body.title !== undefined) patch.title = title;
-  if (body.event_at !== undefined) patch.event_at = ts(body.event_at);
-  if (body.venue_name !== undefined) patch.venue_name = str(body.venue_name);
-  if (body.venue_address !== undefined) patch.venue_address = str(body.venue_address);
+  if (body.event_date !== undefined) patch.event_date = dateStr(body.event_date);
+  if (body.meal !== undefined) patch.meal = oneOf(body.meal, MEALS);
+  if (body.serving_type !== undefined) patch.serving_type = oneOf(body.serving_type, SERVING_TYPES);
   if (body.description !== undefined) patch.description = str(body.description);
-  if (body.status !== undefined) patch.status = oneOf(body.status, STATUSES) ?? "draft";
-  if (body.opens_at !== undefined) patch.opens_at = ts(body.opens_at);
-  if (body.closes_at !== undefined) patch.closes_at = ts(body.closes_at);
 
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
@@ -58,7 +52,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
   if (!data) {
-    return NextResponse.json({ error: "Niyaz instance not found." }, { status: 404 });
+    return NextResponse.json({ error: "Niyaz event not found." }, { status: 404 });
   }
   return NextResponse.json({ instance: data });
 }

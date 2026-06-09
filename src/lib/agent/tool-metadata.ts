@@ -43,6 +43,16 @@ const toolMetadata: Record<string, ToolMetadata> = {
     status_note:
       "Exact word lookup over the lisan_words table with fuzzy 'did you mean' suggestions; populated from the uploaded dictionary CSV.",
   },
+  get_family_meal_rsvps: {
+    internal_api: "GET /api/rsvp/meals",
+    audience: "external",
+    ...activeApiStatus,
+  },
+  set_family_meal_rsvps: {
+    internal_api: "POST /api/rsvp/meals",
+    audience: "external",
+    ...activeApiStatus,
+  },
   move_to_escalation: {
     internal_api: "POST /api/escalations",
     audience: "external",

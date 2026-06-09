@@ -45,6 +45,21 @@ The agent's `get_site_content_faq` retrieves from `site_content`, which is now p
 > corpus as generic homepage boilerplate that crowded out the curated answers and caused the
 > agent to deny indexed info (e.g. WiFi). All real answers live in the curated stores above.
 
+## Niyaz RSVP Flow
+
+```
+Registration submit/edit (POST /api/register)
+    └─ supabase.rpc seed_family_niyaz_rsvp(family)   → default per-mumin niyaz_rsvp rows from arrival dates
+WhatsApp agent (set_family_meal_rsvps → POST /api/rsvp/meals)
+    └─ setFamilyNiyazRsvp(family, …)                 → whole-family cascade upsert (source=whatsapp), overrides defaults
+Admin /admin/niyaz (GET /api/admin/niyaz/instances)
+    └─ getEventTallies() → niyaz_event_tallies view  → per-event yes/no by adult/kid/family + thaal count
+```
+
+Attendance is pre-populated for every registered mumin (calendar-date rule vs. arrival; not_attending
+⇒ No; no arrival ⇒ Yes) so the kitchen has counts without waiting for replies; the bot only records
+changes. See [meal-rsvp-feedback-digest.md](./meal-rsvp-feedback-digest.md).
+
 ## External Services
 
 | Service | Purpose | Auth |

@@ -1443,15 +1443,19 @@ paths:
   /api/rsvp/meals:
     get:
       tags: [rsvp]
-      summary: Get the caller's family meal-RSVP grid
-      description: Self-scoped via x-whatsapp-from. Returns every meal slot with the family's latest answer. Used by the get_family_meal_rsvps agent tool.
+      summary: Get the caller's family Niyaz RSVP grid
+      description: Self-scoped via x-whatsapp-from. Returns every Niyaz event with how many of the family are attending vs. family size. Used by the get_family_meal_rsvps agent tool.
       responses:
         "200": { description: "Grid (or status=no_family when the number isn't on the roster)." }
         "400": { $ref: "#/components/responses/BadRequest" }
     post:
       tags: [rsvp]
-      summary: Set the caller's family meal RSVP
-      description: Self-scoped via x-whatsapp-from. Each entry sets one meal for specific dates or all days. Used by set_family_meal_rsvps.
+      summary: Update the caller's family Niyaz RSVP
+      description: >-
+        Self-scoped via x-whatsapp-from. Attendance is pre-set from arrival dates; this records
+        changes (mostly "not coming on day X"). Each entry marks the family attending or not for
+        specific dates (or all days), optionally narrowed to one meal; the change cascades to the
+        whole family. Used by set_family_meal_rsvps.
       requestBody:
         required: true
         content:
@@ -1462,17 +1466,18 @@ paths:
               properties:
                 entries:
                   type: array
+                  minItems: 1
+                  maxItems: 60
                   items:
                     type: object
-                    required: [meal, attending]
+                    required: [attending]
                     properties:
-                      meal: { type: string, enum: [lunch, dinner] }
                       attending: { type: boolean }
-                      head_count: { type: integer, minimum: 0, maximum: 99 }
                       dates: { type: array, items: { type: string, format: date } }
+                      meal: { type: string, enum: [lunch, dinner] }
                       all: { type: boolean }
       responses:
-        "200": { description: Updated count + refreshed grid. }
+        "200": { description: Updated row count + refreshed grid (or status=no_family). }
         "400": { $ref: "#/components/responses/BadRequest" }
 
   /api/feedback:
