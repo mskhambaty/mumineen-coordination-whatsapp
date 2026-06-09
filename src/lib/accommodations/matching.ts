@@ -142,7 +142,7 @@ export async function suggestMatches(opts?: ScoringOptions): Promise<MatchSugges
   return suggestions;
 }
 
-// --- Best Allocation (maximize families matched) ---
+// --- Best Allocation (maximize total guests accommodated) ---
 
 export type AllocationResult = {
   matched: MatchSuggestion[];
@@ -151,18 +151,24 @@ export type AllocationResult = {
 };
 
 /**
- * Greedy best-fit allocation: maximize the number of families matched.
- * Strategy: sort guests smallest-first (easier to fit), then assign each to the best-scoring
- * eligible host (considering already-assigned capacity).
- * Ignores FIFO — purely optimizes for maximum coverage.
+ * Best-fit decreasing allocation: maximize total guests accommodated.
+ *
+ * Strategy (bin-packing inspired):
+ * 1. Priority tiers: elders (65+) → single women → infants (<2) → rest.
+ * 2. Within each tier sort LARGEST families first — they are hardest to place,
+ *    so giving them first pick avoids capacity fragmentation.
+ * 3. Host selection uses a composite: quality score + tightness bonus.
+ *    The tightness bonus (up to 25 pts) rewards hosts whose remaining capacity
+ *    closely matches the guest count, preserving bigger hosts for bigger families.
+ * 4. After the first pass, any unmatched guests get a retry pass against updated
+ *    capacity (in case earlier placements opened better fits).
  */
 export async function suggestBestAllocation(opts?: ScoringOptions): Promise<AllocationResult> {
   const [guests, hosts] = await Promise.all([buildGuestRollups(), buildHostRollups()]);
 
   const unmatchedGuests = guests.filter((g) => g.current_match_status == null && g.attending_count > 0);
 
-  // Priority tiers: elders (65+) → single women → families with infants (<2) → rest
-  // Within each tier, sort smallest families first for bin-packing
+  // Priority tiers
   const hasElder = (g: GuestRow) => g.ages.split(", ").some((a) => parseInt(a) >= 65);
   const isSingleWoman = (g: GuestRow) => g.attending_count === 1 && g.female_count === 1 && g.male_count === 0;
   const hasInfant = (g: GuestRow) => g.ages.split(", ").some((a) => { const n = parseInt(a); return !isNaN(n) && n < 2; });
@@ -174,11 +180,12 @@ export async function suggestBestAllocation(opts?: ScoringOptions): Promise<Allo
     return 3;
   };
 
+  // Sort: priority tier ascending, then LARGEST family first within tier
   const sortedGuests = [...unmatchedGuests].sort((a, b) => {
     const aTier = priorityTier(a);
     const bTier = priorityTier(b);
     if (aTier !== bTier) return aTier - bTier;
-    return a.attending_count - b.attending_count;
+    return b.attending_count - a.attending_count; // largest first
   });
 
   // Track remaining capacity during allocation
@@ -189,35 +196,56 @@ export async function suggestBestAllocation(opts?: ScoringOptions): Promise<Allo
   }
 
   const matched: MatchSuggestion[] = [];
-  const unmatchedFamilies: GuestRow[] = [];
+  const retryList: GuestRow[] = [];
 
-  // Scoring without FIFO, always disable it for allocation mode
+  // Scoring without FIFO for allocation mode
   const allocOpts: ScoringOptions = { ...opts, fifo: false };
 
-  for (const guest of sortedGuests) {
-    // Find hosts that still have capacity for this family
-    // Find hosts that still have capacity and are gender-compatible
-    const eligible = availableHosts.filter((h) => (capacityLeft.get(h.id) ?? 0) >= guest.attending_count && isGenderCompatible(guest, h));
+  // Helper: pick best host for a guest considering tightness
+  function pickBestHost(guest: GuestRow): { host: HostRow; score: number; reasons: string[] } | null {
+    const eligible = availableHosts.filter(
+      (h) => (capacityLeft.get(h.id) ?? 0) >= guest.attending_count && isGenderCompatible(guest, h),
+    );
+    if (eligible.length === 0) return null;
 
-    if (eligible.length === 0) {
-      unmatchedFamilies.push(guest);
-      continue;
-    }
-
-    // Score each eligible host and pick the best
     let best: { host: HostRow; score: number; reasons: string[] } | null = null;
     for (const host of eligible) {
-      const { score, reasons } = scoreMatch(guest, host, 0, sortedGuests.length, allocOpts);
-      if (!best || score > best.score) {
-        best = { host, score, reasons };
+      const { score: qualityScore, reasons } = scoreMatch(guest, host, 0, sortedGuests.length, allocOpts);
+
+      // Tightness bonus: reward hosts whose remaining capacity closely matches guest size.
+      // A perfect fit (cap == attending) gets 25 pts; excess capacity reduces the bonus.
+      const cap = capacityLeft.get(host.id) ?? 0;
+      const waste = cap - guest.attending_count;
+      const tightnessBonus = Math.max(0, 25 * (1 - waste / Math.max(cap, 1)));
+
+      const compositeScore = qualityScore + tightnessBonus;
+      if (!best || compositeScore > best.score) {
+        best = { host, score: Math.round(compositeScore * 10) / 10, reasons };
       }
     }
+    return best;
+  }
 
+  // --- First pass ---
+  for (const guest of sortedGuests) {
+    const best = pickBestHost(guest);
     if (best) {
       matched.push({ guest, host: best.host, score: best.score, reasons: best.reasons });
       capacityLeft.set(best.host.id, (capacityLeft.get(best.host.id) ?? 0) - guest.attending_count);
     } else {
-      unmatchedFamilies.push(guest);
+      retryList.push(guest);
+    }
+  }
+
+  // --- Second pass: retry unmatched (capacity landscape may have changed) ---
+  const finalUnmatched: GuestRow[] = [];
+  for (const guest of retryList) {
+    const best = pickBestHost(guest);
+    if (best) {
+      matched.push({ guest, host: best.host, score: best.score, reasons: best.reasons });
+      capacityLeft.set(best.host.id, (capacityLeft.get(best.host.id) ?? 0) - guest.attending_count);
+    } else {
+      finalUnmatched.push(guest);
     }
   }
 
@@ -225,7 +253,7 @@ export async function suggestBestAllocation(opts?: ScoringOptions): Promise<Allo
   const assignedHostIds = new Set(matched.map((m) => m.host.id));
   const unassignedHosts = availableHosts.filter((h) => !assignedHostIds.has(h.id));
 
-  return { matched, unmatched: unmatchedFamilies, unassignedHosts };
+  return { matched, unmatched: finalUnmatched, unassignedHosts };
 }
 
 // --- Confirm Match ---
