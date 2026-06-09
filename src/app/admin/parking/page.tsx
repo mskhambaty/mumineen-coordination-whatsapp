@@ -832,9 +832,22 @@ export default function ParkingPage() {
                     {r.transport_mode === "rental" && <Badge label="Rental" />}
                   </div>
                 </td>
-                <td className="px-3 py-2 text-sm">
+                <td className="px-3 py-2 text-xs">
                   {r.utaro_guest_count > 0 ? (
-                    <span className="font-medium text-gray-700 dark:text-gray-300">{r.utaro_guest_count}</span>
+                    <div className="space-y-0.5">
+                      {r.utaro_guest_commute_count > 0 && (
+                        <div>
+                          <span className="font-medium text-gray-700 dark:text-gray-300">{r.utaro_guest_commute_count}</span>
+                          <span className="text-gray-400"> commute</span>
+                        </div>
+                      )}
+                      {r.utaro_guest_rental_count > 0 && (
+                        <div>
+                          <span className="font-medium text-gray-700 dark:text-gray-300">{r.utaro_guest_rental_count}</span>
+                          <span className="text-gray-400"> rental</span>
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <span className="text-gray-400">—</span>
                   )}

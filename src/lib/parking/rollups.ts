@@ -67,7 +67,9 @@ export type HouseholdRow = {
   member_count: number;
   eligible: boolean;
   suggested_passes: number;
-  utaro_guest_count: number;
+  utaro_guest_count: number;         // total attending utaro guests
+  utaro_guest_commute_count: number; // non-rental guests (share host's parking pass)
+  utaro_guest_rental_count: number;  // rental guests (have their own pass)
   rahat_count: number;
   wheelchair_count: number;
   senior_count: number;
@@ -118,6 +120,12 @@ export function buildHouseholdRow(
     eligible: attendingCount > 0 && (localMehman === "Local" || (localMehman === "Mehman" && family.transport_mode === "rental")),
     suggested_passes,
     utaro_guest_count: guestFamilies.reduce((sum, g) => sum + g.attendingCount, 0),
+    utaro_guest_commute_count: guestFamilies
+      .filter((g) => g.transport_mode !== "rental")
+      .reduce((sum, g) => sum + g.attendingCount, 0),
+    utaro_guest_rental_count: guestFamilies
+      .filter((g) => g.transport_mode === "rental")
+      .reduce((sum, g) => sum + g.attendingCount, 0),
     rahat_count: attending.filter((m) => m.rahat_seating || m.wheelchair).length,
     wheelchair_count: attending.filter((m) => m.wheelchair).length,
     senior_count: attending.filter((m) => (m.age ?? -1) >= 65).length,
