@@ -1,13 +1,13 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const notifyOnCallSupport = vi.fn();
+const notifyEscalationTeam = vi.fn();
 
 // Mutable inbound-message count the mocked Supabase returns for the gate check.
 let inboundCount = 0;
 
 vi.mock("@/lib/escalation/notify", () => ({
-  notifyOnCallSupport: (...args: unknown[]) => notifyOnCallSupport(...args),
+  notifyEscalationTeam: (...args: unknown[]) => notifyEscalationTeam(...args),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -71,7 +71,7 @@ describe("POST /api/escalations gate", () => {
     const json = await out.json();
     expect(json.status).toBe("escalated");
     expect(json.category).toBe("religious_followup");
-    expect(notifyOnCallSupport).toHaveBeenCalledTimes(1);
+    expect(notifyEscalationTeam).toHaveBeenCalledTimes(1);
   });
 
   it("a non-exempt category is still gated until enough inbound messages", async () => {
@@ -79,7 +79,7 @@ describe("POST /api/escalations gate", () => {
     const out = await POST(req({ reason: "where do I register", category: "registration", priority: "normal" }));
     const json = await out.json();
     expect(json.status).toBe("declined");
-    expect(notifyOnCallSupport).not.toHaveBeenCalled();
+    expect(notifyEscalationTeam).not.toHaveBeenCalled();
   });
 
   it("a non-exempt category escalates once the inbound threshold is met", async () => {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { notifyOnCallSupport } from "@/lib/escalation/notify";
+import { notifyEscalationTeam } from "@/lib/escalation/notify";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 function appBaseUrl(): string {
@@ -102,8 +102,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
   }
 
-  // Notify currently on-call support members by email. Best-effort: a notification
-  // failure must never break the agent's reply, so it's wrapped and swallowed.
+  // Notify escalation team members via email + WhatsApp. Best-effort: a
+  // notification failure must never break the agent's reply.
   try {
     const { data: guest } = await supabase
       .from("whatsapp_users")
@@ -111,14 +111,13 @@ export async function POST(req: NextRequest) {
       .eq("phone_e164", phone)
       .maybeSingle();
 
-    await notifyOnCallSupport({
+    await notifyEscalationTeam({
       guestName: guest?.display_name || phone,
       guestPhone: phone,
       reason: reason || "(no reason provided)",
       priority,
       category,
       conversationUrl: `${appBaseUrl()}/admin/conversations?phone=${encodeURIComponent(phone)}&tab=escalations`,
-      departmentId: escalationDepartmentId,
     });
   } catch (err) {
     console.error("Escalation notification failed:", err);
