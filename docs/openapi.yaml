@@ -1621,7 +1621,7 @@ paths:
       summary: Approved templates + selectable test users for the send console
       description: Admin/leadership only (requireAdminLeadership — admin key + DB-verified role via x-portal-user-id). No phone numbers returned.
       responses:
-        "200": { description: templates[] + selectable_users[] (id + name only). }
+        "200": { description: "templates[] + selectable_users[] (id + name only)." }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
   /api/admin/templates/preview:
@@ -1672,7 +1672,7 @@ paths:
       summary: Broadcast send log with metrics
       description: Admin/leadership only.
       responses:
-        "200": { description: broadcasts[] (most recent first). }
+        "200": { description: "broadcasts[] (most recent first)." }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
   /api/admin/templates/broadcasts/{id}:
