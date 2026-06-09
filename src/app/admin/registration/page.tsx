@@ -1368,6 +1368,10 @@ export default function RegistrationAnalyticsPage() {
                   {top7ArrivalSlots.length === 0 ? (
                     <p className="text-sm text-gray-400">No arrival data yet</p>
                   ) : (
+                    <>
+                      <p className="mb-2 text-xs text-gray-400">
+                        % of {totalMehmanArrivals.toLocaleString()} submitted mehman with arrival dates
+                      </p>
                     <div className="mt-1 space-y-0">
                       {top7ArrivalSlots.map(({ date, time, count }) => {
                         const [, m, day] = date.split("-");
@@ -1390,6 +1394,7 @@ export default function RegistrationAnalyticsPage() {
                         );
                       })}
                     </div>
+                    </>
                   )}
                 </SectionCard>
 
