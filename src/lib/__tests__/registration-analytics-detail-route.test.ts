@@ -119,19 +119,23 @@ describe("GET /api/admin/registration-analytics/detail — registration_status d
     getSupabaseAdmin.mockReturnValue(stubSupabase({ families: STATUS_FAMILIES, mumineen: STATUS_MUMINEEN }));
   });
 
-  it("returns live not_started families for the pending drill (value=pending) with attending headcount", async () => {
+  it("returns pending families with the FULL family size and no status detail", async () => {
     // Regression: the funnel counts not_started as pending, so the pending drill must too.
     const json = await (await GET(req("segment=registration_status&value=pending"))).json();
     expect(json.rows.map((r: { hof_its: string }) => r.hof_its)).toEqual(["900"]);
     expect(json.count).toBe(1);
-    // Family 900 has 2 members, one flagged not_attending → 1 attending.
-    expect(json.rows[0].attending).toBe("1");
+    // Pending family hasn't registered → show full family size (2 members), not attending count.
+    expect(json.rows[0].attending).toBe("2");
+    // No status column for pending families.
+    expect(json.rows[0].detail).toBe("");
   });
 
-  it("returns registered families for the submitted drill (value=submitted) with attending headcount", async () => {
+  it("returns registered families with the attending headcount and a submitted-date detail", async () => {
     const json = await (await GET(req("segment=registration_status&value=submitted"))).json();
     expect(json.rows.map((r: { hof_its: string }) => r.hof_its)).toEqual(["901"]);
     expect(json.count).toBe(1);
+    // Registered family 901 has 1 attending member.
     expect(json.rows[0].attending).toBe("1");
+    expect(json.rows[0].detail).toMatch(/^Submitted/);
   });
 });

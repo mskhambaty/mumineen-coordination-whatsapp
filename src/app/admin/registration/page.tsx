@@ -106,6 +106,7 @@ type DetailRequest = {
   value?: string;
   label: string;
   detailLabel?: string; // column header for the detail field
+  countLabel?: string; // column header for the per-row count field (DetailRow.attending)
 };
 
 // Page sections, in order — each maps to the team(s) it serves.
@@ -208,13 +209,18 @@ function DetailPanel({
     const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
     const withHead = filtered.some((r) => r.head !== undefined);
     const withAttending = filtered.some((r) => r.attending !== undefined);
-    const header = ["Name", "ITS", "Gender", "Age", "Type", "Phone", "Email", req.detailLabel ?? "Details", "HOF ITS"];
+    const withDetail = filtered.some((r) => r.detail);
+    const header = ["Name", "ITS", "Gender", "Age", "Type", "Phone", "Email"];
+    if (withAttending) header.push(req.countLabel ?? "Attending");
+    if (withDetail) header.push(req.detailLabel ?? "Details");
+    header.push("HOF ITS");
     if (withHead) header.push("Head");
-    if (withAttending) header.push("Attending");
     const lines = filtered.map((r) => {
-      const cells = [r.name, r.its, r.gender, r.age, r.local_mehman, r.whatsapp, r.email, r.detail, r.hof_its];
-      if (withHead) cells.push(r.head ?? "");
+      const cells = [r.name, r.its, r.gender, r.age, r.local_mehman, r.whatsapp, r.email];
       if (withAttending) cells.push(r.attending ?? "");
+      if (withDetail) cells.push(r.detail);
+      cells.push(r.hof_its);
+      if (withHead) cells.push(r.head ?? "");
       return cells.map(esc).join(",");
     });
     // Prepend a UTF-8 BOM so Excel (esp. on macOS) renders dashes/non-ASCII correctly instead of mojibake.
@@ -289,9 +295,9 @@ function DetailPanel({
                   {showAge && <th className="px-2 py-2">Age</th>}
                   <th className="px-2 py-2">Type</th>
                   <th className="px-2 py-2">Phone</th>
+                  {showAttending && <th className="px-2 py-2">{req.countLabel ?? "Attending"}</th>}
                   {hasDetail && <th className="px-2 py-2">{req.detailLabel ?? "Details"}</th>}
                   {showHead && <th className="px-2 py-2">Head</th>}
-                  {showAttending && <th className="px-2 py-2">Attending</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -322,6 +328,11 @@ function DetailPanel({
                           <span className="text-gray-300 dark:text-gray-600">—</span>
                         )}
                       </td>
+                      {showAttending && (
+                        <td className={`px-2 py-2 text-xs font-medium ${r.attending === "No" ? "text-red-500 dark:text-red-400" : "text-gray-500"}`}>
+                          {r.attending}
+                        </td>
+                      )}
                       {hasDetail && (
                         <td className="max-w-xs px-2 py-2 text-gray-600 dark:text-gray-400">
                           {r.detail || "—"}
@@ -330,11 +341,6 @@ function DetailPanel({
                       {showHead && (
                         <td className="px-2 py-2 text-xs font-medium text-gray-600 dark:text-gray-400">
                           {r.head || ""}
-                        </td>
-                      )}
-                      {showAttending && (
-                        <td className={`px-2 py-2 text-xs font-medium ${r.attending === "No" ? "text-red-500 dark:text-red-400" : "text-gray-500"}`}>
-                          {r.attending}
                         </td>
                       )}
                     </tr>
@@ -967,12 +973,12 @@ export default function RegistrationAnalyticsPage() {
                     suffix={`${regRate}%`}
                     label="registered"
                     tone="highlight"
-                    onClick={() => drill({ segment: "registration_status", value: "submitted", label: "Registered Families", detailLabel: "Submitted" })}
+                    onClick={() => drill({ segment: "registration_status", value: "submitted", label: "Registered Families", detailLabel: "Submitted", countLabel: "Attending" })}
                   />
                   <Kpi
                     value={summary.pending_families}
                     label="pending submission"
-                    onClick={() => drill({ segment: "registration_status", value: "pending", label: "Pending Families — Not Yet Submitted", detailLabel: "Status" })}
+                    onClick={() => drill({ segment: "registration_status", value: "pending", label: "Pending Families — Not Yet Submitted", countLabel: "Members" })}
                   />
                 </KpiCluster>
                 <KpiCluster label="Mumineen · Registration Funnel">

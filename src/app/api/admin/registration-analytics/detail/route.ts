@@ -226,10 +226,13 @@ export async function GET(req: NextRequest) {
         hofMap.set(m.hof_its, { full_name: m.full_name, whatsapp_e164: m.whatsapp_e164, local_mehman: m.local_mehman });
       }
     }
-    // Attending headcount per family (roster members not flagged not_attending). Surfaced on the
-    // registration_status drill so committee can export attendance per household.
+    // Per-family headcounts for the registration_status drill: attending (members not flagged
+    // not_attending) for registered families, and full family size for pending ones (they haven't
+    // registered, so no attendance is known yet).
     const attendingByHof = new Map<string, number>();
+    const totalByHof = new Map<string, number>();
     for (const m of allHofs) {
+      totalByHof.set(m.hof_its, (totalByHof.get(m.hof_its) ?? 0) + 1);
       if (!m.not_attending) attendingByHof.set(m.hof_its, (attendingByHof.get(m.hof_its) ?? 0) + 1);
     }
 
@@ -280,7 +283,8 @@ export async function GET(req: NextRequest) {
       if (segment === "hotel") detail = f.hotel_name?.trim() ?? "—";
       else if (segment === "acc_type") detail = f.acc_type ?? "—";
       else if (segment === "transport") detail = [f.transport_mode, f.transport_detail].filter(Boolean).join(" — ");
-      else if (segment === "registration_status") detail = f.submitted_at ? `Submitted ${f.submitted_at.slice(0, 10)}` : "Not submitted";
+      // Registered families show their submission date; pending families have no status column.
+      else if (segment === "registration_status") detail = isRegisteredStatus(f.registration_status) ? `Submitted ${f.submitted_at?.slice(0, 10) ?? ""}`.trim() : "";
       else if (segment === "host")
         detail = [f.utaro_host_name?.trim(), f.utaro_host_its?.trim() ? `ITS ${f.utaro_host_its.trim()}` : null]
           .filter(Boolean)
@@ -299,9 +303,12 @@ export async function GET(req: NextRequest) {
         email: "",
         detail,
         hof_its: f.hof_its,
-        // Attending headcount for the family — only on the registration_status (registered/pending)
-        // drill, where committee wants per-household attendance in the export.
-        attending: segment === "registration_status" ? String(attendingByHof.get(f.hof_its) ?? 0) : undefined,
+        // Per-household count for the registration_status drill: attending count for registered
+        // families, full family size for pending (not-yet-registered) families.
+        attending:
+          segment === "registration_status"
+            ? String((isRegisteredStatus(f.registration_status) ? attendingByHof : totalByHof).get(f.hof_its) ?? 0)
+            : undefined,
         // Pass utaro host fields through for the panel to render separately
         utaro_host_name: f.utaro_host_name ?? undefined,
         utaro_host_its: f.utaro_host_its ?? undefined,
