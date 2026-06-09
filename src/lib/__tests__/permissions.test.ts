@@ -7,21 +7,15 @@ describe("canUseTool", () => {
     expect(canUseTool({ role: "visitor", status: "active" }, "get_site_content_faq")).toBe(true);
   });
 
-  it("blocks committee tools for visitors", () => {
-    expect(canUseTool({ role: "visitor", status: "active" }, "lookup_committee_contact")).toBe(
-      false,
-    );
+  it("blocks internal (task) tools for visitors", () => {
+    expect(canUseTool({ role: "visitor", status: "active" }, "get_my_tasks")).toBe(false);
   });
 
-  it("allows committee tools for committee users", () => {
-    expect(canUseTool({ role: "committee", status: "active" }, "lookup_committee_contact")).toBe(
-      true,
-    );
+  it("allows internal (task) tools for committee users", () => {
+    expect(canUseTool({ role: "committee", status: "active" }, "get_my_tasks")).toBe(true);
   });
 
   it("blocks inactive users", () => {
-    expect(canUseTool({ role: "admin", status: "inactive" }, "lookup_committee_contact")).toBe(
-      false,
-    );
+    expect(canUseTool({ role: "admin", status: "inactive" }, "get_my_tasks")).toBe(false);
   });
 });

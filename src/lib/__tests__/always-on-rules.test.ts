@@ -16,4 +16,12 @@ describe("ALWAYS_ON_RULES registry", () => {
     const religious = ALWAYS_ON_RULES.find((r) => r.name === "RELIGIOUS_GUIDANCE_RULE");
     expect(religious?.text).toBe(RELIGIOUS_GUIDANCE_RULE);
   });
+
+  it("includes a Tool Routing rule that maps each question type to its tool", () => {
+    const routing = ALWAYS_ON_RULES.find((r) => r.name === "TOOL_ROUTING_RULE");
+    expect(routing).toBeDefined();
+    for (const tool of ["get_site_content_faq", "answer_religious_questions", "get_lisan_word_meaning"]) {
+      expect(routing?.text).toContain(tool);
+    }
+  });
 });

@@ -106,15 +106,6 @@ All tools are defined in `src/lib/agent/tools.ts`.
 | `move_to_escalation` | **Last resort** — hands the conversation to the human support team. Deterministic guardrails enforced server-side in `/api/escalations` (see [escalation.md](./escalation.md)). |
 | `create_issue` | Logs an external issue the visitor reports (`POST /api/issues` → `tasks` row with `item_type='issue'`, `origin='external'`). Shown on the Kanban with External/Internal badges. |
 
-### Committee Tools (role: `committee` or `admin`)
-
-| Tool | Description |
-|------|-------------|
-| `get_volunteer_assignment` | Volunteer assignment lookup |
-| `lookup_committee_contact` | Internal committee directory |
-| `update_volunteer_status` | Update volunteer status |
-| `create_internal_note` | Create internal note |
-
 ### Task Tools
 
 | Tool | Description |
@@ -132,16 +123,22 @@ All tools are defined in `src/lib/agent/tools.ts`.
 ### Current Status
 
 `get_site_content_faq` returns indexed site content (or `no_indexed_match` when nothing
-clears the similarity threshold). `move_to_escalation` is live and gated server-side. The
-committee tools (`get_volunteer_assignment`, etc.) still return `not_connected` placeholders.
+clears the similarity threshold). `move_to_escalation` is live and gated server-side.
 Task tools are wired to the internal task APIs and are permission-gated by account/department role.
+
+> The unimplemented committee-stub tools (`get_volunteer_assignment`, `lookup_committee_contact`,
+> `update_volunteer_status`, `create_internal_note`) were removed (June 2026) — they were never
+> exposed to the model (not in `allToolDefinitions`) and only returned "not connected" stubs.
 
 ### Always-on rule blocks
 
 Beyond the editable base prompt (`agent_system` in `system_prompts`), `run-agent.ts` appends a
-fixed set of **always-on rule blocks** to every system prompt (Escalation, Greeting, Accuracy,
-Tone, Language, Common Requests, Conversation Flow, Waaz Talaqi, Registration, ITS Helpline,
-Knowledge Gap). They're a single exported registry, `ALWAYS_ON_RULES`, that `runAgent` loops
+fixed set of **always-on rule blocks** to every system prompt (Escalation, Greeting, Tool Routing,
+Accuracy, Tone, Language, Common Requests, Conversation Flow, Waaz Talaqi, Registration, ITS
+Helpline, Knowledge Gap, Meal RSVP). The **Tool Routing** block is a short quick-reference mapping
+each question type to its tool (logistics → `get_site_content_faq`, Waaz/majlis →
+`answer_religious_questions`, single word → `get_lisan_word_meaning`, etc.), read up front before
+the detailed per-tool rules. They're a single exported registry, `ALWAYS_ON_RULES`, that `runAgent` loops
 over — so they can't be edited from the admin UI (only via deploy). The **AI Prompt Management**
 page renders them **read-only** (via `GET /api/admin/prompts/rules`) so admins can see the full
 effective prompt, not just the editable base.

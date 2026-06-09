@@ -17,8 +17,8 @@ const activeApiStatus = {
 
 const indexedSiteStatus = {
   availability: "active",
-  status_label: "Indexed site",
-  status_note: "Backed by the scraped relay site and hotel sheet content in the vector store.",
+  status_label: "Indexed FAQs",
+  status_note: "Backed by curated FAQ docs and per-department FAQ buckets in the site_content vector store.",
 } satisfies Pick<ToolMetadata, "availability" | "status_label" | "status_note">;
 
 const toolMetadata: Record<string, ToolMetadata> = {
@@ -52,34 +52,6 @@ const toolMetadata: Record<string, ToolMetadata> = {
     internal_api: "POST /api/issues",
     audience: "external",
     ...activeApiStatus,
-  },
-  get_volunteer_assignment: {
-    internal_api: "Static response (volunteer system not connected)",
-    audience: "internal",
-    availability: "not_connected",
-    status_label: "Not connected",
-    status_note: "Permission-gated, but the volunteer assignment source is not connected yet.",
-  },
-  lookup_committee_contact: {
-    internal_api: "Static response (directory not connected)",
-    audience: "internal",
-    availability: "not_connected",
-    status_label: "Not connected",
-    status_note: "Permission-gated, but the internal committee directory is not connected yet.",
-  },
-  update_volunteer_status: {
-    internal_api: "Static response (pending integration)",
-    audience: "internal",
-    availability: "not_connected",
-    status_label: "Pending integration",
-    status_note: "Permission-gated and accepts the request shape, but no status storage is connected yet.",
-  },
-  create_internal_note: {
-    internal_api: "Static response (pending integration)",
-    audience: "internal",
-    availability: "not_connected",
-    status_label: "Pending integration",
-    status_note: "Permission-gated and accepts the request shape, but no note storage is connected yet.",
   },
   get_my_tasks: {
     internal_api: "GET /api/tasks or GET /api/tasks/kanban",

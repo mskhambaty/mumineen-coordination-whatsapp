@@ -44,6 +44,20 @@ const GREETING_RULE = `\n\n## Greeting Style — Greet Exactly Once
 - CRITICAL: Look at the message history. If you (the assistant) have ALREADY sent any message earlier in this conversation, you have already greeted — so do NOT greet again. Every later reply must begin DIRECTLY with the substance of your answer.
 - After your first reply, NEVER start a message with any greeting or salaam — no "Salaam", no "Salaam un Jameel", no "Wa Alaikum Salaam", no "Wa Alaikum us Salaam", nothing — even if the user says salaam again or introduces themselves. Just answer.`;
 
+// Always-on quick-reference: which tool answers which kind of question. A short routing map
+// the model reads up front; the detailed per-tool rules (accuracy, religious, meal RSVP, etc.)
+// follow below. Keeps the model from answering from general knowledge or picking the wrong store.
+const TOOL_ROUTING_RULE = `\n\n## Tool Routing — Pick the Right Tool
+Before answering, route the question to the correct tool. Never answer event specifics, religious content, or word meanings from general knowledge.
+- get_site_content_faq → ANY event/logistics question: schedule, venue/directions, parking, hotels/accommodation/utaro, registration/ITS/raza, WiFi, bathrooms, medical/help desk, mawaid/food, dress code, what to bring, lost & found. ALWAYS call it before saying you don't know.
+- answer_religious_questions → anything about the Waaz/Vaaz, a specific majlis, the reflection, al-Dars, Iqtibasaat, or a majlis's Tazyeen/decoration.
+- get_lisan_word_meaning → the meaning of ONE Lisan ud Dawat word or short phrase ("what does X mean", "X ni maana", or a bare word).
+- move_to_escalation → a real active emergency, a frustrated user, a human hand-off, or a Waaz/deen question the reflections can't answer (category 'religious_followup').
+- create_issue → a concrete problem to fix/track (broken facility, maintenance or safety issue).
+- flag_knowledge_gap → silently log any informational question you could NOT answer (in addition to telling the user it's not available yet).
+- get_family_meal_rsvps / set_family_meal_rsvps → read or record a registered family's jaman (meal) RSVP.
+The detailed rules for each tool follow below.`;
+
 // Always-on rule: authentic, sourced information only — never fabricate specifics.
 const ACCURACY_RULE = `\n\n## Accuracy First — Never Hallucinate
 - Authentic, sourced information is the top priority. Only state facts that come from a tool result (get_site_content_faq, web_search) or earlier verified context in this conversation.
@@ -193,6 +207,7 @@ export type AlwaysOnRule = { name: string; label: string; text: string };
 export const ALWAYS_ON_RULES: AlwaysOnRule[] = [
   { name: "ESCALATION_POLICY", label: "Escalation Policy (last resort)", text: ESCALATION_POLICY },
   { name: "GREETING_RULE", label: "Greeting Style — greet exactly once", text: GREETING_RULE },
+  { name: "TOOL_ROUTING_RULE", label: "Tool Routing — which tool for which question", text: TOOL_ROUTING_RULE },
   { name: "ACCURACY_RULE", label: "Accuracy First — never hallucinate", text: ACCURACY_RULE },
   { name: "NO_DEAD_END_RULE", label: "Never Leave the User Without Help", text: NO_DEAD_END_RULE },
   { name: "TONE_RULE", label: "Tone — natural and human", text: TONE_RULE },
@@ -251,8 +266,6 @@ export const SIDE_EFFECT_TOOLS = new Set([
   "create_task",
   "assign_task",
   "update_task_status",
-  "update_volunteer_status",
-  "create_internal_note",
   "flag_knowledge_gap",
   "update_milestone",
 ]);

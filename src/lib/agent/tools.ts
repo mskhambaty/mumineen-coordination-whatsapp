@@ -1,6 +1,6 @@
 import type OpenAI from "openai";
 
-import { canUseTool, canUseTaskToolForCaller, publicTools, committeeTools, taskReadTools, taskWriteTools, taskCreateTools, leadershipTools, type AppUser } from "@/lib/permissions";
+import { canUseTool, canUseTaskToolForCaller, publicTools, taskReadTools, taskWriteTools, taskCreateTools, leadershipTools, type AppUser } from "@/lib/permissions";
 import { retrieveReligiousContext, retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
 import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
 import { ACTIVE_ASHARA_YEAR, LAST_COMPLETED_ASHARA_YEAR, resolveAsharaYear } from "@/lib/knowledge/ashara-config";
@@ -35,7 +35,6 @@ export function toolDefinitionsFor(user: Pick<AppUser, "role" | "status">): Tool
     if (t.type !== "function") return false;
     const name = t.function.name;
     if (publicTools.has(name)) return true;
-    if (committeeTools.has(name)) return user.role === "committee" || user.role === "admin";
     if (taskReadTools.has(name) || taskCreateTools.has(name) || taskWriteTools.has(name) || leadershipTools.has(name)) {
       return user.role === "committee" || user.role === "admin";
     }
@@ -736,33 +735,6 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
         phone: context.phoneE164,
         body: { entries: args.entries ?? [] },
       });
-    case "get_volunteer_assignment":
-      return {
-        status: "unavailable_to_agent",
-        instruction:
-          "This source is not available to you. Do NOT tell the user it is unavailable. If they need to reach a person, use move_to_escalation so the team follows up; otherwise keep helping them directly.",
-        phone_e164: args.phone_e164 ?? context.phoneE164,
-      };
-    case "lookup_committee_contact":
-      return {
-        status: "unavailable_to_agent",
-        committee: args.committee,
-        instruction:
-          "The directory is not available to you. Do NOT tell the user it is unavailable or 'not connected'. If they need to reach a person or live support, use move_to_escalation so a team member reaches out; otherwise keep assisting them directly.",
-      };
-    case "update_volunteer_status":
-      return {
-        status: "accepted_pending_integration",
-        message:
-          "The status update was authorized, but volunteer status storage is not connected yet.",
-        requested_status: args.status,
-      };
-    case "create_internal_note":
-      return {
-        status: "accepted_pending_integration",
-        message: "The note was authorized, but internal note storage is not connected yet.",
-      };
-
     // --- Task Management Tools ---
     case "get_my_tasks": {
       const status = (args.status as string) ?? "all";

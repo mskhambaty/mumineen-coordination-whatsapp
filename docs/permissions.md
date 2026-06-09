@@ -36,20 +36,22 @@ Possible status values: `active` (default), `inactive`.
 
 ## Tool Access Matrix
 
+Public tools (the `publicTools` set in `src/lib/permissions.ts`) are available to every role:
+
 | Tool | visitor | committee | admin |
 |------|---------|-----------|-------|
-| `get_event_schedule` | ✅ | ✅ | ✅ |
-| `get_parking_info` | ✅ | ✅ | ✅ |
-| `get_directions` | ✅ | ✅ | ✅ |
-| `get_faq_answer` | ✅ | ✅ | ✅ |
-| `get_lost_found_info` | ✅ | ✅ | ✅ |
+| `get_site_content_faq` | ✅ | ✅ | ✅ |
 | `answer_religious_questions` | ✅ | ✅ | ✅ |
-| `get_volunteer_assignment` | ❌ | ✅ | ✅ |
-| `lookup_committee_contact` | ❌ | ✅ | ✅ |
-| `update_volunteer_status` | ❌ | ✅ | ✅ |
-| `create_internal_note` | ❌ | ✅ | ✅ |
+| `get_lisan_word_meaning` | ✅ | ✅ | ✅ |
+| `move_to_escalation` | ✅ | ✅ | ✅ |
+| `create_issue` | ✅ | ✅ | ✅ |
+| `flag_knowledge_gap` | ✅ | ✅ | ✅ |
+| `get_family_meal_rsvps` | ✅ | ✅ | ✅ |
+| `set_family_meal_rsvps` | ✅ | ✅ | ✅ |
 
-Task tools first require `committee` or `admin` in the WhatsApp tool layer, then apply department role/global access:
+There are no committee-only agent tools (the unimplemented volunteer/committee/note stubs were
+removed in June 2026). Internal capability for committee/admin is the task tools below, which
+first require `committee` or `admin` in the WhatsApp tool layer, then apply department role/global access:
 
 | Tool | member | pm | hod | leadership_admin |
 |------|--------|----|-----|------------------|

@@ -22,13 +22,6 @@ export const publicTools = new Set([
   "set_family_meal_rsvps",
 ]);
 
-export const committeeTools = new Set([
-  "get_volunteer_assignment",
-  "lookup_committee_contact",
-  "update_volunteer_status",
-  "create_internal_note",
-]);
-
 /** Task tools accessible to all authenticated users */
 export const taskReadTools = new Set([
   "get_my_tasks",
@@ -63,10 +56,6 @@ export function canUseTool(user: Pick<AppUser, "role" | "status">, toolName: str
 
   if (publicTools.has(toolName)) {
     return true;
-  }
-
-  if (committeeTools.has(toolName)) {
-    return user.role === "committee" || user.role === "admin";
   }
 
   // Task tools are handled separately via canUseTaskTool
