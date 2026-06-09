@@ -161,12 +161,23 @@ export async function suggestBestAllocation(opts?: ScoringOptions): Promise<Allo
 
   const unmatchedGuests = guests.filter((g) => g.current_match_status == null && g.attending_count > 0);
 
-  // Sort: elders first (families with 65+ member), then smallest families for bin-packing
+  // Priority tiers: elders (65+) → single women → families with infants (<2) → rest
+  // Within each tier, sort smallest families first for bin-packing
   const hasElder = (g: GuestRow) => g.ages.split(", ").some((a) => parseInt(a) >= 65);
+  const isSingleWoman = (g: GuestRow) => g.attending_count === 1 && g.female_count === 1 && g.male_count === 0;
+  const hasInfant = (g: GuestRow) => g.ages.split(", ").some((a) => { const n = parseInt(a); return !isNaN(n) && n < 2; });
+
+  const priorityTier = (g: GuestRow): number => {
+    if (hasElder(g)) return 0;
+    if (isSingleWoman(g)) return 1;
+    if (hasInfant(g)) return 2;
+    return 3;
+  };
+
   const sortedGuests = [...unmatchedGuests].sort((a, b) => {
-    const aElder = hasElder(a) ? 0 : 1;
-    const bElder = hasElder(b) ? 0 : 1;
-    if (aElder !== bElder) return aElder - bElder;
+    const aTier = priorityTier(a);
+    const bTier = priorityTier(b);
+    if (aTier !== bTier) return aTier - bTier;
     return a.attending_count - b.attending_count;
   });
 

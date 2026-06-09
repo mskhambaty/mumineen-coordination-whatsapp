@@ -1007,7 +1007,11 @@ export default function AccommodationsPage() {
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Guest Family</label>
                   <select name="manualGuest" className="border dark:border-gray-600 rounded px-2 py-1.5 text-sm dark:bg-gray-800 min-w-[200px]" required>
                     <option value="">— Select guest —</option>
-                    {guests.filter((g) => !g.current_match_status).map((g) => (
+                    {[...guests.filter((g) => !g.current_match_status)].sort((a, b) => {
+                      const aLast = (a.head_name ?? "").split(" ").pop() ?? "";
+                      const bLast = (b.head_name ?? "").split(" ").pop() ?? "";
+                      return aLast.localeCompare(bLast);
+                    }).map((g) => (
                       <option key={g.family_id} value={g.family_id}>
                         {g.head_name ?? g.hof_its} ({g.attending_count} attending)
                       </option>
@@ -1018,7 +1022,11 @@ export default function AccommodationsPage() {
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Host</label>
                   <select name="manualHost" className="border dark:border-gray-600 rounded px-2 py-1.5 text-sm dark:bg-gray-800 min-w-[200px]" required>
                     <option value="">— Select host —</option>
-                    {hosts.filter((h) => h.remaining_capacity > 0).map((h) => (
+                    {[...hosts.filter((h) => h.remaining_capacity > 0)].sort((a, b) => {
+                      const aLast = a.display_name.split(" ").pop() ?? "";
+                      const bLast = b.display_name.split(" ").pop() ?? "";
+                      return aLast.localeCompare(bLast);
+                    }).map((h) => (
                       <option key={h.id} value={h.id}>
                         {h.display_name} (cap: {h.remaining_capacity})
                       </option>
