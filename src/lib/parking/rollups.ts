@@ -40,6 +40,7 @@ export type RollupMember = {
   category: string | null;
   rahat_seating: boolean;
   wheelchair: boolean;
+  not_attending: boolean | null;
 };
 
 export type PassInfo = {
@@ -76,6 +77,10 @@ export function buildHouseholdRow(
 ): HouseholdRow {
   const head = members.find((m) => m.is_head) ?? members[0] ?? null;
   const localMehman = head?.local_mehman ?? null;
+  // All rollups are scoped to attending members only — non-attending members
+  // take no parking spot and should not influence eligibility or criteria flags.
+  const attending = members.filter((m) => !m.not_attending);
+  const attendingCount = attending.length;
   return {
     family_id: family.id,
     hof_its: family.hof_its,
@@ -83,17 +88,17 @@ export function buildHouseholdRow(
     phone: head?.whatsapp_e164 ?? members.find((m) => m.whatsapp_e164)?.whatsapp_e164 ?? null,
     local_mehman: localMehman,
     transport_mode: family.transport_mode,
-    member_count: members.length,
-    // Default pass rule: every local household; mehman only if they rented a car.
-    eligible: localMehman === "Local" || (localMehman === "Mehman" && family.transport_mode === "rental"),
-    rahat_count: members.filter((m) => m.rahat_seating || m.wheelchair).length,
-    wheelchair_count: members.filter((m) => m.wheelchair).length,
-    senior_count: members.filter((m) => (m.age ?? -1) >= 65).length,
+    member_count: attendingCount,
+    // Default pass rule: local household with ≥1 attending member; mehman only if they rented a car.
+    eligible: attendingCount > 0 && (localMehman === "Local" || (localMehman === "Mehman" && family.transport_mode === "rental")),
+    rahat_count: attending.filter((m) => m.rahat_seating || m.wheelchair).length,
+    wheelchair_count: attending.filter((m) => m.wheelchair).length,
+    senior_count: attending.filter((m) => (m.age ?? -1) >= 65).length,
     // Null ages count as "not 65+" so incomplete data never inflates this whole-household flag.
-    all_65_plus: members.length > 0 && members.every((m) => (m.age ?? -1) >= 65),
-    all_rahat: members.length > 0 && members.every((m) => m.rahat_seating || m.wheelchair),
-    categories: [...new Set(members.map((m) => m.category).filter((c): c is string => Boolean(c)))],
-    kids_under_7: members.filter((m) => m.age !== null && m.age < 7).length,
+    all_65_plus: attendingCount > 0 && attending.every((m) => (m.age ?? -1) >= 65),
+    all_rahat: attendingCount > 0 && attending.every((m) => m.rahat_seating || m.wheelchair),
+    categories: [...new Set(attending.map((m) => m.category).filter((c): c is string => Boolean(c)))],
+    kids_under_7: attending.filter((m) => m.age !== null && m.age < 7).length,
     passes,
   };
 }

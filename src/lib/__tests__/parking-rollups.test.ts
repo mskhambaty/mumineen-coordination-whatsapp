@@ -24,6 +24,7 @@ function member(overrides: Partial<RollupMember> = {}): RollupMember {
     category: null,
     rahat_seating: false,
     wheelchair: false,
+    not_attending: false,
     ...overrides,
   };
 }
@@ -50,6 +51,28 @@ describe("buildHouseholdRow", () => {
   it("marks local households eligible regardless of transport mode", () => {
     const row = buildHouseholdRow(family, [member({ is_head: true, local_mehman: "Local" })], []);
     expect(row.eligible).toBe(true);
+  });
+
+  it("marks a local household ineligible when all members are not attending", () => {
+    const row = buildHouseholdRow(family, [
+      member({ is_head: true, local_mehman: "Local", not_attending: true }),
+      member({ local_mehman: "Local", not_attending: true }),
+    ], []);
+    expect(row.eligible).toBe(false);
+    expect(row.member_count).toBe(0);
+  });
+
+  it("excludes not-attending members from rahat, senior, and kids counts", () => {
+    const row = buildHouseholdRow(family, [
+      member({ is_head: true, rahat_seating: true, not_attending: true }),
+      member({ age: 70, not_attending: true }),
+      member({ age: 5, not_attending: true }),
+      member({ rahat_seating: true }),
+    ], []);
+    expect(row.rahat_count).toBe(1);
+    expect(row.senior_count).toBe(0);
+    expect(row.kids_under_7).toBe(0);
+    expect(row.member_count).toBe(1);
   });
 
   it("marks mehman households eligible only with a rental car", () => {

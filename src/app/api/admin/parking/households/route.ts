@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
     fetchAll<RollupMember>((from, to) =>
       supabase
         .from("mumineen")
-        .select("hof_its, is_head, full_name, whatsapp_e164, local_mehman, age, category, rahat_seating, wheelchair")
+        .select("hof_its, is_head, full_name, whatsapp_e164, local_mehman, age, category, rahat_seating, wheelchair, not_attending")
         .eq("roster_active", true)
         .order("its")
         .range(from, to),
