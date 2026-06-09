@@ -547,6 +547,63 @@ function VBars({
   );
 }
 
+function DateTimeBars({
+  data,
+  color = "bg-blue-500",
+  height = 80,
+}: {
+  data: { date: string; time: string; count: number }[];
+  color?: string;
+  height?: number;
+}) {
+  if (data.length === 0)
+    return <p className="py-6 text-center text-sm text-gray-400">No data yet</p>;
+  const max = Math.max(...data.map((d) => d.count), 1);
+  const fmtTime = (t: string) => {
+    if (!t) return "?";
+    const h = parseInt(t.slice(0, 2), 10);
+    return h === 0 ? "12AM" : h < 12 ? `${h}AM` : h === 12 ? "12PM" : `${h - 12}PM`;
+  };
+  const fmtDate = (d: string) => {
+    const [, m, day] = d.split("-");
+    return `${parseInt(m)}/${parseInt(day)}`;
+  };
+  return (
+    <div className="mt-3 overflow-x-auto">
+      <div className="flex min-w-0 items-end gap-0" style={{ height: `${height + 36}px` }}>
+        {data.map((d, i) => {
+          const isNewDate = i === 0 || data[i - 1].date !== d.date;
+          return (
+            <div key={`${d.date}|${d.time}`} className="flex items-end">
+              {isNewDate && i > 0 && <div className="w-3" />}
+              <div
+                className="group relative flex flex-col items-center justify-end"
+                style={{ height: `${height + 36}px`, width: "36px" }}
+              >
+                <div
+                  className={`w-full min-h-[2px] ${color} rounded-t-sm opacity-75 transition-opacity group-hover:opacity-100`}
+                  style={{ height: `${(d.count / max) * height}px` }}
+                />
+                <div className="pointer-events-none absolute bottom-full mb-1 hidden rounded bg-gray-800 px-2 py-1 text-xs text-white group-hover:block whitespace-nowrap">
+                  {fmtDate(d.date)} {d.time ? fmtTime(d.time) : "?"}: {d.count}
+                </div>
+                <span className="mt-0.5 text-[9px] text-gray-400 leading-none text-center">
+                  {fmtTime(d.time)}
+                </span>
+                {isNewDate && (
+                  <span className="text-[8px] text-gray-500 leading-none text-center mt-0.5">
+                    {fmtDate(d.date)}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function SectionCard({
   title,
   children,
@@ -1309,37 +1366,7 @@ export default function RegistrationAnalyticsPage() {
                         }
                       />
                       {data.arrivals_by_datetime.length > 0 && (
-                        <div className="mt-3 overflow-x-auto">
-                          <table className="min-w-full text-xs">
-                            <thead>
-                              <tr className="border-b border-gray-100 text-left text-gray-400">
-                                <th className="pb-1 pr-4 font-medium">Date</th>
-                                <th className="pb-1 pr-4 font-medium">Time</th>
-                                <th className="pb-1 text-right font-medium">Count</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {data.arrivals_by_datetime.map(({ date, time, count }, i) => {
-                                const prevDate = i > 0 ? data.arrivals_by_datetime[i - 1].date : null;
-                                return (
-                                  <tr key={`${date}|${time}`} className="border-b border-gray-50">
-                                    <td className="py-1 pr-4 text-gray-500">
-                                      {date !== prevDate ? date : ""}
-                                    </td>
-                                    <td className="py-1 pr-4 text-gray-700">
-                                      {time ? (
-                                        new Date(`1970-01-01T${time}:00`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
-                                      ) : (
-                                        <span className="italic text-gray-400">Time not set</span>
-                                      )}
-                                    </td>
-                                    <td className="py-1 text-right font-medium text-gray-700">{count}</td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
+                        <DateTimeBars data={data.arrivals_by_datetime} color="bg-blue-400" height={80} />
                       )}
                     </>
                   )}
