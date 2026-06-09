@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import React, { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
-import { canViewRegistrations } from "@/lib/admin/access";
+import { canViewRegistrations, isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -731,6 +731,10 @@ export default function RegistrationAnalyticsPage() {
 
   const [filters, setFilters] = useState<Filters>({ local_mehman: "", status: "", attending: "" });
   const [detail, setDetail] = useState<DetailRequest | null>(null);
+  // KPI counts are open to every portal user; the per-person drill-down + CSV
+  // export (ITS/name/phone/email) is admin/leadership only — matched by the
+  // GET /api/admin/registration-analytics/detail gate.
+  const [canDrill] = useState(() => isAdminOrLeadership(readAdminUser()));
   const [activeSection, setActiveSection] = useState("overview");
 
   // Section-level local filters
@@ -768,7 +772,7 @@ export default function RegistrationAnalyticsPage() {
     void load(next);
   };
 
-  const drill = (req: DetailRequest) => setDetail(req);
+  const drill = (req: DetailRequest) => { if (canDrill) setDetail(req); };
 
   useEffect(() => {
     const user = readAdminUser();
@@ -859,7 +863,7 @@ export default function RegistrationAnalyticsPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Registration Analytics</h1>
             <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
-              Live snapshot · click any bar or card to see individual records.
+              Live snapshot{canDrill ? " · click any bar or card to see individual records" : " · individual records & CSV export are admin/leadership only"}.
               {data?.generated_at && <span className="ml-2 text-gray-400">Updated {fmtDate(data.generated_at)}</span>}
             </p>
           </div>
