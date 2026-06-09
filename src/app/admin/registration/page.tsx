@@ -836,7 +836,7 @@ export default function RegistrationAnalyticsPage() {
     : 0;
   const airportTotal = data ? data.airports.ORD + data.airports.MDW + data.airports.not_set : 0;
   const top7ArrivalSlots = data
-    ? [...data.arrivals_by_datetime].sort((a, b) => b.count - a.count)
+    ? [...data.arrivals_by_datetime].sort((a, b) => b.count - a.count).slice(0, 10)
     : [];
   const totalMehmanArrivals = data
     ? data.arrivals_by_datetime.reduce((sum, d) => sum + d.count, 0)
