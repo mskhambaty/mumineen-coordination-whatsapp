@@ -41,6 +41,9 @@ type GuestRow = {
   has_special_needs: boolean;
   submitted_at: string | null;
   hotel_name: string | null;
+  phone: string | null;
+  email: string | null;
+  arrival_at: string | null;
   current_match_status: string | null;
 };
 
@@ -408,6 +411,9 @@ export default function AccommodationsPage() {
       Female: g.female_count,
       Ages: g.ages,
       Wheelchair: g.has_wheelchair ? "Yes" : "No",
+      Phone: g.phone ?? "",
+      Email: g.email ?? "",
+      Arrival: g.arrival_at ? new Date(g.arrival_at).toLocaleDateString() : "",
       Hotel: g.hotel_name ?? "",
       Submitted: g.submitted_at ?? "",
       Status: g.current_match_status ?? "unmatched",
@@ -607,6 +613,9 @@ export default function AccommodationsPage() {
                   <th className="p-2">M/F</th>
                   <th className="p-2">Ages</th>
                   <th className="p-2">Wheelchair</th>
+                  <th className="p-2">Phone</th>
+                  <th className="p-2">Email</th>
+                  <th className="p-2">Arrival</th>
                   <th className="p-2">Hotel</th>
                   <th className="p-2">Submitted</th>
                   <th className="p-2">Status</th>
@@ -626,6 +635,9 @@ export default function AccommodationsPage() {
                     <td className="p-2 text-center">{g.male_count}M/{g.female_count}F</td>
                     <td className="p-2 text-xs">{g.ages || "—"}</td>
                     <td className="p-2 text-center">{g.has_wheelchair ? "♿" : ""}</td>
+                    <td className="p-2 text-xs">{g.phone ?? "—"}</td>
+                    <td className="p-2 text-xs">{g.email ?? "—"}</td>
+                    <td className="p-2 text-xs">{g.arrival_at ? new Date(g.arrival_at).toLocaleDateString() : "—"}</td>
                     <td className="p-2">{g.hotel_name ?? "—"}</td>
                     <td className="p-2 text-xs">{g.submitted_at ? new Date(g.submitted_at).toLocaleDateString() : "—"}</td>
                     <td className="p-2">

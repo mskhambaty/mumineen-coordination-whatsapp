@@ -19,6 +19,9 @@ export type GuestRow = {
   hotel_name: string | null;
   hotel_lat: number | null;
   hotel_lon: number | null;
+  phone: string | null;
+  email: string | null;
+  arrival_at: string | null;
   current_match_status: string | null;
 };
 
@@ -109,6 +112,9 @@ type MuminDbRow = {
   wheelchair: boolean;
   special_needs: string | null;
   not_attending: boolean | null;
+  whatsapp_e164: string | null;
+  email: string | null;
+  arrival_at: string | null;
 };
 
 /**
@@ -137,7 +143,7 @@ export async function buildGuestRollups(): Promise<GuestRow[]> {
   const allMembers = await fetchAll<MuminDbRow>((from, to) =>
     supabase
       .from("mumineen")
-      .select("hof_its, full_name, gender, age, is_head, wheelchair, special_needs, not_attending")
+      .select("hof_its, full_name, gender, age, is_head, wheelchair, special_needs, not_attending, whatsapp_e164, email, arrival_at")
       .eq("roster_active", true)
       .in("hof_its", hofItsList)
       .range(from, to),
@@ -195,6 +201,9 @@ export async function buildGuestRollups(): Promise<GuestRow[]> {
       hotel_name: f.hotel_name,
       hotel_lat: f.hotel_lat ?? null,
       hotel_lon: f.hotel_lon ?? null,
+      phone: head?.whatsapp_e164 ?? members.find((m) => m.whatsapp_e164)?.whatsapp_e164 ?? null,
+      email: head?.email ?? members.find((m) => m.email)?.email ?? null,
+      arrival_at: head?.arrival_at ?? members.find((m) => m.arrival_at)?.arrival_at ?? null,
       current_match_status: matchByFamily.get(f.id) ?? null,
     };
   });
