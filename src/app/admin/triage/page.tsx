@@ -147,6 +147,46 @@ export default function TriagePage() {
     return [...cats].sort();
   }, [boardData.tickets]);
 
+  // Compute stats from the FILTERED ticket set so they match the board.
+  // avg_pickup_minutes and resolved_today_count come from the server (need DB).
+  const filteredStats = useMemo(() => {
+    const activeStages = new Set(["pending", "picked_up", "waiting_on_department"]);
+
+    // Apply the same filter logic the KanbanBoard uses
+    let filtered = boardData.tickets.filter((t) => activeStages.has(t.escalation_stage));
+
+    if (filters.priority !== "all") {
+      filtered = filtered.filter((t) => t.escalation_priority === filters.priority);
+    }
+    if (filters.category !== "all") {
+      filtered = filtered.filter((t) => t.escalation_category === filters.category);
+    }
+
+    // Assignee filter only applies to picked_up / waiting columns
+    const pendingTickets = filtered.filter((t) => t.escalation_stage === "pending");
+    let assignedTickets = filtered.filter((t) => t.escalation_stage !== "pending");
+    if (filters.assignee !== "all") {
+      if (filters.assignee === "unassigned") {
+        assignedTickets = assignedTickets.filter((t) => !t.escalation_assigned_to);
+      } else {
+        assignedTickets = assignedTickets.filter((t) => t.escalation_assigned_to === filters.assignee);
+      }
+    }
+
+    const visibleTickets = [...pendingTickets, ...assignedTickets];
+    const now = Date.now();
+
+    return {
+      open_count: visibleTickets.length,
+      pending_count: pendingTickets.length,
+      breaching_count: visibleTickets.filter(
+        (t) => t.escalation_sla_deadline && new Date(t.escalation_sla_deadline).getTime() < now,
+      ).length,
+      avg_pickup_minutes: boardData.sla_stats.avg_pickup_minutes,
+      resolved_today_count: boardData.sla_stats.resolved_today_count,
+    };
+  }, [boardData.tickets, boardData.sla_stats, filters]);
+
   // ── Event handlers ────────────────────────────────────────────────────────
 
   const handleFiltersChange = useCallback((next: Filters) => {
@@ -214,7 +254,7 @@ export default function TriagePage() {
   return (
     <main className="triage-desk flex h-[calc(100vh-4rem)] flex-col">
       <SLADashboardStrip
-        stats={boardData.sla_stats}
+        stats={filteredStats}
         onStatClick={handleStatClick}
       />
       <FilterBar
