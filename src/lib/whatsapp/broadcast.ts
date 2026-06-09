@@ -1,4 +1,4 @@
-import { previewAudience, utilityMessageCostUsd, type AudienceKey } from "@/lib/whatsapp/audience";
+import { getInWindowPhones, previewAudience, utilityMessageCostUsd, type AudienceKey, type Recipient } from "@/lib/whatsapp/audience";
 import type { RuleGroup } from "@/lib/whatsapp/audience-filter";
 import { resolveApprovedTemplate, sendTemplateNotification } from "@/lib/whatsapp/send-template";
 import { resolveBindings, type SendComponentInputs, type VariableBindings } from "@/lib/whatsapp/templates";
@@ -17,11 +17,16 @@ const DEFAULT_BATCH_SIZE = 150; // per drain invocation; ~4k recipients clear in
 export type CreateBroadcastInput = {
   templateCode: string;
   templateLanguage?: string;
-  audienceKey: AudienceKey;
+  audienceKey?: AudienceKey; // omit when passing an explicit `recipients` list
   selectedUserIds?: string[];
   rules?: RuleGroup; // for the "custom" audience
   variableBindings?: VariableBindings;
   triggeredByUserId?: string | null;
+  // Explicit recipient list (e.g. the Niyaz RSVP send). When provided, audience resolution is
+  // skipped and these are used directly. `audienceKey` is then just the label stored on the row.
+  recipients?: Recipient[];
+  // Per-send quick-reply button payloads, frozen onto every recipient (e.g. RSVP buttons).
+  quickReplyButtons?: { index: number; payload: string }[];
 };
 
 export type CreateBroadcastResult = { broadcastId: string; total: number; free: number; paid: number; skipped: number; estCostUsd: number };
@@ -54,19 +59,29 @@ export async function createBroadcast(input: CreateBroadcastInput): Promise<Crea
     return { error: "Missing binding for the URL button value." };
   }
 
-  const preview = await previewAudience(input.audienceKey, input.selectedUserIds ?? [], input.rules);
-  if (preview.total === 0) return { error: "No recipients in the selected audience." };
+  // Recipients: an explicit list (Niyaz RSVP send) or a resolved audience. Both carry an inWindow flag.
+  let recipients: (Recipient & { inWindow: boolean })[];
+  if (input.recipients) {
+    const inWindow = await getInWindowPhones();
+    recipients = input.recipients.map((r) => ({ ...r, inWindow: inWindow.has(r.phone) }));
+  } else {
+    if (!input.audienceKey) return { error: "No audience specified." };
+    const preview = await previewAudience(input.audienceKey, input.selectedUserIds ?? [], input.rules);
+    recipients = preview.recipients;
+  }
+  if (recipients.length === 0) return { error: "No recipients in the selected audience." };
 
   // Resolve each recipient's params now; recipients missing a mapped field are marked skipped.
   type Row = { family_id: string | null; phone_e164: string; was_in_window: boolean; send_status: "queued" | "skipped"; skip_reason: string | null; body_params: SendComponentInputs | null };
   const prelim: Row[] = [];
   let skipped = 0, free = 0, paid = 0;
-  for (const r of preview.recipients) {
+  for (const r of recipients) {
     const { inputs, skipReason } = resolveBindings(desc, bindings, r.fields ?? {});
     if (skipReason) {
       skipped += 1;
       prelim.push({ family_id: r.familyId, phone_e164: r.phone, was_in_window: r.inWindow, send_status: "skipped", skip_reason: skipReason, body_params: null });
     } else {
+      if (input.quickReplyButtons) inputs.quickReplyButtons = input.quickReplyButtons;
       if (r.inWindow) free += 1; else paid += 1;
       prelim.push({ family_id: r.familyId, phone_e164: r.phone, was_in_window: r.inWindow, send_status: "queued", skip_reason: null, body_params: inputs });
     }
@@ -78,12 +93,12 @@ export async function createBroadcast(input: CreateBroadcastInput): Promise<Crea
     .insert({
       template_code: input.templateCode,
       template_language: input.templateLanguage ?? desc.language ?? "en_US",
-      audience_key: input.audienceKey,
+      audience_key: input.audienceKey ?? "niyaz_rsvp",
       audience_rules: input.rules ?? null,
       variable_bindings: input.variableBindings ?? null,
       triggered_by_user_id: input.triggeredByUserId ?? null,
       status: "running",
-      total_recipients: preview.total,
+      total_recipients: recipients.length,
       count_free: free,
       count_paid: paid,
       count_excluded: 0,
@@ -101,7 +116,7 @@ export async function createBroadcast(input: CreateBroadcastInput): Promise<Crea
     if (insErr) return { error: insErr.message };
   }
 
-  return { broadcastId: broadcast.id, total: preview.total, free, paid, skipped, estCostUsd };
+  return { broadcastId: broadcast.id, total: recipients.length, free, paid, skipped, estCostUsd };
 }
 
 export type DrainResult = { processed: number; broadcastsTouched: number };

@@ -4,10 +4,11 @@ One system across three concerns for the days of Ashara: capturing jaman (meal) 
 experience feedback over WhatsApp, rolling them up into a nightly per-department briefing, and a
 manual console for broadcasting approved templates.
 
-## 1. Niyaz RSVP (jaman) — per-mumin, defaulted from arrival
+## 1. Niyaz RSVP (jaman) — per-mumin
 
-RSVP is tracked **per mumin per event** in `niyaz_rsvp`, pre-populated for everyone so the kitchen
-has accurate counts without waiting for replies.
+RSVP is tracked **per mumin per event** in `niyaz_rsvp`, collected day-by-day via WhatsApp button
+templates (§1a). (It was initially defaulted from arrival dates; that's been retired — see the
+default-rule note below.)
 
 - **Events** live in `rsvp_registration_instance` (`meal` `lunch`|`dinner`, `event_date`,
   `serving_type` `thaal`|`packet`, unique `(event_date, meal)`). Ashara 1448H = **20 events**: a
@@ -16,11 +17,11 @@ has accurate counts without waiting for replies.
 - **`niyaz_rsvp`** (`20260608131000_*`): one row per `(registration_instance_id, mumin_id)` with
   `attending boolean`, `family_id`, and `source` (`default`|`registration`|`whatsapp`|`admin`). RLS
   on, service-role access only. `rsvp_responses` is retired (left empty) for the meal flow.
-- **Default rule** (calendar date, America/Chicago): `not_attending` ⇒ No; no `arrival_at` ⇒ Yes;
-  else Yes when `event_date ≥ arrival date`. Applied by the backfill (`20260608132000_*`, all
-  registered active mumineen) and the SQL function **`seed_family_niyaz_rsvp(family)`**, which the
-  registration submit/edit calls (`src/app/api/register/route.ts`) — it recomputes only
-  `default`/`registration` rows, never clobbering a `whatsapp`/`admin` override.
+- **Arrival-date defaulting (retired).** Originally the table was seeded from arrival dates
+  (backfill `20260608132000_*` + the `seed_family_niyaz_rsvp(family)` function, called on
+  registration). This is **no longer used** — the data was reset and the registration call removed —
+  so the counts reflect only real button/agent responses. The function + backfill migration remain as
+  history but nothing invokes them.
 - **Adult/kid/family + thaal counts** come from the **`niyaz_event_tallies`** view
   (`20260608133000_*`): per event, yes/no split by `mumineen.is_adult` (null = adult) and by family,
   plus `thaal_count = ceil(attending heads / 8)`.
@@ -33,6 +34,26 @@ family). Agent tools: `get_family_meal_rsvps`, `set_family_meal_rsvps` (public; 
 records *changes* — guidance in `MEAL_RSVP_FEEDBACK_RULE`). Admin: `/admin/niyaz` shows the events
 sorted by date with the eight count columns + thaal count, backed by
 `GET /api/admin/niyaz/instances` (reads the tallies view).
+
+### 1a. Daily button RSVP (individual + family)
+
+RSVP is collected day-by-day via WhatsApp templates with **quick-reply buttons** (Both meals / Lunch
+only / Dinner only / Not attending). An admin opens an event on `/admin/niyaz` and **sends** the
+template from a composer: pick an **audience** (Specific ITS (test) / All mumineen / All HOF / All
+adults), an optional **"only those who haven't responded"** filter, a **level** (Individual = records
+the responder; Family = records the whole family), and an approved **template**. The send goes through
+the broadcast queue (`POST /api/admin/niyaz/instances/[id]/broadcast` →
+`resolveNiyazAudience` + `buildNiyazSend` → `createBroadcast` with explicit `recipients` +
+`quickReplyButtons`); a `GET` on the same route previews the recipient count.
+
+Each button's payload is stamped at send time as **`niyaz|<level>|<scope>|<date>`**
+(`level ∈ ind|fam`, `scope ∈ both|lunch|dinner|none`). When a mumin taps, the webhook
+(`src/app/api/whatsapp/webhook/route.ts`) reads `buttonPayload` (`src/lib/whatsapp/parser.ts`),
+resolves the **family/mumin from the sender's phone** (`resolveFamilyForPhone`), records via
+`recordNiyazButtonResponse` (`ind` → that mumin; `fam` → whole family, both into `niyaz_rsvp` with
+`source='whatsapp'`), sends a **confirmation**, and skips the agent. The per-event detail panel lists
+the recorded responses (`GET /api/admin/niyaz/instances/[id]/responses`, reads `niyaz_rsvp`).
+Outbound quick-reply payloads are emitted by `buildSendComponents` (`src/lib/whatsapp/templates.ts`).
 
 ## 2. Feedback
 

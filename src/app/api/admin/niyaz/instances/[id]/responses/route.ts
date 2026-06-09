@@ -6,61 +6,56 @@ import { requirePortalCaller } from "@/lib/api/portal-auth";
 
 export const runtime = "nodejs";
 
-// Shape returned to the admin table: the latest submission per family for this instance.
+// Shape returned to the admin event-detail table: one per-mumin RSVP row for this event.
 type ResponseRow = {
   id: string;
-  family_id: string;
-  submitted_by_mumin_id: string | null;
-  response: string | null;
-  head_count: number | null;
-  responded_by_phone: string | null;
+  mumin_id: string;
+  family_id: string | null;
+  attending: boolean;
   source: string;
+  responded_by_phone: string | null;
   recorded_by: string | null;
-  submitted_at: string;
-  created_at: string;
+  updated_at: string;
+  mumin: { full_name: string | null; its: string | null; is_adult: boolean | null } | null;
   family: { hof_its: string | null } | null;
-  submitter: { its: string | null; full_name: string | null } | null;
 };
 
-// GET /api/admin/niyaz/instances/[id]/responses — one row per family (most recent submission).
+// GET /api/admin/niyaz/instances/[id]/responses — per-mumin niyaz_rsvp rows for the event + a summary.
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   const supabase = getSupabaseAdmin();
 
-  // Pull all submissions for the instance, newest first, with family + submitter names embedded.
   const { data, error } = await supabase
-    .from("rsvp_responses")
+    .from("niyaz_rsvp")
     .select(
-      "id, family_id, submitted_by_mumin_id, response, head_count, responded_by_phone, source, recorded_by, submitted_at, created_at, " +
-        "family:families!rsvp_responses_family_id_fkey(hof_its), " +
-        "submitter:mumineen!rsvp_responses_mumin_id_fkey(its, full_name)",
+      "id, mumin_id, family_id, attending, source, responded_by_phone, recorded_by, updated_at, " +
+        "mumin:mumineen!niyaz_rsvp_mumin_id_fkey(full_name, its, is_adult), " +
+        "family:families!niyaz_rsvp_family_id_fkey(hof_its)",
     )
     .eq("registration_instance_id", id)
-    .order("submitted_at", { ascending: false })
-    .order("created_at", { ascending: false });
+    .order("updated_at", { ascending: false });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Keep only the latest submission per family (the list is already newest-first).
   const rows = (data ?? []) as unknown as ResponseRow[];
-  const latest: ResponseRow[] = [];
-  const seen = new Set<string>();
-  for (const r of rows) {
-    if (seen.has(r.family_id)) continue;
-    seen.add(r.family_id);
-    latest.push(r);
-  }
-
-  const responded_families = latest.length;
-  const yes = latest.filter((r) => r.response === "yes");
-  const total_head_count = yes.reduce((sum, r) => sum + (r.head_count ?? 0), 0);
+  const isAdult = (r: ResponseRow) => r.mumin?.is_adult !== false; // null counts as adult
+  const attending = rows.filter((r) => r.attending);
+  const notAttending = rows.filter((r) => !r.attending);
 
   return NextResponse.json({
-    responses: latest,
-    tally: { responded_families, yes_count: yes.length, total_head_count },
+    responses: rows,
+    summary: {
+      responded: rows.length,
+      yes_adults: attending.filter(isAdult).length,
+      yes_kids: attending.filter((r) => !isAdult(r)).length,
+      yes_families: new Set(attending.map((r) => r.family_id)).size,
+      no_adults: notAttending.filter(isAdult).length,
+      no_kids: notAttending.filter((r) => !isAdult(r)).length,
+      no_families: new Set(notAttending.map((r) => r.family_id)).size,
+    },
   });
 }

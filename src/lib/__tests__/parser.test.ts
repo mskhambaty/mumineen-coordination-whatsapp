@@ -39,6 +39,7 @@ describe("extractIncomingMessages", () => {
         whatsappMessageId: "wamid.123",
         body: "What time is waaz?",
         messageType: "text",
+        buttonPayload: null,
         rawMessage: {
           metadata: {
             display_phone_number: "16308190250",

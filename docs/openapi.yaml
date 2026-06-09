@@ -1480,6 +1480,58 @@ paths:
         "200": { description: Updated row count + refreshed grid (or status=no_family). }
         "400": { $ref: "#/components/responses/BadRequest" }
 
+  /api/admin/niyaz/instances/{id}/responses:
+    get:
+      tags: [admin]
+      summary: Recorded Niyaz RSVP responses for an event
+      description: Admin/leadership (portal). Per-mumin niyaz_rsvp rows for the event (name, attending, source) plus a yes/no summary.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Responses + summary. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/niyaz/instances/{id}/broadcast:
+    get:
+      tags: [admin]
+      summary: Preview recipient count for a Niyaz RSVP send
+      description: Admin (portal). Returns the recipient count (and any unresolved ITS) for the chosen audience/level/filter.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: audience, in: query, required: true, schema: { type: string, enum: [specific_its, all_mumineen, all_hof, all_adults] } }
+        - { name: level, in: query, schema: { type: string, enum: [ind, fam] } }
+        - { name: only_non_responders, in: query, schema: { type: boolean } }
+        - { name: its, in: query, schema: { type: string }, description: Comma/space-separated ITS for the test audience. }
+      responses:
+        "200": { description: "{ count, unresolved_its }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [admin]
+      summary: Send the daily Niyaz RSVP template (quick-reply buttons)
+      description: >-
+        Admin/leadership (portal). Sends an approved template to the chosen audience for the event's
+        date, stamping each quick-reply button with a niyaz|level|scope|date payload, via the
+        broadcast queue. Taps are recorded by the WhatsApp webhook.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [audience, level, template_code]
+              properties:
+                audience: { type: string, enum: [specific_its, all_mumineen, all_hof, all_adults] }
+                its: { type: array, items: { type: string } }
+                only_non_responders: { type: boolean }
+                level: { type: string, enum: [ind, fam] }
+                template_code: { type: string }
+      responses:
+        "200": { description: "{ status: started, broadcastId, total, … }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /api/feedback:
     post:
       tags: [feedback]

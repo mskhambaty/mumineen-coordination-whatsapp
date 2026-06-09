@@ -8,6 +8,9 @@ export type IncomingWhatsAppMessage = {
   messageType: string;
   // Present for image messages: the Meta media id to download, plus any caption.
   media?: { id: string; mimeType?: string; caption?: string };
+  // Present for quick-reply button taps: the button's payload (template quick_reply) or the
+  // interactive button_reply id. Carries our send-time RSVP encoding (e.g. "niyaz|ind|lunch|2026-06-16").
+  buttonPayload?: string | null;
   rawMessage: unknown;
 };
 
@@ -27,12 +30,15 @@ type WhatsAppMessage = {
   };
   button?: {
     text?: string;
+    payload?: string;
   };
   interactive?: {
     button_reply?: {
+      id?: string;
       title?: string;
     };
     list_reply?: {
+      id?: string;
       title?: string;
     };
   };
@@ -103,6 +109,11 @@ export function extractIncomingMessages(payload: unknown): IncomingWhatsAppMessa
             body: getMessageBody(message),
             messageType: message.type,
             media,
+            buttonPayload:
+              message.button?.payload ??
+              message.interactive?.button_reply?.id ??
+              message.interactive?.list_reply?.id ??
+              null,
             rawMessage: {
               metadata: metadata ?? null,
               message,

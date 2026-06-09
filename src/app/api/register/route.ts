@@ -270,24 +270,14 @@ export async function POST(req: NextRequest) {
     familyUpdate.submitted_by_its = str(body.submitted_by_its);
   }
 
-  const { data: famRow, error: famError } = await supabase
-    .from("families")
-    .update(familyUpdate)
-    .eq("hof_its", hofIts)
-    .select("id")
-    .maybeSingle();
+  const { error: famError } = await supabase.from("families").update(familyUpdate).eq("hof_its", hofIts);
 
   if (famError) {
     return NextResponse.json({ error: famError.message }, { status: 500 });
   }
 
-  // (Re)default this family's per-mumin Niyaz RSVP from their (just-updated) arrival dates. Only
-  // recomputes default/registration rows — any WhatsApp/admin override the family already made is
-  // preserved. Best-effort: a failure here must not fail the registration submit.
-  if (famRow?.id) {
-    const { error: rsvpError } = await supabase.rpc("seed_family_niyaz_rsvp", { p_family_id: famRow.id });
-    if (rsvpError) console.error("seed_family_niyaz_rsvp failed for family", famRow.id, rsvpError.message);
-  }
+  // Note: Niyaz RSVP is no longer defaulted at registration. RSVP is collected day-by-day via the
+  // WhatsApp button templates (admin send → tap → niyaz_rsvp), so the counts reflect real responses.
 
   // Consume the edit token so it can't be reused
   if (isEdit && otpRecordId) {

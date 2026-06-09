@@ -17,6 +17,8 @@ import {
 import { insertPendingMessage, runCoalescedInbound } from "@/lib/whatsapp/coalesce";
 import { extractIncomingMessages, type IncomingWhatsAppMessage } from "@/lib/whatsapp/parser";
 import { applyBroadcastStatuses, extractStatusUpdates, markBroadcastReplied } from "@/lib/whatsapp/broadcast-status";
+import { resolveFamilyForPhone } from "@/lib/rsvp/family";
+import { recordNiyazButtonResponse, type NiyazLevel, type NiyazScope } from "@/lib/rsvp/meal-rsvp";
 
 export const runtime = "nodejs";
 // The reply is generated in an after() background task that runs up to two sequential model
@@ -113,6 +115,14 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
     return true;
   }
 
+  // Niyaz daily-template button taps: record the RSVP directly and confirm, skipping the agent.
+  // Handled before manual-mode / registration gates since it's a deterministic data capture from a
+  // message we sent (the payload carries level|scope|date; the phone identifies the responder).
+  if (message.buttonPayload && message.buttonPayload.startsWith("niyaz|")) {
+    await handleNiyazButton(message, user.id);
+    return true;
+  }
+
   const { data: session } = await getSupabaseAdmin()
     .from("conversation_sessions")
     .select("handling_mode")
@@ -191,6 +201,62 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage) {
   );
 
   return true;
+}
+
+const NIYAZ_LEVELS: NiyazLevel[] = ["ind", "fam"];
+const NIYAZ_SCOPES: NiyazScope[] = ["both", "lunch", "dinner", "none"];
+
+// Record a Niyaz daily-template button tap and confirm. Payload: niyaz|<level>|<scope>|<YYYY-MM-DD>.
+// The phone identifies the responder's family/mumin (resolveFamilyForPhone).
+async function handleNiyazButton(message: IncomingWhatsAppMessage, userId: string | undefined) {
+  const parts = (message.buttonPayload ?? "").split("|");
+  const [, level, scope, date] = parts;
+  const valid =
+    parts.length === 4 &&
+    NIYAZ_LEVELS.includes(level as NiyazLevel) &&
+    NIYAZ_SCOPES.includes(scope as NiyazScope) &&
+    /^\d{4}-\d{2}-\d{2}$/.test(date);
+
+  let reply: string;
+  if (!valid) {
+    reply = "Shukran for your reply. We couldn't read that response — please try the buttons again.";
+  } else {
+    const family = await resolveFamilyForPhone(message.phoneE164);
+    if (!family) {
+      reply = "Shukran for your reply. We couldn't match this number to a registered family — please contact the committee.";
+    } else {
+      await recordNiyazButtonResponse({
+        level: level as NiyazLevel,
+        scope: scope as NiyazScope,
+        date,
+        muminId: family.muminId,
+        familyId: family.familyId,
+        phone: message.phoneE164,
+      });
+      reply = niyazConfirmation(level as NiyazLevel, scope as NiyazScope, date);
+    }
+  }
+
+  const metaResponse = await sendWhatsAppText(message.phoneE164, reply);
+  await recordOutboundMessage({
+    phoneE164: message.phoneE164,
+    body: reply,
+    whatsappMessageId: metaResponse.messages?.[0]?.id,
+    rawPayload: { source: "niyaz_rsvp_button", payload: message.buttonPayload, meta_response: metaResponse },
+  });
+  await touchConversationSession({ phoneE164: message.phoneE164, userId });
+}
+
+function niyazConfirmation(level: NiyazLevel, scope: NiyazScope, date: string): string {
+  const who = level === "fam" ? "your family" : "you";
+  const day = new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+  const scopeText: Record<NiyazScope, string> = {
+    both: `${who} attending lunch & dinner`,
+    lunch: `${who} attending lunch only`,
+    dinner: `${who} attending dinner only`,
+    none: `${who} not attending`,
+  };
+  return `Shukran! Recorded: ${scopeText[scope]} for ${day}. Reply here if it changes.`;
 }
 
 function isSilentReply(reply: string): boolean {

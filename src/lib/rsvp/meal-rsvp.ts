@@ -84,18 +84,11 @@ export type NiyazRsvpEntry = {
 
 export type ApplyResult = { updated: number; grid: FamilyGridRow[] };
 
-// Apply RSVP changes for the family owning `familyId`. Cascades to ALL roster_active family members
-// for each matched event; a "yes" never flips a member flagged not_attending. Upserts overwrite the
-// per-mumin row (whatsapp/admin override the arrival-date default). Returns the refreshed grid.
-export async function setFamilyNiyazRsvp(
-  familyId: string,
-  entries: NiyazRsvpEntry[],
-  opts: { source: "whatsapp" | "admin"; phone?: string | null; recordedBy?: string | null },
-): Promise<ApplyResult> {
-  const supabase = getSupabaseAdmin();
-  const events = await getEvents();
+type RsvpTarget = { muminId: string; notAttending: boolean };
+type ApplyOpts = { source: "whatsapp" | "admin"; phone?: string | null; recordedBy?: string | null; respectNotAttending?: boolean };
 
-  // Last entry wins per event.
+// Resolve entries → a per-event attending decision (last entry wins per event).
+function decideEvents(events: NiyazEvent[], entries: NiyazRsvpEntry[]): Map<string, boolean> {
   const decisions = new Map<string, boolean>();
   for (const entry of entries) {
     const dateSet = entry.all || !entry.dates || entry.dates.length === 0 ? null : new Set(entry.dates);
@@ -105,22 +98,24 @@ export async function setFamilyNiyazRsvp(
       decisions.set(ev.id, entry.attending);
     }
   }
-  if (decisions.size === 0) return { updated: 0, grid: await getFamilyNiyazGrid(familyId) };
+  return decisions;
+}
 
-  const { data: members } = await supabase
-    .from("mumineen")
-    .select("id, not_attending")
-    .eq("family_id", familyId)
-    .eq("roster_active", true);
-  const memberList = (members ?? []) as { id: string; not_attending: boolean }[];
+// Core writer: upsert one niyaz_rsvp row per (event decision × target mumin). When
+// `respectNotAttending`, a "yes" decision skips a member flagged not_attending (used by the family
+// cascade so we don't pull an absent member into attendance; an explicit individual answer doesn't).
+async function applyNiyazRsvp(targets: RsvpTarget[], familyId: string | null, entries: NiyazRsvpEntry[], opts: ApplyOpts): Promise<number> {
+  if (targets.length === 0) return 0;
+  const decisions = decideEvents(await getEvents(), entries);
+  if (decisions.size === 0) return 0;
 
   const rows: Record<string, unknown>[] = [];
   for (const [instanceId, attending] of decisions) {
-    for (const m of memberList) {
-      if (attending && m.not_attending) continue; // don't pull a not-attending member into a "yes"
+    for (const t of targets) {
+      if (attending && t.notAttending && opts.respectNotAttending) continue;
       rows.push({
         registration_instance_id: instanceId,
-        mumin_id: m.id,
+        mumin_id: t.muminId,
         family_id: familyId,
         attending,
         source: opts.source,
@@ -130,16 +125,77 @@ export async function setFamilyNiyazRsvp(
     }
   }
 
-  if (rows.length > 0) {
-    for (let i = 0; i < rows.length; i += 500) {
-      const { error } = await supabase
-        .from("niyaz_rsvp")
-        .upsert(rows.slice(i, i + 500), { onConflict: "registration_instance_id,mumin_id" });
-      if (error) throw new Error(error.message);
-    }
+  const supabase = getSupabaseAdmin();
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await supabase
+      .from("niyaz_rsvp")
+      .upsert(rows.slice(i, i + 500), { onConflict: "registration_instance_id,mumin_id" });
+    if (error) throw new Error(error.message);
   }
+  return rows.length;
+}
 
-  return { updated: rows.length, grid: await getFamilyNiyazGrid(familyId) };
+// Whole-family RSVP: cascades to ALL roster_active family members; a "yes" never flips a member
+// flagged not_attending. Upserts override the per-mumin row (whatsapp/admin beat the default).
+export async function setFamilyNiyazRsvp(
+  familyId: string,
+  entries: NiyazRsvpEntry[],
+  opts: { source: "whatsapp" | "admin"; phone?: string | null; recordedBy?: string | null },
+): Promise<ApplyResult> {
+  const { data: members } = await getSupabaseAdmin()
+    .from("mumineen")
+    .select("id, not_attending")
+    .eq("family_id", familyId)
+    .eq("roster_active", true);
+  const targets = ((members ?? []) as { id: string; not_attending: boolean }[]).map((m) => ({ muminId: m.id, notAttending: m.not_attending }));
+  const updated = await applyNiyazRsvp(targets, familyId, entries, { ...opts, respectNotAttending: true });
+  return { updated, grid: await getFamilyNiyazGrid(familyId) };
+}
+
+// Individual RSVP: records only the one responding mumin (their explicit answer overrides the
+// not_attending flag). `familyId` is stored for grouping.
+export async function setMuminNiyazRsvp(
+  muminId: string,
+  familyId: string | null,
+  entries: NiyazRsvpEntry[],
+  opts: { source: "whatsapp" | "admin"; phone?: string | null; recordedBy?: string | null },
+): Promise<ApplyResult> {
+  const updated = await applyNiyazRsvp([{ muminId, notAttending: false }], familyId, entries, { ...opts, respectNotAttending: false });
+  return { updated, grid: familyId ? await getFamilyNiyazGrid(familyId) : [] };
+}
+
+// --- WhatsApp daily button taps ---
+export type NiyazLevel = "ind" | "fam";
+export type NiyazScope = "both" | "lunch" | "dinner" | "none";
+
+// Map a button scope to RSVP entries for one date.
+export function scopeToEntries(scope: NiyazScope, date: string): NiyazRsvpEntry[] {
+  switch (scope) {
+    case "both":
+      return [{ attending: true, dates: [date] }];
+    case "none":
+      return [{ attending: false, dates: [date] }];
+    case "lunch":
+      return [{ attending: true, meal: "lunch", dates: [date] }, { attending: false, meal: "dinner", dates: [date] }];
+    case "dinner":
+      return [{ attending: false, meal: "lunch", dates: [date] }, { attending: true, meal: "dinner", dates: [date] }];
+  }
+}
+
+// Record a daily-template button tap: individual (just this mumin) or family (whole family).
+export async function recordNiyazButtonResponse(input: {
+  level: NiyazLevel;
+  scope: NiyazScope;
+  date: string;
+  muminId: string;
+  familyId: string | null;
+  phone?: string | null;
+}): Promise<ApplyResult> {
+  const entries = scopeToEntries(input.scope, input.date);
+  const opts = { source: "whatsapp" as const, phone: input.phone ?? null };
+  return input.level === "fam" && input.familyId
+    ? setFamilyNiyazRsvp(input.familyId, entries, opts)
+    : setMuminNiyazRsvp(input.muminId, input.familyId, entries, opts);
 }
 
 export type EventTally = NiyazEvent & {

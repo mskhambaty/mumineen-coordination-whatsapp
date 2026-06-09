@@ -66,6 +66,9 @@ export type SendComponentInputs = {
   headerText?: string | null;
   headerMediaUrl?: string | null;
   urlButtonParam?: string | null;
+  // Per-send payloads for quick-reply buttons (e.g. RSVP buttons encoding level|scope|date). The
+  // index matches the button's position in the template's BUTTONS component.
+  quickReplyButtons?: { index: number; payload: string }[];
 };
 
 // Build the Meta `components` array for a template send. Emits named parameters (`parameter_name`)
@@ -102,6 +105,15 @@ export function buildSendComponents(inputs: SendComponentInputs, desc: TemplateD
       sub_type: "url",
       index: String(dynamicUrlBtn.index),
       parameters: [{ type: "text", text: inputs.urlButtonParam }],
+    });
+  }
+
+  for (const btn of inputs.quickReplyButtons ?? []) {
+    components.push({
+      type: "button",
+      sub_type: "quick_reply",
+      index: String(btn.index),
+      parameters: [{ type: "payload", payload: btn.payload }],
     });
   }
 
