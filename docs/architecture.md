@@ -64,8 +64,9 @@ Admin event detail
 RSVP is collected day-by-day via WhatsApp quick-reply button templates (individual or whole-family),
 sent by an admin per event; the button payload carries level+scope+date, the sender's phone
 identifies who, and the tap is recorded in `niyaz_rsvp`. See
-[meal-rsvp-feedback-digest.md](./meal-rsvp-feedback-digest.md). (The earlier arrival-date defaulting is
-retired — registration no longer seeds RSVP, so counts reflect only real responses.)
+[meal-rsvp-feedback-digest.md](./meal-rsvp-feedback-digest.md). A default attendance baseline is seeded
+from arrival dates (backfill + `seed_family_niyaz_rsvp` on registration submit/edit); button /
+head-count responses override the per-mumin defaults.
 
 ## External Services
 

@@ -6,9 +6,9 @@ manual console for broadcasting approved templates.
 
 ## 1. Niyaz RSVP (jaman) — per-mumin
 
-RSVP is tracked **per mumin per event** in `niyaz_rsvp`, collected day-by-day via WhatsApp button
-templates (§1a). (It was initially defaulted from arrival dates; that's been retired — see the
-default-rule note below.)
+RSVP is tracked **per mumin per event** in `niyaz_rsvp`: a default attendance baseline is seeded from
+each person's arrival date, and the WhatsApp button / head-count templates (§1a) override it as
+responses come in.
 
 - **Events** live in `rsvp_registration_instance` (`title`, `event_date`, `hijri_date`, `meal`
   `lunch`|`dinner`, `serving_type` `thaal`|`packet`, `description`, unique `(event_date, meal)`).
@@ -18,11 +18,12 @@ default-rule note below.)
 - **`niyaz_rsvp`** (`20260608131000_*`): one row per `(registration_instance_id, mumin_id)` with
   `attending boolean`, `family_id`, and `source` (`default`|`registration`|`whatsapp`|`admin`). RLS
   on, service-role access only. `rsvp_responses` is retired (left empty) for the meal flow.
-- **Arrival-date defaulting (retired).** Originally the table was seeded from arrival dates
-  (backfill `20260608132000_*` + the `seed_family_niyaz_rsvp(family)` function, called on
-  registration). This is **no longer used** — the data was reset and the registration call removed —
-  so the counts reflect only real button/agent responses. The function + backfill migration remain as
-  history but nothing invokes them.
+- **Default rule** (America/Chicago calendar date): `not_attending` ⇒ No; no `arrival_at` ⇒ Yes
+  (present all of Ashara, e.g. locals); else Yes when `event_date ≥ arrival date`. Seeded by the
+  backfill (`20260609140000_*`, all registered active mumineen × the 19 events) and by the
+  `seed_family_niyaz_rsvp(family)` SQL function, which the registration submit/edit calls
+  (`src/app/api/register/route.ts`). The function recomputes only `default`/`registration` rows, never
+  clobbering a `whatsapp`/`admin` override — so button/head-count responses refine the baseline.
 - **Adult/kid/family + thaal counts** come from the **`niyaz_event_tallies`** view
   (`20260608133000_*`): per event, yes/no split by `mumineen.is_adult` (null = adult) and by family,
   plus `thaal_count = ceil(attending heads / 8)`.
