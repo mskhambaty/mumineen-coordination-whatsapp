@@ -23,6 +23,7 @@ tags:
   - name: cron
   - name: email
   - name: accommodations
+  - name: triage
 paths:
   /admin/auth:
     post:
@@ -2273,3 +2274,68 @@ components:
       responses:
         200:
           description: Action completed.
+
+  # ── Triage Desk ────────────────────────────────────────────────
+  /admin/triage/board:
+    get:
+      tags: [triage]
+      summary: Kanban board data — all active escalation tickets, team members, SLA stats.
+      description: >-
+        Returns denormalized ticket data (user name, assignee, linked task, last message),
+        the list of escalation team members (support + helpdesk), and SLA dashboard stats.
+        Auth: canAccessInbox (admin/leadership, support members, helpdesk role).
+      responses:
+        200:
+          description: Board data.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tickets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        session_id: { type: string, format: uuid }
+                        phone_e164: { type: string }
+                        display_name: { type: string }
+                        escalation_stage: { type: string, enum: [none, pending, picked_up, waiting_on_department, resolved] }
+                        escalation_priority: { type: string, enum: [normal, urgent] }
+                        escalation_category: { type: string }
+                        escalation_sla_deadline: { type: string, format: date-time, nullable: true }
+                        assignee_name: { type: string, nullable: true }
+                        linked_task_title: { type: string, nullable: true }
+                        last_inbound_message: { type: string, nullable: true }
+                        message_count: { type: integer }
+                  team_members:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        user_id: { type: string, format: uuid }
+                        display_name: { type: string }
+                  sla_stats:
+                    type: object
+                    properties:
+                      open_count: { type: integer }
+                      pending_count: { type: integer }
+                      breaching_count: { type: integer }
+                      avg_pickup_minutes: { type: number, nullable: true }
+                      resolved_today_count: { type: integer }
+
+  /admin/triage/stream:
+    get:
+      tags: [triage]
+      summary: SSE stream for real-time triage board updates.
+      description: >-
+        Server-Sent Events endpoint that polls for escalation activity every 4s.
+        Sends 'changed' events when escalation state changes. Connection lasts ~50s
+        before browser auto-reconnects. Auth: canAccessInbox.
+      responses:
+        200:
+          description: SSE event stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string

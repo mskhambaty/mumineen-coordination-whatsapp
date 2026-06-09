@@ -28,6 +28,7 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 | [transcript-parser.md](./transcript-parser.md) | AI-powered WhatsApp transcript parsing service |
 | [admin-dashboard.md](./admin-dashboard.md) | Admin web dashboard: pages, auth, features |
 | [escalation.md](./escalation.md) | Escalation & site support: triggers, roles, on-call, notifications (design spec) |
+| [triage-desk-design.md](./superpowers/specs/2026-06-09-triage-desk-design.md) | Triage Desk UI: Kanban board, SLA dashboard, ticket detail view |
 | [relay-updates.md](./relay-updates.md) | Public relay-page updates feed: endpoint, authoring UI, agent indexing |
 | [accommodations-matching.md](./plans/accommodations-matching.md) | Accommodations host-guest utaro matching module: import, rollups, matching |
 | [meal-rsvp-feedback-digest.md](./meal-rsvp-feedback-digest.md) | Jaman meal RSVP, feedback capture, nightly department digest, and the manual template send console |
@@ -56,6 +57,11 @@ src/lib/meta/whatsapp.ts                 — Meta Graph API calls + signature ve
 src/lib/whatsapp/send-template.ts        — Standardized template-send pipeline (resolve→validate→send→log) for all notifications
 src/lib/whatsapp/templates.ts            — Template descriptor + components builder + body preview
 src/lib/escalation/notify.ts             — On-call escalation email + WhatsApp template notifications
+src/lib/escalation/activity.ts           — Escalation activity log (fire-and-forget)
+src/lib/escalation/sla.ts               — SLA config cache + deadline computation
+src/app/admin/triage/page.tsx            — Triage Desk: Kanban board + ticket detail view
+src/app/api/admin/triage/board/route.ts  — Triage board data (tickets, team, SLA stats)
+src/app/api/admin/triage/stream/route.ts — Triage SSE stream for real-time updates
 src/lib/accommodations/import.ts         — Host spreadsheet XLSX import (upsert by ITS)
 src/lib/accommodations/rollups.ts        — Guest/host demographic rollups + capacity math
 src/lib/accommodations/matching.ts       — Matching logic, confirm/reject lifecycle
