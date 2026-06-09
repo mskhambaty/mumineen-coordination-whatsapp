@@ -1,0 +1,242 @@
+/* src/app/admin/triage/triage.css
+   Design system for the Triage Desk — "Refined Command Center" aesthetic.
+   Imported by page.tsx. Scoped under .triage-desk class. */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap');
+
+/* ── Color tokens ─────────────────────────────────── */
+.triage-desk {
+  --triage-bg: #faf9f7;
+  --triage-surface: #ffffff;
+  --triage-surface-raised: #f5f3f0;
+  --triage-surface-hover: #eeeae5;
+  --triage-border: #e8e4df;
+  --triage-border-subtle: #f0ece7;
+  --triage-text: #1a1816;
+  --triage-text-secondary: #5c574f;
+  --triage-text-muted: #8a847b;
+
+  /* Status */
+  --triage-pending: #dc4a3a;
+  --triage-pending-bg: #fef2f0;
+  --triage-claimed: #2b7de9;
+  --triage-claimed-bg: #eef5fd;
+  --triage-waiting: #7c5cbf;
+  --triage-waiting-bg: #f4f0fa;
+  --triage-resolved: #2d9d5e;
+  --triage-resolved-bg: #edf8f2;
+
+  /* SLA */
+  --triage-sla-ok: #2d9d5e;
+  --triage-sla-warn: #d4940a;
+  --triage-sla-breach: #dc4a3a;
+
+  /* Accent */
+  --triage-accent: #2b7de9;
+  --triage-accent-hover: #1f6fd4;
+
+  /* Shadows */
+  --triage-shadow-sm: 0 1px 3px rgba(26,24,22,0.04), 0 1px 2px rgba(26,24,22,0.02);
+  --triage-shadow-md: 0 4px 12px rgba(26,24,22,0.06), 0 1px 4px rgba(26,24,22,0.04);
+  --triage-shadow-lg: 0 8px 25px -5px rgba(26,24,22,0.08), 0 4px 10px rgba(26,24,22,0.04);
+  --triage-shadow-glow-breach: 0 0 12px rgba(220,74,58,0.15);
+
+  font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  background: var(--triage-bg);
+  color: var(--triage-text);
+}
+
+/* ── Dark mode ────────────────────────────────────── */
+.dark .triage-desk {
+  --triage-bg: #131211;
+  --triage-surface: #1c1b19;
+  --triage-surface-raised: #222120;
+  --triage-surface-hover: #2a2926;
+  --triage-border: #2e2b27;
+  --triage-border-subtle: #252320;
+  --triage-text: #e8e4df;
+  --triage-text-secondary: #b0a99f;
+  --triage-text-muted: #7a746b;
+
+  --triage-pending-bg: #2a1614;
+  --triage-claimed-bg: #141e2e;
+  --triage-waiting-bg: #1e172a;
+  --triage-resolved-bg: #142019;
+
+  --triage-shadow-sm: 0 1px 3px rgba(0,0,0,0.2), 0 1px 2px rgba(0,0,0,0.15);
+  --triage-shadow-md: 0 4px 12px rgba(0,0,0,0.25), 0 1px 4px rgba(0,0,0,0.2);
+  --triage-shadow-lg: 0 8px 25px -5px rgba(0,0,0,0.3), 0 4px 10px rgba(0,0,0,0.2);
+  --triage-shadow-glow-breach: 0 0 16px rgba(220,74,58,0.25);
+}
+
+/* ── Typography ───────────────────────────────────── */
+.triage-heading {
+  font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.triage-display {
+  font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.triage-mono {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-weight: 500;
+}
+
+/* ── Animations ───────────────────────────────────── */
+@keyframes triage-fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes triage-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes triage-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes triage-sla-pulse {
+  0%, 100% {
+    box-shadow: var(--triage-shadow-sm);
+  }
+  50% {
+    box-shadow: var(--triage-shadow-glow-breach);
+  }
+}
+
+@keyframes triage-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.triage-card-enter {
+  animation: triage-fade-in-up 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.triage-detail-enter {
+  animation: triage-scale-in 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.triage-panel-enter {
+  animation: triage-slide-in-right 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.triage-sla-breaching {
+  animation: triage-sla-pulse 2s ease-in-out infinite;
+}
+
+/* ── Glassmorphism for dashboard strip ────────────── */
+.triage-glass {
+  background: color-mix(in srgb, var(--triage-surface) 80%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* ── Custom scrollbar ─────────────────────────────── */
+.triage-desk ::-webkit-scrollbar {
+  width: 6px;
+}
+.triage-desk ::-webkit-scrollbar-track {
+  background: transparent;
+}
+.triage-desk ::-webkit-scrollbar-thumb {
+  background: var(--triage-border);
+  border-radius: 3px;
+}
+.triage-desk ::-webkit-scrollbar-thumb:hover {
+  background: var(--triage-text-muted);
+}
+
+/* ── Accent stripe for kanban columns ─────────────── */
+.triage-col-pending { border-left: 3px solid var(--triage-pending); }
+.triage-col-claimed { border-left: 3px solid var(--triage-claimed); }
+.triage-col-waiting { border-left: 3px solid var(--triage-waiting); }
+.triage-col-resolved { border-left: 3px solid var(--triage-resolved); }
+
+/* ── Status badge variants ────────────────────────── */
+.triage-badge-pending {
+  background: var(--triage-pending-bg);
+  color: var(--triage-pending);
+}
+.triage-badge-claimed {
+  background: var(--triage-claimed-bg);
+  color: var(--triage-claimed);
+}
+.triage-badge-waiting {
+  background: var(--triage-waiting-bg);
+  color: var(--triage-waiting);
+}
+.triage-badge-resolved {
+  background: var(--triage-resolved-bg);
+  color: var(--triage-resolved);
+}
+.triage-badge-urgent {
+  background: var(--triage-pending-bg);
+  color: var(--triage-pending);
+  font-weight: 600;
+}
+.triage-badge-normal {
+  background: var(--triage-surface-raised);
+  color: var(--triage-text-muted);
+}
+
+/* ── Card hover lift ──────────────────────────────── */
+.triage-card {
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  box-shadow: var(--triage-shadow-sm);
+}
+.triage-card:hover {
+  box-shadow: var(--triage-shadow-lg);
+  transform: translateY(-1px);
+}
+
+/* ── Stat pill in dashboard ───────────────────────── */
+.triage-stat-pill {
+  background: var(--triage-surface-raised);
+  border: 1px solid var(--triage-border-subtle);
+  border-radius: 10px;
+  padding: 6px 16px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.triage-stat-pill:hover {
+  background: var(--triage-surface-hover);
+  border-color: var(--triage-border);
+}
+
+/* ── SLA progress bar ─────────────────────────────── */
+.triage-sla-bar {
+  height: 3px;
+  border-radius: 1.5px;
+  background: var(--triage-border);
+  overflow: hidden;
+  margin-top: 10px;
+}
+.triage-sla-bar-fill {
+  height: 100%;
+  border-radius: 1.5px;
+  transition: width 1s ease;
+}
+.triage-sla-bar-ok { background: var(--triage-sla-ok); }
+.triage-sla-bar-warn { background: var(--triage-sla-warn); }
+.triage-sla-bar-breach { background: var(--triage-sla-breach); }
