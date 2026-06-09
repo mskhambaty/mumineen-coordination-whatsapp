@@ -95,6 +95,25 @@ export function TicketDetailView({
 
   const encodedPhone = encodeURIComponent(currentTicket.phone_e164);
 
+  /** Re-fetch just the ticket's triage fields from the board endpoint. */
+  async function refreshTicketState() {
+    try {
+      const res = await apiFetch("/api/admin/triage/board");
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        tickets: Ticket[];
+      };
+      const updated = data.tickets.find(
+        (t) => t.phone_e164 === currentTicket.phone_e164,
+      );
+      if (updated) {
+        setCurrentTicket(updated);
+      }
+    } catch {
+      // silent
+    }
+  }
+
   async function refreshAll() {
     const [convRes, actRes, tasksRes, profileRes] = await Promise.all([
       apiFetch(
@@ -111,32 +130,16 @@ export function TicketDetailView({
         conversations: Array<{
           messages: Message[];
           tool_calls: ToolCall[];
-          escalation_status?: string;
-          escalation_priority?: string;
-          escalation_category?: string;
-          escalation_assigned_to?: string;
-          linked_task_id?: string | null;
-          linked_task_title?: string | null;
-          linked_task_status?: string | null;
-          linked_task_department?: string | null;
         }>;
       };
       const conv = convData.conversations?.[0];
       if (conv) {
         setMessages(conv.messages ?? []);
         setToolCalls(conv.tool_calls ?? []);
-        // Update ticket fields that may have changed via actions
-        setCurrentTicket((prev) => ({
-          ...prev,
-          escalation_stage: (conv.escalation_status as Ticket["escalation_stage"]) ?? prev.escalation_stage,
-          escalation_priority: conv.escalation_priority ?? prev.escalation_priority,
-          escalation_category: conv.escalation_category ?? prev.escalation_category,
-          escalation_assigned_to: conv.escalation_assigned_to ?? prev.escalation_assigned_to,
-          linked_task_id: conv.linked_task_id ?? prev.linked_task_id,
-          linked_task_title: conv.linked_task_title ?? prev.linked_task_title,
-          linked_task_status: conv.linked_task_status ?? prev.linked_task_status,
-          linked_task_department: conv.linked_task_department ?? prev.linked_task_department,
-        }));
+        // NOTE: Do NOT update escalation_stage from the conversations API —
+        // it only returns escalation_status (the legacy field), not
+        // escalation_stage. The stage is kept in sync via the board refresh
+        // triggered by onAction() after triage actions.
       }
     }
 
@@ -235,6 +238,7 @@ export function TicketDetailView({
 
   function handleAction() {
     void refreshAll();
+    void refreshTicketState();
     onAction();
   }
 
