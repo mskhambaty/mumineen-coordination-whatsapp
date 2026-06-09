@@ -85,6 +85,7 @@ const dropdownGroups: DropdownGroup[] = [
 const standaloneLinks: NavLink[] = [
   { href: "/admin", label: "Home", access: "portal", exact: true },
   { href: "/admin/conversations", label: "Inbox", access: "inbox" },
+  { href: "/admin/triage", label: "Triage Desk", access: "inbox" },
 ];
 
 const trailingLinks: NavLink[] = [
@@ -127,6 +128,7 @@ export default function AdminNav() {
 
   // Role flags from the signed-in user, used to show only accessible links.
   const [access, setAccess] = useState(readNavAccess);
+  const [pendingCount, setPendingCount] = useState(0);
 
   function canSee(itemAccess: Access) {
     // Helpdesk users see only the inbox and their own profile — nothing else.
@@ -167,6 +169,22 @@ export default function AdminNav() {
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchPending() {
+      try {
+        const res = await fetch("/api/admin/escalations/breakdown");
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled) setPendingCount(data.pending ?? 0);
+        }
+      } catch {}
+    }
+    fetchPending();
+    const interval = setInterval(fetchPending, 30000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, []);
 
   if (pathname === "/admin/login" || pathname === "/admin/reset-password") return null;
@@ -224,6 +242,11 @@ export default function AdminNav() {
                 }
               >
                 {link.label}
+                {link.href === "/admin/triage" && pendingCount > 0 && (
+                  <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-bold text-white">
+                    {pendingCount}
+                  </span>
+                )}
               </Link>
             ))}
 
