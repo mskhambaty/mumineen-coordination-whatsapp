@@ -102,8 +102,7 @@ export async function GET(req: NextRequest) {
     famStats.set(m.hof_its, s);
   }
 
-  const isRegistered = (status: string | null) =>
-    status === "submitted" || status === "confirmed";
+  const isRegistered = (status: string | null) => status === "submitted";
 
   // Pre-compute Mehman rental rate from registered families so the forecast can extrapolate.
   // Unregistered Mehman have null transport_mode, so we can't count them directly.

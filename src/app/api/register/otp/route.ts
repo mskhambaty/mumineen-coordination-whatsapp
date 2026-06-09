@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "ITS number not found." }, { status: 404 });
   }
 
-  // Must be a submitted/confirmed registration to allow editing
+  // Must be a submitted registration to allow editing
   const { data: family } = await supabase
     .from("families")
     .select("registration_status")
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     .eq("roster_active", true)
     .maybeSingle();
 
-  if (!family || (family.registration_status !== "submitted" && family.registration_status !== "confirmed")) {
+  if (!family || family.registration_status !== "submitted") {
     return NextResponse.json({ error: "Registration is not yet submitted." }, { status: 400 });
   }
 

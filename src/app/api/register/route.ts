@@ -43,8 +43,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Sorry, we couldn't find your registration. Please contact the helpline on WhatsApp at +1 630 819 0250." }, { status: 404 });
   }
 
-  // One-time submission: once submitted/confirmed the form is locked; changes go via the helpline.
-  if (family.registration_status === "submitted" || family.registration_status === "confirmed") {
+  // One-time submission: once submitted the form is locked; changes go via the helpline.
+  if (family.registration_status === "submitted") {
     return NextResponse.json({ locked: true, status: family.registration_status });
   }
 
@@ -170,7 +170,7 @@ export async function POST(req: NextRequest) {
   let isEdit = false;
   let otpRecordId: string | null = null;
 
-  if (family.registration_status === "submitted" || family.registration_status === "confirmed") {
+  if (family.registration_status === "submitted") {
     if (!editToken) {
       return NextResponse.json({ error: "This registration has already been submitted. Please contact the helpline to make changes.", locked: true }, { status: 409 });
     }

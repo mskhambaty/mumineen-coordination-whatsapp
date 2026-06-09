@@ -165,15 +165,14 @@ export async function resolveAudience(
     return recipients;
   }
 
-  // The remaining audiences are roster families. Pull active, non-cancelled families and one
+  // The remaining audiences are roster families. Pull active, registered families and one
   // reachable number each (head member's WhatsApp, else any member's), carrying that member's fields.
   if (key === "registered_hof" || key === "arrived_hof") {
     const { data: families } = await supabase
       .from("families")
-      .select("id, registration_status, roster_active, cancelled_at")
+      .select("id, registration_status, roster_active")
       .eq("roster_active", true)
-      .is("cancelled_at", null)
-      .in("registration_status", ["submitted", "confirmed"]);
+      .eq("registration_status", "submitted");
 
     const familyIds = ((families ?? []) as { id: string }[]).map((f) => f.id);
     if (familyIds.length === 0) return [];

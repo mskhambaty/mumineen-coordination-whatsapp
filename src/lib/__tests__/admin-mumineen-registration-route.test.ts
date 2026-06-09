@@ -25,13 +25,22 @@ type StubOpts = {
 
 function stubSupabase(opts: StubOpts = {}) {
   const { family = { id: "fam-1", registration_status: "not_started" }, memberError = null, famError = null, rpcError = null } = opts;
-  const calls: { memberUpdate?: Record<string, unknown>; famUpdate?: Record<string, unknown>; rpc?: { name: string; args: unknown } } = {};
+  const calls: {
+    memberUpdate?: Record<string, unknown>;
+    famUpdate?: Record<string, unknown>;
+    rpc?: { name: string; args: unknown };
+    deletedFrom?: string;
+  } = {};
   function makeChain(table: string) {
     const chain = {
       select: () => makeChain(table),
       update(payload: Record<string, unknown>) {
         if (table === "mumineen") calls.memberUpdate = payload;
         else if (table === "families") calls.famUpdate = payload;
+        return makeChain(table);
+      },
+      delete() {
+        calls.deletedFrom = table;
         return makeChain(table);
       },
       eq: () => chain,
@@ -99,6 +108,50 @@ describe("POST /api/admin/mumineen/registration — not_attending", () => {
     const res = await POST(postWith({ hof_its: "30461293", action: "not_attending" }));
 
     expect(res.status).toBe(409);
+    expect(stub.__calls.memberUpdate).toBeUndefined();
+  });
+});
+
+describe("POST /api/admin/mumineen/registration — unregister", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    requirePortalCaller.mockResolvedValue({ role: "admin" });
+  });
+
+  it("resets a registered family to pending, clears details + not_attending, and deletes RSVP rows", async () => {
+    const stub = stubSupabase({ family: { id: "fam-1", registration_status: "submitted" } });
+    getSupabaseAdmin.mockReturnValue(stub);
+
+    const res = await POST(postWith({ hof_its: "30461293", action: "unregister" }));
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.status).toBe("not_started");
+    expect(stub.__calls.memberUpdate?.not_attending).toBe(false);
+    expect(stub.__calls.famUpdate?.registration_status).toBe("not_started");
+    expect(stub.__calls.famUpdate?.acc_type).toBeNull();
+    expect(stub.__calls.famUpdate?.submitted_at).toBeNull();
+    expect(stub.__calls.deletedFrom).toBe("niyaz_rsvp");
+  });
+
+  it("404s when the family does not exist", async () => {
+    const stub = stubSupabase({ family: null });
+    getSupabaseAdmin.mockReturnValue(stub);
+
+    const res = await POST(postWith({ hof_its: "999", action: "unregister" }));
+
+    expect(res.status).toBe(404);
+    expect(stub.__calls.memberUpdate).toBeUndefined();
+  });
+
+  it("returns the auth response when the caller is not permitted", async () => {
+    requirePortalCaller.mockResolvedValue(NextResponse.json({ error: "forbidden" }, { status: 403 }));
+    const stub = stubSupabase({ family: { id: "fam-1", registration_status: "submitted" } });
+    getSupabaseAdmin.mockReturnValue(stub);
+
+    const res = await POST(postWith({ hof_its: "30461293", action: "unregister" }));
+
+    expect(res.status).toBe(403);
     expect(stub.__calls.memberUpdate).toBeUndefined();
   });
 });

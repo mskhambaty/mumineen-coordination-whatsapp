@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   // Filters passed by the UI. Unset means "all".
   const localMehmanFilter = searchParams.get("local_mehman"); // "Local" | "Mehman" | null
-  const statusFilter = searchParams.get("status"); // "submitted" | "confirmed" | "pending" | "cancelled" | null
+  const statusFilter = searchParams.get("status"); // "submitted" | "pending" | null
   const attendingFilter = searchParams.get("attending"); // "true" | null
 
   const supabase = getSupabaseAdmin();
@@ -132,9 +132,7 @@ export async function GET(req: NextRequest) {
 
   const totalFamilies = allFams.length; // always unfiltered for context
   const submittedFamilies = fams.filter((f) => isRegisteredStatus(f.registration_status)).length;
-  const confirmedFamilies = fams.filter((f) => f.registration_status === "confirmed").length;
   const pendingFamilies = fams.filter((f) => isPendingStatus(f.registration_status)).length;
-  const cancelledFamilies = fams.filter((f) => f.registration_status === "cancelled").length;
 
   const attending = members.filter((m) => !m.not_attending);
   const notAttending = members.filter((m) => m.not_attending).length;
@@ -389,9 +387,7 @@ export async function GET(req: NextRequest) {
       total_families: totalFamilies,
       filtered_families: fams.length,
       submitted_families: submittedFamilies,
-      confirmed_families: confirmedFamilies,
       pending_families: pendingFamilies,
-      cancelled_families: cancelledFamilies,
       total_mumineen: members.length,
       submitted_mumineen: submittedMumineen,
       pending_mumineen: pendingMumineen,

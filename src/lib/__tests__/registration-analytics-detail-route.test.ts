@@ -34,11 +34,11 @@ const FAMILIES = [
   // Registered + hotel + open: included. HoF (100) is in the roster → natural head.
   { hof_its: "100", registration_status: "submitted", acc_type: "hotel", hotel_name: "Hyatt", open_to_utaro: true, submitted_by_its: "100" },
   // Registered + hotel + open: included. HoF (200) NOT in roster → registrant 201 is acting head.
-  { hof_its: "200", registration_status: "confirmed", acc_type: "hotel", hotel_name: "Hilton", open_to_utaro: true, submitted_by_its: "201" },
+  { hof_its: "200", registration_status: "submitted", acc_type: "hotel", hotel_name: "Hilton", open_to_utaro: true, submitted_by_its: "201" },
   // Not open to a host → excluded.
   { hof_its: "300", registration_status: "submitted", acc_type: "hotel", hotel_name: "Westin", open_to_utaro: false, submitted_by_its: "300" },
   // Not registered → excluded.
-  { hof_its: "400", registration_status: "pending", acc_type: "hotel", hotel_name: "Marriott", open_to_utaro: true, submitted_by_its: null },
+  { hof_its: "400", registration_status: "not_started", acc_type: "hotel", hotel_name: "Marriott", open_to_utaro: true, submitted_by_its: null },
 ];
 
 const MUMINEEN = [

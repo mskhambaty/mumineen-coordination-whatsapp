@@ -48,7 +48,7 @@ const MEMBER_COLS =
 const FAMILY_COLS =
   "registration_status, submitted_at, submitted_by_its, acc_type, hotel_name, hotel_address, open_to_utaro, " +
   "utaro_host_name, utaro_host_its, utaro_host_address, utaro_host_whatsapp_e164, utaro_host_email, " +
-  "transport_mode, transport_detail, cancelled_at, cancelled_reason";
+  "transport_mode, transport_detail";
 
 // POST /api/admin/mumineen/update — admin edit of one member's registered details (and, optionally,
 // their family's accommodation/transport). Unlike the public /api/register POST, this is NOT gated by
