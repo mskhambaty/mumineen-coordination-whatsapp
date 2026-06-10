@@ -23,7 +23,8 @@ const Body = z.object({
 
 // POST /api/admin/mumineen/create — manually add a single mumin to the roster.
 // If is_head=true, creates a new families row as well.
-// If is_head=false, hof_its is required and the family must already exist.
+// If is_head=false, hof_its is required. If no family row exists for that HoF yet
+// (e.g. the HoF isn't attending), one is auto-created so the member can be linked.
 export async function POST(req: NextRequest) {
   const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
@@ -73,19 +74,31 @@ export async function POST(req: NextRequest) {
     }
     familyId = newFam.id;
   } else {
+    // Look for an existing family regardless of roster_active — an inactive HOF
+    // can still anchor an attending member.
     const { data: fam } = await supabase
       .from("families")
       .select("id")
       .eq("hof_its", hofIts)
-      .eq("roster_active", true)
       .maybeSingle();
-    if (!fam) {
-      return NextResponse.json(
-        { error: `No family found for HoF ITS ${hofIts}. Add the head of family first.` },
-        { status: 404 },
-      );
+    if (fam) {
+      familyId = fam.id;
+    } else {
+      // HOF has no family row yet (e.g. the HOF isn't attending but a family
+      // member is). Auto-create the family so this member can be linked.
+      const { data: newFam, error: famErr } = await supabase
+        .from("families")
+        .insert({ hof_its: hofIts, roster_active: true, registration_status: "not_started" })
+        .select("id")
+        .single();
+      if (famErr || !newFam) {
+        return NextResponse.json(
+          { error: famErr?.message ?? "Failed to create family row for HoF" },
+          { status: 500 },
+        );
+      }
+      familyId = newFam.id;
     }
-    familyId = fam.id;
   }
 
   const { data: newMumin, error: muminErr } = await supabase
