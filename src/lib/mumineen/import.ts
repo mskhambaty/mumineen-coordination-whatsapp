@@ -66,7 +66,6 @@ const PROTECTED_COLUMNS = new Set([
   "hof_its",
   "family_id",
   "is_head",
-  "whatsapp_user_id",
   "roster_active",
   "created_at",
   "updated_at",
@@ -101,7 +100,7 @@ async function chunkUpsert(supabase: Supabase, table: string, rows: Row[], onCon
 }
 
 // Import the mumineen roster from the Excel. Idempotent: upserts families on hof_its and
-// mumineen on its, updating only import-owned columns (whatsapp_user_id and registration-
+// mumineen on its, updating only import-owned columns (registration-
 // collected columns are never in the payload, so they're preserved). Column mapping is
 // data-driven: the explicit friendly-header map plus any sheet header matching a non-protected
 // mumineen column name (so new roster columns are picked up with no code change). Blank-safe: a
