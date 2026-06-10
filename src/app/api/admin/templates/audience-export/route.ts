@@ -27,6 +27,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid body", details: parsed.error.flatten() }, { status: 400 });
   }
 
+  if (parsed.data.audience_key === "csv_upload") {
+    return NextResponse.json({ error: "Export is not available for an uploaded CSV — you already have the file." }, { status: 400 });
+  }
+
   const rules = parsed.data.rules as RuleGroup | undefined;
   if (parsed.data.audience_key === "custom") {
     if (!rules) return NextResponse.json({ error: "Custom audience needs filter rules." }, { status: 400 });
