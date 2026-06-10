@@ -6,7 +6,35 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 // console log can show delivered/read. "replied" is set separately when an inbound message comes
 // from a number we recently broadcast to.
 
-export type WaStatusUpdate = { waMessageId: string; status: string; timestamp: number | null };
+// `errorDetail` is present only for failed statuses that carried a Meta error[] entry — it holds a
+// concise "<code>: <title>" (plus a friendly hint for common codes), never any PII.
+export type WaStatusUpdate = { waMessageId: string; status: string; timestamp: number | null; errorDetail?: string };
+
+// Plain-language hints for the failure codes that dominate large broadcasts, so non-technical admins
+// reading the failures CSV understand them. Anything not listed falls back to just "<code>: <title>".
+const KNOWN_WA_ERRORS: Record<number, string> = {
+  131049: "Meta engagement/frequency cap — recipient throttled",
+  131026: "Undeliverable — number not on WhatsApp / can't receive",
+  131047: "Re-engagement required (outside 24h window, no template eligibility)",
+  130472: "Recipient in a Meta experiment group — not delivered",
+};
+
+// Build a concise, PII-free failure reason from a Meta status error[] entry. Meta's title/message
+// describe the failure class (not the person), so they are safe to store; we deliberately ignore
+// recipient_id and any phone-like fields.
+function formatStatusError(errors: unknown): string | undefined {
+  if (!Array.isArray(errors) || errors.length === 0) return undefined;
+  const e = errors[0] as { code?: unknown; title?: unknown; message?: unknown; error_data?: { details?: unknown } };
+  const code = typeof e.code === "number" ? e.code : null;
+  const title =
+    (typeof e.title === "string" && e.title.trim()) ||
+    (typeof e.error_data?.details === "string" && e.error_data.details.trim()) ||
+    (typeof e.message === "string" && e.message.trim()) ||
+    "Delivery failed";
+  const base = code !== null ? `${code}: ${title}` : title;
+  const hint = code !== null ? KNOWN_WA_ERRORS[code] : undefined;
+  return hint ? `${base} (${hint})` : base;
+}
 
 // Pull status updates out of a raw webhook payload. Returns [] for message-only payloads.
 export function extractStatusUpdates(payload: unknown): WaStatusUpdate[] {
@@ -20,10 +48,13 @@ export function extractStatusUpdates(payload: unknown): WaStatusUpdate[] {
       const statuses = (change as { value?: { statuses?: unknown[] } })?.value?.statuses;
       if (!Array.isArray(statuses)) continue;
       for (const s of statuses) {
-        const row = s as { id?: unknown; status?: unknown; timestamp?: unknown };
+        const row = s as { id?: unknown; status?: unknown; timestamp?: unknown; errors?: unknown };
         if (typeof row.id === "string" && typeof row.status === "string") {
           const tsNum = typeof row.timestamp === "string" ? Number(row.timestamp) : null;
-          out.push({ waMessageId: row.id, status: row.status, timestamp: Number.isFinite(tsNum) ? tsNum : null });
+          const update: WaStatusUpdate = { waMessageId: row.id, status: row.status, timestamp: Number.isFinite(tsNum) ? tsNum : null };
+          const errorDetail = formatStatusError(row.errors);
+          if (errorDetail) update.errorDetail = errorDetail;
+          out.push(update);
         }
       }
     }
@@ -56,6 +87,9 @@ export async function applyBroadcastStatuses(updates: WaStatusUpdate[]): Promise
     const iso = u.timestamp ? new Date(u.timestamp * 1000).toISOString() : new Date().toISOString();
     if (next === "delivered") patch.delivered_at = iso;
     if (next === "read") patch.read_at = iso;
+    // Persist Meta's failure reason so the failures CSV / rollup shows the real cause instead of the
+    // window-based fallback. Only write when we actually have a reason — never clobber with null.
+    if (next === "failed" && u.errorDetail) patch.error_detail = u.errorDetail;
 
     await supabase.from("template_broadcast_recipients").update(patch).eq("id", recip.id);
     applied++;

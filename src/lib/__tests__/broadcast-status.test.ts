@@ -1,6 +1,43 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { extractStatusUpdates } from "@/lib/whatsapp/broadcast-status";
+const supabaseMock = vi.hoisted(() => {
+  let recip: unknown = null;
+  const patches: Record<string, unknown>[] = [];
+  const client = {
+    from: () => {
+      const builder: Record<string, unknown> = {
+        select: () => builder,
+        eq: () => builder,
+        gte: () => builder,
+        not: () => builder,
+        order: () => builder,
+        limit: () => builder,
+        maybeSingle: () => Promise.resolve({ data: recip, error: null }),
+        update: (patch: Record<string, unknown>) => {
+          patches.push(patch);
+          return builder;
+        },
+        then: (resolve: (v: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(resolve),
+      };
+      return builder;
+    },
+  };
+  return {
+    client,
+    patches,
+    setRecip: (r: unknown) => {
+      recip = r;
+    },
+    reset: () => {
+      recip = null;
+      patches.length = 0;
+    },
+  };
+});
+
+vi.mock("@/lib/supabase/server", () => ({ getSupabaseAdmin: () => supabaseMock.client }));
+
+import { applyBroadcastStatuses, extractStatusUpdates } from "@/lib/whatsapp/broadcast-status";
 
 describe("extractStatusUpdates", () => {
   it("pulls status updates out of a Meta status webhook payload", () => {
@@ -22,8 +59,67 @@ describe("extractStatusUpdates", () => {
     };
     const updates = extractStatusUpdates(payload);
     expect(updates).toHaveLength(2);
+    // Non-error statuses carry no errorDetail (exact-match guards that we don't add stray fields).
     expect(updates[0]).toEqual({ waMessageId: "wamid.A", status: "delivered", timestamp: 1700000000 });
     expect(updates[1].status).toBe("read");
+    expect(updates[1].errorDetail).toBeUndefined();
+  });
+
+  it("captures Meta's error code + title (with a friendly hint) from a failed status", () => {
+    const payload = {
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                statuses: [
+                  {
+                    id: "wamid.F",
+                    status: "failed",
+                    timestamp: "1700000100",
+                    recipient_id: "15551234567",
+                    errors: [
+                      {
+                        code: 131049,
+                        title: "This message was not delivered to maintain healthy ecosystem engagement.",
+                        message: "(#131049) ...",
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const [update] = extractStatusUpdates(payload);
+    expect(update.status).toBe("failed");
+    expect(update.errorDetail).toBe(
+      "131049: This message was not delivered to maintain healthy ecosystem engagement. (Meta engagement/frequency cap — recipient throttled)",
+    );
+    // Must never leak the recipient phone/id into the stored reason.
+    expect(update.errorDetail).not.toContain("15551234567");
+  });
+
+  it("falls back to error_data.details when title is missing and emits a bare code for unknown codes", () => {
+    const payload = {
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                statuses: [
+                  { id: "wamid.G", status: "failed", timestamp: "1700000200", errors: [{ code: 999999, error_data: { details: "Some other reason" } }] },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const [update] = extractStatusUpdates(payload);
+    expect(update.errorDetail).toBe("999999: Some other reason");
   });
 
   it("returns [] for a message-only payload (no statuses)", () => {
@@ -35,5 +131,31 @@ describe("extractStatusUpdates", () => {
     expect(extractStatusUpdates(null)).toEqual([]);
     expect(extractStatusUpdates({})).toEqual([]);
     expect(extractStatusUpdates({ entry: "nope" })).toEqual([]);
+  });
+});
+
+describe("applyBroadcastStatuses", () => {
+  beforeEach(() => supabaseMock.reset());
+
+  it("writes error_detail when a failed status carries a Meta reason (regression)", async () => {
+    supabaseMock.setRecip({ id: "r1", send_status: "sent" });
+    const applied = await applyBroadcastStatuses([{ waMessageId: "wamid.F", status: "failed", timestamp: 1700000100, errorDetail: "131026: Undeliverable" }]);
+    expect(applied).toBe(1);
+    expect(supabaseMock.patches).toHaveLength(1);
+    expect(supabaseMock.patches[0]).toMatchObject({ send_status: "failed", error_detail: "131026: Undeliverable" });
+  });
+
+  it("does not set error_detail for non-failed statuses", async () => {
+    supabaseMock.setRecip({ id: "r2", send_status: "sent" });
+    await applyBroadcastStatuses([{ waMessageId: "wamid.D", status: "delivered", timestamp: 1700000000 }]);
+    expect(supabaseMock.patches[0]).toMatchObject({ send_status: "delivered" });
+    expect(supabaseMock.patches[0].error_detail).toBeUndefined();
+  });
+
+  it("does not clobber with null when a failed status has no Meta reason", async () => {
+    supabaseMock.setRecip({ id: "r3", send_status: "sent" });
+    await applyBroadcastStatuses([{ waMessageId: "wamid.F2", status: "failed", timestamp: 1700000100 }]);
+    expect(supabaseMock.patches[0]).toMatchObject({ send_status: "failed" });
+    expect(supabaseMock.patches[0].error_detail).toBeUndefined();
   });
 });
