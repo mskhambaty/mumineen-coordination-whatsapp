@@ -1496,9 +1496,12 @@ paths:
     get:
       tags: [rsvp]
       summary: Get the caller's family Niyaz RSVP grid
-      description: Self-scoped via x-whatsapp-from. Returns every Niyaz event with how many of the family are attending vs. family size. Used by the get_family_meal_rsvps agent tool.
+      description: >-
+        Self-scoped via x-whatsapp-from. Returns every Niyaz event with how many of the family
+        are attending vs. family size. For unlinked phones, returns status=unregistered with any
+        existing unregistered_rsvps rows. Used by the get_family_meal_rsvps agent tool.
       responses:
-        "200": { description: "Grid (or status=no_family when the number isn't on the roster)." }
+        "200": { description: "Grid (status=ok), or status=unregistered with rsvps array for unlinked phones." }
         "400": { $ref: "#/components/responses/BadRequest" }
     post:
       tags: [rsvp]
@@ -1528,9 +1531,53 @@ paths:
                       dates: { type: array, items: { type: string, format: date } }
                       meal: { type: string, enum: [lunch, dinner] }
                       all: { type: boolean }
+                adults: { type: integer, description: "Unregistered callers only — number of adults." }
+                kids: { type: integer, description: "Unregistered callers only — number of kids." }
+                its_number: { type: string, description: "Unregistered callers only — optional ITS for family matching." }
       responses:
-        "200": { description: Updated row count + refreshed grid (or status=no_family). }
+        "200": { description: "Updated row count + refreshed grid (or status=unregistered for unlinked phones — upserts into unregistered_rsvps)." }
         "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/admin/niyaz/instances:
+    get:
+      tags: [admin]
+      summary: List Niyaz events with attendance tallies
+      description: >-
+        Admin/leadership (portal). Returns all events ordered by date, each with
+        per-event attendance tallies (yes/no by adult/kid/family, thaal count,
+        unregistered adults/kids). Thaal count includes both registered and
+        unregistered attendees.
+      parameters:
+        - name: mode
+          in: query
+          schema: { type: string, enum: [max, min], default: max }
+          description: >-
+            max = arrival-date defaults (all registered assumed attending);
+            min = only whatsapp/admin-confirmed RSVPs.
+      responses:
+        "200": { description: "{ instances: EventTally[] }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [admin]
+      summary: Create a Niyaz event
+      description: Admin/leadership (portal). Creates a new event (day + meal + serving type).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                event_date: { type: string, format: date }
+                hijri_date: { type: string }
+                meal: { type: string, enum: [lunch, dinner] }
+                serving_type: { type: string, enum: [thaal, packet] }
+                description: { type: string }
+      responses:
+        "201": { description: "{ instance: { id } }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
   /api/admin/niyaz/instances/{id}/responses:
     get:
@@ -1718,6 +1765,64 @@ paths:
         "200": { description: "{ failures[] } (JSON) or a text/csv attachment." }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/admin/prompts/{key}:
+    get:
+      tags: [admin]
+      summary: Read a system prompt by key
+      description: Admin/leadership. Returns the prompt text (DB override or code default), whether it's been customized, and the default text.
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string }, description: "Prompt key, e.g. agent_system, conversation_quality." }
+      responses:
+        "200": { description: "{ prompt_key, prompt_text, is_default, default_text, updated_by, updated_at }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [admin]
+      summary: Save/override a system prompt
+      description: Admin/leadership. Upserts the prompt text for the given key.
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt_text: { type: string, maxLength: 10000 }
+      responses:
+        "200": { description: "{ prompt_key, prompt_text, updated_at }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/prompts/rules:
+    get:
+      tags: [admin]
+      summary: Always-on rule blocks
+      description: >-
+        Admin/leadership. Returns all always-on rules appended to every agent system prompt,
+        each with its current text (DB override or code default), default_text, and is_default flag.
+      responses:
+        "200": { description: "{ rules: [{ name, label, text, default_text, is_default, updated_by, updated_at }], dynamic: string[] }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [admin]
+      summary: Save/override one always-on rule
+      description: >-
+        Admin/leadership. Upserts a rule override into system_prompts (key = rule_{name}).
+        Empty text or text matching the default resets the rule (deletes the override).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, description: "Rule name, e.g. ESCALATION_POLICY." }
+                text: { type: string, maxLength: 15000 }
+      responses:
+        "200": { description: "{ name, text, is_default }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
   /api/admin/department-digest:
     get:

@@ -12,9 +12,10 @@ responses come in.
 
 - **Events** live in `rsvp_registration_instance` (`title`, `event_date`, `hijri_date`, `meal`
   `lunch`|`dinner`, `serving_type` `thaal`|`packet`, `description`, unique `(event_date, meal)`).
-  Ashara 1448H = **19 events**: **Pehli Raat (Jun 14, dinner)**, **1st Moharram (Jun 15, dinner
-  only)**, **2nd–9th Moharram (Jun 16–23, lunch + dinner)**, **10th Moharram (Jun 24, dinner only)**.
-  (Finalized in `supabase/migrations/20260609130000_niyaz_events_hijri_and_recreate`.)
+  Ashara 1448H = **20 events**: **Pehli Raat (Jun 14, dinner thaal)**, **1st Moharram lunch +
+  2nd Moharram dinner (Jun 15)**, **2nd–9th lunch + 3rd–10th dinner (Jun 16–23)**, **Ashura (Jun 24,
+  dinner thaal)**. Hijri night-first ordering: lunch = Nth Day, dinner = (N+1)th Night on each
+  Gregorian day. (Corrected in `supabase/migrations/20260610110000_fix_moharram_dates_and_titles`.)
 - **`niyaz_rsvp`** (`20260608131000_*`): one row per `(registration_instance_id, mumin_id)` with
   `attending boolean`, `family_id`, and `source` (`default`|`registration`|`whatsapp`|`admin`). RLS
   on, service-role access only. `rsvp_responses` is retired (left empty) for the meal flow.
@@ -26,16 +27,26 @@ responses come in.
   clobbering a `whatsapp`/`admin` override — so button/head-count responses refine the baseline.
 - **Adult/kid/family + thaal counts** come from the **`niyaz_event_tallies`** view
   (`20260608133000_*`): per event, yes/no split by `mumineen.is_adult` (null = adult) and by family,
-  plus `thaal_count = ceil(attending heads / 8)`.
+  plus `thaal_count = ceil(attending heads / 8)`. A **min-mode** function
+  `niyaz_event_tallies_min()` (`20260610130000_*`) counts only `whatsapp`/`admin`-sourced RSVPs.
+- **Unregistered RSVPs** (`unregistered_rsvps`, `20260610120000_*`): one row per
+  (phone, event), `adults`/`kids` counts, optional `its_number`/`family_name`. Recorded when an
+  unlinked phone taps a button or the agent records their RSVP. Tallied alongside registered counts.
+  **Auto-merge on registration:** when a family registers (or edits) via `/api/register`, any
+  `unregistered_rsvps` matching the family's phone numbers are converted into confirmed `niyaz_rsvp`
+  rows (`source='whatsapp'`) and the unregistered records are deleted (`mergeUnregisteredRsvps`).
 
 Code: `src/lib/rsvp/family.ts` (phone → roster family), `src/lib/rsvp/meal-rsvp.ts`
-(`getFamilyNiyazGrid`, `setFamilyNiyazRsvp` whole-family cascade, `getEventTallies`,
-`getMealAttendanceTotals`). API: `GET/POST /api/rsvp/meals` (self-scoped via `x-whatsapp-from`,
-Zod-validated; POST entries are `{attending, dates?, meal?, all?}` — a change cascades to the whole
-family). Agent tools: `get_family_meal_rsvps`, `set_family_meal_rsvps` (public; the agent mainly
-records *changes* — guidance in `MEAL_RSVP_FEEDBACK_RULE`). Admin: `/admin/niyaz` shows the events
-sorted by date with the eight count columns + thaal count, backed by
-`GET /api/admin/niyaz/instances` (reads the tallies view).
+(`getFamilyNiyazGrid`, `setFamilyNiyazRsvp` whole-family cascade, `getEventTallies(mode)`,
+`recordUnregisteredRsvp`, `getUnregisteredRsvps`, `recordUnregisteredHeadCount`,
+`mergeUnregisteredRsvps`, `getMealAttendanceTotals`). API: `GET/POST /api/rsvp/meals` (self-scoped via `x-whatsapp-from`,
+Zod-validated; POST entries are `{attending, dates?, meal?, all?}` with optional `adults`, `kids`,
+`its_number` for unregistered — a registered change cascades to the whole family; unregistered
+changes go to `unregistered_rsvps`). Agent tools: `get_family_meal_rsvps`, `set_family_meal_rsvps`
+(public; the agent mainly records *changes* — guidance in `MEAL_RSVP_FEEDBACK_RULE`). Admin:
+`/admin/niyaz` shows the events sorted by date with **Max/Min tabs** (max = arrival-date defaults,
+min = confirmed only), registered + unregistered count columns, backed by
+`GET /api/admin/niyaz/instances?mode=max|min` (reads the tallies view / function).
 
 ### 1a. Daily button RSVP (individual + family)
 
@@ -53,7 +64,10 @@ Each button's payload is stamped at send time as **`niyaz|<level>|<scope>|<date>
 (`src/app/api/whatsapp/webhook/route.ts`) reads `buttonPayload` (`src/lib/whatsapp/parser.ts`),
 resolves the **family/mumin from the sender's phone** (`resolveFamilyForPhone`), records via
 `recordNiyazButtonResponse` (`ind` → that mumin; `fam` → whole family, both into `niyaz_rsvp` with
-`source='whatsapp'`), sends a **confirmation**, and skips the agent. The per-event detail panel lists
+`source='whatsapp'`), sends a **confirmation**, and skips the agent. If the phone is **not linked to
+a registered family**, the tap is recorded in `unregistered_rsvps` via `recordUnregisteredRsvp`, a
+head-count prompt is created (so the caller can reply with their family size), and a friendlier
+confirmation is sent encouraging them to register. The per-event detail panel lists
 the recorded responses (`GET /api/admin/niyaz/instances/[id]/responses`, reads `niyaz_rsvp`).
 Outbound quick-reply payloads are emitted by `buildSendComponents` (`src/lib/whatsapp/templates.ts`).
 

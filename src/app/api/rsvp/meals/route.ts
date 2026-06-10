@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { resolveFamilyForPhone } from "@/lib/rsvp/family";
-import { getFamilyNiyazGrid, setFamilyNiyazRsvp } from "@/lib/rsvp/meal-rsvp";
+import { getFamilyNiyazGrid, setFamilyNiyazRsvp, getUnregisteredRsvps, recordUnregisteredRsvp } from "@/lib/rsvp/meal-rsvp";
 
 export const runtime = "nodejs";
 
@@ -18,7 +18,12 @@ const entrySchema = z.object({
   all: z.boolean().optional(),
 });
 
-const postSchema = z.object({ entries: z.array(entrySchema).min(1).max(60) });
+const postSchema = z.object({
+  entries: z.array(entrySchema).min(1).max(60),
+  adults: z.number().int().min(0).optional(),
+  kids: z.number().int().min(0).optional(),
+  its_number: z.string().optional(),
+});
 
 function requirePhone(req: NextRequest): string | null {
   const phone = req.headers.get("x-whatsapp-from");
@@ -26,13 +31,20 @@ function requirePhone(req: NextRequest): string | null {
 }
 
 // GET — the caller's family Niyaz grid (every event + how many of the family are attending).
+// Returns status "unregistered" with existing unregistered RSVPs if the phone isn't linked.
 export async function GET(req: NextRequest) {
   const phone = requirePhone(req);
   if (!phone) return NextResponse.json({ error: "Missing x-whatsapp-from header" }, { status: 400 });
 
   const family = await resolveFamilyForPhone(phone);
   if (!family) {
-    return NextResponse.json({ status: "no_family", grid: [], message: "This number isn't linked to a registered family." });
+    const rsvps = await getUnregisteredRsvps(phone);
+    return NextResponse.json({
+      status: "unregistered",
+      grid: [],
+      rsvps,
+      message: "This number isn't linked to a registered family. Any previous RSVPs from this number are shown in rsvps.",
+    });
   }
 
   const grid = await getFamilyNiyazGrid(family.familyId);
@@ -40,6 +52,7 @@ export async function GET(req: NextRequest) {
 }
 
 // POST — set RSVP for the caller's family across one or more days/meals.
+// For unregistered callers: records into unregistered_rsvps with optional adults/kids/its_number.
 export async function POST(req: NextRequest) {
   const phone = requirePhone(req);
   if (!phone) return NextResponse.json({ error: "Missing x-whatsapp-from header" }, { status: 400 });
@@ -51,7 +64,36 @@ export async function POST(req: NextRequest) {
 
   const family = await resolveFamilyForPhone(phone);
   if (!family) {
-    return NextResponse.json({ status: "no_family", message: "This number isn't linked to a registered family." }, { status: 200 });
+    let totalUpserted = 0;
+    for (const entry of parsed.data.entries) {
+      const dates = entry.all ? undefined : entry.dates;
+      const scope = entry.meal ?? (entry.attending ? "both" : "none");
+      for (const date of dates ?? ["all"]) {
+        if (date === "all") {
+          const { upserted } = await recordUnregisteredRsvp({
+            phone,
+            date: "",
+            scope: scope as "both" | "lunch" | "dinner" | "none",
+            adults: parsed.data.adults,
+            kids: parsed.data.kids,
+            itsNumber: parsed.data.its_number,
+          });
+          totalUpserted += upserted;
+        } else {
+          const { upserted } = await recordUnregisteredRsvp({
+            phone,
+            date,
+            scope: scope as "both" | "lunch" | "dinner" | "none",
+            adults: parsed.data.adults,
+            kids: parsed.data.kids,
+            itsNumber: parsed.data.its_number,
+          });
+          totalUpserted += upserted;
+        }
+      }
+    }
+    const rsvps = await getUnregisteredRsvps(phone);
+    return NextResponse.json({ status: "unregistered_recorded", updated: totalUpserted, rsvps });
   }
 
   const result = await setFamilyNiyazRsvp(

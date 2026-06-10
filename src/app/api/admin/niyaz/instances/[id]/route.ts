@@ -6,6 +6,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const MEALS = ["lunch", "dinner"] as const;
 const SERVING_TYPES = ["thaal", "packet"] as const;

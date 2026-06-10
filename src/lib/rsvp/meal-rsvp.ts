@@ -254,19 +254,20 @@ export type EventTally = NiyazEvent & {
   noAdults: number;
   noKids: number;
   noFamilies: number;
-  headcountHeads: number; // sum of free-text family head counts for this event
-  rsvpCount: number; // total attending people = per-mumin yes + family head counts
+  unregAdults: number;
+  unregKids: number;
+  headcountHeads: number;
+  rsvpCount: number;
 };
 
-// Per-event attendance tallies for the admin page: per-mumin yes/no from the niyaz_event_tallies
-// view, plus the free-text family head-count totals, combined into a single rsvpCount.
-export async function getEventTallies(): Promise<EventTally[]> {
+export type TallyMode = "max" | "min";
+
+// Per-event attendance tallies for the admin page. mode=max uses the full niyaz_event_tallies
+// view (arrival-date defaults + overrides); mode=min uses only whatsapp/admin-confirmed RSVPs.
+// Both include unregistered RSVP totals. Thaal count = ceil((regYes + unregYes) / 8).
+export async function getEventTallies(mode: TallyMode = "max"): Promise<EventTally[]> {
   const supabase = getSupabaseAdmin();
   const events = await getEvents();
-
-  const { data } = await supabase
-    .from("niyaz_event_tallies")
-    .select("instance_id, yes_adults, yes_kids, yes_families, thaal_count, no_adults, no_kids, no_families");
 
   type Row = {
     instance_id: string;
@@ -278,8 +279,19 @@ export async function getEventTallies(): Promise<EventTally[]> {
     no_kids: number;
     no_families: number;
   };
+
+  let tallyRows: Row[];
+  if (mode === "min") {
+    const { data } = await supabase.rpc("niyaz_event_tallies_min");
+    tallyRows = (data ?? []) as Row[];
+  } else {
+    const { data } = await supabase
+      .from("niyaz_event_tallies")
+      .select("instance_id, yes_adults, yes_kids, yes_families, thaal_count, no_adults, no_kids, no_families");
+    tallyRows = (data ?? []) as Row[];
+  }
   const byId = new Map<string, Row>();
-  for (const r of (data ?? []) as Row[]) byId.set(r.instance_id, r);
+  for (const r of tallyRows) byId.set(r.instance_id, r);
 
   // Family head-count totals per event.
   const { data: hc } = await supabase.from("niyaz_family_headcount").select("registration_instance_id, head_count");
@@ -288,27 +300,183 @@ export async function getEventTallies(): Promise<EventTally[]> {
     headsById.set(r.registration_instance_id, (headsById.get(r.registration_instance_id) ?? 0) + (r.head_count ?? 0));
   }
 
+  const unregById = await getUnregisteredTallies();
+
   return events.map((event) => {
     const t = byId.get(event.id);
     const yesAdults = Number(t?.yes_adults ?? 0);
     const yesKids = Number(t?.yes_kids ?? 0);
     const headcountHeads = headsById.get(event.id) ?? 0;
+    const unreg = unregById.get(event.id) ?? { adults: 0, kids: 0 };
+    const totalYes = yesAdults + yesKids + unreg.adults + unreg.kids;
     return {
       ...event,
       yesAdults,
       yesKids,
       yesFamilies: Number(t?.yes_families ?? 0),
-      thaalCount: Number(t?.thaal_count ?? 0),
+      thaalCount: Math.ceil(totalYes / 8),
       noAdults: Number(t?.no_adults ?? 0),
       noKids: Number(t?.no_kids ?? 0),
       noFamilies: Number(t?.no_families ?? 0),
+      unregAdults: unreg.adults,
+      unregKids: unreg.kids,
       headcountHeads,
-      rsvpCount: yesAdults + yesKids + headcountHeads,
+      rsvpCount: totalYes + headcountHeads,
     };
   });
 }
 
+// --- Unregistered RSVPs ---
+
+export async function recordUnregisteredRsvp(input: {
+  phone: string;
+  date: string;
+  scope: NiyazScope;
+  adults?: number;
+  kids?: number;
+  itsNumber?: string | null;
+  source?: "whatsapp" | "admin";
+}): Promise<{ upserted: number }> {
+  const events = (await getEvents()).filter((e) => e.eventDate === input.date);
+  if (events.length === 0) return { upserted: 0 };
+
+  const attending = input.scope !== "none";
+  const rows = events
+    .filter((e) => {
+      if (input.scope === "both" || input.scope === "none") return true;
+      return e.meal === input.scope;
+    })
+    .map((e) => ({
+      phone_e164: input.phone,
+      registration_instance_id: e.id,
+      adults: input.adults ?? 1,
+      kids: input.kids ?? 0,
+      attending,
+      its_number: input.itsNumber ?? null,
+      source: input.source ?? "whatsapp",
+    }));
+
+  if (rows.length === 0) return { upserted: 0 };
+  const { error } = await getSupabaseAdmin()
+    .from("unregistered_rsvps")
+    .upsert(rows, { onConflict: "phone_e164,registration_instance_id" });
+  if (error) throw new Error(error.message);
+  return { upserted: rows.length };
+}
+
+export async function recordUnregisteredHeadCount(
+  phone: string,
+  date: string,
+  count: number,
+): Promise<number> {
+  const events = (await getEvents()).filter((e) => e.eventDate === date);
+  if (events.length === 0) return 0;
+
+  const supabase = getSupabaseAdmin();
+  let updated = 0;
+  for (const e of events) {
+    const { error } = await supabase
+      .from("unregistered_rsvps")
+      .upsert(
+        { phone_e164: phone, registration_instance_id: e.id, adults: count, attending: true, source: "whatsapp" },
+        { onConflict: "phone_e164,registration_instance_id" },
+      );
+    if (!error) updated++;
+  }
+  return updated;
+}
+
+export type UnregisteredRsvpRow = {
+  id: string;
+  registration_instance_id: string;
+  adults: number;
+  kids: number;
+  attending: boolean;
+  its_number: string | null;
+  event_date: string;
+  meal: string | null;
+  title: string | null;
+};
+
+export async function getUnregisteredRsvps(phone: string): Promise<UnregisteredRsvpRow[]> {
+  const { data } = await getSupabaseAdmin()
+    .from("unregistered_rsvps")
+    .select("id, registration_instance_id, adults, kids, attending, its_number, rsvp_registration_instance!inner(event_date, meal, title)")
+    .eq("phone_e164", phone)
+    .eq("attending", true);
+
+  return ((data ?? []) as unknown[]).map((r: Record<string, unknown>) => {
+    const inst = r.rsvp_registration_instance as Record<string, unknown> | null;
+    return {
+      id: r.id as string,
+      registration_instance_id: r.registration_instance_id as string,
+      adults: r.adults as number,
+      kids: r.kids as number,
+      attending: r.attending as boolean,
+      its_number: r.its_number as string | null,
+      event_date: (inst?.event_date as string) ?? "",
+      meal: (inst?.meal as string) ?? null,
+      title: (inst?.title as string) ?? null,
+    };
+  });
+}
+
+async function getUnregisteredTallies(): Promise<Map<string, { adults: number; kids: number }>> {
+  const { data } = await getSupabaseAdmin()
+    .from("unregistered_rsvps")
+    .select("registration_instance_id, adults, kids")
+    .eq("attending", true);
+
+  const byId = new Map<string, { adults: number; kids: number }>();
+  for (const r of (data ?? []) as { registration_instance_id: string; adults: number; kids: number }[]) {
+    const cur = byId.get(r.registration_instance_id) ?? { adults: 0, kids: 0 };
+    cur.adults += r.adults;
+    cur.kids += r.kids;
+    byId.set(r.registration_instance_id, cur);
+  }
+  return byId;
+}
+
 // Attending head counts for one calendar day, split by meal — for the nightly department digest.
+// After a family registers, merge any unregistered RSVPs from their phone numbers into proper
+// niyaz_rsvp rows, then delete the unregistered records. This ensures the min tab picks up
+// their confirmed attendance, and the unregistered counts drop accordingly.
+export async function mergeUnregisteredRsvps(familyId: string, phones: string[]): Promise<number> {
+  if (phones.length === 0) return 0;
+  const supabase = getSupabaseAdmin();
+
+  const { data: unreg } = await supabase
+    .from("unregistered_rsvps")
+    .select("id, registration_instance_id, attending")
+    .in("phone_e164", phones);
+
+  if (!unreg || unreg.length === 0) return 0;
+
+  // For each unregistered RSVP that's attending, mark the family's niyaz_rsvp rows as
+  // whatsapp-confirmed. The seed function already created default rows for the family.
+  const confirmedInstanceIds = unreg.filter((r) => r.attending).map((r) => r.registration_instance_id);
+  if (confirmedInstanceIds.length > 0) {
+    await supabase
+      .from("niyaz_rsvp")
+      .update({ source: "whatsapp", attending: true, updated_at: new Date().toISOString() })
+      .eq("family_id", familyId)
+      .in("registration_instance_id", confirmedInstanceIds);
+  }
+
+  // Delete the merged unregistered records.
+  const ids = unreg.map((r) => r.id);
+  await supabase.from("unregistered_rsvps").delete().in("id", ids);
+
+  // Clean up orphaned prompts for these phones.
+  await supabase
+    .from("niyaz_rsvp_prompts")
+    .delete()
+    .in("phone_e164", phones)
+    .is("family_id", null);
+
+  return unreg.length;
+}
+
 export async function getMealAttendanceTotals(date: string): Promise<{ date: string | null; lunch: number; dinner: number }> {
   const events = (await getEvents()).filter((e) => e.eventDate === date);
   if (events.length === 0) return { date: null, lunch: 0, dinner: 0 };

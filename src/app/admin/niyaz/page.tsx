@@ -11,6 +11,8 @@ type ServingType = "thaal" | "packet";
 
 // One Niyaz event with its per-event attendance tallies (from the niyaz_event_tallies view) plus the
 // free-text family head-count total and the combined RSVP count.
+type TallyMode = "max" | "min";
+
 type NiyazEvent = {
   id: string;
   title: string;
@@ -26,6 +28,8 @@ type NiyazEvent = {
   noAdults: number;
   noKids: number;
   noFamilies: number;
+  unregAdults: number;
+  unregKids: number;
   headcountHeads: number;
   rsvpCount: number;
 };
@@ -77,6 +81,7 @@ export default function NiyazPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
 
+  const [mode, setMode] = useState<TallyMode>("max");
   const [events, setEvents] = useState<NiyazEvent[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -102,9 +107,14 @@ export default function NiyazPage() {
     void loadEvents();
   }, [router]);
 
-  async function loadEvents() {
-    const res = await apiFetch("/api/admin/niyaz/instances");
+  async function loadEvents(m: TallyMode = mode) {
+    const res = await apiFetch(`/api/admin/niyaz/instances?mode=${m}`);
     if (res.ok) setEvents(((await res.json()).instances as NiyazEvent[]) ?? []);
+  }
+
+  function switchMode(m: TallyMode) {
+    setMode(m);
+    void loadEvents(m);
   }
 
   const loadResponses = useCallback(async (instanceId: string) => {
@@ -233,7 +243,27 @@ export default function NiyazPage() {
       )}
 
       <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-        <h2 className="mb-3 text-lg font-semibold">Niyaz events</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Niyaz events</h2>
+          <div className="flex gap-1 rounded-md border border-gray-200 p-0.5 dark:border-gray-700">
+            <button
+              type="button"
+              onClick={() => switchMode("max")}
+              className={`rounded px-3 py-1 text-xs font-medium ${mode === "max" ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"}`}
+              title="All registered members assumed attending from arrival date"
+            >
+              Max
+            </button>
+            <button
+              type="button"
+              onClick={() => switchMode("min")}
+              className={`rounded px-3 py-1 text-xs font-medium ${mode === "min" ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"}`}
+              title="Only members who actively confirmed via WhatsApp or admin"
+            >
+              Min
+            </button>
+          </div>
+        </div>
         {events.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">No Niyaz events yet.</p>
         ) : (
@@ -249,7 +279,8 @@ export default function NiyazPage() {
                   <th className="px-2 py-1.5 text-right">No adults</th>
                   <th className="px-2 py-1.5 text-right">No kids</th>
                   <th className="px-2 py-1.5 text-right">No families</th>
-                  <th className="px-2 py-1.5 text-right">Head ct</th>
+                  <th className="px-2 py-1.5 text-right" title="Unregistered adults">Unreg</th>
+                  <th className="px-2 py-1.5 text-right" title="Unregistered kids">Unreg kids</th>
                   <th className="px-2 py-1.5"></th>
                 </tr>
               </thead>
@@ -275,7 +306,8 @@ export default function NiyazPage() {
                     <td className={`${num} text-gray-500`}>{e.noAdults}</td>
                     <td className={`${num} text-gray-500`}>{e.noKids}</td>
                     <td className={`${num} text-gray-500`}>{e.noFamilies}</td>
-                    <td className={num} title="Free-text family head-count total">{e.headcountHeads}</td>
+                    <td className={`${num} text-orange-600 dark:text-orange-400`}>{e.unregAdults || ""}</td>
+                    <td className={`${num} text-orange-600 dark:text-orange-400`}>{e.unregKids || ""}</td>
                     <td className="px-2 py-1.5" onClick={(ev) => ev.stopPropagation()}>
                       <button type="button" onClick={() => openEdit(e)} className="rounded border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
                         Edit

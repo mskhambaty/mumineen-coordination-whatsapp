@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 
 import { executeTool, toolDefinitionsFor } from "@/lib/agent/tools";
-import { SYSTEM_PROMPT, loadAgentSystemPrompt } from "@/lib/agent/prompts";
+import { SYSTEM_PROMPT, loadAgentSystemPrompt, loadRuleOverrides } from "@/lib/agent/prompts";
 import { AGENT_TEMPERATURE, AI_MODEL, AI_MODEL_HIGH, chatParams, getAIClient, MAX_AGENT_TOKENS, MAX_FINAL_TOKENS } from "@/lib/ai/model";
 import { isPersonalRuling, flagRulingQuestion, RULING_REFUSAL_REPLY } from "@/lib/agent/ruling-guard";
 import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
@@ -205,7 +205,8 @@ const KNOWLEDGE_GAP_RULE = `\n\n## Flag Knowledge Gaps
 const MEAL_RSVP_FEEDBACK_RULE = `\n\n## Jaman (Meal) RSVP & Feedback
 - We serve jaman each day of Ashara (Pehli Raat thaal, daily lunch thaals, and dinners) and track a Niyaz RSVP per person so the kitchen can prepare accurate counts. IMPORTANT: every registered family is ALREADY defaulted to attending, based on each person's arrival date — so you do NOT need to ask families to RSVP. Your job is only to record CHANGES.
 - When a registered user tells you they will NOT attend on some day(s) — e.g. "we won't be there on the 16th", "skip the dinners", "we're leaving on the 22nd" — record it with set_family_meal_rsvps using attending:false for those dates (optionally a meal). If they later say they WILL attend a day they'd cancelled, set attending:true for it. Changes apply to the WHOLE family. To show what's on file, use get_family_meal_rsvps. Always read back the change ("Got it — I've marked your family as not attending on the 16th. Correct?") before relying on it.
-- Parse natural phrasing into entries: "we won't be there the 16th and 17th" = {attending:false, dates:['2026-06-16','2026-06-17']}; "no dinners for us" = {attending:false, meal:'dinner', all:true}. Do not invent days outside the event range. If get_family_meal_rsvps returns no_family (the number isn't a registered family), do not discuss RSVP.
+- Parse natural phrasing into entries: "we won't be there the 16th and 17th" = {attending:false, dates:['2026-06-16','2026-06-17']}; "no dinners for us" = {attending:false, meal:'dinner', all:true}. Do not invent days outside the event range.
+- If get_family_meal_rsvps returns status "unregistered", the caller's number is NOT linked to a registered family — but they can still RSVP. Their previous RSVPs (if any) will be in the \`rsvps\` array. Ask how many adults and kids will be attending, and optionally their ITS number so the committee can match them to a family later. Then call set_family_meal_rsvps with the entries plus adults/kids/its_number. Let them know the committee may follow up, and encourage them to register their family at https://www.chicagorelaycenter.com/register — once registered their RSVP records will automatically be linked to their family.
 - When a user shares a complaint, compliment, or observation about the experience — jaman/mawaid, flow/crowd management, parking/transport, audio-video, accommodation, or seating/rahat — acknowledge it warmly. You do NOT need to log it: the team reviews the day's feedback automatically from the conversations. If it's an actionable problem or emergency, or if the user wants to talk to a person, use move_to_escalation so the support team can follow up.
 
 ### Inviting feedback naturally (do this lightly — never naggingly)
@@ -213,10 +214,9 @@ const MEAL_RSVP_FEEDBACK_RULE = `\n\n## Jaman (Meal) RSVP & Feedback
 - This opportunistic invite is allowed AT MOST ONCE per conversation. If you have already asked, or they already shared their experience, do NOT ask again — that is exactly the robotic repetition the Conversation Flow rule forbids. If the user then replies with only a content-free closing ("thanks", "all good", "nothing"), send ${NO_REPLY_TOKEN}.
 - If they respond with any feedback, acknowledge it warmly (no need to log it — it's reviewed automatically). Do NOT proactively quiz them about meal attendance — RSVP is already on file; only act when they themselves mention a change to their attendance.`;
 
-// Single source of truth for the always-on rule blocks appended to every system prompt.
-// runAgent() loops over this, and the admin Prompt page reads it (read-only) so the UI can
-// never drift from what's actually applied. These are code-managed (edited via deploy),
-// unlike the editable base prompt stored in `system_prompts`.
+// Default always-on rule blocks appended to every system prompt. Admins can override
+// individual rules via the Prompt page (stored in `system_prompts` as `rule_<NAME>`).
+// `loadResolvedRules()` merges DB overrides with these defaults at runtime.
 export type AlwaysOnRule = { name: string; label: string; text: string };
 export const ALWAYS_ON_RULES: AlwaysOnRule[] = [
   { name: "ESCALATION_POLICY", label: "Escalation Policy (last resort)", text: ESCALATION_POLICY },
@@ -234,6 +234,12 @@ export const ALWAYS_ON_RULES: AlwaysOnRule[] = [
   { name: "KNOWLEDGE_GAP_RULE", label: "Flag Knowledge Gaps", text: KNOWLEDGE_GAP_RULE },
   { name: "MEAL_RSVP_FEEDBACK_RULE", label: "Jaman (Meal) RSVP & Feedback", text: MEAL_RSVP_FEEDBACK_RULE },
 ];
+
+export async function loadResolvedRules(): Promise<AlwaysOnRule[]> {
+  const names = ALWAYS_ON_RULES.map((r) => r.name);
+  const overrides = await loadRuleOverrides(names);
+  return ALWAYS_ON_RULES.map((r) => (overrides[r.name] ? { ...r, text: overrides[r.name] } : r));
+}
 
 const DEPT_CACHE_TTL_MS = 5 * 60_000;
 let cachedDepartments: { list: Array<{ name: string; description: string | null }>; fetchedAt: number } | null = null;
@@ -319,20 +325,18 @@ export function buildSystemPrompt(params: {
   phoneE164: string;
   role: AppUser["role"];
   senderProfile?: SenderProfile | null;
+  resolvedRules?: AlwaysOnRule[];
 }): string {
   const { basePrompt, departmentSection, callerContext, phoneE164, role, senderProfile } = params;
 
   let systemContent = basePrompt;
 
-  // Global departments list (same for every user, 5-min cached). Lives in the
-  // static prefix and is needed at the first completion so move_to_escalation /
-  // create_task can route to a valid department.
   if (departmentSection) {
     systemContent += departmentSection;
   }
 
-  // Code-managed always-on rule blocks — identical for every user.
-  for (const rule of ALWAYS_ON_RULES) {
+  const rules = params.resolvedRules ?? ALWAYS_ON_RULES;
+  for (const rule of rules) {
     systemContent += rule.text;
   }
 
@@ -407,11 +411,12 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     ? Promise.resolve(input.callerContext)
     : resolveCallerFromPhone(input.phoneE164).catch(() => undefined);
 
-  const [callerContext, systemPromptText, departmentSection, senderProfile] = await Promise.all([
+  const [callerContext, systemPromptText, departmentSection, senderProfile, resolvedRules] = await Promise.all([
     callerPromise,
     loadAgentSystemPrompt(),
     loadDepartmentsForPrompt(),
     getSenderProfile(input.phoneE164).catch(() => null),
+    loadResolvedRules(),
   ]);
 
   const systemContent = buildSystemPrompt({
@@ -421,6 +426,7 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     phoneE164: input.phoneE164,
     role: input.user.role,
     senderProfile,
+    resolvedRules,
   });
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [

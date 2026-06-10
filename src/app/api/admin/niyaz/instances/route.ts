@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { canAccessPortal } from "@/lib/admin/access";
 import { dateStr, oneOf, str } from "@/lib/registration/normalize";
-import { getEventTallies } from "@/lib/rsvp/meal-rsvp";
+import { getEventTallies, type TallyMode } from "@/lib/rsvp/meal-rsvp";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const MEALS = ["lunch", "dinner"] as const;
 const SERVING_TYPES = ["thaal", "packet"] as const;
@@ -27,7 +28,8 @@ export async function GET(req: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   try {
-    const instances = await getEventTallies();
+    const mode: TallyMode = req.nextUrl.searchParams.get("mode") === "min" ? "min" : "max";
+    const instances = await getEventTallies(mode);
     return NextResponse.json({ instances });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Failed to load events" }, { status: 500 });

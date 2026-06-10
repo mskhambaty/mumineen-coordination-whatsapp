@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { ACC_TYPES, AIRPORTS, TRANSPORT_MODES, bool, khidmatIds, num, oneOf, str, ts } from "@/lib/registration/normalize";
+import { mergeUnregisteredRsvps } from "@/lib/rsvp/meal-rsvp";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -287,6 +288,17 @@ export async function POST(req: NextRequest) {
   if (famRow?.id) {
     const { error: rsvpError } = await supabase.rpc("seed_family_niyaz_rsvp", { p_family_id: famRow.id });
     if (rsvpError) console.error("seed_family_niyaz_rsvp failed for family", famRow.id, rsvpError.message);
+
+    // Auto-merge: if any of the family's phones had unregistered RSVPs, convert them to proper
+    // niyaz_rsvp rows (whatsapp-confirmed) and delete the unregistered records.
+    const phonesToMerge = updatedLinks.map((l) => l.phone);
+    if (phonesToMerge.length > 0) {
+      try {
+        await mergeUnregisteredRsvps(famRow.id, phonesToMerge);
+      } catch (e) {
+        console.error("mergeUnregisteredRsvps failed for family", famRow.id, (e as Error).message);
+      }
+    }
   }
 
   // Consume the edit token so it can't be reused

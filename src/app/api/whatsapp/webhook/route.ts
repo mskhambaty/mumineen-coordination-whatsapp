@@ -18,8 +18,8 @@ import { insertPendingMessage, runCoalescedInbound } from "@/lib/whatsapp/coales
 import { extractIncomingMessages, type IncomingWhatsAppMessage } from "@/lib/whatsapp/parser";
 import { applyBroadcastStatuses, extractStatusUpdates, markBroadcastReplied } from "@/lib/whatsapp/broadcast-status";
 import { resolveFamilyForPhone } from "@/lib/rsvp/family";
-import { recordFamilyHeadCount, recordNiyazButtonResponse, type NiyazLevel, type NiyazScope } from "@/lib/rsvp/meal-rsvp";
-import { consumePrompt, findOpenPrompt } from "@/lib/rsvp/niyaz-prompt";
+import { recordFamilyHeadCount, recordNiyazButtonResponse, recordUnregisteredRsvp, recordUnregisteredHeadCount, type NiyazLevel, type NiyazScope } from "@/lib/rsvp/meal-rsvp";
+import { consumePrompt, createPrompt, findOpenPrompt } from "@/lib/rsvp/niyaz-prompt";
 
 export const runtime = "nodejs";
 // The reply is generated in an after() background task that runs up to two sequential model
@@ -229,9 +229,7 @@ async function handleNiyazButton(message: IncomingWhatsAppMessage, userId: strin
     reply = "Shukran for your reply. We couldn't read that response — please try the buttons again.";
   } else {
     const family = await resolveFamilyForPhone(message.phoneE164);
-    if (!family) {
-      reply = "Shukran for your reply. We couldn't match this number to a registered family — please contact the committee.";
-    } else {
+    if (family) {
       await recordNiyazButtonResponse({
         level: level as NiyazLevel,
         scope: scope as NiyazScope,
@@ -241,6 +239,11 @@ async function handleNiyazButton(message: IncomingWhatsAppMessage, userId: strin
         phone: message.phoneE164,
       });
       reply = niyazConfirmation(level as NiyazLevel, scope as NiyazScope, date);
+    } else {
+      await recordUnregisteredRsvp({ phone: message.phoneE164, date, scope: scope as NiyazScope });
+      await createPrompt({ phone: message.phoneE164, familyId: null, eventDate: date });
+      const day = new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+      reply = `Shukran for your reply! We've recorded your response for ${day}. This number isn't linked to a registered family yet — please reply with the number of people attending (e.g. '5') and we'll update your count.\n\nPlease also register your family at https://www.chicagorelaycenter.com/register so we can match your records.`;
     }
   }
 
@@ -258,12 +261,16 @@ async function handleNiyazButton(message: IncomingWhatsAppMessage, userId: strin
 // (so the message flows to the agent) when there's no open prompt or no number in the message.
 async function handleNiyazHeadCount(message: IncomingWhatsAppMessage, userId: string | undefined): Promise<boolean> {
   const prompt = await findOpenPrompt(message.phoneE164);
-  if (!prompt || !prompt.family_id) return false;
+  if (!prompt) return false;
   const m = message.body.match(/\d{1,3}/);
   if (!m) return false;
   const count = Math.min(999, parseInt(m[0], 10));
 
-  await recordFamilyHeadCount(prompt.family_id, prompt.event_date, count, message.phoneE164);
+  if (prompt.family_id) {
+    await recordFamilyHeadCount(prompt.family_id, prompt.event_date, count, message.phoneE164);
+  } else {
+    await recordUnregisteredHeadCount(message.phoneE164, prompt.event_date, count);
+  }
   await consumePrompt(prompt.id);
 
   const day = new Date(`${prompt.event_date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
