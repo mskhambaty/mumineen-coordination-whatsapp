@@ -243,7 +243,7 @@ async function handleNiyazButton(message: IncomingWhatsAppMessage, userId: strin
       await recordUnregisteredRsvp({ phone: message.phoneE164, date, scope: scope as NiyazScope });
       await createPrompt({ phone: message.phoneE164, familyId: null, eventDate: date });
       const day = new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
-      reply = `Shukran for your reply! We've recorded your response for ${day}. This number isn't linked to a registered family yet — please reply with the number of people attending (e.g. '5') and we'll update your count.\n\nPlease also register your family at https://www.chicagorelaycenter.com/register so we can match your records.`;
+      reply = `Shukran for your reply! We've recorded your response for ${day}. This number isn't linked to a registered family yet — please reply with the number of people attending (e.g. '5') and we'll update your count.\n\nPlease also register your family at ${REGISTER_URL} so we can match your records.`;
     }
   }
 
@@ -266,6 +266,7 @@ async function handleNiyazHeadCount(message: IncomingWhatsAppMessage, userId: st
   if (!m) return false;
   const count = Math.min(999, parseInt(m[0], 10));
 
+  const isUnregistered = !prompt.family_id;
   if (prompt.family_id) {
     await recordFamilyHeadCount(prompt.family_id, prompt.event_date, count, message.phoneE164);
   } else {
@@ -274,7 +275,8 @@ async function handleNiyazHeadCount(message: IncomingWhatsAppMessage, userId: st
   await consumePrompt(prompt.id);
 
   const day = new Date(`${prompt.event_date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
-  const reply = `Shukran! Recorded ${count} from your family attending for ${day}. Reply with a new number if it changes.`;
+  const reply = `Shukran! Recorded ${count} from your family attending for ${day}. Reply with a new number if it changes.`
+    + (isUnregistered ? `\n\nPlease register your family at ${REGISTER_URL} so we can link your records automatically.` : "");
   const metaResponse = await sendWhatsAppText(message.phoneE164, reply);
   await recordOutboundMessage({
     phoneE164: message.phoneE164,
@@ -310,11 +312,13 @@ function appBaseUrl(): string {
   return "http://localhost:3000";
 }
 
+const REGISTER_URL = "https://www.chicagorelaycenter.com/register";
+
 // Tell an unregistered visitor to register, and record it. Best-effort.
 async function sendRegistrationNudge(phone: string, userId: string | undefined) {
   const reply =
     "Salaam. This number isn't registered for Ashara Mubaraka 1448H (Chicago) yet, so I can't assist over chat. " +
-    `Please complete your family's registration here: ${appBaseUrl()}/register — then message us again and we'll be glad to help.`;
+    `Please complete your family's registration here: ${REGISTER_URL} — then message us again and we'll be glad to help.`;
   const metaResponse = await sendWhatsAppText(phone, reply);
   await recordOutboundMessage({
     phoneE164: phone,

@@ -405,15 +405,16 @@ export async function getUnregisteredRsvps(phone: string): Promise<UnregisteredR
     .eq("phone_e164", phone)
     .eq("attending", true);
 
-  return ((data ?? []) as unknown[]).map((r: Record<string, unknown>) => {
-    const inst = r.rsvp_registration_instance as Record<string, unknown> | null;
+  return (data ?? []).map((r) => {
+    const rec = r as Record<string, unknown>;
+    const inst = rec.rsvp_registration_instance as Record<string, unknown> | null;
     return {
-      id: r.id as string,
-      registration_instance_id: r.registration_instance_id as string,
-      adults: r.adults as number,
-      kids: r.kids as number,
-      attending: r.attending as boolean,
-      its_number: r.its_number as string | null,
+      id: rec.id as string,
+      registration_instance_id: rec.registration_instance_id as string,
+      adults: rec.adults as number,
+      kids: rec.kids as number,
+      attending: rec.attending as boolean,
+      its_number: rec.its_number as string | null,
       event_date: (inst?.event_date as string) ?? "",
       meal: (inst?.meal as string) ?? null,
       title: (inst?.title as string) ?? null,
@@ -452,15 +453,27 @@ export async function mergeUnregisteredRsvps(familyId: string, phones: string[])
 
   if (!unreg || unreg.length === 0) return 0;
 
-  // For each unregistered RSVP that's attending, mark the family's niyaz_rsvp rows as
-  // whatsapp-confirmed. The seed function already created default rows for the family.
-  const confirmedInstanceIds = unreg.filter((r) => r.attending).map((r) => r.registration_instance_id);
-  if (confirmedInstanceIds.length > 0) {
+  const now = new Date().toISOString();
+
+  // Apply both attending and not-attending unregistered RSVPs to the family's niyaz_rsvp rows.
+  // The seed function already created default rows for the family — we override with the
+  // explicit choice the person made before registering.
+  const attending = unreg.filter((r) => r.attending).map((r) => r.registration_instance_id);
+  const notAttending = unreg.filter((r) => !r.attending).map((r) => r.registration_instance_id);
+
+  if (attending.length > 0) {
     await supabase
       .from("niyaz_rsvp")
-      .update({ source: "whatsapp", attending: true, updated_at: new Date().toISOString() })
+      .update({ source: "whatsapp", attending: true, updated_at: now })
       .eq("family_id", familyId)
-      .in("registration_instance_id", confirmedInstanceIds);
+      .in("registration_instance_id", attending);
+  }
+  if (notAttending.length > 0) {
+    await supabase
+      .from("niyaz_rsvp")
+      .update({ source: "whatsapp", attending: false, updated_at: now })
+      .eq("family_id", familyId)
+      .in("registration_instance_id", notAttending);
   }
 
   // Delete the merged unregistered records.
