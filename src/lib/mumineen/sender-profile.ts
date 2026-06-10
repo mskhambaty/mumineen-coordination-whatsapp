@@ -92,12 +92,25 @@ export async function getSenderProfile(phone: string): Promise<SenderProfile | n
     .select("mumin_id, is_primary")
     .eq("phone_e164", phone);
 
-  if (!links || links.length === 0) return null;
-
-  const muminIds = (links as { mumin_id: string; is_primary: boolean }[]).map((l) => l.mumin_id);
-  const primaryIds = new Set(
-    (links as { mumin_id: string; is_primary: boolean }[]).filter((l) => l.is_primary).map((l) => l.mumin_id),
-  );
+  let muminIds: string[];
+  let primaryIds: Set<string>;
+  if (links && links.length > 0) {
+    const rows = links as { mumin_id: string; is_primary: boolean }[];
+    muminIds = rows.map((l) => l.mumin_id);
+    primaryIds = new Set(rows.filter((l) => l.is_primary).map((l) => l.mumin_id));
+  } else {
+    // Fallback: phone not in mumin_phone_links (roster-seeded number with no registration link).
+    // Match the roster member's own WhatsApp number so the sender is still recognized as registered.
+    const { data: byNumber } = await supabase
+      .from("mumineen")
+      .select("id")
+      .eq("whatsapp_e164", phone)
+      .eq("roster_active", true);
+    const ids = ((byNumber ?? []) as { id: string }[]).map((m) => m.id);
+    if (ids.length === 0) return null;
+    muminIds = ids;
+    primaryIds = new Set<string>();
+  }
 
   const { data: members } = await supabase
     .from("mumineen")

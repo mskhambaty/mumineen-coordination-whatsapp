@@ -43,23 +43,40 @@ responses come in.
   `unregistered_rsvps` matching the family's phone numbers are converted into confirmed `niyaz_rsvp`
   rows (`source='whatsapp'`) and the unregistered records are deleted (`mergeUnregisteredRsvps`).
 
+**Phone → family resolution** (`src/lib/rsvp/family.ts` `resolveFamilyForPhone`, and the inbox
+profile's `getSenderProfile`): checks `mumin_phone_links` first, then **falls back to the roster
+member's own `mumineen.whatsapp_e164`**. Registration creates the links, but roster-seeded numbers
+(or HOF-only registrations) left ~800 submitted members with a WhatsApp number but no link — so they
+were wrongly treated as "unregistered" when messaging the bot. A one-time backfill
+(`20260610150000_backfill_mumin_phone_links`) created `source='inferred'` links for every active
+roster member with a usable number, and the runtime fallback covers any future gap.
+
 Code: `src/lib/rsvp/family.ts` (phone → roster family), `src/lib/rsvp/meal-rsvp.ts`
-(`getFamilyNiyazGrid`, `setFamilyNiyazRsvp` whole-family cascade, `getEventTallies(mode)`,
+(`getFamilyNiyazGrid` — per event, family attending split into **adults/kids** via
+`mumineen.is_adult` (null = adult) so the agent reads back "2 adults, 2 kids" not "4 adults";
+`setFamilyNiyazRsvp` whole-family cascade, `getEventTallies(mode)`,
 `recordUnregisteredRsvp`, `getUnregisteredRsvps`, `recordUnregisteredHeadCount`,
 `mergeUnregisteredRsvps`, `getMealAttendanceTotals`). API: `GET/POST /api/rsvp/meals` (self-scoped via `x-whatsapp-from`,
 Zod-validated; POST entries are `{attending, dates?, meal?, all?}` with optional `adults`, `kids`,
 `its_number` for unregistered — a registered change cascades to the whole family; unregistered
 changes go to `unregistered_rsvps`). Agent tools: `get_family_meal_rsvps`, `set_family_meal_rsvps`
-(public; the agent mainly records *changes* — guidance in `MEAL_RSVP_FEEDBACK_RULE`). Admin:
+(public; the agent mainly records *changes* — guidance in `MEAL_RSVP_FEEDBACK_RULE`). That rule
+also routes intent: "register / sign up for Pehli Raat / a Moharram day / Ashura / a jaman" is a
+**meal RSVP**, not in-person event registration — the agent must not answer it from the registration
+FAQ, and must never tell an already-registered caller (Sender Context: `Registration: submitted`) to
+come to the masjid to register again. Admin:
 `/admin/niyaz` shows the events sorted by date with **Max/Min tabs** (max = arrival-date defaults,
 min = confirmed only — an inline legend on the page spells out each definition + the thaal formula),
 registered + unregistered count columns, backed by
 `GET /api/admin/niyaz/instances?mode=max|min` (reads the tallies view / function). Clicking an event
-opens the **per-mumin responses** view: searchable by name/ITS, with columns for ITS, RSVP, **Source**
-(a labelled badge — `default`=Seeded from arrival, `registration`, `whatsapp`, `admin` — so staff can
-tell a real confirmation from a seeded default) and **Responded by** (the WhatsApp phone or admin that
-set it). Source/phone come straight from the `niyaz_rsvp` row via
-`GET /api/admin/niyaz/instances/{id}/responses`.
+opens the **per-mumin responses** view: searchable by name / ITS / phone, with columns for Name,
+RSVP, **Source** (a labelled badge — `default`=Seeded from arrival, `registration`, `whatsapp`,
+`admin` — so staff can tell a real confirmation from a seeded default) and **Responded by** (the
+WhatsApp phone or admin that set it). ITS is searchable but no longer shown as its own column. Below
+the registered rows, an **Unregistered guests** table lists `unregistered_rsvps` for that event
+(phone, RSVP, adults, kids, ITS) so a guest who RSVP'd before registering is still visible. Both
+tables come from `GET /api/admin/niyaz/instances/{id}/responses` (which now returns `responses` +
+`unregistered`).
 
 ### 1a. Daily button RSVP (individual + family)
 

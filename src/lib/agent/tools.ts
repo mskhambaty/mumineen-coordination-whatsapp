@@ -176,7 +176,7 @@ export const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "get_family_meal_rsvps",
       description:
-        "Get the caller's family's current jaman (meal) Niyaz RSVP for Ashara — every event (Pehli Raat, lunch thaals, dinners) with how many of the family are currently down as attending vs. their family size. RSVP is pre-set for everyone from their arrival date, so use this to show what's already on file before changing it. RSVP is tracked for the whole family. If the caller isn't linked to a registered family, status will be 'unregistered' with any existing unregistered RSVPs in `rsvps`.",
+        "Get the caller's family's current jaman (meal) Niyaz RSVP for Ashara — every event (Pehli Raat, lunch thaals, dinners) with how many of the family are currently down as attending vs. their family size. Each grid row includes `adults` and `kids` (the attending counts, split by age) plus `attending` (total) and `total` (family size) — use the adults/kids breakdown when reading the RSVP back to the user. RSVP is pre-set for everyone from their arrival date, so use this to show what's already on file before changing it. RSVP is tracked for the whole family. If the caller isn't linked to a registered family, status will be 'unregistered' with any existing unregistered RSVPs in `rsvps`.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },

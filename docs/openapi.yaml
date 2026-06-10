@@ -1498,11 +1498,14 @@ paths:
       summary: Get the caller's family Niyaz RSVP grid
       description: >-
         Self-scoped via x-whatsapp-from. Returns every Niyaz event with how many of the family
-        are attending vs. family size. For unlinked phones, returns status=unregistered with any
-        existing unregistered_rsvps rows plus an events array (canonical date/meal/title per jaman)
-        so the agent maps day references to real dates. Used by the get_family_meal_rsvps agent tool.
+        are attending (split into adults/kids via mumineen.is_adult) vs. family size. Phone→family
+        resolution checks mumin_phone_links first, then falls back to the member's own
+        mumineen.whatsapp_e164, so roster-seeded numbers without a registration link still resolve.
+        For genuinely unlinked phones, returns status=unregistered with any existing unregistered_rsvps
+        rows plus an events array (canonical date/meal/title per jaman) so the agent maps day
+        references to real dates. Used by the get_family_meal_rsvps agent tool.
       responses:
-        "200": { description: "Grid (status=ok), or status=unregistered with rsvps + events arrays for unlinked phones." }
+        "200": { description: "Grid rows { event, attending, adults, kids, total } (status=ok), or status=unregistered with rsvps + events arrays for unlinked phones." }
         "400": { $ref: "#/components/responses/BadRequest" }
     post:
       tags: [rsvp]

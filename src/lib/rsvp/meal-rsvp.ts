@@ -51,28 +51,37 @@ export async function getEvents(): Promise<NiyazEvent[]> {
 export type FamilyGridRow = {
   event: NiyazEvent;
   attending: number; // family members marked attending for this event
+  adults: number; // attending members who are adults (is_adult null counts as adult)
+  kids: number; // attending members who are kids (is_adult === false)
   total: number; // family members with an RSVP row for this event
 };
 
-// The caller's family grid: every event with how many of the family are attending vs total.
+// The caller's family grid: every event with how many of the family are attending (split into
+// adults/kids so the agent can read back an accurate "2 adults, 2 kids") vs total. The adult/kid
+// split joins mumineen.is_adult (null = adult), the same convention as the niyaz_event_tallies view.
 export async function getFamilyNiyazGrid(familyId: string): Promise<FamilyGridRow[]> {
   const events = await getEvents();
   const { data } = await getSupabaseAdmin()
     .from("niyaz_rsvp")
-    .select("registration_instance_id, attending")
+    .select("registration_instance_id, attending, mumineen:mumineen!niyaz_rsvp_mumin_id_fkey(is_adult)")
     .eq("family_id", familyId);
 
-  const agg = new Map<string, { yes: number; total: number }>();
-  for (const r of (data ?? []) as { registration_instance_id: string; attending: boolean }[]) {
-    const a = agg.get(r.registration_instance_id) ?? { yes: 0, total: 0 };
+  type GridRsvp = { registration_instance_id: string; attending: boolean; mumineen: { is_adult: boolean | null } | null };
+  const agg = new Map<string, { yes: number; adults: number; kids: number; total: number }>();
+  for (const r of (data ?? []) as unknown as GridRsvp[]) {
+    const a = agg.get(r.registration_instance_id) ?? { yes: 0, adults: 0, kids: 0, total: 0 };
     a.total += 1;
-    if (r.attending) a.yes += 1;
+    if (r.attending) {
+      a.yes += 1;
+      if (r.mumineen?.is_adult === false) a.kids += 1;
+      else a.adults += 1; // null counts as adult
+    }
     agg.set(r.registration_instance_id, a);
   }
 
   return events.map((event) => {
-    const a = agg.get(event.id) ?? { yes: 0, total: 0 };
-    return { event, attending: a.yes, total: a.total };
+    const a = agg.get(event.id) ?? { yes: 0, adults: 0, kids: 0, total: 0 };
+    return { event, attending: a.yes, adults: a.adults, kids: a.kids, total: a.total };
   });
 }
 

@@ -30,20 +30,47 @@ export async function resolveFamilyForPhone(phone: string): Promise<ResolvedFami
     .limit(1)
     .maybeSingle();
 
-  if (!link?.mumin_id) return null;
+  if (link?.mumin_id) {
+    const { data: mumin } = await supabase
+      .from("mumineen")
+      .select("id, family_id, hof_its, full_name, roster_active")
+      .eq("id", link.mumin_id)
+      .maybeSingle();
 
-  const { data: mumin } = await supabase
+    if (mumin?.family_id && mumin.roster_active !== false) {
+      return {
+        familyId: mumin.family_id,
+        muminId: mumin.id,
+        hofIts: mumin.hof_its,
+        displayName: mumin.full_name ?? null,
+      };
+    }
+  }
+
+  // Fallback: the phone wasn't in mumin_phone_links (e.g. a roster-seeded number that never got a
+  // registration link). Match directly on the roster member's own WhatsApp number so these callers
+  // are still recognized as their family instead of being treated as unregistered. Prefer the head
+  // of family for a shared number.
+  return resolveFamilyByWhatsappNumber(normalized);
+}
+
+async function resolveFamilyByWhatsappNumber(normalized: string): Promise<ResolvedFamily | null> {
+  const supabase = getSupabaseAdmin();
+  const { data: members } = await supabase
     .from("mumineen")
-    .select("id, family_id, hof_its, full_name, roster_active")
-    .eq("id", link.mumin_id)
-    .maybeSingle();
+    .select("id, family_id, hof_its, full_name, is_head")
+    .eq("whatsapp_e164", normalized)
+    .eq("roster_active", true);
 
-  if (!mumin?.family_id || mumin.roster_active === false) return null;
+  const rows = (members ?? []) as { id: string; family_id: string | null; hof_its: string; full_name: string | null; is_head: boolean | null }[];
+  const withFamily = rows.filter((m) => m.family_id);
+  if (withFamily.length === 0) return null;
 
+  const chosen = withFamily.find((m) => m.is_head) ?? withFamily[0];
   return {
-    familyId: mumin.family_id,
-    muminId: mumin.id,
-    hofIts: mumin.hof_its,
-    displayName: mumin.full_name ?? null,
+    familyId: chosen.family_id as string,
+    muminId: chosen.id,
+    hofIts: chosen.hof_its,
+    displayName: chosen.full_name ?? null,
   };
 }
