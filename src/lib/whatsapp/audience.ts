@@ -74,42 +74,48 @@ function dedupeByPhone(candidates: Recipient[]): Recipient[] {
   return [...byPhone.values()];
 }
 
-// Attach roster fields to recipients that don't have them yet (e.g. the whatsapp_users-based
-// audiences), by matching their phone to a roster member — directly via mumineen.whatsapp_e164 or
-// via mumin_phone_links. Lets personalization work for committee/test recipients who are on the
-// roster. Recipients with no roster match keep empty fields (field-mapped vars will skip them).
-async function enrichFieldsByPhone(recipients: Recipient[]): Promise<void> {
-  const need = recipients.filter((r) => !r.fields || Object.keys(r.fields).length === 0);
-  if (need.length === 0) return;
+const isEmptyField = (v: unknown) => v == null || String(v).trim() === "";
+
+// Resolve roster identity + mappable fields for a set of phones — direct via mumineen.whatsapp_e164,
+// then a mumin_phone_links fallback (e.g. a shared/registration number). Chunked so large lists
+// (CSV uploads) don't blow the query/URL size limit. Returns the matched mumineen rows keyed by
+// normalized phone. Reused by the CSV-upload enrichment and the per-broadcast failures list.
+export async function resolveRosterByPhone(phones: string[]): Promise<Map<string, Record<string, unknown> & { id: string }>> {
+  const byPhone = new Map<string, Record<string, unknown> & { id: string }>();
+  const norm = [...new Set(phones.map(normalizePhone))].filter(Boolean);
+  if (norm.length === 0) return byPhone;
   const supabase = getSupabaseAdmin();
-  const phones = [...new Set(need.map((r) => normalizePhone(r.phone)))];
   // Stored numbers are inconsistent about the leading "+", so query both forms and key matches
   // through normalizePhone on both sides.
   const variants = (ps: string[]) => [...new Set(ps.flatMap((p) => [p, p.replace(/^\+/, "")]))];
-
-  const byPhone = new Map<string, Record<string, unknown> & { id: string }>();
+  const CHUNK = 200;
 
   // Direct: a roster member whose own WhatsApp number is this phone.
-  const { data: direct } = await supabase
-    .from("mumineen")
-    .select(`id, whatsapp_e164, ${MAPPABLE_COLS.join(", ")}`)
-    .in("whatsapp_e164", variants(phones))
-    .eq("roster_active", true);
-  for (const m of (direct ?? []) as unknown as (Record<string, unknown> & { id: string; whatsapp_e164: string })[]) {
-    const p = normalizePhone(m.whatsapp_e164);
-    if (!byPhone.has(p)) byPhone.set(p, m);
+  for (let i = 0; i < norm.length; i += CHUNK) {
+    const { data: direct } = await supabase
+      .from("mumineen")
+      .select(`id, whatsapp_e164, ${MAPPABLE_COLS.join(", ")}`)
+      .in("whatsapp_e164", variants(norm.slice(i, i + CHUNK)))
+      .eq("roster_active", true);
+    for (const m of (direct ?? []) as unknown as (Record<string, unknown> & { id: string; whatsapp_e164: string })[]) {
+      const p = normalizePhone(m.whatsapp_e164);
+      if (!byPhone.has(p)) byPhone.set(p, m);
+    }
   }
 
-  // Fallback: phone linked to a member via mumin_phone_links (e.g. a shared/registration number).
-  const remaining = phones.filter((p) => !byPhone.has(p));
+  // Fallback: phone linked to a member via mumin_phone_links.
+  const remaining = norm.filter((p) => !byPhone.has(p));
   if (remaining.length > 0) {
-    const { data: links } = await supabase.from("mumin_phone_links").select("phone_e164, mumin_id").in("phone_e164", variants(remaining));
     const phoneByMumin = new Map<string, string>();
-    for (const l of (links ?? []) as { phone_e164: string; mumin_id: string }[]) {
-      if (!phoneByMumin.has(l.mumin_id)) phoneByMumin.set(l.mumin_id, normalizePhone(l.phone_e164));
+    for (let i = 0; i < remaining.length; i += CHUNK) {
+      const { data: links } = await supabase.from("mumin_phone_links").select("phone_e164, mumin_id").in("phone_e164", variants(remaining.slice(i, i + CHUNK)));
+      for (const l of (links ?? []) as { phone_e164: string; mumin_id: string }[]) {
+        if (!phoneByMumin.has(l.mumin_id)) phoneByMumin.set(l.mumin_id, normalizePhone(l.phone_e164));
+      }
     }
-    if (phoneByMumin.size > 0) {
-      const { data: mems } = await supabase.from("mumineen").select(`id, ${MAPPABLE_COLS.join(", ")}`).in("id", [...phoneByMumin.keys()]);
+    const muminIds = [...phoneByMumin.keys()];
+    for (let i = 0; i < muminIds.length; i += CHUNK) {
+      const { data: mems } = await supabase.from("mumineen").select(`id, ${MAPPABLE_COLS.join(", ")}`).in("id", muminIds.slice(i, i + CHUNK));
       for (const m of (mems ?? []) as unknown as (Record<string, unknown> & { id: string })[]) {
         const p = phoneByMumin.get(m.id);
         if (p && !byPhone.has(p)) byPhone.set(p, m);
@@ -117,12 +123,27 @@ async function enrichFieldsByPhone(recipients: Recipient[]): Promise<void> {
     }
   }
 
+  return byPhone;
+}
+
+// Fill missing roster fields on recipients by matching their phone to the roster. Existing (e.g.
+// CSV-provided) field values win; only empty/missing values are filled from the roster — so a
+// name-mapped template variable resolves for any recipient on the roster even when their uploaded
+// row left Name blank. Used by the whatsapp_users-based audiences (no fields yet) and csv_upload.
+export async function enrichFieldsByPhone(recipients: Recipient[]): Promise<void> {
+  const need = recipients.filter((r) => !r.fields || MAPPABLE_COLS.some((c) => isEmptyField(r.fields![c])));
+  if (need.length === 0) return;
+  const byPhone = await resolveRosterByPhone(need.map((r) => r.phone));
+  if (byPhone.size === 0) return;
   for (const r of need) {
     const m = byPhone.get(normalizePhone(r.phone));
-    if (m) {
-      r.fields = fieldsOf(m);
-      r.muminId = m.id;
+    if (!m) continue;
+    const merged: Record<string, string | null> = { ...fieldsOf(m) };
+    for (const [k, v] of Object.entries(r.fields ?? {})) {
+      if (!isEmptyField(v)) merged[k] = v as string; // CSV/explicit value wins over roster
     }
+    r.fields = merged;
+    r.muminId = r.muminId ?? m.id;
   }
 }
 

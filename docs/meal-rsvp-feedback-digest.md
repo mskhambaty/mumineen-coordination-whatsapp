@@ -128,7 +128,11 @@ cost, send. No auto-scheduling — every send is a button press.
   matched by header (case-insensitive, order-free); a `WhatsApp` column is required; the roster columns
   (`Name`, `ITS`, `Jamaat`, …) are carried as per-recipient `fields` for personalization; `Window`,
   `Reason`, and unknown columns are ignored; rows deduped by number. Parsed server-side via the shared
-  `parseCsv` util and passed as raw `csv` text to `POST /preview` and `POST /send`. **Excel guard:**
+  `parseCsv` util and passed as raw `csv` text to `POST /preview` and `POST /send`. Missing fields are
+  **enriched from the roster by phone** (`enrichFieldsByPhone` → `resolveRosterByPhone`: direct
+  `whatsapp_e164` match + `mumin_phone_links` fallback), so a name-mapped template variable resolves for
+  any recipient on the roster even when their uploaded row left Name blank — CSV-provided values still
+  win; numbers not on the roster stay blank and are skipped by field-mapped templates. **Excel guard:**
   phone cells serialized as scientific notation (`9.17869E+11`) are unrecoverable, so they're flagged
   as `corrupted` and skipped (never messaged) — the preview reports the count. Not DB-resolved — it
   flows through the explicit-`recipients` path in `createBroadcast` (`resolveAudience` throws for this
@@ -152,6 +156,8 @@ cost, send. No auto-scheduling — every send is a button press.
   `GET .../broadcasts/[id]/failures` (admin/leadership only; PII to authorized staff, never to visitors).
   The reason shown is `error_detail` when present (the captured Meta code/title); the free/paid
   24h-window label is only a fallback for failures Meta reports with no error detail (`categorizeFailure`).
+  The per-recipient Name/ITS are resolved via the shared `resolveRosterByPhone` (direct + the
+  `mumin_phone_links` fallback), so they populate for any failed number that maps to a roster member.
 - API: `GET /api/admin/templates`, `POST /api/admin/templates/preview`, `POST .../send`,
   `POST .../drain`, `GET .../broadcasts(/[id])`, `GET .../broadcasts/[id]/failures`.
 
