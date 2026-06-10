@@ -45,4 +45,5 @@ join public.families f on f.hof_its = m.hof_its
 where ri.event_date = '2026-06-17'
   and ri.meal = 'dinner'
   and m.roster_active = true
+  and f.registration_status = 'submitted'
 on conflict (registration_instance_id, mumin_id) do nothing;
