@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
-import { AUDIENCE_KEYS, previewAudience, previewExplicitRecipients, type AudiencePreview } from "@/lib/whatsapp/audience";
+import { AUDIENCE_KEYS, enrichFieldsByPhone, previewAudience, previewExplicitRecipients, type AudiencePreview } from "@/lib/whatsapp/audience";
 import { parseAudienceCsv } from "@/lib/whatsapp/audience-csv";
 import { validateRules, type RuleGroup } from "@/lib/whatsapp/audience-filter";
 
@@ -44,6 +44,9 @@ export async function POST(req: NextRequest) {
     if (!parsed.data.csv) return NextResponse.json({ error: "Upload a CSV file first." }, { status: 400 });
     const csv = parseAudienceCsv(parsed.data.csv);
     if (csv.error) return NextResponse.json({ error: csv.error }, { status: 400 });
+    // Fill missing Name/ITS/etc. from the roster by phone so personalization resolves even when the
+    // uploaded row left them blank (e.g. a failures CSV); CSV-provided values still win.
+    await enrichFieldsByPhone(csv.recipients);
     preview = await previewExplicitRecipients(csv.recipients);
     csvStats = { parsed: csv.parsed, skipped: csv.skipped, duplicates: csv.duplicates, corrupted: csv.corrupted };
   } else {

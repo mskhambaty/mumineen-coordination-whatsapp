@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
-import { AUDIENCE_KEYS } from "@/lib/whatsapp/audience";
+import { AUDIENCE_KEYS, enrichFieldsByPhone } from "@/lib/whatsapp/audience";
 import { parseAudienceCsv } from "@/lib/whatsapp/audience-csv";
 import { validateRules, type RuleGroup } from "@/lib/whatsapp/audience-filter";
 import { createBroadcast, drainUntilEmpty } from "@/lib/whatsapp/broadcast";
@@ -50,6 +50,8 @@ export async function POST(req: NextRequest) {
     const csv = parseAudienceCsv(parsed.data.csv);
     if (csv.error) return NextResponse.json({ error: csv.error }, { status: 400 });
     if (csv.recipients.length === 0) return NextResponse.json({ error: "No valid recipients in the CSV (need a WhatsApp column with usable numbers)." }, { status: 400 });
+    // Fill missing Name/ITS/etc. from the roster by phone so personalized templates resolve; CSV wins.
+    await enrichFieldsByPhone(csv.recipients);
     csvRecipients = csv.recipients;
   }
 
