@@ -681,28 +681,30 @@ export default function UsersPage() {
               </label>
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
+          <div>
+            <table className="w-full divide-y divide-gray-200 dark:divide-gray-800">
               <thead className="bg-gray-50 dark:bg-gray-800/60">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Display Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Phone</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Email</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Account Role</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Last Login</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Display Name</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Phone</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Email</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Account Role</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Last Login</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
                 {filteredUsers.map((user) => (
                   <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                    <td className="px-6 py-4 font-medium">
+                    <td className="px-4 py-3 text-sm font-medium">
                       {user.display_name ?? "—"}
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{user.phone_e164}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{user.email ?? "—"}</td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{user.phone_e164}</td>
+                    <td className="max-w-[10rem] px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                      <span className="block truncate" title={user.email ?? undefined}>{user.email ?? "—"}</span>
+                    </td>
+                    <td className="px-4 py-3">
                       <select
                         value={user.role}
                         onChange={(e) => updateUser(user.id, "role", e.target.value)}
@@ -713,7 +715,7 @@ export default function UsersPage() {
                         ))}
                       </select>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3">
                       <select
                         value={user.status}
                         onChange={(e) => updateUser(user.id, "status", e.target.value)}
@@ -724,12 +726,12 @@ export default function UsersPage() {
                         ))}
                       </select>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
                       <span className={user.last_login_at ? "" : "text-gray-400 dark:text-gray-500"}>
                         {formatLastLogin(user.last_login_at)}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3">
                       <div className="relative inline-block text-left" data-user-actions>
                         <button
                           type="button"
@@ -797,15 +799,15 @@ export default function UsersPage() {
           <div className="px-6 py-4 border-b">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Permission Matrix</h2>
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
+          <div>
+            <table className="w-full divide-y divide-gray-200 dark:divide-gray-800">
               <thead className="bg-gray-50 dark:bg-gray-800/60">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Action</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Member</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">PM</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">HOD</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Leadership / Admin</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Action</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Member</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">PM</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">HOD</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Leadership / Admin</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
@@ -822,11 +824,11 @@ export default function UsersPage() {
                   ["Manage users & members", false, false, false, true],
                 ].map(([action, member, pm, hod, admin], i) => (
                   <tr key={i}>
-                    <td className="px-6 py-3 text-sm text-gray-700 dark:text-gray-300">{action as string}</td>
-                    <td className="px-6 py-3 text-center">{member ? "✅" : "❌"}</td>
-                    <td className="px-6 py-3 text-center">{pm ? "✅" : "❌"}</td>
-                    <td className="px-6 py-3 text-center">{hod ? "✅" : "❌"}</td>
-                    <td className="px-6 py-3 text-center">{admin ? "✅" : "❌"}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{action as string}</td>
+                    <td className="px-4 py-3 text-center">{member ? "✅" : "❌"}</td>
+                    <td className="px-4 py-3 text-center">{pm ? "✅" : "❌"}</td>
+                    <td className="px-4 py-3 text-center">{hod ? "✅" : "❌"}</td>
+                    <td className="px-4 py-3 text-center">{admin ? "✅" : "❌"}</td>
                   </tr>
                 ))}
               </tbody>
