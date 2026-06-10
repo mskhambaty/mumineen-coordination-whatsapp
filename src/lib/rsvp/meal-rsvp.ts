@@ -44,7 +44,7 @@ export async function getEvents(): Promise<NiyazEvent[]> {
     .select("id, title, event_date, hijri_date, meal, serving_type, description")
     .not("event_date", "is", null)
     .order("event_date", { ascending: true })
-    .order("meal", { ascending: true });
+    .order("meal", { ascending: false });
   return ((data ?? []) as RawEvent[]).map(toEvent);
 }
 
