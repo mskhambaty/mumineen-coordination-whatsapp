@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { normalizeWhatsAppPhone } from "@/lib/whatsapp/parser";
 
 export type RosterImportResult = {
   rows: number;
@@ -34,6 +35,18 @@ const yesNo = (v: unknown): boolean | null => {
   return s == null ? null : /^y(es)?$/i.test(s);
 };
 
+// Normalize a roster phone cell to E.164 (+<countrycode><national>), matching the exact format the
+// WhatsApp webhook produces for inbound numbers (normalizeWhatsAppPhone) so the stored value is
+// ready to link to senders. Roster numbers are digit strings already carrying a country code; a
+// bare 10-digit number is treated as a local US (Chicago jamaat) number and gets +1. Blank → null.
+export const rosterPhoneToE164 = (v: unknown): string | null => {
+  const s = text(v);
+  if (!s) return null;
+  const digits = s.replace(/\D/g, "");
+  if (!digits) return null;
+  return normalizeWhatsAppPhone(digits.length === 10 ? `1${digits}` : digits);
+};
+
 // Explicit map for columns whose Excel header differs from the DB column name, or that need
 // typed parsing. Identity columns (its/hof_its) and import-managed flags (family_id, is_head,
 // roster_active) are handled separately. Any other (non-protected) mumineen column is
@@ -54,19 +67,20 @@ const EXPLICIT_MAP: { header: string; col: string; parse: Parse }[] = [
   { header: "Flight Code", col: "roster_flight_code", parse: text },
   { header: "Daily Trans", col: "daily_trans", parse: text },
   { header: "Whatsapp Link Clicked?", col: "whatsapp_link_clicked", parse: yesNo },
+  { header: "whatsapp_e164", col: "whatsapp_e164", parse: rosterPhoneToE164 },
 ];
 
 // Columns the importer must never write: structural/system identity and registration-collected
 // fields (filled in by mumineen themselves; a roster import must not clobber them). Everything
-// else on the table is eligible for auto-mapping. NOTE: whatsapp_e164 and email are deliberately
-// NOT protected — they are import-owned and auto-map from same-named sheet headers.
+// else on the table is eligible for auto-mapping. NOTE: email auto-maps from its same-named sheet
+// header; whatsapp_e164 is import-owned too but mapped via EXPLICIT_MAP so it gets E.164
+// normalization (rosterPhoneToE164) instead of the plain text parser.
 const PROTECTED_COLUMNS = new Set([
   "id",
   "its",
   "hof_its",
   "family_id",
   "is_head",
-  "whatsapp_user_id",
   "roster_active",
   "created_at",
   "updated_at",
@@ -101,7 +115,7 @@ async function chunkUpsert(supabase: Supabase, table: string, rows: Row[], onCon
 }
 
 // Import the mumineen roster from the Excel. Idempotent: upserts families on hof_its and
-// mumineen on its, updating only import-owned columns (whatsapp_user_id and registration-
+// mumineen on its, updating only import-owned columns (registration-
 // collected columns are never in the payload, so they're preserved). Column mapping is
 // data-driven: the explicit friendly-header map plus any sheet header matching a non-protected
 // mumineen column name (so new roster columns are picked up with no code change). Blank-safe: a
