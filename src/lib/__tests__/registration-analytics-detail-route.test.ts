@@ -139,3 +139,25 @@ describe("GET /api/admin/registration-analytics/detail — registration_status d
     expect(json.rows[0].detail).toMatch(/^Submitted/);
   });
 });
+
+describe("GET /api/admin/registration-analytics/detail — registered_member (welcome team)", () => {
+  const RM_FAMILIES = [
+    { hof_its: "100", registration_status: "submitted", utaro_host_its: "HOST1" },
+    { hof_its: "200", registration_status: "not_started", utaro_host_its: null }, // unregistered
+  ];
+  const RM_MUMINEEN = [
+    { its: "100", hof_its: "100", full_name: "Reg Head", gender: "M", local_mehman: "Mehman", not_attending: false, whatsapp_e164: null, email: null, age: 40 },
+    { its: "101", hof_its: "100", full_name: "Reg Kid", gender: "F", local_mehman: "Mehman", not_attending: true, whatsapp_e164: null, email: null, age: 8 }, // not attending
+    { its: "201", hof_its: "200", full_name: "Pending", gender: "M", local_mehman: "Local", not_attending: false, whatsapp_e164: null, email: null, age: 50 }, // unregistered family
+  ];
+
+  beforeEach(() => {
+    getSupabaseAdmin.mockReturnValue(stubSupabase({ families: RM_FAMILIES, mumineen: RM_MUMINEEN }));
+  });
+
+  it("lists only attending members of registered families, with HOF ITS and Host ITS", async () => {
+    const json = await (await GET(req("segment=registered_member"))).json();
+    expect(json.rows.map((r: { its: string }) => r.its)).toEqual(["100"]);
+    expect(json.rows[0]).toMatchObject({ hof_its: "100", utaro_host_its: "HOST1", local_mehman: "Mehman", gender: "M" });
+  });
+});
