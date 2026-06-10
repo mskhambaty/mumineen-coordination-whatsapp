@@ -30,6 +30,15 @@ function requirePhone(req: NextRequest): string | null {
   return phone && phone.trim() ? phone.trim() : null;
 }
 
+// Human date label with the weekday for an event's YYYY-MM-DD date, e.g. "Sat, Jun 14". Computed
+// server-side (at UTC noon, formatted in UTC) so it's deterministic and the agent never has to work
+// out a weekday itself — it just echoes this label in the RSVP summary it reads back to the user.
+function dateLabel(date: string): string {
+  const d = new Date(`${date}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return date;
+  return d.toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
+}
+
 // GET — the caller's family Niyaz grid (every event + how many of the family are attending).
 // Returns status "unregistered" with existing unregistered RSVPs if the phone isn't linked.
 export async function GET(req: NextRequest) {
@@ -44,14 +53,18 @@ export async function GET(req: NextRequest) {
       grid: [],
       // Canonical event list so the agent maps the caller's day references to real dates
       // (e.g. "2nd Moharram dinner" -> the dinner titled that, on its actual date) instead of guessing.
-      events: events.map((e) => ({ date: e.eventDate, meal: e.meal, title: e.title })),
+      // `label` carries the weekday (e.g. "Sat, Jun 14") for the RSVP summary read-back.
+      events: events.map((e) => ({ date: e.eventDate, label: dateLabel(e.eventDate), meal: e.meal, title: e.title })),
       rsvps,
       message: "This number isn't linked to a registered family. Any previous RSVPs from this number are shown in rsvps. Use events for the canonical date/meal/title of each jaman.",
     });
   }
 
   const grid = await getFamilyNiyazGrid(family.familyId);
-  return NextResponse.json({ status: "ok", grid });
+  // Attach a weekday date label per row so the agent's summary read-back can show "Mon, Jun 15"
+  // without computing the weekday itself.
+  const labeledGrid = grid.map((row) => ({ ...row, dateLabel: dateLabel(row.event.eventDate) }));
+  return NextResponse.json({ status: "ok", grid: labeledGrid });
 }
 
 // POST — set RSVP for the caller's family across one or more days/meals.

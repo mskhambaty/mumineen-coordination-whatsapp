@@ -43,18 +43,22 @@ describe("GET /api/rsvp/meals", () => {
     expect(resolveFamilyForPhone).not.toHaveBeenCalled();
   });
 
-  it("returns the caller's family grid", async () => {
+  it("returns the caller's family grid with a weekday dateLabel per row", async () => {
     resolveFamilyForPhone.mockResolvedValue(FAMILY);
-    getFamilyNiyazGrid.mockResolvedValue([{ event: { id: "e1" }, attending: 4, total: 5 }]);
+    getFamilyNiyazGrid.mockResolvedValue([
+      { event: { id: "e1", eventDate: "2026-06-15" }, attending: 4, adults: 2, kids: 2, total: 5 },
+    ]);
     const res = await GET(req("GET"));
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.status).toBe("ok");
     expect(json.grid).toHaveLength(1);
+    // Jun 15 2026 is a Monday — the label is computed server-side so the agent never guesses it.
+    expect(json.grid[0].dateLabel).toBe("Mon, Jun 15");
     expect(getFamilyNiyazGrid).toHaveBeenCalledWith("fam-1");
   });
 
-  it("returns unregistered (with the canonical events list) when the number isn't on the roster", async () => {
+  it("returns unregistered (with the canonical events list incl. weekday labels) when the number isn't on the roster", async () => {
     resolveFamilyForPhone.mockResolvedValue(null);
     getUnregisteredRsvps.mockResolvedValue([]);
     getEvents.mockResolvedValue([
@@ -63,7 +67,9 @@ describe("GET /api/rsvp/meals", () => {
     const res = await GET(req("GET"));
     const json = await res.json();
     expect(json.status).toBe("unregistered");
-    expect(json.events).toEqual([{ date: "2026-06-15", meal: "lunch", title: "1st Moharram ul Haram" }]);
+    expect(json.events).toEqual([
+      { date: "2026-06-15", label: "Mon, Jun 15", meal: "lunch", title: "1st Moharram ul Haram" },
+    ]);
     expect(getFamilyNiyazGrid).not.toHaveBeenCalled();
   });
 });
