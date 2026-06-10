@@ -2354,10 +2354,48 @@ components:
   /admin/issues/{issueId}/resolve:
     post:
       tags: [issues]
-      summary: Resolve issue and all linked escalations.
+      summary: Close issue — optionally notify linked conversations and resolve escalations.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  maxLength: 4096
+                  description: WhatsApp message sent to all linked conversations. Omit to skip.
+                resolve_escalations:
+                  type: boolean
+                  default: true
+                  description: Resolve linked escalations and switch conversations back to AI handling.
+                close_issue:
+                  type: boolean
+                  default: true
+                  description: Set issue status to resolved.
       responses:
         200:
-          description: Issue resolved with count of conversations resolved.
+          description: Issue closed with counts.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  issue:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      issue_number: { type: integer }
+                      status: { type: string }
+                  conversations_resolved: { type: integer }
+                  messages_sent: { type: integer }
+                  messages_failed: { type: integer }
+                  failed_phones:
+                    type: array
+                    items: { type: string }
+                    description: Present only when messages_failed > 0.
+        409:
+          description: Issue is already resolved.
 
   /admin/escalations/stats:
     get:
@@ -2366,3 +2404,45 @@ components:
       responses:
         200:
           description: SLA stats.
+  /admin/escalations/{phoneE164}/suggestions:
+    get:
+      tags: [escalations]
+      summary: AI-generated suggestions for an escalation (matching issues + resolution history).
+      description: >-
+        On-demand endpoint called when a support member views an escalation. Uses AI
+        to match the escalation reason/category against open issues and summarize how
+        similar past escalations were resolved. Results are cached in-memory for 3 minutes.
+      security: [{ portalSession: [] }]
+      parameters:
+        - name: phoneE164
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: Suggestions with matching issues and resolution history.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  matching_issues:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        issue_number: { type: integer }
+                        title: { type: string }
+                        status: { type: string, enum: [open, in_progress] }
+                        priority: { type: string, enum: [low, medium, high] }
+                        department_name: { type: string, nullable: true }
+                        relevance_reason: { type: string }
+                  resolution_history:
+                    type: object
+                    nullable: true
+                    properties:
+                      summary: { type: string }
+                      past_count: { type: integer }
+        401: { $ref: "#/components/responses/Unauthorized" }
+        500: { $ref: "#/components/responses/ServerError" }

@@ -218,6 +218,32 @@ All notification sends are fire-and-forget (failures never block the agent reply
    Meta utility template `department_ticket_assigned` when an issue is created for, or moved
    to, their department.
 
+## AI Suggestions
+
+When a support member views an escalation in the admin portal, an **AI Suggestions** panel
+appears in the right sidebar (below Conversation Quality). It provides two types of
+suggestions, generated on-demand:
+
+1. **Matching Issues** — the escalation reason and category are compared against all open
+   issues using an AI call. The top 1–3 relevant matches are shown with a one-click **Link**
+   button (reuses the existing issue-linking infrastructure).
+2. **Resolution History** — past resolved escalations with the same category are queried
+   from `escalation_activity_log` (action = `resolved`, non-null `resolution_note`). An AI
+   summary of common resolution patterns is displayed.
+
+### API
+
+`GET /api/admin/escalations/{phoneE164}/suggestions` — requires `canAccessInbox`.
+Returns `{ matching_issues, resolution_history }`. Results are cached in-memory for 3 minutes.
+
+### Key files
+
+| File | Purpose |
+|------|---------|
+| `src/app/api/admin/escalations/[phoneE164]/suggestions/route.ts` | Suggestions endpoint |
+| `src/lib/escalation/suggestions-cache.ts` | In-memory TTL cache |
+| `src/app/admin/conversations/page.tsx` | UI panel (AI Suggestions section in aside) |
+
 ## Build-time / config items
 - Confirm the issues table schema and Kanban external/internal rendering.
 - Postmark: escalation template ID + Supabase var (owner to provide); author HTML template.

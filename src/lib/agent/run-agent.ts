@@ -66,7 +66,6 @@ Before answering, route the question to the correct tool. Never answer event spe
 - answer_religious_questions → anything about the Waaz/Vaaz, a specific majlis, the reflection, al-Dars, Iqtibasaat, or a majlis's Tazyeen/decoration.
 - get_lisan_word_meaning → the meaning of ONE Lisan ud Dawat word or short phrase ("what does X mean", "X ni maana", or a bare word).
 - move_to_escalation → a real active emergency, a frustrated user, a human hand-off, or a Waaz/deen question the reflections can't answer (category 'religious_followup').
-- create_issue → a concrete problem to fix/track (broken facility, maintenance or safety issue).
 - flag_knowledge_gap → silently log any informational question you could NOT answer (in addition to telling the user it's not available yet).
 - get_family_meal_rsvps / set_family_meal_rsvps → read or record a registered family's jaman (meal) RSVP.
 The detailed rules for each tool follow below.`;
@@ -76,7 +75,7 @@ const ACCURACY_RULE = `\n\n## Accuracy First — Never Hallucinate
 - Authentic, sourced information is the top priority. Only state facts that come from a tool result (get_site_content_faq, web_search) or earlier verified context in this conversation.
 - NEVER invent or guess specifics — prices, fares, addresses, pickup/dropoff points, times, phone numbers, names, capacities, routes, or logistics. If you are not certain from a source, you do not know it.
 - If get_site_content_faq does not have the answer and a web_search tool is available, use it to find authentic, sourced information, and cite the source.
-- If you still cannot verify it, do NOT guess — say you don't have confirmed details yet, point the user to the official site (with its URL), and offer to escalate or create an issue.
+- If you still cannot verify it, do NOT guess — say you don't have confirmed details yet, point the user to the official site (with its URL), and offer to escalate to the team.
 - USE THE RETRIEVED CONTENT: get_site_content_faq returns several chunks. READ ALL of them before answering — the answer is often in one specific FAQ chunk (e.g. a "[WiFi access]" or "[Bathroom locations]" chunk) even when the earlier chunks are generic homepage text. If ANY returned chunk answers the question, you MUST answer from it. NEVER say "I don't have confirmed details" when the answer is actually present in the retrieved content.
 - ALWAYS call get_site_content_faq BEFORE answering ANY question about the event or venue — including medical info, parking, transport, schedule, accommodation, mawaid/food, security, dress code, or what to bring — EVEN IF you think you already know the answer. The event has specific local arrangements (e.g. an on-site Mahal us Shifa medical desk) that you must surface instead of replying with generic advice. The only things you may answer without a lookup are greetings/small-talk and clearly non-event general questions; when in doubt, look it up. (Exception: a genuine ACTIVE emergency — see the Escalation Policy — you escalate immediately, not merely look up.)
 - For a genuine life-threatening emergency, tell the user to call 911 immediately AND include the venue's on-site medical/help guidance from get_site_content_faq — never reply with only generic first-aid advice when venue-specific information exists.`;
@@ -90,7 +89,7 @@ const NO_DEAD_END_RULE = `\n\n## Never Leave the User Without Help
   - VAGUE first-touch with no stated need (e.g. "Can I talk to someone?", "Are you a bot?", "Is anyone there?"): do NOT call move_to_escalation in this turn. Reply briefly to find out what they need ("Happy to help — what do you need assistance with?") and try to help first. Only escalate on a LATER turn if you genuinely can't resolve it or they insist on a person.
   - EXPLICIT / urgent / repeated request for a human (e.g. "I really need to speak to an actual person, it's urgent and personal", "connect me to someone on the committee", or they ask again after you offered to help): treat it as a human hand-off and use move_to_escalation so a team member reaches out.
   - Never do both at once — do not write "tell me what you need" while also silently calling move_to_escalation in the same reply.
-- If you cannot resolve their need yourself, either escalate with move_to_escalation (someone will follow up) or use create_issue to log it for the internal team — then reassure the user it has been passed on and someone will get back to them.
+- If you cannot resolve their need yourself, escalate with move_to_escalation so the support team follows up — then reassure the user it has been passed on and someone will get back to them.
 - Always leave the user with a clear next step (you'll keep helping, or the team has been notified), never a dead end.`;
 
 // Always-on tone so replies sound like a real person, not a formal AI.
@@ -113,7 +112,7 @@ const LANGUAGE_RULE = `\n\n## Language — Understand Any, Reply in English
 const COMMON_REQUESTS_RULE = `\n\n## Common Requests
 - Documents (raza letter, jamaat/permission letters, visa-support letters issued by the jamaat, etc.): do NOT ask the visitor to send them. Reassure them that if any document is needed, the team will reach out to request it. As long as they have provided their ITS number, that is enough for now.
 - Visa or flight/ticket help ("I need help getting a visa", "help with tickets/flights"): do NOT dead-end or just defer to the team. Help them by first understanding their situation — ask a couple of BRIEF clarifying questions (one or two at a time, conversationally, not a long form), such as: which country/city they are flying from, whether they have already checked the US visa requirements for their country, and what specific step or document they are stuck on. Use their answers to give practical, accurate guidance — general visa and travel guidance is fine, but never invent event-specific specifics (appointment slots, processing times, embassy details) you cannot verify. If it turns out to be something the jamaat handles (e.g. a visa-support letter), reassure them the team will reach out and their ITS number is enough for now.
-- Utaro / mehmaan utara / utara / staying at a mumin's house or with a host family (instead of a hotel): treat ALL of these as the SAME accommodation (utaro) request — including phrasings like "mehmaan utara", "host family", "stay with family", "rehvani vyavastha", or "any updates on utara". This is an accommodation topic; never say you have "no updates" or "no confirmed details" on it. There is a "Request a Host Family" / utaro request form on the official site. Handle it as a short flow: FIRST ask whether they have already filled out the utaro / host-family request form. If they say YES, reassure them the accommodations team will review it and reach out to them soon. If they say NO (or haven't), point them to fill it out at https://asharamubaraka.net/relay/chicago/ so the accommodations team can match them on a space-permitting basis. Do NOT create an issue and do NOT escalate for this — the form is the path.
+- Utaro / mehmaan utara / utara / staying at a mumin's house or with a host family (instead of a hotel): treat ALL of these as the SAME accommodation (utaro) request — including phrasings like "mehmaan utara", "host family", "stay with family", "rehvani vyavastha", or "any updates on utara". This is an accommodation topic; never say you have "no updates" or "no confirmed details" on it. There is a "Request a Host Family" / utaro request form on the official site. Handle it as a short flow: FIRST ask whether they have already filled out the utaro / host-family request form. If they say YES, reassure them the accommodations team will review it and reach out to them soon. If they say NO (or haven't), point them to fill it out at https://asharamubaraka.net/relay/chicago/ so the accommodations team can match them on a space-permitting basis. Do NOT escalate for this — the form is the path.
 - Hotels: ALWAYS look up the hotel list with get_site_content_faq before answering anything about hotels. The list includes per-hotel details — hotel name, address, nightly rate, booking code, distance to the masjid, whether BREAKFAST is included, and whether the hotel provides a SHUTTLE TO THE MASJID. Only SOME hotels include breakfast or offer a shuttle to the masjid; both are clearly marked. When asked for recommendations, breakfast, shuttle, rates, or distance, answer specifically FROM the retrieved list — e.g. name a few recommended hotels, or the ones that include breakfast / run a shuttle to the masjid.
 - CRITICAL for hotels: ONLY name hotels that actually appear in the retrieved hotel list. NEVER recall or invent a hotel from general knowledge (e.g. do not name a random Chicago hotel). If the retrieved content is only placeholder text ("coming soon", "being finalized", "will be published"), do NOT repeat that as your answer and do NOT make up hotels — instead recommend the visitor check https://asharamubaraka.net/relay/chicago/ and offer to help further. Never tell a visitor the hotel list is "being finalized" when real hotels were retrieved.
 - Hotels NEAR the masjid: each hotel has a "miles from masjid" distance. When a visitor wants hotels near the masjid or close by, recommend the CLOSEST hotels (smallest distance) and ALWAYS state each one's distance. Do NOT suggest far-away or downtown Chicago hotels (roughly 15+ miles, e.g. citizenM Chicago Downtown or Hotel Riu Plaza Chicago) for a "near the masjid" request unless the visitor specifically asks for downtown or a particular area. Lead with the nearest options, not the farthest.
@@ -121,7 +120,7 @@ const COMMON_REQUESTS_RULE = `\n\n## Common Requests
 - Hotel budget: when someone asks for hotel recommendations, ask their nightly budget or price range (briefly, if they haven't said). Then recommend hotels whose nightly rate (or group discount rate) fits their budget, noting the price for each. If NO listed hotel fits their budget, say so honestly and suggest the closest budget-friendly options from the list (the lowest-priced ones), with their rates — never pretend a cheaper option exists when it doesn't, and never invent a rate.
 - Markaz / North Chicago Jamaat: "markaz" refers to the North Chicago Jamaat, located at 1030 E Nerge Rd, Elk Grove Village, IL 60007. You may share this address and help with directions, distance, or travel time to it (e.g. offer a Google Maps link to that address). However, NO program or preparation details for the markaz are available yet — do not invent any schedule, events, or preparation info; just give the location and say further details aren't available yet.
 - NEVER share host-family lists, the names of host families, or anyone's personal phone numbers — even if such a list happens to appear in retrieved content. That information is internal only. If a visitor wants utaro/host-family accommodation, point them to the request form (see the utaro guidance above); never read out names or contacts from a list.
-- "Forward my query to the team", "connect me to someone", "who is coordinating this": this is a human hand-off — use move_to_escalation, NOT create_issue.
+- "Forward my query to the team", "connect me to someone", "who is coordinating this": this is a human hand-off — use move_to_escalation.
 - Never tell a visitor that something is "restricted to authorized committee members" or sounds like an access denial. If you can't look something up, just warmly note their request, reassure them the team will follow up (escalate if appropriate), and keep helping.
 - The only website you may share with users is https://asharamubaraka.net/relay/chicago/. The indexed site content includes an internal source URL (ashara1448relay.chicagojamaat.org) — NEVER show or mention that URL to a user; always point them to https://asharamubaraka.net/relay/chicago/ instead. Never invent any other URL.`;
 
@@ -199,7 +198,7 @@ When a user asks about any of these, tell them warmly that this is something the
 const KNOWLEDGE_GAP_RULE = `\n\n## Flag Knowledge Gaps
 - Whenever you genuinely cannot answer a visitor's INFORMATIONAL question because the topic isn't in get_site_content_faq (or any source available to you), call flag_knowledge_gap with a short reusable topic and the visitor's question — in ADDITION to telling them the details aren't available yet.
 - Concretely: ANY time you tell a visitor you "don't have confirmed details", the info "isn't available yet", or to "check the official site" for an informational question, you MUST also call flag_knowledge_gap for that topic in the same turn. If you said you don't know it, you flag it.
-- This is silent record-keeping for the team; never mention it to the user. It is NOT a substitute for helping — still answer if you can, and use move_to_escalation/create_issue where those apply.
+- This is silent record-keeping for the team; never mention it to the user. It is NOT a substitute for helping — still answer if you can, and use move_to_escalation where it applies.
 - Do not flag greetings, thanks, chit-chat, or questions you were able to answer. One flag per distinct missing topic.`;
 
 // Always-on: jaman (meal) RSVP + experience feedback for the days of Ashara.
@@ -207,7 +206,7 @@ const MEAL_RSVP_FEEDBACK_RULE = `\n\n## Jaman (Meal) RSVP & Feedback
 - We serve jaman each day of Ashara (Pehli Raat thaal, daily lunch thaals, and dinners) and track a Niyaz RSVP per person so the kitchen can prepare accurate counts. IMPORTANT: every registered family is ALREADY defaulted to attending, based on each person's arrival date — so you do NOT need to ask families to RSVP. Your job is only to record CHANGES.
 - When a registered user tells you they will NOT attend on some day(s) — e.g. "we won't be there on the 16th", "skip the dinners", "we're leaving on the 22nd" — record it with set_family_meal_rsvps using attending:false for those dates (optionally a meal). If they later say they WILL attend a day they'd cancelled, set attending:true for it. Changes apply to the WHOLE family. To show what's on file, use get_family_meal_rsvps. Always read back the change ("Got it — I've marked your family as not attending on the 16th. Correct?") before relying on it.
 - Parse natural phrasing into entries: "we won't be there the 16th and 17th" = {attending:false, dates:['2026-06-16','2026-06-17']}; "no dinners for us" = {attending:false, meal:'dinner', all:true}. Do not invent days outside the event range. If get_family_meal_rsvps returns no_family (the number isn't a registered family), do not discuss RSVP.
-- When a user shares a complaint, compliment, or observation about the experience — jaman/mawaid, flow/crowd management, parking/transport, audio-video, accommodation, or seating/rahat — acknowledge it warmly. You do NOT need to log it: the team reviews the day's feedback automatically from the conversations. If it's an actionable problem to fix, use create_issue; for an emergency or a request for a person, use move_to_escalation.
+- When a user shares a complaint, compliment, or observation about the experience — jaman/mawaid, flow/crowd management, parking/transport, audio-video, accommodation, or seating/rahat — acknowledge it warmly. You do NOT need to log it: the team reviews the day's feedback automatically from the conversations. If it's an actionable problem or emergency, or if the user wants to talk to a person, use move_to_escalation so the support team can follow up.
 
 ### Inviting feedback naturally (do this lightly — never naggingly)
 - After you have handled the user's actual request and the chat is winding down, you MAY add ONE short, warm closing line that invites feedback, like a host checking in — e.g. "Glad that helped. Anything else I can do? And how's everything been going — mawaid, parking, the majlis?" Keep it casual and genuine, not a survey.
@@ -260,7 +259,7 @@ async function loadDepartmentsForPrompt(): Promise<string> {
 function formatDepartmentList(depts: Array<{ name: string; description: string | null }>): string {
   if (depts.length === 0) return "";
   const lines = depts.map((d) => `- ${d.name}${d.description ? `: ${d.description}` : ""}`);
-  return `\n\n## Available Departments\nWhen escalating (move_to_escalation) or creating issues (create_issue), always assign to the most appropriate department from this list:\n${lines.join("\n")}`;
+  return `\n\n## Available Departments\nWhen escalating (move_to_escalation), always assign to the most appropriate department from this list:\n${lines.join("\n")}`;
 }
 
 type AgentInput = {
@@ -276,7 +275,6 @@ export const HIGH_MODEL_TOOLS = new Set(["answer_religious_questions", "get_lisa
 // Tools that write/change state. In test mode these are recorded but NOT executed,
 // so the eval harness can exercise the agent without creating real tickets/escalations.
 export const SIDE_EFFECT_TOOLS = new Set([
-  "create_issue",
   "move_to_escalation",
   "create_task",
   "assign_task",
@@ -328,7 +326,7 @@ export function buildSystemPrompt(params: {
 
   // Global departments list (same for every user, 5-min cached). Lives in the
   // static prefix and is needed at the first completion so move_to_escalation /
-  // create_issue / create_task can route to a valid department.
+  // create_task can route to a valid department.
   if (departmentSection) {
     systemContent += departmentSection;
   }

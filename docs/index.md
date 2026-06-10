@@ -64,6 +64,8 @@ src/app/api/admin/issues/[issueId]/route.ts — Issue detail (GET/PUT/DELETE)
 src/app/api/admin/issues/[issueId]/link/route.ts — Link/unlink escalations to issues
 src/app/api/admin/issues/[issueId]/resolve/route.ts — Resolve issue + all linked escalations
 src/app/api/admin/escalations/stats/route.ts — KPI stats for inbox header
+src/app/api/admin/escalations/[phoneE164]/suggestions/route.ts — AI suggestions (matching issues + resolution history)
+src/lib/escalation/suggestions-cache.ts    — In-memory TTL cache for AI suggestions
 src/lib/accommodations/import.ts         — Host spreadsheet XLSX import (upsert by ITS)
 src/lib/accommodations/rollups.ts        — Guest/host demographic rollups + capacity math
 src/lib/accommodations/matching.ts       — Matching logic, confirm/reject lifecycle
