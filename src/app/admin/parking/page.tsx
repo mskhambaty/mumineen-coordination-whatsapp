@@ -531,7 +531,8 @@ export default function ParkingPage() {
       v = v.filter((r) => matchesLotPurposes(r, bulkLot.purposes));
     }
     if (search) {
-      v = v.filter((r) => r.head_name.toLowerCase().includes(search.toLowerCase()));
+      const q = search.toLowerCase();
+      v = v.filter((r) => r.head_name.toLowerCase().includes(q) || r.hof_its.includes(q));
     }
     return v;
   }, [rows, search, purposeFit, bulkLot]);
@@ -809,7 +810,7 @@ export default function ParkingPage() {
             setSearch(e.target.value);
             setPage(1);
           }}
-          placeholder="Search household head…"
+          placeholder="Search name or ITS…"
           className="min-w-44 rounded-md border border-gray-300 bg-white px-2 py-1 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
         />
         <span className="ml-auto text-gray-400">
