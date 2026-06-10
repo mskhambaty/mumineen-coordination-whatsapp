@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const resolveFamilyForPhone = vi.fn();
 const getFamilyNiyazGrid = vi.fn();
 const setFamilyNiyazRsvp = vi.fn();
+const getUnregisteredRsvps = vi.fn();
+const recordUnregisteredRsvp = vi.fn();
+const getEvents = vi.fn();
 
 vi.mock("@/lib/rsvp/family", () => ({
   resolveFamilyForPhone: (...args: unknown[]) => resolveFamilyForPhone(...args),
@@ -11,6 +14,9 @@ vi.mock("@/lib/rsvp/family", () => ({
 vi.mock("@/lib/rsvp/meal-rsvp", () => ({
   getFamilyNiyazGrid: (...args: unknown[]) => getFamilyNiyazGrid(...args),
   setFamilyNiyazRsvp: (...args: unknown[]) => setFamilyNiyazRsvp(...args),
+  getUnregisteredRsvps: (...args: unknown[]) => getUnregisteredRsvps(...args),
+  recordUnregisteredRsvp: (...args: unknown[]) => recordUnregisteredRsvp(...args),
+  getEvents: (...args: unknown[]) => getEvents(...args),
 }));
 
 import { GET, POST } from "@/app/api/rsvp/meals/route";
@@ -48,10 +54,16 @@ describe("GET /api/rsvp/meals", () => {
     expect(getFamilyNiyazGrid).toHaveBeenCalledWith("fam-1");
   });
 
-  it("returns no_family when the number isn't on the roster", async () => {
+  it("returns unregistered (with the canonical events list) when the number isn't on the roster", async () => {
     resolveFamilyForPhone.mockResolvedValue(null);
+    getUnregisteredRsvps.mockResolvedValue([]);
+    getEvents.mockResolvedValue([
+      { id: "e1", title: "1st Moharram ul Haram", eventDate: "2026-06-15", meal: "lunch" },
+    ]);
     const res = await GET(req("GET"));
-    expect((await res.json()).status).toBe("no_family");
+    const json = await res.json();
+    expect(json.status).toBe("unregistered");
+    expect(json.events).toEqual([{ date: "2026-06-15", meal: "lunch", title: "1st Moharram ul Haram" }]);
     expect(getFamilyNiyazGrid).not.toHaveBeenCalled();
   });
 });
@@ -70,10 +82,25 @@ describe("POST /api/rsvp/meals", () => {
     expect(setFamilyNiyazRsvp).not.toHaveBeenCalled();
   });
 
-  it("returns no_family when the number isn't on the roster", async () => {
+  it("records an unregistered RSVP (entries + adults/its) when the number isn't on the roster", async () => {
     resolveFamilyForPhone.mockResolvedValue(null);
-    const res = await POST(req("POST", { entries: [{ attending: false, dates: ["2026-06-16"] }] }));
-    expect((await res.json()).status).toBe("no_family");
+    recordUnregisteredRsvp.mockResolvedValue({ upserted: 4 });
+    getUnregisteredRsvps.mockResolvedValue([]);
+    const entries = [
+      { attending: true, all: true },
+      { attending: false, dates: ["2026-06-15"], meal: "lunch" },
+    ];
+    const res = await POST(req("POST", { entries, adults: 2, its_number: "30711842" }));
+    const json = await res.json();
+    expect(json.status).toBe("unregistered_recorded");
+    expect(json.updated).toBe(4);
+    expect(recordUnregisteredRsvp).toHaveBeenCalledWith({
+      phone: PHONE,
+      entries,
+      adults: 2,
+      kids: undefined,
+      itsNumber: "30711842",
+    });
     expect(setFamilyNiyazRsvp).not.toHaveBeenCalled();
   });
 

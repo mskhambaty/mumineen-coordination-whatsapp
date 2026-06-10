@@ -26,7 +26,7 @@ const m = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/ai/model", async (orig) => ({ ...(await orig()), getAIClient: () => fakeClient }));
-vi.mock("@/lib/agent/prompts", () => ({ SYSTEM_PROMPT: "Test assistant.", loadAgentSystemPrompt: async () => "Test assistant." }));
+vi.mock("@/lib/agent/prompts", () => ({ SYSTEM_PROMPT: "Test assistant.", loadAgentSystemPrompt: async () => "Test assistant.", loadRuleOverrides: async () => ({}) }));
 vi.mock("@/lib/mumineen/sender-profile", () => ({ getSenderProfile: async () => null, formatSenderProfileForPrompt: () => "" }));
 vi.mock("@/lib/api/auth", () => ({ resolveCallerFromPhone: async () => undefined }));
 vi.mock("@/lib/supabase/server", () => ({

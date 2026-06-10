@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { resolveFamilyForPhone } from "@/lib/rsvp/family";
-import { getFamilyNiyazGrid, setFamilyNiyazRsvp, getUnregisteredRsvps, recordUnregisteredRsvp } from "@/lib/rsvp/meal-rsvp";
+import { getFamilyNiyazGrid, setFamilyNiyazRsvp, getUnregisteredRsvps, recordUnregisteredRsvp, getEvents } from "@/lib/rsvp/meal-rsvp";
 
 export const runtime = "nodejs";
 
@@ -38,12 +38,15 @@ export async function GET(req: NextRequest) {
 
   const family = await resolveFamilyForPhone(phone);
   if (!family) {
-    const rsvps = await getUnregisteredRsvps(phone);
+    const [rsvps, events] = await Promise.all([getUnregisteredRsvps(phone), getEvents()]);
     return NextResponse.json({
       status: "unregistered",
       grid: [],
+      // Canonical event list so the agent maps the caller's day references to real dates
+      // (e.g. "2nd Moharram dinner" -> the dinner titled that, on its actual date) instead of guessing.
+      events: events.map((e) => ({ date: e.eventDate, meal: e.meal, title: e.title })),
       rsvps,
-      message: "This number isn't linked to a registered family. Any previous RSVPs from this number are shown in rsvps.",
+      message: "This number isn't linked to a registered family. Any previous RSVPs from this number are shown in rsvps. Use events for the canonical date/meal/title of each jaman.",
     });
   }
 
@@ -64,36 +67,15 @@ export async function POST(req: NextRequest) {
 
   const family = await resolveFamilyForPhone(phone);
   if (!family) {
-    let totalUpserted = 0;
-    for (const entry of parsed.data.entries) {
-      const dates = entry.all ? undefined : entry.dates;
-      const scope = entry.meal ?? (entry.attending ? "both" : "none");
-      for (const date of dates ?? ["all"]) {
-        if (date === "all") {
-          const { upserted } = await recordUnregisteredRsvp({
-            phone,
-            date: "",
-            scope: scope as "both" | "lunch" | "dinner" | "none",
-            adults: parsed.data.adults,
-            kids: parsed.data.kids,
-            itsNumber: parsed.data.its_number,
-          });
-          totalUpserted += upserted;
-        } else {
-          const { upserted } = await recordUnregisteredRsvp({
-            phone,
-            date,
-            scope: scope as "both" | "lunch" | "dinner" | "none",
-            adults: parsed.data.adults,
-            kids: parsed.data.kids,
-            itsNumber: parsed.data.its_number,
-          });
-          totalUpserted += upserted;
-        }
-      }
-    }
+    const { upserted } = await recordUnregisteredRsvp({
+      phone,
+      entries: parsed.data.entries,
+      adults: parsed.data.adults,
+      kids: parsed.data.kids,
+      itsNumber: parsed.data.its_number,
+    });
     const rsvps = await getUnregisteredRsvps(phone);
-    return NextResponse.json({ status: "unregistered_recorded", updated: totalUpserted, rsvps });
+    return NextResponse.json({ status: "unregistered_recorded", updated: upserted, rsvps });
   }
 
   const result = await setFamilyNiyazRsvp(

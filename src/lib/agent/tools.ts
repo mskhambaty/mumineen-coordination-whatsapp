@@ -681,7 +681,13 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       return callInternalApi("/api/rsvp/meals", {
         method: "POST",
         phone: context.phoneE164,
-        body: { entries: args.entries ?? [] },
+        body: {
+          entries: args.entries ?? [],
+          // Forward head-count + ITS for unregistered callers; the API ignores them for registered families.
+          ...(args.adults !== undefined ? { adults: args.adults } : {}),
+          ...(args.kids !== undefined ? { kids: args.kids } : {}),
+          ...(args.its_number !== undefined ? { its_number: args.its_number } : {}),
+        },
       });
     // --- Task Management Tools ---
     case "get_my_tasks": {

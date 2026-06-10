@@ -18,7 +18,7 @@ import { insertPendingMessage, runCoalescedInbound } from "@/lib/whatsapp/coales
 import { extractIncomingMessages, type IncomingWhatsAppMessage } from "@/lib/whatsapp/parser";
 import { applyBroadcastStatuses, extractStatusUpdates, markBroadcastReplied } from "@/lib/whatsapp/broadcast-status";
 import { resolveFamilyForPhone } from "@/lib/rsvp/family";
-import { recordFamilyHeadCount, recordNiyazButtonResponse, recordUnregisteredRsvp, recordUnregisteredHeadCount, type NiyazLevel, type NiyazScope } from "@/lib/rsvp/meal-rsvp";
+import { recordFamilyHeadCount, recordNiyazButtonResponse, recordUnregisteredRsvp, recordUnregisteredHeadCount, scopeToEntries, type NiyazLevel, type NiyazScope } from "@/lib/rsvp/meal-rsvp";
 import { consumePrompt, createPrompt, findOpenPrompt } from "@/lib/rsvp/niyaz-prompt";
 
 export const runtime = "nodejs";
@@ -240,7 +240,7 @@ async function handleNiyazButton(message: IncomingWhatsAppMessage, userId: strin
       });
       reply = niyazConfirmation(level as NiyazLevel, scope as NiyazScope, date);
     } else {
-      await recordUnregisteredRsvp({ phone: message.phoneE164, date, scope: scope as NiyazScope });
+      await recordUnregisteredRsvp({ phone: message.phoneE164, entries: scopeToEntries(scope as NiyazScope, date) });
       await createPrompt({ phone: message.phoneE164, familyId: null, eventDate: date });
       const day = new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
       reply = `Shukran for your reply! We've recorded your response for ${day}. This number isn't linked to a registered family yet — please reply with the number of people attending (e.g. '5') and we'll update your count.\n\nPlease also register your family at ${REGISTER_URL} so we can match your records.`;

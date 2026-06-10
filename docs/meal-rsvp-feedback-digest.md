@@ -33,6 +33,12 @@ responses come in.
 - **Unregistered RSVPs** (`unregistered_rsvps`, `20260610120000_*`): one row per
   (phone, event), `adults`/`kids` counts, optional `its_number`/`family_name`. Recorded when an
   unlinked phone taps a button or the agent records their RSVP. Tallied alongside registered counts.
+  Unlike registered families there is **no pre-seeded baseline**, so the agent must send the FULL
+  picture — a `{attending:true, all:true}` baseline plus any `{attending:false, …}` exceptions — in
+  one `set_family_meal_rsvps` call. `recordUnregisteredRsvp` resolves the entries through the shared
+  `decideEvents` (last entry wins per event), so a meal-scoped "not attending" is stored as
+  `attending=false` and `adults`/`kids`/`its_number` are written on every resolved row (and omitted
+  from the upsert when not supplied, so a later partial update can't clobber them).
   **Auto-merge on registration:** when a family registers (or edits) via `/api/register`, any
   `unregistered_rsvps` matching the family's phone numbers are converted into confirmed `niyaz_rsvp`
   rows (`source='whatsapp'`) and the unregistered records are deleted (`mergeUnregisteredRsvps`).

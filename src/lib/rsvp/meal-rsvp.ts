@@ -328,35 +328,35 @@ export async function getEventTallies(mode: TallyMode = "max"): Promise<EventTal
 
 // --- Unregistered RSVPs ---
 
+// Record an unregistered caller's RSVP from one or more entries (same attending/dates/meal/all model
+// as the registered path). `decideEvents` resolves each event's attending value (last entry wins),
+// so a baseline like {attending:true, all:true} plus exceptions records the FULL grid correctly.
+// adults/kids/its_number are only written when provided, so a later partial update (e.g. cancelling
+// one meal) never clobbers a previously-supplied head count or ITS.
 export async function recordUnregisteredRsvp(input: {
   phone: string;
-  date: string;
-  scope: NiyazScope;
+  entries: NiyazRsvpEntry[];
   adults?: number;
   kids?: number;
   itsNumber?: string | null;
   source?: "whatsapp" | "admin";
 }): Promise<{ upserted: number }> {
-  const events = (await getEvents()).filter((e) => e.eventDate === input.date);
-  if (events.length === 0) return { upserted: 0 };
+  const decisions = decideEvents(await getEvents(), input.entries);
+  if (decisions.size === 0) return { upserted: 0 };
 
-  const attending = input.scope !== "none";
-  const rows = events
-    .filter((e) => {
-      if (input.scope === "both" || input.scope === "none") return true;
-      return e.meal === input.scope;
-    })
-    .map((e) => ({
+  const rows = [...decisions].map(([instanceId, attending]) => {
+    const row: Record<string, unknown> = {
       phone_e164: input.phone,
-      registration_instance_id: e.id,
-      adults: input.adults ?? 1,
-      kids: input.kids ?? 0,
+      registration_instance_id: instanceId,
       attending,
-      its_number: input.itsNumber ?? null,
       source: input.source ?? "whatsapp",
-    }));
+    };
+    if (input.adults !== undefined) row.adults = input.adults;
+    if (input.kids !== undefined) row.kids = input.kids;
+    if (input.itsNumber !== undefined && input.itsNumber !== null) row.its_number = input.itsNumber;
+    return row;
+  });
 
-  if (rows.length === 0) return { upserted: 0 };
   const { error } = await getSupabaseAdmin()
     .from("unregistered_rsvps")
     .upsert(rows, { onConflict: "phone_e164,registration_instance_id" });

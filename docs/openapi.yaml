@@ -1499,9 +1499,10 @@ paths:
       description: >-
         Self-scoped via x-whatsapp-from. Returns every Niyaz event with how many of the family
         are attending vs. family size. For unlinked phones, returns status=unregistered with any
-        existing unregistered_rsvps rows. Used by the get_family_meal_rsvps agent tool.
+        existing unregistered_rsvps rows plus an events array (canonical date/meal/title per jaman)
+        so the agent maps day references to real dates. Used by the get_family_meal_rsvps agent tool.
       responses:
-        "200": { description: "Grid (status=ok), or status=unregistered with rsvps array for unlinked phones." }
+        "200": { description: "Grid (status=ok), or status=unregistered with rsvps + events arrays for unlinked phones." }
         "400": { $ref: "#/components/responses/BadRequest" }
     post:
       tags: [rsvp]
