@@ -50,6 +50,7 @@ type Analytics = {
   arrivals_by_datetime: { date: string; time: string; count: number }[];
   departures_by_date: { date: string; count: number }[];
   gender: { label: string; count: number }[];
+  countries: { label: string; count: number }[];
   age_groups: {
     age_0_5: number;
     age_6_11: number;
@@ -1084,6 +1085,16 @@ export default function RegistrationAnalyticsPage() {
                     />
                   ))}
                 </SectionCard>
+
+                {data.countries.length > 0 && (
+                  <SectionCard title="Coming From · Country">
+                    {data.countries.map((c) => (
+                      <HBar key={c.label} label={c.label} value={c.count} total={summary.attending} color="bg-sky-500"
+                        onClick={() => drill({ segment: "country", value: c.label, label: `Country: ${c.label}` })}
+                      />
+                    ))}
+                  </SectionCard>
+                )}
 
                 <SectionCard title="Age Groups (Attending)">
                   {([

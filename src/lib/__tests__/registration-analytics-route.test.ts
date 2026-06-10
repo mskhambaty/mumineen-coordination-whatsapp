@@ -156,4 +156,19 @@ describe("GET /api/admin/registration-analytics — funnel counts", () => {
     expect(summary.total_mumineen).toBe(1); // only the single F member
     expect(summary.total_families).toBe(1); // family funnel unaffected by gender
   });
+
+  it("breaks down attending members by origin country (mapped from jamaat), sorted by headcount", async () => {
+    const mems = [
+      { ...member("a", "F"), jamaat: "DUBAI" }, // UAE
+      { ...member("b", "F"), jamaat: "SHAREQA" }, // UAE
+      { ...member("c", "F"), jamaat: "KHI (HASANI MOHALLA)" }, // Pakistan
+      { ...member("d", "F"), jamaat: "MAROL" }, // India (default)
+    ];
+    getSupabaseAdmin.mockReturnValue(stubSupabase({ families: [family("F", "submitted")], mumineen: mems, departments: [] }));
+
+    const { countries } = await (await GET(req())).json();
+    expect(countries[0]).toEqual({ label: "UAE", count: 2 });
+    expect(countries.find((c: { label: string }) => c.label === "Pakistan")).toEqual({ label: "Pakistan", count: 1 });
+    expect(countries.find((c: { label: string }) => c.label === "India")).toEqual({ label: "India", count: 1 });
+  });
 });
