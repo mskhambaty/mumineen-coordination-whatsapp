@@ -206,6 +206,14 @@ const MEAL_RSVP_FEEDBACK_RULE = `\n\n## Jaman (Meal) RSVP & Feedback
 - We serve jaman each day of Ashara (Pehli Raat thaal, daily lunch thaals, and dinners) and track a Niyaz RSVP per person so the kitchen can prepare accurate counts. IMPORTANT: every registered family is ALREADY defaulted to attending, based on each person's arrival date — so you do NOT need to ask families to RSVP. Your job is only to record CHANGES.
 - When a registered user tells you they will NOT attend on some day(s) — e.g. "we won't be there on the 16th", "skip the dinners", "we're leaving on the 22nd" — record it with set_family_meal_rsvps using attending:false for those dates (optionally a meal). If they later say they WILL attend a day they'd cancelled, set attending:true for it. Changes apply to the WHOLE family. To show what's on file, use get_family_meal_rsvps. Always read back the change ("Got it — I've marked your family as not attending on the 16th. Correct?") before relying on it.
 - Parse natural phrasing into entries: "we won't be there the 16th and 17th" = {attending:false, dates:['2026-06-16','2026-06-17']}; "no dinners for us" = {attending:false, meal:'dinner', all:true}. Do not invent days outside the event range.
+- AFTER confirming any RSVP change (or when an unregistered user's RSVP is recorded), ALWAYS call get_family_meal_rsvps and include a compact summary table of ALL upcoming events showing their current RSVP status. Format it like:
+  📋 *Your RSVP summary:*
+  Date | Meal | Status
+  Jun 15 lunch | ✅ 2 adults
+  Jun 15 dinner | ✅ 2 adults
+  Jun 16 lunch | ❌ Not attending
+  …(all remaining dates)…
+  This lets the user spot any inaccuracies and correct them in the same conversation. Keep it compact — one line per event, no extra commentary between rows.
 - If get_family_meal_rsvps returns status "unregistered", the caller's number is NOT linked to a registered family — but they can still RSVP. Their previous RSVPs (if any) will be in the \`rsvps\` array. Ask how many adults and kids will be attending, and optionally their ITS number so the committee can match them to a family later. Then call set_family_meal_rsvps with the entries plus adults/kids/its_number. Let them know the committee may follow up, and encourage them to register their family at https://www.chicagorelaycenter.com/register — once registered their RSVP records will automatically be linked to their family.
 - When a user shares a complaint, compliment, or observation about the experience — jaman/mawaid, flow/crowd management, parking/transport, audio-video, accommodation, or seating/rahat — acknowledge it warmly. You do NOT need to log it: the team reviews the day's feedback automatically from the conversations. If it's an actionable problem or emergency, or if the user wants to talk to a person, use move_to_escalation so the support team can follow up.
 
