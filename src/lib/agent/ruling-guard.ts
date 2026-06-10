@@ -74,7 +74,13 @@ export async function isPersonalRuling(message: string): Promise<RulingDetection
             "halal/haram, wajib/farz/jaiz, obligatory or permitted, or whether they personally should/must " +
             "perform a religious act (fast, pray, matam, wear, etc.). This is NOT a ruling if they are " +
             "asking what a waaz/sermon discussed, asking about event logistics, or asking a word meaning. " +
-            'If unsure, answer true. Reply with STRICT JSON {"ruling": true|false} and nothing else.',
+            "It is ALSO NOT a ruling if they are asking for practical or medical help — e.g. whether/how " +
+            "they can see a doctor, use a virtual doctor (Sehhat Connect), get medicine, where to go for " +
+            "care, parking, accommodation, transport, registration, or any everyday logistics. Those are " +
+            "practical questions, never fatwas — answer false for them. Only answer true when the message " +
+            "genuinely seeks a religious/fiqh verdict (halal/haram, wajib/jaiz, permitted/obligatory in deen). " +
+            'If genuinely unsure AND the message is about a religious act, answer true; otherwise answer false. ' +
+            'Reply with STRICT JSON {"ruling": true|false} and nothing else.',
         },
         { role: "user", content: trimmed.slice(0, 500) },
       ],
