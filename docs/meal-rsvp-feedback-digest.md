@@ -52,8 +52,14 @@ Zod-validated; POST entries are `{attending, dates?, meal?, all?}` with optional
 changes go to `unregistered_rsvps`). Agent tools: `get_family_meal_rsvps`, `set_family_meal_rsvps`
 (public; the agent mainly records *changes* — guidance in `MEAL_RSVP_FEEDBACK_RULE`). Admin:
 `/admin/niyaz` shows the events sorted by date with **Max/Min tabs** (max = arrival-date defaults,
-min = confirmed only), registered + unregistered count columns, backed by
-`GET /api/admin/niyaz/instances?mode=max|min` (reads the tallies view / function).
+min = confirmed only — an inline legend on the page spells out each definition + the thaal formula),
+registered + unregistered count columns, backed by
+`GET /api/admin/niyaz/instances?mode=max|min` (reads the tallies view / function). Clicking an event
+opens the **per-mumin responses** view: searchable by name/ITS, with columns for ITS, RSVP, **Source**
+(a labelled badge — `default`=Seeded from arrival, `registration`, `whatsapp`, `admin` — so staff can
+tell a real confirmation from a seeded default) and **Responded by** (the WhatsApp phone or admin that
+set it). Source/phone come straight from the `niyaz_rsvp` row via
+`GET /api/admin/niyaz/instances/{id}/responses`.
 
 ### 1a. Daily button RSVP (individual + family)
 
