@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { canManageParking, canViewParking, isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
@@ -299,9 +299,21 @@ function AssignMenu({
 }) {
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
+  const [openUp, setOpenUp] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (menuRef.current) {
+      const rect = menuRef.current.getBoundingClientRect();
+      if (rect.bottom > window.innerHeight - 16) setOpenUp(true);
+    }
+  }, []);
 
   return (
-    <div className="absolute right-0 top-full z-40 mt-1 w-60 rounded-md border bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-800">
+    <div
+      ref={menuRef}
+      className={`absolute right-0 z-40 w-60 rounded-md border bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-800 ${openUp ? "bottom-full mb-1" : "top-full mt-1"}`}
+    >
       <input
         type="text"
         value={notes}
