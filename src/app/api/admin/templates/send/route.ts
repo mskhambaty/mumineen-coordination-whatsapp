@@ -5,6 +5,7 @@ import { z } from "zod";
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { AUDIENCE_KEYS } from "@/lib/whatsapp/audience";
+import { parseAudienceCsv } from "@/lib/whatsapp/audience-csv";
 import { validateRules, type RuleGroup } from "@/lib/whatsapp/audience-filter";
 import { createBroadcast, drainUntilEmpty } from "@/lib/whatsapp/broadcast";
 import type { VariableBindings } from "@/lib/whatsapp/templates";
@@ -18,6 +19,7 @@ const schema = z.object({
   audience_key: z.enum(AUDIENCE_KEYS),
   selected_user_ids: z.array(z.string().uuid()).optional(),
   rules: z.any().optional(), // react-querybuilder tree for the "custom" audience
+  csv: z.string().optional(), // raw CSV text for the "csv_upload" audience (audience-export format)
   variable_bindings: z.any().optional(),
 });
 
@@ -40,6 +42,17 @@ export async function POST(req: NextRequest) {
     if (err) return NextResponse.json({ error: err }, { status: 400 });
   }
 
+  // csv_upload: parse the uploaded file into an explicit recipient list (audience resolution is
+  // skipped). Same format the app's CSV downloads use; mapped columns become personalization fields.
+  let csvRecipients: Awaited<ReturnType<typeof parseAudienceCsv>>["recipients"] | undefined;
+  if (parsed.data.audience_key === "csv_upload") {
+    if (!parsed.data.csv) return NextResponse.json({ error: "Upload a CSV file first." }, { status: 400 });
+    const csv = parseAudienceCsv(parsed.data.csv);
+    if (csv.error) return NextResponse.json({ error: csv.error }, { status: 400 });
+    if (csv.recipients.length === 0) return NextResponse.json({ error: "No valid recipients in the CSV (need a WhatsApp column with usable numbers)." }, { status: 400 });
+    csvRecipients = csv.recipients;
+  }
+
   const triggeredByUserId = auth.caller.user_id === "admin-api" ? null : auth.caller.user_id;
   const result = await createBroadcast({
     templateCode: parsed.data.template_code,
@@ -47,6 +60,7 @@ export async function POST(req: NextRequest) {
     audienceKey: parsed.data.audience_key,
     selectedUserIds: parsed.data.selected_user_ids ?? [],
     rules,
+    recipients: csvRecipients,
     variableBindings: parsed.data.variable_bindings as VariableBindings | undefined,
     triggeredByUserId,
   });

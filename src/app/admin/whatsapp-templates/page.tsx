@@ -19,7 +19,7 @@ type TemplateDescriptor = {
   category?: string;
 };
 type SelectableUser = { id: string; name: string; role: string };
-type Preview = { total: number; in_window: number; out_window: number; est_cost_usd: number; recipients?: { phone: string; full_name: string | null; its: string | null; inWindow: boolean }[]; funnel?: { matched: number; with_whatsapp: number; unique: number } | null };
+type Preview = { total: number; in_window: number; out_window: number; est_cost_usd: number; recipients?: { phone: string; full_name: string | null; its: string | null; inWindow: boolean }[]; funnel?: { matched: number; with_whatsapp: number; unique: number } | null; csv_stats?: { parsed: number; skipped: number; duplicates: number; corrupted: number } | null };
 type CatalogField = { key: string; label: string; group: string; type: string; operators: string[]; values: string[] };
 type MappableField = { key: string; label: string };
 type Binding = { kind: "static"; value: string } | { kind: "field"; field: string };
@@ -46,6 +46,7 @@ const AUDIENCES: { key: string; label: string }[] = [
   { key: "registered_hof", label: "All registered families (one per family)" },
   { key: "all_members", label: "All family members (deduped by number)" },
   { key: "custom", label: "Custom filter…" },
+  { key: "csv_upload", label: "Upload CSV…" },
 ];
 
 const OP_LABELS: Record<string, string> = {
@@ -66,6 +67,8 @@ export default function SendTemplatesPage() {
   const [tpl, setTpl] = useState<string>("");
   const [audience, setAudience] = useState<string>("selected_users");
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+  const [csvText, setCsvText] = useState<string>(""); // raw text of an uploaded audience CSV
+  const [csvFileName, setCsvFileName] = useState<string>("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [busy, setBusy] = useState(false);
@@ -257,16 +260,23 @@ export default function SendTemplatesPage() {
   async function runPreview() {
     setError(null);
     setPreview(null);
+    if (audience === "csv_upload" && !csvText) return setError("Choose a CSV file first.");
     setBusy(true);
     try {
       const res = await apiFetch("/api/admin/templates/preview", {
         method: "POST",
-        body: JSON.stringify({ audience_key: audience, selected_user_ids: selectedUsers, rules: audience === "custom" ? query : undefined, include_recipients: true, limit: 50 }),
+        body: JSON.stringify({ audience_key: audience, selected_user_ids: selectedUsers, rules: audience === "custom" ? query : undefined, csv: audience === "csv_upload" ? csvText : undefined, include_recipients: true, limit: 50 }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Preview failed");
       setPreview(data as Preview);
-      setPreviewedFor(audience === "custom" ? filterSummary : (AUDIENCES.find((a) => a.key === audience)?.label ?? audience));
+      setPreviewedFor(
+        audience === "custom"
+          ? filterSummary
+          : audience === "csv_upload"
+            ? `Uploaded CSV (${csvFileName || "file"})`
+            : (AUDIENCES.find((a) => a.key === audience)?.label ?? audience),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Preview failed");
     } finally {
@@ -321,6 +331,7 @@ export default function SendTemplatesPage() {
           audience_key: audience,
           selected_user_ids: selectedUsers,
           rules: audience === "custom" ? query : undefined,
+          csv: audience === "csv_upload" ? csvText : undefined,
           variable_bindings: buildBindingsPayload(),
         }),
       });
@@ -442,6 +453,36 @@ export default function SendTemplatesPage() {
             </div>
           )}
 
+          {audience === "csv_upload" && (
+            <div className="rounded-md border border-gray-100 p-3 text-sm dark:border-gray-800">
+              <div className="mb-2 text-xs uppercase tracking-wide text-gray-400">Upload CSV</div>
+              <div className="mb-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300">
+                Same format as the <b>Export CSV</b> (or a broadcast&apos;s failures CSV). A <b>WhatsApp</b> column is
+                required; other columns (Name, ITS, …) are optional and used for personalization. Rows are
+                <b> deduplicated by number</b>.{" "}
+                <b>Don&apos;t open &amp; re-save the file in Excel</b> — it corrupts phone numbers to <code>9.17869E+11</code>;
+                upload the download as-is.
+              </div>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  setPreview(null);
+                  if (!file) {
+                    setCsvText("");
+                    setCsvFileName("");
+                    return;
+                  }
+                  setCsvFileName(file.name);
+                  setCsvText(await file.text());
+                }}
+                className="block w-full text-sm"
+              />
+              {csvFileName && <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">Loaded: <b>{csvFileName}</b>. Run a preview to validate and see counts.</div>}
+            </div>
+          )}
+
           {audience === "custom" && (
             <div className="rounded-md border border-gray-100 p-3 text-sm dark:border-gray-800">
               <div className="mb-2 text-xs uppercase tracking-wide text-gray-400">Custom filter</div>
@@ -474,9 +515,11 @@ export default function SendTemplatesPage() {
             <button type="button" onClick={runPreview} disabled={busy} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-gray-700">
               Preview audience
             </button>
-            <button type="button" onClick={exportCsv} disabled={busy} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-gray-700">
-              Export CSV
-            </button>
+            {audience !== "csv_upload" && (
+              <button type="button" onClick={exportCsv} disabled={busy} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-gray-700">
+                Export CSV
+              </button>
+            )}
             {preview && (
               <span className="text-sm">
                 <b>{preview.total}</b> recipients · <span className="text-green-600">{preview.in_window} free</span> · <span className="text-amber-600">{preview.out_window} paid</span> ≈ <b>${preview.est_cost_usd}</b>
@@ -490,6 +533,16 @@ export default function SendTemplatesPage() {
                 <div>
                   {preview.funnel.matched.toLocaleString()} matched · {preview.funnel.with_whatsapp.toLocaleString()} with WhatsApp · <b>{preview.funnel.unique.toLocaleString()} unique numbers</b>{" "}
                   ({(preview.funnel.matched - preview.funnel.with_whatsapp).toLocaleString()} no number, {(preview.funnel.with_whatsapp - preview.funnel.unique).toLocaleString()} shared)
+                </div>
+              )}
+              {preview.csv_stats && (
+                <div>
+                  {preview.csv_stats.parsed.toLocaleString()} rows · <b>{preview.total.toLocaleString()} unique numbers</b>
+                  {preview.csv_stats.duplicates > 0 ? ` · ${preview.csv_stats.duplicates.toLocaleString()} duplicate${preview.csv_stats.duplicates === 1 ? "" : "s"}` : ""}
+                  {preview.csv_stats.skipped > 0 ? ` · ${preview.csv_stats.skipped.toLocaleString()} skipped (no/short number)` : ""}
+                  {preview.csv_stats.corrupted > 0 ? (
+                    <span className="text-red-600"> · {preview.csv_stats.corrupted.toLocaleString()} corrupted by Excel (re-export without opening in Excel)</span>
+                  ) : ""}
                 </div>
               )}
               {previewedFor && (

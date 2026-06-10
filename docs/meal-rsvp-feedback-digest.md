@@ -120,9 +120,19 @@ department plus the all-up. Summaries are stored per day for historical referenc
 cost, send. No auto-scheduling — every send is a button press.
 
 - Audiences (`src/lib/whatsapp/audience.ts`), always **deduped by phone**: `selected_users`,
-  `chicago_committee`, `arrived_hof`, `registered_hof`, `all_members`. Split into in-window (free)
-  vs out-window (paid) using `conversation_sessions.last_message_at`; cost via
-  `WHATSAPP_UTILITY_MSG_COST_USD`.
+  `chicago_committee`, `arrived_hof`, `registered_hof`, `all_members`, `custom` (rule-tree filter),
+  and `csv_upload`. Split into in-window (free) vs out-window (paid) using
+  `conversation_sessions.last_message_at`; cost via `WHATSAPP_UTILITY_MSG_COST_USD`.
+- `csv_upload` (`src/lib/whatsapp/audience-csv.ts`): audience taken from an uploaded CSV in the **same
+  format as the app's CSV downloads** (the audience export, or a broadcast's failures export). Columns
+  matched by header (case-insensitive, order-free); a `WhatsApp` column is required; the roster columns
+  (`Name`, `ITS`, `Jamaat`, …) are carried as per-recipient `fields` for personalization; `Window`,
+  `Reason`, and unknown columns are ignored; rows deduped by number. Parsed server-side via the shared
+  `parseCsv` util and passed as raw `csv` text to `POST /preview` and `POST /send`. **Excel guard:**
+  phone cells serialized as scientific notation (`9.17869E+11`) are unrecoverable, so they're flagged
+  as `corrupted` and skipped (never messaged) — the preview reports the count. Not DB-resolved — it
+  flows through the explicit-`recipients` path in `createBroadcast` (`resolveAudience` throws for this
+  key as a guard); `audience-export` returns 400 for `csv_upload`.
 - Engine (`src/lib/whatsapp/broadcast.ts`): a broadcast enqueues recipients; the send route then drains
   **inline until the queue is empty** (`drainUntilEmpty`, a bounded loop) so small/medium sends complete
   in-request. `/api/cron/broadcast-drain` (every minute) is a backstop for large sends, and

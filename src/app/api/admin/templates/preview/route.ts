@@ -3,7 +3,8 @@ import { z } from "zod";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
-import { AUDIENCE_KEYS, previewAudience } from "@/lib/whatsapp/audience";
+import { AUDIENCE_KEYS, previewAudience, previewExplicitRecipients, type AudiencePreview } from "@/lib/whatsapp/audience";
+import { parseAudienceCsv } from "@/lib/whatsapp/audience-csv";
 import { validateRules, type RuleGroup } from "@/lib/whatsapp/audience-filter";
 
 export const runtime = "nodejs";
@@ -12,6 +13,7 @@ const schema = z.object({
   audience_key: z.enum(AUDIENCE_KEYS),
   selected_user_ids: z.array(z.string().uuid()).optional(),
   rules: z.any().optional(), // react-querybuilder tree for the "custom" audience
+  csv: z.string().optional(), // raw CSV text for the "csv_upload" audience (audience-export format)
   include_recipients: z.boolean().optional(),
   limit: z.number().int().min(1).max(200).optional(),
   offset: z.number().int().min(0).optional(),
@@ -36,7 +38,17 @@ export async function POST(req: NextRequest) {
     if (err) return NextResponse.json({ error: err }, { status: 400 });
   }
 
-  const preview = await previewAudience(parsed.data.audience_key, parsed.data.selected_user_ids ?? [], rules);
+  let preview: AudiencePreview;
+  let csvStats: { parsed: number; skipped: number; duplicates: number; corrupted: number } | null = null;
+  if (parsed.data.audience_key === "csv_upload") {
+    if (!parsed.data.csv) return NextResponse.json({ error: "Upload a CSV file first." }, { status: 400 });
+    const csv = parseAudienceCsv(parsed.data.csv);
+    if (csv.error) return NextResponse.json({ error: csv.error }, { status: 400 });
+    preview = await previewExplicitRecipients(csv.recipients);
+    csvStats = { parsed: csv.parsed, skipped: csv.skipped, duplicates: csv.duplicates, corrupted: csv.corrupted };
+  } else {
+    preview = await previewAudience(parsed.data.audience_key, parsed.data.selected_user_ids ?? [], rules);
+  }
 
   const body: Record<string, unknown> = {
     total: preview.total,
@@ -44,6 +56,7 @@ export async function POST(req: NextRequest) {
     out_window: preview.out_window,
     est_cost_usd: preview.est_cost_usd,
     funnel: preview.funnel ?? null,
+    csv_stats: csvStats,
   };
 
   if (parsed.data.include_recipients) {

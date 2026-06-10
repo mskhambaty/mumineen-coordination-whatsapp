@@ -16,6 +16,7 @@ export const AUDIENCE_KEYS = [
   "registered_hof",
   "all_members",
   "custom",
+  "csv_upload",
 ] as const;
 
 export type AudienceKey = (typeof AUDIENCE_KEYS)[number];
@@ -31,6 +32,7 @@ export const AUDIENCE_LABEL: Record<AudienceKey, string> = {
   registered_hof: "All registered families (one per family)",
   all_members: "All family members (deduped by number)",
   custom: "Custom filter",
+  csv_upload: "Uploaded CSV",
 };
 
 export type Recipient = {
@@ -54,7 +56,9 @@ function fieldsOf(row: Record<string, unknown>): Record<string, string | null> {
   return out;
 }
 
-function normalizePhone(input: string): string {
+// Normalize a phone string to "+<digits>" so it keys/dedupes consistently with getInWindowPhones
+// and the broadcast recipient rows. Exported for the CSV-upload audience parser.
+export function normalizePhone(input: string): string {
   const digits = input.replace(/[^\d]/g, "");
   return digits ? `+${digits}` : input;
 }
@@ -130,6 +134,12 @@ export async function resolveAudience(
   rules?: RuleGroup,
 ): Promise<Recipient[]> {
   const supabase = getSupabaseAdmin();
+
+  // csv_upload recipients come from an uploaded file, not the database — callers must provide them
+  // as an explicit list (see parseAudienceCsv + the explicit-recipients path in createBroadcast).
+  if (key === "csv_upload") {
+    throw new Error("csv_upload audiences are provided as an explicit recipient list, not resolved from the database.");
+  }
 
   if (key === "custom") {
     if (!rules) return [];
@@ -268,6 +278,13 @@ export async function previewAudience(key: AudienceKey, selectedUserIds: string[
     recipients = await resolveAudience(key, selectedUserIds, rules);
   }
 
+  return { ...(await previewExplicitRecipients(recipients)), funnel };
+}
+
+// Split an already-resolved recipient list into free (in-window) vs paid with an estimated cost.
+// Used by previewAudience and by the csv_upload path, which supplies recipients parsed from a file
+// rather than resolved from the database.
+export async function previewExplicitRecipients(recipients: Recipient[]): Promise<AudiencePreview> {
   const inWindow = await getInWindowPhones();
   const enriched = recipients.map((r) => ({ ...r, inWindow: inWindow.has(r.phone) }));
   const free = enriched.filter((r) => r.inWindow).length;
@@ -278,6 +295,5 @@ export async function previewAudience(key: AudienceKey, selectedUserIds: string[
     out_window: paid,
     est_cost_usd: Number((paid * utilityMessageCostUsd()).toFixed(2)),
     recipients: enriched,
-    funnel,
   };
 }

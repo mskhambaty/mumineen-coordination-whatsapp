@@ -1629,7 +1629,7 @@ paths:
     post:
       tags: [admin, templates]
       summary: Preview an audience (free/paid counts + cost)
-      description: Admin/leadership only. Returns counts only — never the phone list.
+      description: Admin/leadership only. Counts by default; with include_recipients a capped, paginated recipient sample. For audience_key=custom pass rules; for csv_upload pass csv (raw CSV text in the audience-export/failures-export format) and the response includes csv_stats (parsed/skipped/duplicates/corrupted).
       requestBody:
         required: true
         content:
@@ -1638,10 +1638,15 @@ paths:
               type: object
               required: [audience_key]
               properties:
-                audience_key: { type: string, enum: [selected_users, chicago_committee, arrived_hof, registered_hof, all_members] }
+                audience_key: { type: string, enum: [selected_users, chicago_committee, arrived_hof, registered_hof, all_members, custom, csv_upload] }
                 selected_user_ids: { type: array, items: { type: string, format: uuid } }
+                rules: { type: object, description: react-querybuilder rule tree (audience_key=custom) }
+                csv: { type: string, description: Raw CSV text in the audience-export format (audience_key=csv_upload) }
+                include_recipients: { type: boolean }
+                limit: { type: integer, minimum: 1, maximum: 200 }
+                offset: { type: integer, minimum: 0 }
       responses:
-        "200": { description: "{ total, in_window, out_window, est_cost_usd }." }
+        "200": { description: "{ total, in_window, out_window, est_cost_usd, funnel?, csv_stats?, recipients? }." }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
@@ -1649,7 +1654,7 @@ paths:
     post:
       tags: [admin, templates]
       summary: Start a manual template broadcast
-      description: Admin/leadership only. Creates a broadcast, enqueues recipients, then drains inline until the queue is empty (bounded); the minute cron is a backstop. Manual — no auto-scheduling.
+      description: Admin/leadership only. Creates a broadcast, enqueues recipients, then drains inline until the queue is empty (bounded); the minute cron is a backstop. Manual — no auto-scheduling. For audience_key=custom pass rules; for csv_upload pass csv (raw CSV text in the audience-export/failures-export format); template variables are bound via variable_bindings.
       requestBody:
         required: true
         content:
@@ -1660,8 +1665,11 @@ paths:
               properties:
                 template_code: { type: string }
                 template_language: { type: string }
-                audience_key: { type: string, enum: [selected_users, chicago_committee, arrived_hof, registered_hof, all_members] }
+                audience_key: { type: string, enum: [selected_users, chicago_committee, arrived_hof, registered_hof, all_members, custom, csv_upload] }
                 selected_user_ids: { type: array, items: { type: string, format: uuid } }
+                rules: { type: object, description: react-querybuilder rule tree (audience_key=custom) }
+                csv: { type: string, description: Raw CSV text in the audience-export format (audience_key=csv_upload) }
+                variable_bindings: { type: object, description: Per-variable static value or roster-field mapping }
       responses:
         "200": { description: "status=started + broadcastId + counts." }
         "400": { $ref: "#/components/responses/BadRequest" }
