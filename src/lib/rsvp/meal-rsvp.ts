@@ -96,8 +96,9 @@ export type NiyazRsvpEntry = {
 
 export type ApplyResult = { updated: number; grid: FamilyGridRow[] };
 
-type RsvpTarget = { muminId: string; notAttending: boolean };
+type RsvpTarget = { muminId: string; notAttending: boolean; isAdult: boolean; isHead: boolean };
 type ApplyOpts = { source: "whatsapp" | "admin"; phone?: string | null; recordedBy?: string | null; respectNotAttending?: boolean };
+type PartialCounts = { adults?: number; kids?: number };
 
 // Resolve entries → a per-event attending decision (last entry wins per event).
 function decideEvents(events: NiyazEvent[], entries: NiyazRsvpEntry[]): Map<string, boolean> {
@@ -113,23 +114,48 @@ function decideEvents(events: NiyazEvent[], entries: NiyazRsvpEntry[]): Map<stri
   return decisions;
 }
 
+// Pick which members attend when the caller gives explicit adults/kids counts smaller than the
+// family. Priority: head of family first, then other adults, then kids. Members flagged
+// not_attending are excluded up front (they were never in the attending pool).
+function selectPartialTargets(targets: RsvpTarget[], counts: PartialCounts): Set<string> {
+  const eligible = targets.filter((t) => !t.notAttending);
+  const adults = eligible.filter((t) => t.isAdult);
+  const kids = eligible.filter((t) => !t.isAdult);
+
+  const wantAdults = counts.adults ?? adults.length;
+  const wantKids = counts.kids ?? kids.length;
+
+  // Head of family first, then remaining adults
+  const sortedAdults = [...adults].sort((a, b) => (a.isHead === b.isHead ? 0 : a.isHead ? -1 : 1));
+  const pickedAdults = sortedAdults.slice(0, wantAdults);
+  const pickedKids = kids.slice(0, wantKids);
+
+  return new Set([...pickedAdults, ...pickedKids].map((t) => t.muminId));
+}
+
 // Core writer: upsert one niyaz_rsvp row per (event decision × target mumin). When
 // `respectNotAttending`, a "yes" decision skips a member flagged not_attending (used by the family
 // cascade so we don't pull an absent member into attendance; an explicit individual answer doesn't).
-async function applyNiyazRsvp(targets: RsvpTarget[], familyId: string | null, entries: NiyazRsvpEntry[], opts: ApplyOpts): Promise<number> {
+// When `partial` counts are given for attending=true events, only the selected subset attends and
+// the rest are marked not-attending — so the per-member rows stay accurate.
+async function applyNiyazRsvp(targets: RsvpTarget[], familyId: string | null, entries: NiyazRsvpEntry[], opts: ApplyOpts, partial?: PartialCounts): Promise<number> {
   if (targets.length === 0) return 0;
   const decisions = decideEvents(await getEvents(), entries);
   if (decisions.size === 0) return 0;
+
+  const usePartial = partial && (partial.adults !== undefined || partial.kids !== undefined);
+  const attendingSet = usePartial ? selectPartialTargets(targets, partial) : null;
 
   const rows: Record<string, unknown>[] = [];
   for (const [instanceId, attending] of decisions) {
     for (const t of targets) {
       if (attending && t.notAttending && opts.respectNotAttending) continue;
+      const memberAttending = attending && attendingSet ? attendingSet.has(t.muminId) : attending;
       rows.push({
         registration_instance_id: instanceId,
         mumin_id: t.muminId,
         family_id: familyId,
-        attending,
+        attending: memberAttending,
         source: opts.source,
         responded_by_phone: opts.phone ?? null,
         recorded_by: opts.recordedBy ?? null,
@@ -148,19 +174,28 @@ async function applyNiyazRsvp(targets: RsvpTarget[], familyId: string | null, en
 }
 
 // Whole-family RSVP: cascades to ALL roster_active family members; a "yes" never flips a member
-// flagged not_attending. Upserts override the per-mumin row (whatsapp/admin beat the default).
+// flagged not_attending. When partial counts (adults/kids) are given and smaller than the family,
+// only that many members are marked attending and the rest are marked not-attending — head of
+// family is kept first, then remaining adults, then kids.
 export async function setFamilyNiyazRsvp(
   familyId: string,
   entries: NiyazRsvpEntry[],
   opts: { source: "whatsapp" | "admin"; phone?: string | null; recordedBy?: string | null },
+  partial?: PartialCounts,
 ): Promise<ApplyResult> {
   const { data: members } = await getSupabaseAdmin()
     .from("mumineen")
-    .select("id, not_attending")
+    .select("id, not_attending, is_adult, is_head")
     .eq("family_id", familyId)
     .eq("roster_active", true);
-  const targets = ((members ?? []) as { id: string; not_attending: boolean }[]).map((m) => ({ muminId: m.id, notAttending: m.not_attending }));
-  const updated = await applyNiyazRsvp(targets, familyId, entries, { ...opts, respectNotAttending: true });
+  type Row = { id: string; not_attending: boolean; is_adult: boolean | null; is_head: boolean | null };
+  const targets = ((members ?? []) as Row[]).map((m) => ({
+    muminId: m.id,
+    notAttending: m.not_attending,
+    isAdult: m.is_adult !== false,
+    isHead: m.is_head === true,
+  }));
+  const updated = await applyNiyazRsvp(targets, familyId, entries, { ...opts, respectNotAttending: true }, partial);
   return { updated, grid: await getFamilyNiyazGrid(familyId) };
 }
 
@@ -172,7 +207,7 @@ export async function setMuminNiyazRsvp(
   entries: NiyazRsvpEntry[],
   opts: { source: "whatsapp" | "admin"; phone?: string | null; recordedBy?: string | null },
 ): Promise<ApplyResult> {
-  const updated = await applyNiyazRsvp([{ muminId, notAttending: false }], familyId, entries, { ...opts, respectNotAttending: false });
+  const updated = await applyNiyazRsvp([{ muminId, notAttending: false, isAdult: true, isHead: false }], familyId, entries, { ...opts, respectNotAttending: false });
   return { updated, grid: familyId ? await getFamilyNiyazGrid(familyId) : [] };
 }
 

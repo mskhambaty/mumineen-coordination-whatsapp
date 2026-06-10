@@ -122,6 +122,26 @@ describe("POST /api/rsvp/meals", () => {
       "fam-1",
       [{ attending: false, dates: ["2026-06-16"], meal: undefined, all: undefined }],
       { source: "whatsapp", phone: PHONE },
+      undefined,
+    );
+  });
+
+  it("passes partial counts (adults/kids) through for registered families", async () => {
+    resolveFamilyForPhone.mockResolvedValue(FAMILY);
+    setFamilyNiyazRsvp.mockResolvedValue({ updated: 3, grid: [] });
+    const res = await POST(req("POST", {
+      entries: [{ attending: true, dates: ["2026-06-21"], meal: "dinner" }],
+      adults: 1,
+      kids: 0,
+    }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.status).toBe("ok");
+    expect(setFamilyNiyazRsvp).toHaveBeenCalledWith(
+      "fam-1",
+      [{ attending: true, dates: ["2026-06-21"], meal: "dinner", all: undefined }],
+      { source: "whatsapp", phone: PHONE },
+      { adults: 1, kids: 0 },
     );
   });
 });

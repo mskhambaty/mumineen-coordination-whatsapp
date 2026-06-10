@@ -1535,8 +1535,8 @@ paths:
                       dates: { type: array, items: { type: string, format: date } }
                       meal: { type: string, enum: [lunch, dinner] }
                       all: { type: boolean }
-                adults: { type: integer, description: "Unregistered callers only — number of adults." }
-                kids: { type: integer, description: "Unregistered callers only — number of kids." }
+                adults: { type: integer, description: "Number of adults attending. For registered families, triggers partial attendance (head of family kept first). For unregistered callers, records head count." }
+                kids: { type: integer, description: "Number of kids attending. For registered families, triggers partial attendance. For unregistered callers, records head count." }
                 its_number: { type: string, description: "Unregistered callers only — optional ITS for family matching." }
       responses:
         "200": { description: "Updated row count + refreshed grid (or status=unregistered for unlinked phones — upserts into unregistered_rsvps)." }

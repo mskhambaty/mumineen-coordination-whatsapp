@@ -91,10 +91,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: "unregistered_recorded", updated: upserted, rsvps });
   }
 
+  const partial = parsed.data.adults !== undefined || parsed.data.kids !== undefined
+    ? { adults: parsed.data.adults, kids: parsed.data.kids }
+    : undefined;
+
   const result = await setFamilyNiyazRsvp(
     family.familyId,
     parsed.data.entries.map((e) => ({ attending: e.attending, dates: e.dates, meal: e.meal, all: e.all })),
     { source: "whatsapp", phone },
+    partial,
   );
 
   return NextResponse.json({ status: "ok", updated: result.updated, grid: result.grid });
