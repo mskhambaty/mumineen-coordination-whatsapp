@@ -388,6 +388,8 @@ export default function ParkingPage() {
   const [lotFilter, setLotFilter] = useState(""); // client-side: show only rows with a pass in this lot
   const [bulkLotId, setBulkLotId] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [selectN, setSelectN] = useState(""); // "select N rows" input
+  const [unassignBusy, setUnassignBusy] = useState(false);
   // Auto-narrow the list to households fitting the target lot's purposes. Turned on
   // when a narrowable lot is picked; the chip stays toggleable for deliberate overrides.
   const [purposeFit, setPurposeFit] = useState(false);
@@ -646,6 +648,30 @@ export default function ParkingPage() {
     }
   }
 
+  async function bulkUnassign() {
+    if (selected.size === 0) return;
+    if (!window.confirm(`Remove ALL passes from ${selected.size} household${selected.size === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    setUnassignBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await apiFetch("/api/admin/parking/passes/bulk", {
+        method: "DELETE",
+        body: JSON.stringify({ family_ids: [...selected] }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? "Bulk unassign failed");
+        return;
+      }
+      setNotice(`Removed ${json.deleted} pass${json.deleted === 1 ? "" : "es"} from ${selected.size} household${selected.size === 1 ? "" : "s"}.`);
+      setSelected(new Set());
+      await loadAll(filters);
+    } finally {
+      setUnassignBusy(false);
+    }
+  }
+
   // One CSV row per pass across the currently visible households.
   function exportCsv() {
     const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
@@ -878,51 +904,39 @@ export default function ParkingPage() {
         </span>
       </div>
 
-      {/* Bulk "fill lot" bar */}
+      {/* Bulk action bar */}
       {canManage && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800/50">
-          <span className="font-semibold text-gray-700 dark:text-gray-200">Bulk assign</span>
-          <select
-            value={bulkLotId}
-            onChange={(e) => chooseBulkLot(e.target.value)}
-            className="rounded-md border border-gray-300 bg-white px-2 py-1 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
-          >
-            <option value="">Choose lot…</option>
-            {lots.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name} — {Math.max(0, l.capacity - l.assigned)} of {l.capacity} remaining
-              </option>
-            ))}
-          </select>
-          {bulkLotNarrows && bulkLot && (
-            <FilterChip
-              active={purposeFit}
-              label={`Fits lot purposes (${bulkLot.purposes.map((p) => PURPOSE_LABELS[p] ?? p).join(", ")})`}
-              onClick={() => setPurposeFit(!purposeFit)}
-            />
-          )}
-          {bulkLot && (
-            <>
+        <div className="mb-3 space-y-2">
+          {/* Selection controls */}
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800/50">
+            <span className="font-semibold text-gray-700 dark:text-gray-200">Select</span>
+            <form
+              className="flex items-center gap-1"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const n = Math.max(1, Math.min(visible.length, parseInt(selectN) || 0));
+                if (n > 0) setSelected(new Set(visible.slice(0, n).map((r) => r.family_id)));
+              }}
+            >
+              <input
+                type="number"
+                min={1}
+                max={visible.length}
+                value={selectN}
+                onChange={(e) => setSelectN(e.target.value)}
+                placeholder="N rows"
+                className="w-20 rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+              />
               <button
-                type="button"
-                onClick={() => setSelected(new Set(pickAssignable(visible, bulkLot.id, bulkRemaining)))}
-                className="rounded-md border border-blue-400 px-2.5 py-1 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+                type="submit"
+                className="rounded-md border border-gray-300 px-2.5 py-1 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
               >
-                Select up to remaining ({bulkRemaining})
+                Select
               </button>
-              <span
-                className={
-                  overBy > 0
-                    ? "font-semibold text-red-600 dark:text-red-400"
-                    : effectiveNew > 0 && effectiveNew === bulkRemaining
-                      ? "font-semibold text-amber-600 dark:text-amber-400"
-                      : "text-gray-500 dark:text-gray-400"
-                }
-              >
-                {effectiveNew} new / {bulkRemaining} remaining
-                {overBy > 0 ? ` — ${overBy} over` : ""}
-              </span>
-              {selected.size > 0 && (
+            </form>
+            {selected.size > 0 && (
+              <>
+                <span className="text-gray-500 dark:text-gray-400">{selected.size} selected</span>
                 <button
                   type="button"
                   onClick={() => setSelected(new Set())}
@@ -930,28 +944,92 @@ export default function ParkingPage() {
                 >
                   Clear
                 </button>
-              )}
-              {unqualified > 0 && (
-                <span className="font-medium text-amber-600 dark:text-amber-400">
-                  {`⚠ ${unqualified} of ${selected.size} selected ${
-                    unqualified === 1 ? "doesn't" : "don't"
-                  } match this lot's purposes (${bulkLot.purposes.map((p) => PURPOSE_LABELS[p] ?? p).join(", ")})`}
+                <button
+                  type="button"
+                  onClick={() => void bulkUnassign()}
+                  disabled={unassignBusy}
+                  className="rounded-md bg-red-600 px-3 py-1.5 font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  {unassignBusy ? "Unassigning…" : `Unassign all passes (${selected.size})`}
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Assign to lot */}
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800/50">
+            <span className="font-semibold text-gray-700 dark:text-gray-200">Bulk assign</span>
+            <select
+              value={bulkLotId}
+              onChange={(e) => chooseBulkLot(e.target.value)}
+              className="rounded-md border border-gray-300 bg-white px-2 py-1 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+            >
+              <option value="">Choose lot…</option>
+              {lots.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name} — {Math.max(0, l.capacity - l.assigned)} of {l.capacity} remaining
+                </option>
+              ))}
+            </select>
+            {bulkLotNarrows && bulkLot && (
+              <FilterChip
+                active={purposeFit}
+                label={`Fits lot purposes (${bulkLot.purposes.map((p) => PURPOSE_LABELS[p] ?? p).join(", ")})`}
+                onClick={() => setPurposeFit(!purposeFit)}
+              />
+            )}
+            {bulkLot && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setSelected(new Set(pickAssignable(visible, bulkLot.id, bulkRemaining)))}
+                  className="rounded-md border border-blue-400 px-2.5 py-1 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+                >
+                  Select up to remaining ({bulkRemaining})
+                </button>
+                <span
+                  className={
+                    overBy > 0
+                      ? "font-semibold text-red-600 dark:text-red-400"
+                      : effectiveNew > 0 && effectiveNew === bulkRemaining
+                        ? "font-semibold text-amber-600 dark:text-amber-400"
+                        : "text-gray-500 dark:text-gray-400"
+                  }
+                >
+                  {effectiveNew} new / {bulkRemaining} remaining
+                  {overBy > 0 ? ` — ${overBy} over` : ""}
                 </span>
-              )}
-              <button
-                type="button"
-                onClick={() => void bulkAssign()}
-                disabled={bulkBusy || selected.size === 0}
-                className={`ml-auto rounded-md px-3 py-1.5 font-medium text-white disabled:opacity-50 ${
-                  overBy > 0 ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"
-                }`}
-              >
-                {bulkBusy
-                  ? "Assigning…"
-                  : `Assign ${selected.size} → ${bulkLot.name}${overBy > 0 ? ` (${overBy} over capacity)` : ""}`}
-              </button>
-            </>
-          )}
+                {selected.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelected(new Set())}
+                    className="text-gray-400 hover:underline"
+                  >
+                    Clear
+                  </button>
+                )}
+                {unqualified > 0 && (
+                  <span className="font-medium text-amber-600 dark:text-amber-400">
+                    {`⚠ ${unqualified} of ${selected.size} selected ${
+                      unqualified === 1 ? "doesn't" : "don't"
+                    } match this lot's purposes (${bulkLot.purposes.map((p) => PURPOSE_LABELS[p] ?? p).join(", ")})`}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void bulkAssign()}
+                  disabled={bulkBusy || selected.size === 0}
+                  className={`ml-auto rounded-md px-3 py-1.5 font-medium text-white disabled:opacity-50 ${
+                    overBy > 0 ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"
+                  }`}
+                >
+                  {bulkBusy
+                    ? "Assigning…"
+                    : `Assign ${selected.size} → ${bulkLot.name}${overBy > 0 ? ` (${overBy} over capacity)` : ""}`}
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
 

@@ -61,3 +61,30 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ ok: true, assigned: toInsert.length, skipped: unique.length - toInsert.length });
 }
+
+// DELETE /api/admin/parking/passes/bulk — remove ALL passes for the given families.
+// Accepts { family_ids: string[] }. Used by the bulk-unassign action on the parking page.
+export async function DELETE(req: NextRequest) {
+  const auth = await requirePortalCaller(req, canManageParking);
+  if (auth instanceof NextResponse) return auth;
+
+  const body = (await req.json().catch(() => ({}))) as { family_ids?: unknown };
+  const familyIds =
+    Array.isArray(body.family_ids) && body.family_ids.every((id) => typeof id === "string")
+      ? (body.family_ids as string[])
+      : null;
+  if (!familyIds || familyIds.length === 0) {
+    return NextResponse.json({ error: "Missing family_ids." }, { status: 400 });
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { error, count } = await supabase
+    .from("parking_passes")
+    .delete({ count: "exact" })
+    .in("family_id", familyIds);
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true, deleted: count ?? 0 });
+}
