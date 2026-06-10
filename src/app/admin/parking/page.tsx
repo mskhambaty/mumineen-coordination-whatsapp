@@ -32,6 +32,7 @@ type Lot = {
 type Filters = {
   eligible: boolean | null;
   local_mehman: string;
+  filterMode: "and" | "or";
   // Tri-state: null = off, true = must match, false = must NOT match.
   any_rahat: boolean | null;
   any_senior: boolean | null;
@@ -47,6 +48,7 @@ type Filters = {
 const DEFAULT_FILTERS: Filters = {
   eligible: true, // default: show only eligible households
   local_mehman: "",
+  filterMode: "and",
   any_rahat: null,
   any_senior: null,
   all_rahat: null,
@@ -418,6 +420,7 @@ export default function ParkingPage() {
       };
       tri("eligible", f.eligible);
       if (f.local_mehman) params.set("local_mehman", f.local_mehman);
+      if (f.filterMode === "or") params.set("filter_mode", "or");
       tri("any_rahat", f.any_rahat);
       tri("any_senior", f.any_senior);
       tri("all_rahat", f.all_rahat);
@@ -703,6 +706,27 @@ export default function ParkingPage() {
 
       {/* Filter bar */}
       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+        {/* AND / OR toggle — only shown when at least one criteria chip is active */}
+        {([filters.any_rahat, filters.any_senior, filters.all_rahat, filters.all_65,
+           filters.wheelchair, filters.has_phone, filters.has_category, filters.kids_under_7]
+           .filter((v) => v !== null).length > 1) && (
+          <div className="flex overflow-hidden rounded-full border border-gray-300 dark:border-gray-600">
+            {(["and", "or"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => applyFilter({ filterMode: mode })}
+                className={`px-2.5 py-1 uppercase ${
+                  filters.filterMode === mode
+                    ? "bg-gray-700 text-white dark:bg-gray-200 dark:text-gray-900"
+                    : "text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+                }`}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+        )}
         <FilterChip
           active={filters.eligible === true}
           label="Eligible (local or mehman w/ rental)"

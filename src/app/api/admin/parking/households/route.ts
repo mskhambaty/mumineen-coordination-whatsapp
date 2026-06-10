@@ -54,6 +54,7 @@ export async function GET(req: NextRequest) {
   const filters: HouseholdFilters = {
     eligible: tri("eligible"),
     local_mehman: searchParams.get("local_mehman") ?? "",
+    filterMode: searchParams.get("filter_mode") === "or" ? "or" : "and",
     any_rahat: tri("any_rahat"),
     any_senior: tri("any_senior"),
     all_rahat: tri("all_rahat"),
