@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import * as XLSX from "xlsx";
 
-import { canManageParking } from "@/lib/admin/access";
+import { canManageAccommodations } from "@/lib/admin/access";
 
 type HostRow = {
   id: string;
@@ -167,7 +167,7 @@ export default function AccommodationsPage() {
     if (typeof window === "undefined") return false;
     try {
       const user = JSON.parse(window.localStorage.getItem("admin_user") ?? "null");
-      return canManageParking(user);
+      return canManageAccommodations(user);
     } catch {
       return false;
     }
@@ -176,7 +176,7 @@ export default function AccommodationsPage() {
   useEffect(() => {
     try {
       const user = JSON.parse(window.localStorage.getItem("admin_user") ?? "null");
-      if (!canManageParking(user)) {
+      if (!canManageAccommodations(user)) {
         router.replace("/admin");
       }
     } catch {
