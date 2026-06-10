@@ -19,6 +19,8 @@ const Body = z.object({
   whatsapp_e164: z.string().max(20).nullable().optional(),
   email: z.string().max(200).nullable().optional(),
   jamaat: z.string().max(200).nullable().optional(),
+  // For a non-head add whose family doesn't exist yet: create the family (confirmed in the UI).
+  create_family: z.boolean().optional(),
 });
 
 // POST /api/admin/mumineen/create — manually add a single mumin to the roster.
@@ -83,13 +85,28 @@ export async function POST(req: NextRequest) {
       .eq("hof_its", hofIts)
       .eq("roster_active", true)
       .maybeSingle();
-    if (!fam) {
+    if (fam) {
+      familyId = fam.id;
+    } else if (body.create_family) {
+      // No family yet for this HoF ITS (the head isn't in the roster). Create it — this member is
+      // the computed acting head until the head, or an older member, is added.
+      const { data: newFam, error: famErr } = await supabase
+        .from("families")
+        .insert({ hof_its: hofIts, roster_active: true, registration_status: "not_started" })
+        .select("id")
+        .single();
+      if (famErr || !newFam) {
+        return NextResponse.json({ error: famErr?.message ?? "Failed to create family row" }, { status: 500 });
+      }
+      familyId = newFam.id;
+      createdFamily = true;
+    } else {
+      // Signal the UI so it can offer to create the family (confirm-on-submit).
       return NextResponse.json(
-        { error: `No family found for HoF ITS ${hofIts}. Add the head of family first.` },
+        { error: `No family found for HoF ITS ${hofIts}.`, code: "family_missing" },
         { status: 404 },
       );
     }
-    familyId = fam.id;
   }
 
   const { data: newMumin, error: muminErr } = await supabase
@@ -115,8 +132,9 @@ export async function POST(req: NextRequest) {
 
   if (muminErr || !newMumin) {
     // Only roll back a family row we created here — never an existing one we attached to.
+    // Key on hofIts: that's the created family's hof_its for both the head and non-head paths.
     if (createdFamily) {
-      await supabase.from("families").delete().eq("hof_its", body.its);
+      await supabase.from("families").delete().eq("hof_its", hofIts);
     }
     return NextResponse.json({ error: muminErr?.message ?? "Failed to create mumin record" }, { status: 500 });
   }

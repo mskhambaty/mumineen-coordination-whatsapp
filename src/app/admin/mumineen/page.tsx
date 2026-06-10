@@ -553,11 +553,22 @@ export default function MumineenPage() {
         email: addForm.email.trim() || null,
         jamaat: addForm.jamaat.trim() || null,
       };
-      const res = await apiFetch("/api/admin/mumineen/create", {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-      const data = await res.json().catch(() => ({}));
+      const post = (payload: Record<string, unknown>) =>
+        apiFetch("/api/admin/mumineen/create", { method: "POST", body: JSON.stringify(payload) });
+      let res = await post(body);
+      let data = await res.json().catch(() => ({}));
+      // Non-head add whose family doesn't exist yet — confirm creating it, then retry.
+      if (!res.ok && data.code === "family_missing") {
+        const ok = window.confirm(
+          `No family exists for HOF ITS ${addForm.hof_its.trim()}. Create it and add this person? They'll be the acting head until the head — or an older member — is added.`,
+        );
+        if (!ok) {
+          setAddSaving(false);
+          return;
+        }
+        res = await post({ ...body, create_family: true });
+        data = await res.json().catch(() => ({}));
+      }
       if (!res.ok) throw new Error(data.error ?? "Failed to create mumin");
       setAddOpen(false);
       setAddForm(emptyAddForm);

@@ -132,4 +132,25 @@ describe("POST /api/admin/mumineen/create", () => {
     expect(payload.family_id).toBe("fam-1");
     expect(payload.hof_its).toBe("40454143");
   });
+
+  it("returns family_missing (404) for a non-head add when the family doesn't exist yet", async () => {
+    const res = await POST(postWith({ its: "501", full_name: "Child", is_head: false, hof_its: "999999", gender: "M", age: 10 }));
+    const data = await res.json();
+
+    expect(res.status).toBe(404);
+    expect(data.code).toBe("family_missing");
+    expect(muminInsert).not.toHaveBeenCalled();
+  });
+
+  it("creates the family and attaches a non-head member when create_family is set", async () => {
+    const res = await POST(
+      postWith({ its: "501", full_name: "Child", is_head: false, hof_its: "999999", create_family: true, gender: "M", age: 10 }),
+    );
+
+    expect(res.status).toBe(201);
+    const payload = muminInsert.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.is_head).toBe(false);
+    expect(payload.hof_its).toBe("999999");
+    expect(payload.family_id).toBe("fam-1");
+  });
 });
