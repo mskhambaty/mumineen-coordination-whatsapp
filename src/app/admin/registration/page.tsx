@@ -628,7 +628,7 @@ function SectionBand({
   children: ReactNode;
 }) {
   return (
-    <section id={id} className="mt-10 scroll-mt-16">
+    <section id={id} className="mt-10 scroll-mt-32">
       <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 pb-2.5 dark:border-gray-700">
         <span className="text-xs font-bold tabular-nums text-blue-600 dark:text-blue-400">{num}</span>
         <h2 className="text-lg font-bold text-gray-900 dark:text-white">{title}</h2>
@@ -897,8 +897,10 @@ export default function RegistrationAnalyticsPage() {
           </button>
         </div>
 
-        {/* ── Global filter bar ── */}
-        <div className="mb-2 flex flex-wrap items-center gap-4 rounded-xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800/50">
+        {/* ── Sticky toolbar: filters + section nav stick together on scroll ── */}
+        <div className="sticky top-0 z-40 -mx-4 bg-white/90 px-4 pt-2 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 dark:bg-gray-900/90">
+        {/* Global filter bar */}
+        <div className="flex flex-wrap items-center gap-4 rounded-xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800/50">
           <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Filters</span>
 
           <div className="flex items-center gap-1.5">
@@ -943,9 +945,9 @@ export default function RegistrationAnalyticsPage() {
           )}
         </div>
 
-        {/* ── Sticky section nav ── */}
+        {/* Section nav */}
         {data && (
-          <nav className="sticky top-0 z-40 -mx-1 flex gap-1.5 overflow-x-auto bg-white/90 px-1 py-2.5 backdrop-blur dark:bg-gray-900/90">
+          <nav className="-mx-1 flex gap-1.5 overflow-x-auto px-1 py-2.5">
             {SECTIONS.map((s) => (
               <a
                 key={s.id}
@@ -962,6 +964,7 @@ export default function RegistrationAnalyticsPage() {
             ))}
           </nav>
         )}
+        </div>
 
         {loading && !data && (
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -974,7 +977,7 @@ export default function RegistrationAnalyticsPage() {
         {data && summary && (
           <>
             {/* ════ 01 Overview ════ */}
-            <section id="overview" className="scroll-mt-16">
+            <section id="overview" className="scroll-mt-32">
               <div className="grid gap-3.5 lg:grid-cols-2">
                 <KpiCluster label="Families · Registration Funnel">
                   <Kpi
