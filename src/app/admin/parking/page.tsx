@@ -455,6 +455,11 @@ export default function ParkingPage() {
     void loadAll(next);
   }
 
+  function toggleSelectAll() {
+    const allSelected = visible.length > 0 && visible.every((r) => selected.has(r.family_id));
+    setSelected(allSelected ? new Set() : new Set(visible.map((r) => r.family_id)));
+  }
+
   function toggleSelected(familyId: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -900,7 +905,20 @@ export default function ParkingPage() {
         <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-800">
             <tr className="text-left text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              {canManage && <th className="w-8 px-3 py-2" aria-label="Select" />}
+              {canManage && (
+                <th className="w-8 px-3 py-2" aria-label="Select all">
+                  <input
+                    type="checkbox"
+                    checked={visible.length > 0 && visible.every((r) => selected.has(r.family_id))}
+                    ref={(el) => {
+                      if (el) el.indeterminate =
+                        visible.some((r) => selected.has(r.family_id)) &&
+                        !visible.every((r) => selected.has(r.family_id));
+                    }}
+                    onChange={toggleSelectAll}
+                  />
+                </th>
+              )}
               <th className="px-3 py-2">Household</th>
               <th className="px-3 py-2">Type</th>
               <th className="px-3 py-2">Phone</th>
