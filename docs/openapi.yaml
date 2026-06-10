@@ -1648,7 +1648,7 @@ paths:
     post:
       tags: [admin, templates]
       summary: Start a manual template broadcast
-      description: Admin/leadership only. Creates a broadcast, enqueues recipients, kicks the first drain batch; a cron drains the rest. Manual — no auto-scheduling.
+      description: Admin/leadership only. Creates a broadcast, enqueues recipients, then drains inline until the queue is empty (bounded); the minute cron is a backstop. Manual — no auto-scheduling.
       requestBody:
         required: true
         content:
@@ -1666,6 +1666,16 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /api/admin/templates/drain:
+    post:
+      tags: [admin, templates]
+      summary: Manually drain pending broadcast recipients ("Send pending")
+      description: Admin/leadership only. Runs a bounded drain loop until the queue is empty. Triggers real sends — same gating as /send. Used by the console to unstick broadcasts when the minute cron isn't firing.
+      responses:
+        "200": { description: "{ ok, processed, batches }." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { description: Drain failed. }
+
   /api/admin/templates/broadcasts:
     get:
       tags: [admin, templates]
@@ -1678,12 +1688,25 @@ paths:
   /api/admin/templates/broadcasts/{id}:
     get:
       tags: [admin, templates]
-      summary: One broadcast + delivery-status rollup
-      description: Admin/leadership only. Aggregate status counts only — no phone numbers.
+      summary: One broadcast + delivery-status rollup + grouped failure reasons
+      description: Admin/leadership only. Aggregate status counts and a grouped failure-reason breakdown only — no phone numbers (use /failures for the per-recipient list).
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        "200": { description: broadcast + status_counts. }
+        "200": { description: "broadcast + status_counts + failure_reasons (reason → count)." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/admin/templates/broadcasts/{id}/failures:
+    get:
+      tags: [admin, templates]
+      summary: Per-recipient failure list for a broadcast (JSON or CSV)
+      description: Admin/leadership only. Returns each failed recipient with phone, best-effort identity (name/ITS resolved by phone), window flag, and failure reason. Exposes PII to authorized staff (same level as the audience CSV export); never shown to visitors. ?format=csv returns a download.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: format, in: query, required: false, schema: { type: string, enum: [csv] } }
+      responses:
+        "200": { description: "{ failures[] } (JSON) or a text/csv attachment." }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 

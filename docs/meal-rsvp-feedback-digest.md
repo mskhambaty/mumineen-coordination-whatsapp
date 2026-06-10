@@ -123,14 +123,21 @@ cost, send. No auto-scheduling — every send is a button press.
   `chicago_committee`, `arrived_hof`, `registered_hof`, `all_members`. Split into in-window (free)
   vs out-window (paid) using `conversation_sessions.last_message_at`; cost via
   `WHATSAPP_UTILITY_MSG_COST_USD`.
-- Engine (`src/lib/whatsapp/broadcast.ts`): a broadcast enqueues recipients; `/api/cron/broadcast-drain`
-  (every minute) sends throttled batches through the shared `sendTemplateNotification` pipeline, so
-  a multi-thousand send clears within ~an hour. Logged in `template_broadcasts` /
+- Engine (`src/lib/whatsapp/broadcast.ts`): a broadcast enqueues recipients; the send route then drains
+  **inline until the queue is empty** (`drainUntilEmpty`, a bounded loop) so small/medium sends complete
+  in-request. `/api/cron/broadcast-drain` (every minute) is a backstop for large sends, and
+  `POST /api/admin/templates/drain` ("Send pending" in the console) lets an admin push pending recipients
+  manually — so a broadcast never silently hangs in `running` when the cron isn't firing. Throttled
+  batches go through the shared `sendTemplateNotification` pipeline; logged in `template_broadcasts` /
   `template_broadcast_recipients`.
 - Delivery status: the WhatsApp webhook applies Meta `delivered`/`read`/`failed` callbacks by
   `wa_message_id` and marks `replied` when a target messages back (`src/lib/whatsapp/broadcast-status.ts`).
+- Failure visibility: send-time and delivery-status failures are surfaced per broadcast in the console —
+  expand a Broadcast-log row for the status rollup + a grouped failure-reason breakdown
+  (`failure_reasons` on `GET .../broadcasts/[id]`), with a per-recipient list / CSV from
+  `GET .../broadcasts/[id]/failures` (admin/leadership only; PII to authorized staff, never to visitors).
 - API: `GET /api/admin/templates`, `POST /api/admin/templates/preview`, `POST .../send`,
-  `GET .../broadcasts(/[id])`.
+  `POST .../drain`, `GET .../broadcasts(/[id])`, `GET .../broadcasts/[id]/failures`.
 
 The console handles **no-variable** templates to audiences; the older single-recipient composer
 (`/admin/whatsapp`, free-text + variable templates) remains for those cases. Full consolidation is

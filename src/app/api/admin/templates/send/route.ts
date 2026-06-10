@@ -6,10 +6,11 @@ import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { AUDIENCE_KEYS } from "@/lib/whatsapp/audience";
 import { validateRules, type RuleGroup } from "@/lib/whatsapp/audience-filter";
-import { createBroadcast, drainBroadcasts } from "@/lib/whatsapp/broadcast";
+import { createBroadcast, drainUntilEmpty } from "@/lib/whatsapp/broadcast";
 import type { VariableBindings } from "@/lib/whatsapp/templates";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const schema = z.object({
   template_code: z.string().min(1),
@@ -54,8 +55,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
 
-  // Send the first batch right away; the cron handles the remainder.
-  after(() => drainBroadcasts().catch((err) => console.error("Initial broadcast drain failed:", err)));
+  // Drain inline until the queue is empty (bounded); the cron is a backstop, not a dependency, so small/
+  // medium broadcasts complete in this request instead of hanging in 'running' if the cron isn't firing.
+  after(() => drainUntilEmpty().catch((err) => console.error("Initial broadcast drain failed:", err)));
 
   return NextResponse.json({ status: "started", ...result });
 }

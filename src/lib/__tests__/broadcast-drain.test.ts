@@ -19,6 +19,9 @@ vi.mock("@/lib/supabase/server", () => ({ getSupabaseAdmin: () => supabase }));
 type ClaimRow = { id: string; broadcast_id: string; phone_e164: string; body_params: unknown; template_code: string; template_language: string };
 
 let claimRows: ClaimRow[] = [];
+// Optional per-call claim sequence: each drainBroadcasts() shifts one batch. Falls back to claimRows
+// when empty (so existing single-drain tests are unaffected).
+let batchQueue: ClaimRow[][] = [];
 let runningBroadcasts: { id: string }[] = [];
 let pendingCount = 0;
 const rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
@@ -27,7 +30,10 @@ const updateCalls: { table: string; values: Record<string, unknown>; eqVal?: unk
 const supabase = {
   rpc: vi.fn(async (fn: string, args: Record<string, unknown>) => {
     rpcCalls.push({ fn, args });
-    if (fn === "claim_broadcast_recipients") return { data: claimRows, error: null };
+    if (fn === "claim_broadcast_recipients") {
+      if (batchQueue.length > 0) return { data: batchQueue.shift(), error: null };
+      return { data: claimRows, error: null };
+    }
     return { data: null, error: null };
   }),
   from: (table: string) => {
@@ -60,13 +66,16 @@ const supabase = {
   },
 };
 
-import { drainBroadcasts } from "@/lib/whatsapp/broadcast";
+import { drainBroadcasts, drainUntilEmpty } from "@/lib/whatsapp/broadcast";
+
+const row = (id: string): ClaimRow => ({ id, broadcast_id: "b1", phone_e164: `+1312555${id}`, body_params: { bodyParams: ["a"] }, template_code: "t", template_language: "en_US" });
 
 beforeEach(() => {
   vi.clearAllMocks();
   rpcCalls.length = 0;
   updateCalls.length = 0;
   claimRows = [];
+  batchQueue = [];
   runningBroadcasts = [];
   pendingCount = 0;
   sendTemplateNotification.mockResolvedValue({ status: "sent", waMessageId: "wamid.1" });
@@ -118,5 +127,30 @@ describe("drainBroadcasts", () => {
 
     expect(updateCalls.some((u) => u.values.send_status === "failed" && u.eqVal === "r1")).toBe(true);
     expect(rpcCalls.filter((c) => c.fn === "bump_broadcast_counter" && c.args.p_field === "count_failed")).toHaveLength(1);
+  });
+});
+
+describe("drainUntilEmpty", () => {
+  it("loops across non-empty batches and stops on the first empty one", async () => {
+    // 2 then 1 then 0 — three claim calls, then it stops.
+    batchQueue = [[row("1"), row("2")], [row("3")], []];
+
+    const result = await drainUntilEmpty();
+
+    expect(result.processed).toBe(3);
+    expect(result.batches).toBe(3);
+    expect(sendTemplateNotification).toHaveBeenCalledTimes(3);
+    expect(rpcCalls.filter((c) => c.fn === "claim_broadcast_recipients")).toHaveLength(3);
+  });
+
+  it("stops at maxBatches even when batches keep returning rows (bounded loop)", async () => {
+    // claimRows is non-empty and batchQueue is empty, so every claim returns a row — never drains.
+    claimRows = [row("9")];
+
+    const result = await drainUntilEmpty({ maxBatches: 3 });
+
+    expect(result.batches).toBe(3);
+    expect(result.processed).toBe(3);
+    expect(rpcCalls.filter((c) => c.fn === "claim_broadcast_recipients")).toHaveLength(3);
   });
 });

@@ -191,6 +191,29 @@ export async function drainBroadcasts(batchSize = DEFAULT_BATCH_SIZE): Promise<D
   return { processed, broadcastsTouched: touched.size };
 }
 
+export type DrainUntilEmptyResult = { processed: number; batches: number };
+
+// Drain repeatedly until the queue is empty (a batch returns 0 processed) or a bound is hit. Used by
+// the inline post-send kick and the manual "Send pending" trigger so completing a broadcast never
+// depends solely on the minute cron. Bounded by BOTH a batch cap and a wall-clock deadline — never an
+// unbounded loop (AGENTS.md guardrail). Each underlying drainBroadcasts() call still claims atomically,
+// so this is safe to run concurrently with the cron.
+export async function drainUntilEmpty(opts?: { maxBatches?: number; deadlineMs?: number; batchSize?: number }): Promise<DrainUntilEmptyResult> {
+  const maxBatches = opts?.maxBatches ?? 20;
+  const deadlineMs = opts?.deadlineMs ?? 50_000;
+  const batchSize = opts?.batchSize ?? DEFAULT_BATCH_SIZE;
+  const start = Date.now();
+  let processed = 0;
+  let batches = 0;
+  while (batches < maxBatches && Date.now() - start < deadlineMs) {
+    const { processed: n } = await drainBroadcasts(batchSize);
+    batches += 1;
+    processed += n;
+    if (n === 0) break; // queue drained
+  }
+  return { processed, batches };
+}
+
 // Atomically increment a broadcast counter (UPDATE col = col + 1 in the DB). Must not be a JS
 // read-modify-write: concurrent drains bumping the same broadcast would lose increments.
 async function bumpCounter(broadcastId: string, field: "count_sent" | "count_failed") {
@@ -216,6 +239,13 @@ async function finalizeCompletedBroadcasts() {
       await supabase.from("template_broadcasts").update({ status: "completed", finished_at: new Date().toISOString() }).eq("id", b.id);
     }
   }
+}
+
+// Human-readable bucket for a failed recipient, used by the console failure breakdown and CSV. Many
+// delivery failures arrive from Meta's status webhook with no error_detail — bucket those by window.
+export function categorizeFailure(errorDetail: string | null, wasInWindow: boolean | null): string {
+  if (errorDetail && errorDetail.trim()) return errorDetail.trim();
+  return wasInWindow === false ? "Delivery failed (outside 24h window)" : "Delivery failed";
 }
 
 export { DEFAULT_BATCH_SIZE, utilityMessageCostUsd };

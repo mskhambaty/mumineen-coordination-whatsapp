@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { QueryBuilder, formatQuery, type Field, type RuleGroupType } from "react-querybuilder";
 import "react-querybuilder/dist/query-builder.css";
 
@@ -69,6 +69,11 @@ export default function SendTemplatesPage() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [busy, setBusy] = useState(false);
+  const [draining, setDraining] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [detail, setDetail] = useState<{ status_counts: Record<string, number>; failure_reasons: Record<string, number> } | null>(null);
+  const [failures, setFailures] = useState<{ phone: string; name: string | null; its: string | null; was_in_window: boolean | null; reason: string }[] | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   // Custom audience + variable bindings
   const [query, setQuery] = useState<RuleGroupType>({ combinator: "and", rules: [] });
@@ -91,6 +96,53 @@ export default function SendTemplatesPage() {
     const res = await apiFetch("/api/admin/templates/broadcasts");
     if (res.ok) setBroadcasts(((await res.json()).broadcasts as Broadcast[]) ?? []);
   }, []);
+
+  // Manually push any pending recipients through the send pipeline (the cron is a backstop, not a
+  // dependency). Unsticks broadcasts left in 'running' when the minute cron isn't firing.
+  const drainPending = useCallback(async () => {
+    setDraining(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await apiFetch("/api/admin/templates/drain", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Drain failed");
+      setNotice(`Drain complete: ${data.processed} sent across ${data.batches} batch(es).`);
+      await loadBroadcasts();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Drain failed");
+    } finally {
+      setDraining(false);
+    }
+  }, [loadBroadcasts]);
+
+  // Expand a broadcast row to show its delivery-status rollup, grouped failure reasons, and (if any
+  // failed) the per-recipient failure list.
+  async function toggleDetail(b: Broadcast) {
+    if (expanded === b.id) {
+      setExpanded(null);
+      setDetail(null);
+      setFailures(null);
+      return;
+    }
+    setExpanded(b.id);
+    setDetail(null);
+    setFailures(null);
+    setDetailLoading(true);
+    try {
+      const res = await apiFetch(`/api/admin/templates/broadcasts/${b.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setDetail({ status_counts: data.status_counts ?? {}, failure_reasons: data.failure_reasons ?? {} });
+      }
+      if (b.count_failed > 0) {
+        const fr = await apiFetch(`/api/admin/templates/broadcasts/${b.id}/failures`);
+        if (fr.ok) setFailures((await fr.json()).failures ?? []);
+      }
+    } finally {
+      setDetailLoading(false);
+    }
+  }
 
   useEffect(() => {
     void (async () => {
@@ -516,8 +568,20 @@ export default function SendTemplatesPage() {
       <section className="mt-6">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Broadcast log</h2>
-          <button type="button" onClick={loadBroadcasts} className="text-sm text-blue-600">Refresh</button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={drainPending}
+              disabled={draining}
+              className="text-sm text-blue-600 disabled:opacity-50"
+              title="Push any pending recipients through now (don't wait for the cron)"
+            >
+              {draining ? "Sending…" : "Send pending"}
+            </button>
+            <button type="button" onClick={loadBroadcasts} className="text-sm text-blue-600">Refresh</button>
+          </div>
         </div>
+        <p className="mt-1 text-xs text-gray-500">Tip: click a row to see delivery status and failures.</p>
         <div className="mt-2 overflow-auto rounded-lg border border-gray-200 dark:border-gray-800">
           <table className="w-full text-left text-sm">
             <thead className="bg-gray-50 text-xs uppercase text-gray-500 dark:bg-gray-900">
@@ -533,18 +597,88 @@ export default function SendTemplatesPage() {
               </tr>
             </thead>
             <tbody>
-              {broadcasts.map((b) => (
-                <tr key={b.id} className="border-t border-gray-100 dark:border-gray-800">
-                  <td className="px-2 py-1.5 font-mono text-xs">{b.template_code}</td>
-                  <td className="px-2 py-1.5">{b.audience_key}</td>
-                  <td className="px-2 py-1.5">{b.status}</td>
-                  <td className="px-2 py-1.5">{b.count_sent}/{b.total_recipients}{b.count_failed > 0 ? ` (${b.count_failed} failed)` : ""}</td>
-                  <td className="px-2 py-1.5">{b.count_free}/{b.count_paid}</td>
-                  <td className="px-2 py-1.5">{b.count_skipped ?? 0}</td>
-                  <td className="px-2 py-1.5">${b.est_cost_usd}</td>
-                  <td className="px-2 py-1.5 text-xs text-gray-500">{new Date(b.started_at).toLocaleString()}</td>
-                </tr>
-              ))}
+              {broadcasts.map((b) => {
+                const pending = b.total_recipients - b.count_sent - b.count_failed - (b.count_skipped ?? 0);
+                return (
+                  <Fragment key={b.id}>
+                    <tr
+                      className="cursor-pointer border-t border-gray-100 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900/50"
+                      onClick={() => toggleDetail(b)}
+                    >
+                      <td className="px-2 py-1.5 font-mono text-xs">{expanded === b.id ? "▾ " : "▸ "}{b.template_code}</td>
+                      <td className="px-2 py-1.5">{b.audience_key}</td>
+                      <td className="px-2 py-1.5">
+                        {b.status}
+                        {b.status === "running" && pending > 0 ? <span className="text-amber-600"> · {pending} pending</span> : null}
+                      </td>
+                      <td className="px-2 py-1.5">{b.count_sent}/{b.total_recipients}{b.count_failed > 0 ? <span className="text-red-600"> ({b.count_failed} failed)</span> : null}</td>
+                      <td className="px-2 py-1.5">{b.count_free}/{b.count_paid}</td>
+                      <td className="px-2 py-1.5">{b.count_skipped ?? 0}</td>
+                      <td className="px-2 py-1.5">${b.est_cost_usd}</td>
+                      <td className="px-2 py-1.5 text-xs text-gray-500">{new Date(b.started_at).toLocaleString()}</td>
+                    </tr>
+                    {expanded === b.id && (
+                      <tr className="border-t border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-gray-900/40">
+                        <td colSpan={8} className="px-4 py-3">
+                          {detailLoading && <p className="text-xs text-gray-500">Loading…</p>}
+                          {!detailLoading && detail && (
+                            <div className="space-y-2 text-xs">
+                              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                {Object.entries(detail.status_counts).map(([k, v]) => (
+                                  <span key={k}><span className="font-semibold">{v}</span> {k}</span>
+                                ))}
+                              </div>
+                              {Object.keys(detail.failure_reasons).length > 0 && (
+                                <div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-semibold text-red-600">Failures</span>
+                                    <a
+                                      href={`/api/admin/templates/broadcasts/${b.id}/failures?format=csv`}
+                                      className="text-blue-600"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      Download failed (CSV)
+                                    </a>
+                                  </div>
+                                  <ul className="mt-1 list-inside list-disc text-gray-600 dark:text-gray-400">
+                                    {Object.entries(detail.failure_reasons).map(([reason, n]) => (
+                                      <li key={reason}><span className="font-semibold">{n}</span> × {reason}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              {failures && failures.length > 0 && (
+                                <div className="mt-2 max-h-64 overflow-auto rounded border border-gray-200 dark:border-gray-700">
+                                  <table className="w-full text-left text-xs">
+                                    <thead className="bg-gray-100 text-gray-500 dark:bg-gray-800">
+                                      <tr>
+                                        <th className="px-2 py-1">Name</th>
+                                        <th className="px-2 py-1">ITS</th>
+                                        <th className="px-2 py-1">WhatsApp</th>
+                                        <th className="px-2 py-1">Reason</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {failures.map((f, i) => (
+                                        <tr key={`${f.phone}-${i}`} className="border-t border-gray-100 dark:border-gray-800">
+                                          <td className="px-2 py-1">{f.name ?? "—"}</td>
+                                          <td className="px-2 py-1 font-mono">{f.its ?? "—"}</td>
+                                          <td className="px-2 py-1 font-mono">{f.phone}</td>
+                                          <td className="px-2 py-1">{f.reason}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
               {broadcasts.length === 0 && (
                 <tr><td colSpan={8} className="px-2 py-3 text-center text-gray-400">No broadcasts yet.</td></tr>
               )}

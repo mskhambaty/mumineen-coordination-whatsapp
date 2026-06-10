@@ -72,7 +72,9 @@ src/lib/rsvp/meal-rsvp.ts                — Per-mumin Niyaz RSVP (niyaz_rsvp): 
 src/lib/rsvp/niyaz-prompt.ts             — Daily RSVP-template audiences (ITS/mumineen/HOF/adults) + button payloads for the admin send
 src/lib/feedback/record.ts               — Append-only feedback capture (area→department tagged)
 src/lib/whatsapp/audience.ts             — Send-console audience resolution + free/paid window split
-src/lib/whatsapp/broadcast.ts            — Throttled template broadcast engine (queue + drain)
+src/lib/whatsapp/broadcast.ts            — Throttled template broadcast engine (queue + drain; drainUntilEmpty + failure categorization)
+src/app/api/admin/templates/drain/route.ts  — Manual "Send pending" — bounded drain trigger (admin/leadership)
+src/app/api/admin/templates/broadcasts/[id]/failures/route.ts — Per-recipient broadcast failure list (JSON/CSV, admin/leadership)
 src/lib/digest/run.ts                    — Nightly department digest: aggregate→AI→store→distribute
 src/app/api/cron/department-digest/route.ts — Nightly department digest cron (03:00 UTC (10pm Chicago, CDT))
 src/app/api/cron/broadcast-drain/route.ts   — Template broadcast drain cron (every minute)

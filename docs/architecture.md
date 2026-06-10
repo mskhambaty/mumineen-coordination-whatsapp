@@ -52,7 +52,9 @@ Admin /admin/niyaz → open event → Send RSVP request
     └─ POST /api/admin/niyaz/instances/[id]/broadcast
          resolveNiyazAudience (specific ITS / all mumineen / HOF / adults, ± non-responders)
          buildNiyazSend → button payloads "niyaz|<level>|<scope>|<date>"
-         createBroadcast(recipients, quickReplyButtons) → drained by /api/cron/broadcast-drain
+         createBroadcast(recipients, quickReplyButtons) → drained inline (drainUntilEmpty, bounded)
+         after send, with /api/cron/broadcast-drain as a backstop and a manual "Send pending"
+         (/api/admin/templates/drain) to unstick if the cron isn't firing
 Mumin taps a quick-reply button
     └─ WhatsApp webhook reads buttonPayload → resolveFamilyForPhone → recordNiyazButtonResponse
          (ind = that mumin, fam = whole family) → niyaz_rsvp (source=whatsapp) → confirmation reply
