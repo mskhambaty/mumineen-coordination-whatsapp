@@ -132,10 +132,16 @@ cost, send. No auto-scheduling — every send is a button press.
   `template_broadcast_recipients`.
 - Delivery status: the WhatsApp webhook applies Meta `delivered`/`read`/`failed` callbacks by
   `wa_message_id` and marks `replied` when a target messages back (`src/lib/whatsapp/broadcast-status.ts`).
+  When a `failed` callback carries a Meta `errors[]` entry, its `code: title` (plus a plain-language
+  hint for common codes, e.g. `131049` engagement/frequency cap, `131026` undeliverable) is stored in
+  the recipient's `error_detail` — never any PII. Most large-broadcast failures are Meta *delivery*
+  decisions reported async (not send-time rejections), so this is the only place the real reason exists.
 - Failure visibility: send-time and delivery-status failures are surfaced per broadcast in the console —
   expand a Broadcast-log row for the status rollup + a grouped failure-reason breakdown
   (`failure_reasons` on `GET .../broadcasts/[id]`), with a per-recipient list / CSV from
   `GET .../broadcasts/[id]/failures` (admin/leadership only; PII to authorized staff, never to visitors).
+  The reason shown is `error_detail` when present (the captured Meta code/title); the free/paid
+  24h-window label is only a fallback for failures Meta reports with no error detail (`categorizeFailure`).
 - API: `GET /api/admin/templates`, `POST /api/admin/templates/preview`, `POST .../send`,
   `POST .../drain`, `GET .../broadcasts(/[id])`, `GET .../broadcasts/[id]/failures`.
 

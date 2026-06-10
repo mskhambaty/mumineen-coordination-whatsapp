@@ -1689,7 +1689,7 @@ paths:
     get:
       tags: [admin, templates]
       summary: One broadcast + delivery-status rollup + grouped failure reasons
-      description: Admin/leadership only. Aggregate status counts and a grouped failure-reason breakdown only — no phone numbers (use /failures for the per-recipient list).
+      description: Admin/leadership only. Aggregate status counts and a grouped failure-reason breakdown only — no phone numbers (use /failures for the per-recipient list). Failure reasons group by Meta's captured error code/title when available, otherwise the free/paid 24h-window fallback label.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -1701,7 +1701,7 @@ paths:
     get:
       tags: [admin, templates]
       summary: Per-recipient failure list for a broadcast (JSON or CSV)
-      description: Admin/leadership only. Returns each failed recipient with phone, best-effort identity (name/ITS resolved by phone), window flag, and failure reason. Exposes PII to authorized staff (same level as the audience CSV export); never shown to visitors. ?format=csv returns a download.
+      description: Admin/leadership only. Returns each failed recipient with phone, best-effort identity (name/ITS resolved by phone), window flag, and failure reason. The reason is Meta's captured error code/title (e.g. "131026: Undeliverable …") when the delivery-status webhook supplied one, otherwise a free/paid 24h-window fallback label. Exposes PII to authorized staff (same level as the audience CSV export); never shown to visitors. ?format=csv returns a download.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: format, in: query, required: false, schema: { type: string, enum: [csv] } }
