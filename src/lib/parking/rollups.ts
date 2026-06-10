@@ -190,11 +190,12 @@ export function pickAssignable(rows: HouseholdRow[], lotId: string, count: numbe
 export type HouseholdFilters = {
   eligible?: boolean;
   local_mehman?: string; // "Local" | "Mehman" | "" (all)
-  rahat_senior?: boolean; // any rahat-flagged member OR any member 65+
-  all_rahat?: boolean; // every member rahat-flagged
-  all_65?: boolean; // every member 65+
-  wheelchair?: boolean; // any member needing a wheelchair
-  has_phone?: boolean; // household has a contact phone number
+  any_rahat?: boolean;   // any rahat-flagged or wheelchair member
+  any_senior?: boolean;  // any member 65+
+  all_rahat?: boolean;   // every member rahat-flagged
+  all_65?: boolean;      // every member 65+
+  wheelchair?: boolean;  // any member needing a wheelchair
+  has_phone?: boolean;   // household has a contact phone number
   has_category?: boolean; // any member carries a roster category value (e.g. VIP)
   kids_under_7?: boolean;
   assigned?: "assigned" | "unassigned" | "";
@@ -204,7 +205,8 @@ export type HouseholdFilters = {
 export function matchesFilters(row: HouseholdRow, f: HouseholdFilters): boolean {
   if (f.eligible && !row.eligible) return false;
   if (f.local_mehman && row.local_mehman !== f.local_mehman) return false;
-  if (f.rahat_senior && row.rahat_count === 0 && row.senior_count === 0) return false;
+  if (f.any_rahat && row.rahat_count === 0) return false;
+  if (f.any_senior && row.senior_count === 0) return false;
   if (f.all_rahat && !row.all_rahat) return false;
   if (f.all_65 && !row.all_65_plus) return false;
   if (f.wheelchair && row.wheelchair_count === 0) return false;

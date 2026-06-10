@@ -32,7 +32,8 @@ type Lot = {
 type Filters = {
   eligible: boolean;
   local_mehman: string;
-  rahat_senior: boolean;
+  any_rahat: boolean;
+  any_senior: boolean;
   all_rahat: boolean;
   all_65: boolean;
   wheelchair: boolean;
@@ -45,7 +46,8 @@ type Filters = {
 const DEFAULT_FILTERS: Filters = {
   eligible: true,
   local_mehman: "",
-  rahat_senior: false,
+  any_rahat: false,
+  any_senior: false,
   all_rahat: false,
   all_65: false,
   wheelchair: false,
@@ -387,7 +389,8 @@ export default function ParkingPage() {
       const params = new URLSearchParams();
       if (f.eligible) params.set("eligible", "1");
       if (f.local_mehman) params.set("local_mehman", f.local_mehman);
-      if (f.rahat_senior) params.set("rahat_senior", "1");
+      if (f.any_rahat) params.set("any_rahat", "1");
+      if (f.any_senior) params.set("any_senior", "1");
       if (f.all_rahat) params.set("all_rahat", "1");
       if (f.all_65) params.set("all_65", "1");
       if (f.wheelchair) params.set("wheelchair", "1");
@@ -680,9 +683,14 @@ export default function ParkingPage() {
           <option value="Mehman">Mehman</option>
         </select>
         <FilterChip
-          active={filters.rahat_senior}
-          label="Any rahat/65+ member"
-          onClick={() => applyFilter({ rahat_senior: !filters.rahat_senior })}
+          active={filters.any_rahat}
+          label="Any rahat member"
+          onClick={() => applyFilter({ any_rahat: !filters.any_rahat })}
+        />
+        <FilterChip
+          active={filters.any_senior}
+          label="Any 65+ member"
+          onClick={() => applyFilter({ any_senior: !filters.any_senior })}
         />
         <FilterChip
           active={filters.all_rahat}

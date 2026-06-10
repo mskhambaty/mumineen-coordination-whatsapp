@@ -214,10 +214,16 @@ describe("matchesFilters", () => {
     expect(matchesFilters(row({ eligible: false }), {})).toBe(true);
   });
 
-  it("rahat_senior passes when the household has a rahat member OR a senior", () => {
-    expect(matchesFilters(row({ rahat_count: 1 }), { rahat_senior: true })).toBe(true);
-    expect(matchesFilters(row({ senior_count: 1 }), { rahat_senior: true })).toBe(true);
-    expect(matchesFilters(row(), { rahat_senior: true })).toBe(false);
+  it("any_rahat passes only when the household has a rahat member", () => {
+    expect(matchesFilters(row({ rahat_count: 1 }), { any_rahat: true })).toBe(true);
+    expect(matchesFilters(row({ senior_count: 1 }), { any_rahat: true })).toBe(false);
+    expect(matchesFilters(row(), { any_rahat: true })).toBe(false);
+  });
+
+  it("any_senior passes only when the household has a 65+ member", () => {
+    expect(matchesFilters(row({ senior_count: 1 }), { any_senior: true })).toBe(true);
+    expect(matchesFilters(row({ rahat_count: 1 }), { any_senior: true })).toBe(false);
+    expect(matchesFilters(row(), { any_senior: true })).toBe(false);
   });
 
   it("all_65 requires the whole-household flag", () => {

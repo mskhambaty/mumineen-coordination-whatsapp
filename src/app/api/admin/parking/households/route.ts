@@ -47,7 +47,8 @@ export async function GET(req: NextRequest) {
   const filters: HouseholdFilters = {
     eligible: searchParams.get("eligible") === "1",
     local_mehman: searchParams.get("local_mehman") ?? "",
-    rahat_senior: searchParams.get("rahat_senior") === "1",
+    any_rahat: searchParams.get("any_rahat") === "1",
+    any_senior: searchParams.get("any_senior") === "1",
     all_rahat: searchParams.get("all_rahat") === "1",
     all_65: searchParams.get("all_65") === "1",
     wheelchair: searchParams.get("wheelchair") === "1",
