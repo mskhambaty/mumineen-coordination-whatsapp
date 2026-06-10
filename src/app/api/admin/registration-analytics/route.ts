@@ -127,6 +127,11 @@ export async function GET(req: NextRequest) {
   if (hofItsSet) fams = fams.filter((f) => hofItsSet.has(f.hof_its));
   if (statusFilter) {
     fams = fams.filter((f) => matchesStatusFilter(f.registration_status, statusFilter));
+    // Status is family-level, but scope the member-level metrics/breakdowns (headcount, gender,
+    // age, country, khidmat, …) to the filtered families too — so they match the family funnel
+    // and the drill-downs, which already restrict members by status.
+    const statusHofs = new Set(fams.map((f) => f.hof_its));
+    members = members.filter((m) => statusHofs.has(m.hof_its));
   }
 
   // ── Summary ──────────────────────────────────────────────────────────────────

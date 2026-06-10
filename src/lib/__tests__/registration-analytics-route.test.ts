@@ -171,4 +171,17 @@ describe("GET /api/admin/registration-analytics — funnel counts", () => {
     expect(countries.find((c: { label: string }) => c.label === "Pakistan")).toEqual({ label: "Pakistan", count: 1 });
     expect(countries.find((c: { label: string }) => c.label === "India")).toEqual({ label: "India", count: 1 });
   });
+
+  it("scopes member-level breakdowns (country) to the status filter", async () => {
+    const fams = [family("S", "submitted"), family("P", "not_started")];
+    const mems = [
+      { ...member("s1", "S"), jamaat: "DUBAI" }, // UAE, registered family
+      { ...member("p1", "P"), jamaat: "CAIRO" }, // Egypt, pending family
+    ];
+    getSupabaseAdmin.mockReturnValue(stubSupabase({ families: fams, mumineen: mems, departments: [] }));
+
+    const { countries, summary } = await (await GET(req("status=submitted"))).json();
+    expect(countries).toEqual([{ label: "UAE", count: 1 }]); // only the submitted family's member
+    expect(summary.total_mumineen).toBe(1);
+  });
 });
