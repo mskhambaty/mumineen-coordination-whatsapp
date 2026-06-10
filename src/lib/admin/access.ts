@@ -6,6 +6,7 @@ export type PortalUser = {
   is_it?: boolean | null;
   is_internal?: boolean | null;
   is_transport?: boolean | null;
+  is_accommodations?: boolean | null;
   is_master_admin?: boolean | null;
 };
 
@@ -57,8 +58,8 @@ export function canViewParking(user: PortalUser | null | undefined) {
   return canManageParking(user) || user?.is_manager === true;
 }
 
-// Accommodations module — same access as parking (admin/leadership, IT, Transport, or manager read-only).
+// Accommodations module — admin/leadership, IT, Transport, dedicated Accommodations team, or managers.
 export function canManageAccommodations(user: PortalUser | null | undefined) {
-  return canViewRegistrations(user);
+  return isAdminOrLeadership(user) || user?.is_it === true || user?.is_transport === true || user?.is_accommodations === true || user?.is_manager === true;
 }
 
