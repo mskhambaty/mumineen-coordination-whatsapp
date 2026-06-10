@@ -127,13 +127,17 @@ export async function GET(req: NextRequest) {
     famAttending.set(hofIts, mems.filter((m) => !m.not_attending).length);
   }
 
-  // Map host hof_its → list of guest families staying there (for effective headcount).
-  // utaro_host_its is the host family's hof_its entered by the guest during registration.
-  const hostGuests = new Map<string, { attendingCount: number; transport_mode: string | null }[]>();
+  // Map host hof_its → list of guest families staying there. Members are included so
+  // commute guests' criteria (rahat, age, etc.) roll up into the host's row.
+  const hostGuests = new Map<string, { attendingCount: number; transport_mode: string | null; members: RollupMember[] }[]>();
   for (const f of families) {
     const hostIts = f.utaro_host_its?.trim();
     if (!hostIts) continue;
-    const entry = { attendingCount: famAttending.get(f.hof_its) ?? 0, transport_mode: f.transport_mode };
+    const entry = {
+      attendingCount: famAttending.get(f.hof_its) ?? 0,
+      transport_mode: f.transport_mode,
+      members: membersByHof.get(f.hof_its) ?? [],
+    };
     const list = hostGuests.get(hostIts);
     if (list) list.push(entry);
     else hostGuests.set(hostIts, [entry]);
