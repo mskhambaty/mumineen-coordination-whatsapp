@@ -176,7 +176,7 @@ export const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "get_family_meal_rsvps",
       description:
-        "Get the caller's family's current jaman (meal) Niyaz RSVP for Ashara — every event (Pehli Raat, lunch thaals, dinners) with how many of the family are currently down as attending vs. their family size. Each grid row includes `adults` and `kids` (the attending counts, split by age) plus `attending` (total) and `total` (family size) — use the adults/kids breakdown when reading the RSVP back to the user. RSVP is pre-set for everyone from their arrival date, so use this to show what's already on file before changing it. RSVP is tracked for the whole family. If the caller isn't linked to a registered family, status will be 'unregistered' with any existing unregistered RSVPs in `rsvps`.",
+        "Get the caller's family's current jaman (meal) Niyaz RSVP for Ashara — every event (Pehli Raat, lunch thaals, dinners) with how many of the family are currently down as attending vs. their family size. Each grid row includes `adults` and `kids` (the attending counts, split by age), `attending` (total) and `total` (family size), plus a `dateLabel` (e.g. \"Mon, Jun 15\") with the weekday already worked out — use the adults/kids breakdown and the dateLabel verbatim when reading the RSVP back to the user. RSVP is pre-set for everyone from their arrival date, so use this to show what's already on file before changing it. RSVP is tracked for the whole family. If the caller isn't linked to a registered family, status will be 'unregistered' with any existing unregistered RSVPs in `rsvps`.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
@@ -185,7 +185,7 @@ export const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "set_family_meal_rsvps",
       description:
-        "Update the caller's family's jaman (meal) Niyaz RSVP. Attendance is already pre-set for everyone from their arrival date, so use this mainly to record CHANGES — most often when the family says they will NOT attend on some day(s). Each entry marks the family attending (true) or not (false) for specific dates, or for ALL days (omit dates or set all=true), optionally narrowed to one meal. The change applies to the WHOLE family. Always confirm back to the user. For unregistered callers (status 'unregistered'), this still works — pass adults/kids/its_number to record their count. Examples: 'we won't be there on the 16th' -> {attending:false, dates:['2026-06-16']}; 'skip all the dinners' -> {attending:false, meal:'dinner', all:true}; 'actually we ARE coming the 20th' -> {attending:true, dates:['2026-06-20']}.",
+        "Update the caller's family's jaman (meal) Niyaz RSVP. Attendance is already pre-set for everyone from their arrival date, so use this mainly to record CHANGES — most often when the family says they will NOT attend on some day(s). Each entry marks the family attending (true) or not (false) for specific dates, or for ALL days (omit dates or set all=true), optionally narrowed to one meal. The change applies to the WHOLE family. Always confirm back to the user. For PARTIAL attendance (e.g. 'only 1 adult on the 21st'), pass adults and/or kids with the entries — the system keeps the head of family attending first, then other adults, then kids, and marks the rest not-attending for those events. For unregistered callers (status 'unregistered'), adults/kids/its_number record their count. Examples: 'we won't be there on the 16th' -> {attending:false, dates:['2026-06-16']}; 'skip all the dinners' -> {attending:false, meal:'dinner', all:true}; 'only 1 adult for dinner on the 21st' -> {entries:[{attending:true, dates:['2026-06-21'], meal:'dinner'}], adults:1, kids:0}.",
       parameters: {
         type: "object",
         properties: {
@@ -208,8 +208,8 @@ export const allToolDefinitions: ToolDefinition[] = [
               additionalProperties: false,
             },
           },
-          adults: { type: "number", description: "Number of adults attending (for unregistered callers)." },
-          kids: { type: "number", description: "Number of kids attending (for unregistered callers)." },
+          adults: { type: "number", description: "Number of adults attending. For registered families, triggers partial attendance (only this many adults attend; head of family kept first). For unregistered callers, records their head count." },
+          kids: { type: "number", description: "Number of kids attending. For registered families, triggers partial attendance (only this many kids attend). For unregistered callers, records their head count." },
           its_number: { type: "string", description: "ITS number (optional, for unregistered callers to help match to a family later)." },
         },
         required: ["entries"],

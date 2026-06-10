@@ -58,8 +58,10 @@ Code: `src/lib/rsvp/family.ts` (phone → roster family), `src/lib/rsvp/meal-rsv
 `recordUnregisteredRsvp`, `getUnregisteredRsvps`, `recordUnregisteredHeadCount`,
 `mergeUnregisteredRsvps`, `getMealAttendanceTotals`). API: `GET/POST /api/rsvp/meals` (self-scoped via `x-whatsapp-from`,
 Zod-validated; POST entries are `{attending, dates?, meal?, all?}` with optional `adults`, `kids`,
-`its_number` for unregistered — a registered change cascades to the whole family; unregistered
-changes go to `unregistered_rsvps`). Agent tools: `get_family_meal_rsvps`, `set_family_meal_rsvps`
+`its_number` — for registered families, `adults`/`kids` enable **partial attendance**: only that many
+members are marked attending (head of family kept first, then other adults, then kids), and the rest
+are marked not-attending for those events; for unregistered callers they record the head count.
+Changes go to `unregistered_rsvps` for unlinked phones). Agent tools: `get_family_meal_rsvps`, `set_family_meal_rsvps`
 (public; the agent mainly records *changes* — guidance in `MEAL_RSVP_FEEDBACK_RULE`). That rule
 also routes intent: "register / sign up for Pehli Raat / a Moharram day / Ashura / a jaman" is a
 **meal RSVP**, not in-person event registration — the agent must not answer it from the registration
