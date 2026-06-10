@@ -385,6 +385,7 @@ export default function ParkingPage() {
   // Bulk "fill lot" flow: selection spans pages and survives search narrowing; it clears
   // on server-filter changes (the set it was built against changed) and after an assign.
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [lotFilter, setLotFilter] = useState(""); // client-side: show only rows with a pass in this lot
   const [bulkLotId, setBulkLotId] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
   // Auto-narrow the list to households fitting the target lot's purposes. Turned on
@@ -555,6 +556,9 @@ export default function ParkingPage() {
   let visible = rows;
   if (purposeFit && bulkLot && bulkLot.purposes.length > 0) {
     visible = visible.filter((r) => matchesLotPurposes(r, bulkLot.purposes));
+  }
+  if (lotFilter) {
+    visible = visible.filter((r) => r.passes.some((p) => p.lot_id === lotFilter));
   }
   if (search) {
     const q = search.toLowerCase();
@@ -848,6 +852,16 @@ export default function ParkingPage() {
           <option value="">Assigned + unassigned</option>
           <option value="assigned">Assigned</option>
           <option value="unassigned">Unassigned</option>
+        </select>
+        <select
+          value={lotFilter}
+          onChange={(e) => { setLotFilter(e.target.value); setPage(1); }}
+          className="rounded-md border border-gray-300 bg-white px-2 py-1 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+        >
+          <option value="">All lots</option>
+          {lots.map((l) => (
+            <option key={l.id} value={l.id}>{l.name}</option>
+          ))}
         </select>
         <input
           type="search"
