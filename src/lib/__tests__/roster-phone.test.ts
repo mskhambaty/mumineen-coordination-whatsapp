@@ -14,6 +14,13 @@ describe("rosterPhoneToE164", () => {
     expect(rosterPhoneToE164("6308190250")).toBe("+16308190250");
   });
 
+  // Regression: a leading + means the country code is already present. The old code stripped the +
+  // and re-prefixed +1 onto any 10-digit result, turning Singapore +65········ into +1 65········.
+  it("never injects +1 when the number already has a leading + (10-digit international)", () => {
+    expect(rosterPhoneToE164("+6591540892")).toBe("+6591540892"); // Singapore
+    expect(rosterPhoneToE164("+44 7700 900000")).toBe("+447700900000"); // UK
+  });
+
   it("strips formatting (spaces, dashes, parens, leading +)", () => {
     expect(rosterPhoneToE164("+1 (630) 819-0250")).toBe("+16308190250");
     expect(rosterPhoneToE164("630-819-0250")).toBe("+16308190250");

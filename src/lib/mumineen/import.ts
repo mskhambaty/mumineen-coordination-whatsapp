@@ -37,13 +37,21 @@ const yesNo = (v: unknown): boolean | null => {
 
 // Normalize a roster phone cell to E.164 (+<countrycode><national>), matching the exact format the
 // WhatsApp webhook produces for inbound numbers (normalizeWhatsAppPhone) so the stored value is
-// ready to link to senders. Roster numbers are digit strings already carrying a country code; a
-// bare 10-digit number is treated as a local US (Chicago jamaat) number and gets +1. Blank → null.
+// ready to link to senders. Blank → null.
+//
+// A leading + means the cell already carries its country code — trust it verbatim and never inject
+// one. (Previously the + was stripped and any 10-digit result re-prefixed with +1, which mangled
+// 10-digit international numbers, e.g. Singapore +65········ became +1 65········.) For bare digit
+// strings a 10-digit number is assumed local US (Chicago jamaat) and gets +1; longer strings are
+// assumed to already include their country code. NOTE: a bare 10-digit *international* number is
+// indistinguishable from a US one here — enter those with a leading + in the roster.
 export const rosterPhoneToE164 = (v: unknown): string | null => {
   const s = text(v);
   if (!s) return null;
+  const hasPlus = s.trimStart().startsWith("+");
   const digits = s.replace(/\D/g, "");
   if (!digits) return null;
+  if (hasPlus) return normalizeWhatsAppPhone(digits);
   return normalizeWhatsAppPhone(digits.length === 10 ? `1${digits}` : digits);
 };
 
