@@ -32,28 +32,29 @@ type Lot = {
 type Filters = {
   eligible: boolean;
   local_mehman: string;
-  any_rahat: boolean;
-  any_senior: boolean;
-  all_rahat: boolean;
-  all_65: boolean;
-  wheelchair: boolean;
-  has_phone: boolean;
-  has_category: boolean;
-  kids_under_7: boolean;
+  // Tri-state: null = off, true = must match, false = must NOT match.
+  any_rahat: boolean | null;
+  any_senior: boolean | null;
+  all_rahat: boolean | null;
+  all_65: boolean | null;
+  wheelchair: boolean | null;
+  has_phone: boolean | null;
+  has_category: boolean | null;
+  kids_under_7: boolean | null;
   assigned: string;
 };
 
 const DEFAULT_FILTERS: Filters = {
   eligible: true,
   local_mehman: "",
-  any_rahat: false,
-  any_senior: false,
-  all_rahat: false,
-  all_65: false,
-  wheelchair: false,
-  has_phone: false,
-  has_category: false,
-  kids_under_7: false,
+  any_rahat: null,
+  any_senior: null,
+  all_rahat: null,
+  all_65: null,
+  wheelchair: null,
+  has_phone: null,
+  has_category: null,
+  kids_under_7: null,
   assigned: "",
 };
 
@@ -82,14 +83,26 @@ function ColorDot({ color }: { color: string | null }) {
   );
 }
 
-function FilterChip({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+function FilterChip({
+  active,
+  label,
+  onClick,
+  negative,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+  negative?: boolean;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={`rounded-full border px-2.5 py-1 ${
         active
-          ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+          ? negative
+            ? "border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+            : "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
           : "border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-300"
       }`}
     >
@@ -389,14 +402,18 @@ export default function ParkingPage() {
       const params = new URLSearchParams();
       if (f.eligible) params.set("eligible", "1");
       if (f.local_mehman) params.set("local_mehman", f.local_mehman);
-      if (f.any_rahat) params.set("any_rahat", "1");
-      if (f.any_senior) params.set("any_senior", "1");
-      if (f.all_rahat) params.set("all_rahat", "1");
-      if (f.all_65) params.set("all_65", "1");
-      if (f.wheelchair) params.set("wheelchair", "1");
-      if (f.has_phone) params.set("has_phone", "1");
-      if (f.has_category) params.set("has_category", "1");
-      if (f.kids_under_7) params.set("kids_under_7", "1");
+      const tri = (key: string, val: boolean | null) => {
+        if (val === true) params.set(key, "1");
+        else if (val === false) params.set(key, "0");
+      };
+      tri("any_rahat", f.any_rahat);
+      tri("any_senior", f.any_senior);
+      tri("all_rahat", f.all_rahat);
+      tri("all_65", f.all_65);
+      tri("wheelchair", f.wheelchair);
+      tri("has_phone", f.has_phone);
+      tri("has_category", f.has_category);
+      tri("kids_under_7", f.kids_under_7);
       if (f.assigned) params.set("assigned", f.assigned);
       const res = await apiFetch(`/api/admin/parking/households?${params}`);
       const json = await res.json().catch(() => ({}));
@@ -683,44 +700,92 @@ export default function ParkingPage() {
           <option value="Mehman">Mehman</option>
         </select>
         <FilterChip
-          active={filters.any_rahat}
-          label="Any rahat member"
-          onClick={() => applyFilter({ any_rahat: !filters.any_rahat })}
+          active={filters.any_rahat === true}
+          label="Any rahat"
+          onClick={() => applyFilter({ any_rahat: filters.any_rahat === true ? null : true })}
         />
         <FilterChip
-          active={filters.any_senior}
-          label="Any 65+ member"
-          onClick={() => applyFilter({ any_senior: !filters.any_senior })}
+          active={filters.any_rahat === false}
+          label="No rahat"
+          negative
+          onClick={() => applyFilter({ any_rahat: filters.any_rahat === false ? null : false })}
         />
         <FilterChip
-          active={filters.all_rahat}
-          label="All rahat members"
-          onClick={() => applyFilter({ all_rahat: !filters.all_rahat })}
+          active={filters.any_senior === true}
+          label="Any 65+"
+          onClick={() => applyFilter({ any_senior: filters.any_senior === true ? null : true })}
         />
         <FilterChip
-          active={filters.all_65}
-          label="All members 65+"
-          onClick={() => applyFilter({ all_65: !filters.all_65 })}
+          active={filters.any_senior === false}
+          label="No 65+"
+          negative
+          onClick={() => applyFilter({ any_senior: filters.any_senior === false ? null : false })}
         />
         <FilterChip
-          active={filters.wheelchair}
+          active={filters.all_rahat === true}
+          label="All rahat"
+          onClick={() => applyFilter({ all_rahat: filters.all_rahat === true ? null : true })}
+        />
+        <FilterChip
+          active={filters.all_rahat === false}
+          label="Not all rahat"
+          negative
+          onClick={() => applyFilter({ all_rahat: filters.all_rahat === false ? null : false })}
+        />
+        <FilterChip
+          active={filters.all_65 === true}
+          label="All 65+"
+          onClick={() => applyFilter({ all_65: filters.all_65 === true ? null : true })}
+        />
+        <FilterChip
+          active={filters.all_65 === false}
+          label="Not all 65+"
+          negative
+          onClick={() => applyFilter({ all_65: filters.all_65 === false ? null : false })}
+        />
+        <FilterChip
+          active={filters.wheelchair === true}
           label="Needs wheelchair"
-          onClick={() => applyFilter({ wheelchair: !filters.wheelchair })}
+          onClick={() => applyFilter({ wheelchair: filters.wheelchair === true ? null : true })}
         />
         <FilterChip
-          active={filters.kids_under_7}
-          label="With kids under 7"
-          onClick={() => applyFilter({ kids_under_7: !filters.kids_under_7 })}
+          active={filters.wheelchair === false}
+          label="No wheelchair"
+          negative
+          onClick={() => applyFilter({ wheelchair: filters.wheelchair === false ? null : false })}
         />
         <FilterChip
-          active={filters.has_phone}
-          label="Phone available"
-          onClick={() => applyFilter({ has_phone: !filters.has_phone })}
+          active={filters.kids_under_7 === true}
+          label="Kids under 7"
+          onClick={() => applyFilter({ kids_under_7: filters.kids_under_7 === true ? null : true })}
         />
         <FilterChip
-          active={filters.has_category}
+          active={filters.kids_under_7 === false}
+          label="No kids under 7"
+          negative
+          onClick={() => applyFilter({ kids_under_7: filters.kids_under_7 === false ? null : false })}
+        />
+        <FilterChip
+          active={filters.has_phone === true}
+          label="Has phone"
+          onClick={() => applyFilter({ has_phone: filters.has_phone === true ? null : true })}
+        />
+        <FilterChip
+          active={filters.has_phone === false}
+          label="No phone"
+          negative
+          onClick={() => applyFilter({ has_phone: filters.has_phone === false ? null : false })}
+        />
+        <FilterChip
+          active={filters.has_category === true}
           label="VIP"
-          onClick={() => applyFilter({ has_category: !filters.has_category })}
+          onClick={() => applyFilter({ has_category: filters.has_category === true ? null : true })}
+        />
+        <FilterChip
+          active={filters.has_category === false}
+          label="Not VIP"
+          negative
+          onClick={() => applyFilter({ has_category: filters.has_category === false ? null : false })}
         />
         <select
           value={filters.assigned}
