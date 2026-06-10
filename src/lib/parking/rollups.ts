@@ -80,13 +80,13 @@ export type HouseholdRow = {
   passes: PassInfo[];
 };
 
-// guestFamilies: utaro guests staying with this household (non-rental guests share the
-// host's parking pass, so their headcount adds to the host's effective count).
+// guestFamilies: utaro guests staying with this household. Non-rental guests share the
+// host's parking pass (headcount + criteria both roll up into the host row).
 export function buildHouseholdRow(
   family: RollupFamily,
   members: RollupMember[],
   passes: PassInfo[],
-  guestFamilies: { attendingCount: number; transport_mode: string | null }[] = [],
+  guestFamilies: { attendingCount: number; transport_mode: string | null; members?: RollupMember[] }[] = [],
 ): HouseholdRow {
   const head = members.find((m) => m.is_head) ?? members[0] ?? null;
   const localMehman = head?.local_mehman ?? null;
@@ -94,6 +94,16 @@ export function buildHouseholdRow(
   // take no parking spot and should not influence eligibility or criteria flags.
   const attending = members.filter((m) => !m.not_attending);
   const attendingCount = attending.length;
+
+  // Attending members of commute (non-rental) utaro guests — they share the host's
+  // parking pass so their criteria (rahat, age, etc.) are relevant to the host row.
+  const commuteGuestAttending = guestFamilies
+    .filter((g) => g.transport_mode !== "rental")
+    .flatMap((g) => (g.members ?? []).filter((m) => !m.not_attending));
+
+  // Combined set used for all criteria rollups.
+  const allAttending = [...attending, ...commuteGuestAttending];
+  const allCount = allAttending.length;
 
   // Suggested passes follow the estimates formula exactly:
   // Local: ceil((own attending + non-rental guest attending) / 5)
@@ -126,14 +136,14 @@ export function buildHouseholdRow(
     utaro_guest_rental_count: guestFamilies
       .filter((g) => g.transport_mode === "rental")
       .reduce((sum, g) => sum + g.attendingCount, 0),
-    rahat_count: attending.filter((m) => m.rahat_seating || m.wheelchair).length,
-    wheelchair_count: attending.filter((m) => m.wheelchair).length,
-    senior_count: attending.filter((m) => (m.age ?? -1) >= 65).length,
+    rahat_count: allAttending.filter((m) => m.rahat_seating || m.wheelchair).length,
+    wheelchair_count: allAttending.filter((m) => m.wheelchair).length,
+    senior_count: allAttending.filter((m) => (m.age ?? -1) >= 65).length,
     // Null ages count as "not 65+" so incomplete data never inflates this whole-household flag.
-    all_65_plus: attendingCount > 0 && attending.every((m) => (m.age ?? -1) >= 65),
-    all_rahat: attendingCount > 0 && attending.every((m) => m.rahat_seating || m.wheelchair),
-    categories: [...new Set(attending.map((m) => m.category).filter((c): c is string => Boolean(c)))],
-    kids_under_7: attending.filter((m) => m.age !== null && m.age < 7).length,
+    all_65_plus: allCount > 0 && allAttending.every((m) => (m.age ?? -1) >= 65),
+    all_rahat: allCount > 0 && allAttending.every((m) => m.rahat_seating || m.wheelchair),
+    categories: [...new Set(allAttending.map((m) => m.category).filter((c): c is string => Boolean(c)))],
+    kids_under_7: allAttending.filter((m) => m.age !== null && m.age < 7).length,
     passes,
   };
 }
