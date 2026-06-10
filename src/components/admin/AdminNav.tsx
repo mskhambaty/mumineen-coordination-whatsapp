@@ -85,7 +85,6 @@ const dropdownGroups: DropdownGroup[] = [
 const standaloneLinks: NavLink[] = [
   { href: "/admin", label: "Home", access: "portal", exact: true },
   { href: "/admin/conversations", label: "Inbox", access: "inbox" },
-  { href: "/admin/triage", label: "Triage Desk", access: "inbox" },
 ];
 
 const trailingLinks: NavLink[] = [
@@ -242,7 +241,7 @@ export default function AdminNav() {
                 }
               >
                 {link.label}
-                {link.href === "/admin/triage" && pendingCount > 0 && (
+                {link.href === "/admin/conversations" && pendingCount > 0 && (
                   <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-bold text-white">
                     {pendingCount}
                   </span>

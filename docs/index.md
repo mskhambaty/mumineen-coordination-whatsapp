@@ -59,9 +59,11 @@ src/lib/whatsapp/templates.ts            — Template descriptor + components bu
 src/lib/escalation/notify.ts             — On-call escalation email + WhatsApp template notifications
 src/lib/escalation/activity.ts           — Escalation activity log (fire-and-forget)
 src/lib/escalation/sla.ts               — SLA config cache + deadline computation
-src/app/admin/triage/page.tsx            — Triage Desk: Kanban board + ticket detail view
-src/app/api/admin/triage/board/route.ts  — Triage board data (tickets, team, SLA stats)
-src/app/api/admin/triage/stream/route.ts — Triage SSE stream for real-time updates
+src/app/api/admin/issues/route.ts        — Issues CRUD (list + create)
+src/app/api/admin/issues/[issueId]/route.ts — Issue detail (GET/PUT/DELETE)
+src/app/api/admin/issues/[issueId]/link/route.ts — Link/unlink escalations to issues
+src/app/api/admin/issues/[issueId]/resolve/route.ts — Resolve issue + all linked escalations
+src/app/api/admin/escalations/stats/route.ts — KPI stats for inbox header
 src/lib/accommodations/import.ts         — Host spreadsheet XLSX import (upsert by ITS)
 src/lib/accommodations/rollups.ts        — Guest/host demographic rollups + capacity math
 src/lib/accommodations/matching.ts       — Matching logic, confirm/reject lifecycle

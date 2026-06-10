@@ -46,6 +46,7 @@ memory/
 
 # superpowers working docs (specs/plans, local per-developer)
 /docs/superpowers/
+.superpowers/
 
 # generated user manuals (local, per-developer)
 /docs/manuals/

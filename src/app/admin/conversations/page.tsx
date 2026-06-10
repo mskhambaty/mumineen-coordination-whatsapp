@@ -88,6 +88,13 @@ type Conversation = {
   escalation_priority: "normal" | "urgent";
   escalation_category: string | null;
   escalated_at: string | null;
+  escalation_stage: string;
+  escalation_assigned_to: string | null;
+  assignee_name: string | null;
+  escalation_sla_deadline: string | null;
+  linked_issue_id: string | null;
+  linked_issue_number: number | null;
+  linked_issue_title: string | null;
   last_message_at: string;
   last_message: Message | null;
   unread_inbound_count: number;
@@ -96,6 +103,59 @@ type Conversation = {
   quality_score: "good" | "poor" | null;
   quality_reason: string | null;
   quality_analyzed_at: string | null;
+};
+
+type SLAStats = {
+  open_count: number;
+  pending_count: number;
+  breaching_count: number;
+  avg_pickup_minutes: number | null;
+  resolved_today_count: number;
+};
+
+type Issue = {
+  id: string;
+  issue_number: number;
+  title: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  department_id: string | null;
+  department_name: string | null;
+  assigned_to: string | null;
+  assignee_name: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  escalation_count: number;
+  breaching_count: number;
+};
+
+type IssueDetail = Issue & {
+  creator_name: string | null;
+};
+
+type IssueEscalation = {
+  link_id: string;
+  linked_at: string;
+  session_id: string;
+  phone_e164: string;
+  display_name: string | null;
+  escalation_stage: string;
+  escalation_priority: string;
+  escalation_category: string;
+  escalation_reason: string | null;
+  escalated_at: string | null;
+  escalation_sla_deadline: string | null;
+  breaching: boolean;
+};
+
+type ActivityEntry = {
+  id: string;
+  action: string;
+  actor_label: string | null;
+  details: Record<string, unknown>;
+  created_at: string;
 };
 
 export default function ConversationsPage() {
@@ -109,10 +169,21 @@ export default function ConversationsPage() {
   const [loading, setLoading] = useState(true);
   const [savingMode, setSavingMode] = useState(false);
   const [savingEscalation, setSavingEscalation] = useState(false);
-  const [tab, setTab] = useState<"conversations" | "escalations">(
-    () => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "escalations" ? "escalations" : "conversations"),
-  );
+  const [tab, setTab] = useState<"conversations" | "escalations" | "issues">(() => {
+    if (typeof window === "undefined") return "conversations";
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t === "escalations" || t === "issues") return t;
+    return "conversations";
+  });
   const [reply, setReply] = useState("");
+  // Issues tab state
+  const [issues, setIssues] = useState<Issue[]>([]);
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  const [issueDetail, setIssueDetail] = useState<{ issue: IssueDetail; escalations: IssueEscalation[]; activities: ActivityEntry[] } | null>(null);
+  const [issueDetailLoading, setIssueDetailLoading] = useState(false);
+  // KPI stats
+  const [slaStats, setSlaStats] = useState<SLAStats | null>(null);
+  const [hasInboxAccess] = useState(() => canAccessInbox(readAdminUser()));
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -132,16 +203,22 @@ export default function ConversationsPage() {
     [conversations],
   );
 
-  // Escalated threads live in the Escalations tab (urgent first); everything else
-  // stays in Conversations.
+  // Escalated threads live in the Escalations tab (urgent first, then by SLA deadline);
+  // everything else stays in Conversations. Issues tab doesn't show conversations.
   const visibleConversations = useMemo(() => {
+    if (tab === "issues") return [];
     const inEscalations = (c: Conversation) => c.escalation_status === "pending";
     const list = conversations.filter((c) => (tab === "escalations" ? inEscalations(c) : !inEscalations(c)));
     if (tab === "escalations") {
       return [...list].sort((a, b) => {
+        // Primary: priority (urgent first)
         if (a.escalation_priority !== b.escalation_priority) {
           return a.escalation_priority === "urgent" ? -1 : 1;
         }
+        // Secondary: SLA deadline ascending (closest to breaching first, nulls last)
+        const aDeadline = a.escalation_sla_deadline ? new Date(a.escalation_sla_deadline).getTime() : Infinity;
+        const bDeadline = b.escalation_sla_deadline ? new Date(b.escalation_sla_deadline).getTime() : Infinity;
+        if (aDeadline !== bDeadline) return aDeadline - bDeadline;
         return b.last_message_at.localeCompare(a.last_message_at);
       });
     }
@@ -246,14 +323,31 @@ export default function ConversationsPage() {
     }
 
     void loadConversations();
+    if (hasInboxAccess) {
+      void fetchSlaStats();
+      void fetchIssues();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
+
+  // Fetch issue detail when a specific issue is selected.
+  useEffect(() => {
+    if (!selectedIssueId) { setIssueDetail(null); return; }
+    void fetchIssueDetail(selectedIssueId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIssueId]);
+
+  // Refresh issues when switching to the Issues tab.
+  useEffect(() => {
+    if (tab === "issues" && hasInboxAccess) void fetchIssues();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   // Live updates via Server-Sent Events; the session cookie rides along automatically.
   useEffect(() => {
     const source = new EventSource("/api/admin/conversations/stream");
-    source.onopen = () => void refreshConversationsSilently();
-    source.addEventListener("changed", () => void refreshConversationsSilently());
+    source.onopen = () => { void refreshConversationsSilently(); if (hasInboxAccess) void fetchSlaStats(); };
+    source.addEventListener("changed", () => { void refreshConversationsSilently(); if (hasInboxAccess) void fetchSlaStats(); });
     return () => source.close();
   }, []);
 
@@ -295,6 +389,38 @@ export default function ConversationsPage() {
       setConversations((data.conversations ?? []) as Conversation[]);
     } catch {
       // Ignore transient polling failures.
+    }
+  }
+
+  async function fetchSlaStats() {
+    try {
+      const res = await apiFetch("/api/admin/escalations/stats");
+      if (!res.ok) return;
+      const data = await res.json().catch(() => ({}));
+      setSlaStats(data.stats ?? null);
+    } catch { /* ignore */ }
+  }
+
+  async function fetchIssues() {
+    try {
+      const res = await apiFetch("/api/admin/issues?status=open");
+      if (!res.ok) return;
+      const data = await res.json().catch(() => ({}));
+      setIssues((data.issues ?? []) as Issue[]);
+    } catch { /* ignore */ }
+  }
+
+  async function fetchIssueDetail(issueId: string) {
+    setIssueDetailLoading(true);
+    try {
+      const res = await apiFetch(`/api/admin/issues/${issueId}`);
+      if (!res.ok) { setIssueDetail(null); return; }
+      const data = await res.json().catch(() => ({}));
+      setIssueDetail(data as { issue: IssueDetail; escalations: IssueEscalation[]; activities: ActivityEntry[] });
+    } catch {
+      setIssueDetail(null);
+    } finally {
+      setIssueDetailLoading(false);
     }
   }
 
@@ -412,6 +538,17 @@ export default function ConversationsPage() {
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{error}</div>}
 
+        {/* KPI Strip */}
+        {hasInboxAccess && slaStats && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            <StatPill label="Open" value={slaStats.open_count} />
+            <StatPill label="Pending" value={slaStats.pending_count} color={slaStats.pending_count > 0 ? "red" : undefined} />
+            <StatPill label="Breaching" value={slaStats.breaching_count} color={slaStats.breaching_count > 0 ? "red" : undefined} pulse={slaStats.breaching_count > 0} />
+            <StatPill label="Avg Pickup" value={slaStats.avg_pickup_minutes != null ? `${slaStats.avg_pickup_minutes}m` : "—"} color={slaStats.avg_pickup_minutes != null ? (slaStats.avg_pickup_minutes < 20 ? "green" : slaStats.avg_pickup_minutes < 45 ? "amber" : "red") : undefined} />
+            <StatPill label="Resolved Today" value={slaStats.resolved_today_count} color="green" />
+          </div>
+        )}
+
         <div className="grid min-h-[600px] grid-cols-1 overflow-hidden rounded-lg border bg-white shadow-sm lg:h-[calc(100vh-7rem)] lg:min-h-[520px] lg:grid-cols-[320px_minmax(0,1fr)_320px] dark:border-gray-800 dark:bg-gray-900">
           <aside className="flex flex-col border-b bg-gray-50 lg:h-full lg:min-h-0 lg:border-b-0 lg:border-r dark:border-gray-800 dark:bg-gray-900/40">
             <div className="shrink-0 border-b px-4 py-3 dark:border-gray-800">
@@ -432,6 +569,17 @@ export default function ConversationsPage() {
                       <span className="rounded-full bg-amber-500 px-1.5 text-xs text-white">{escalatedCount}</span>
                     )}
                   </button>
+                  {hasInboxAccess && (
+                    <button
+                      onClick={() => setTab("issues")}
+                      className={`flex items-center gap-1 rounded-md px-2 py-1 ${tab === "issues" ? "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300" : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}
+                    >
+                      Issues
+                      {issues.length > 0 && (
+                        <span className="rounded-full bg-purple-500 px-1.5 text-xs text-white">{issues.length}</span>
+                      )}
+                    </button>
+                  )}
                 </div>
                 <button onClick={() => void loadConversations()} className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">Refresh</button>
               </div>
@@ -464,7 +612,45 @@ export default function ConversationsPage() {
               </label>
             </div>
             <div className="max-h-[60vh] flex-1 overflow-y-auto lg:max-h-none lg:min-h-0">
-              {loading ? (
+              {tab === "issues" ? (
+                // Issues sidebar list
+                issues.length === 0 ? (
+                  <p className="p-4 text-sm text-gray-500 dark:text-gray-400">No open issues.</p>
+                ) : (
+                  issues.map((issue) => (
+                    <button
+                      key={issue.id}
+                      onClick={() => setSelectedIssueId(issue.id)}
+                      className={`block w-full border-b border-l-4 px-4 py-3 text-left dark:border-gray-800 ${
+                        selectedIssueId === issue.id
+                          ? "border-l-purple-600 bg-purple-50 dark:border-l-purple-400 dark:bg-gray-800"
+                          : "border-l-transparent hover:bg-gray-100 dark:hover:bg-gray-800/60"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="shrink-0 text-xs font-semibold text-purple-600 dark:text-purple-400 font-mono">ISS-{issue.issue_number}</span>
+                        <p className="font-medium break-words truncate">{issue.title}</p>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        <span className={`rounded-full px-2 py-0.5 text-xs ${issue.priority === "high" ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" : issue.priority === "medium" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"}`}>
+                          {issue.priority.toUpperCase()}
+                        </span>
+                        {issue.department_name && (
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300">{issue.department_name}</span>
+                        )}
+                        <span className={`rounded-full px-2 py-0.5 text-xs ${issue.status === "resolved" ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" : issue.status === "in_progress" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"}`}>
+                          {issue.status === "in_progress" ? "In Progress" : issue.status === "open" ? "Open" : "Resolved"}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+                        <span className={issue.breaching_count > 0 ? "text-red-600 font-semibold dark:text-red-400" : ""}>{issue.escalation_count} escalation{issue.escalation_count !== 1 ? "s" : ""}</span>
+                        {issue.breaching_count > 0 && <span className="text-red-600 dark:text-red-400">{issue.breaching_count} breaching</span>}
+                        <span>{formatDate(issue.created_at)}</span>
+                      </div>
+                    </button>
+                  ))
+                )
+              ) : loading ? (
                 <p className="p-4 text-sm text-gray-500 dark:text-gray-400">Loading...</p>
               ) : searchedConversations.length === 0 ? (
                 <p className="p-4 text-sm text-gray-500 dark:text-gray-400">
@@ -490,6 +676,14 @@ export default function ConversationsPage() {
                           {conversation.escalation_priority === "urgent" ? "URGENT" : "ESCALATED"}
                         </span>
                       )}
+                      {tab === "escalations" && conversation.escalation_stage && conversation.escalation_stage !== "none" && (
+                        <span className={`rounded-full px-2 py-0.5 text-xs ${conversation.escalation_stage === "pending" ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" : conversation.escalation_stage === "picked_up" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"}`}>
+                          {conversation.escalation_stage === "pending" ? "Pending" : conversation.escalation_stage === "picked_up" ? "Picked Up" : conversation.escalation_stage.replace(/_/g, " ")}
+                        </span>
+                      )}
+                      {conversation.linked_issue_number && (
+                        <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">ISS-{conversation.linked_issue_number}</span>
+                      )}
                       <span className={`rounded-full px-2 py-0.5 text-xs ${conversation.role === "committee" || conversation.role === "admin" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" : "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"}`}>
                         {conversation.role === "committee" || conversation.role === "admin" ? "Member" : "External"}
                       </span>
@@ -503,12 +697,18 @@ export default function ConversationsPage() {
                     <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">{conversation.last_message?.body || "No message body"}</p>
                     <div className="mt-2 flex items-center justify-between text-xs text-gray-400 dark:text-gray-500">
                       <div className="flex items-center gap-2">
-                        <span>{formatDate(conversation.last_message_at)}</span>
+                        {tab === "escalations" && conversation.escalation_sla_deadline ? (
+                          <SLACountdown deadline={conversation.escalation_sla_deadline} />
+                        ) : (
+                          <span>{formatDate(conversation.last_message_at)}</span>
+                        )}
                         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600 dark:bg-gray-700 dark:text-gray-300">{conversation.messages.length} msg{conversation.messages.length !== 1 ? "s" : ""}</span>
                       </div>
-                      {conversation.unread_inbound_count > 0 && (
+                      {tab === "escalations" && conversation.assignee_name ? (
+                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">{conversation.assignee_name}</span>
+                      ) : conversation.unread_inbound_count > 0 ? (
                         <span className="rounded-full bg-green-100 px-2 py-0.5 text-green-700 dark:bg-green-900/40 dark:text-green-300">{conversation.unread_inbound_count} new</span>
-                      )}
+                      ) : null}
                     </div>
                   </button>
                 ))
@@ -517,6 +717,25 @@ export default function ConversationsPage() {
           </aside>
 
           <section className="flex min-h-[600px] flex-col lg:h-full lg:min-h-0">
+            {tab === "issues" ? (
+              // Issue detail panel
+              <div className="flex-1 overflow-y-auto p-5">
+                {!selectedIssueId ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Select an issue from the list.</p>
+                ) : issueDetailLoading ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Loading issue...</p>
+                ) : !issueDetail ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Issue not found.</p>
+                ) : (
+                  <IssueDetailPanel
+                    detail={issueDetail}
+                    onNavigateToEscalation={(phone) => { setTab("escalations"); setSelectedPhone(phone); }}
+                    onRefresh={() => { void fetchIssueDetail(selectedIssueId); void fetchIssues(); }}
+                  />
+                )}
+              </div>
+            ) : (
+            <>
             <div className="shrink-0 border-b px-5 py-4 dark:border-gray-800">
               {selected ? (
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -659,6 +878,8 @@ export default function ConversationsPage() {
                 </button>
               </div>
             </form>
+            </>
+            )}
           </section>
 
           <aside className="flex flex-col border-t bg-white lg:h-full lg:min-h-0 lg:border-l lg:border-t-0 dark:border-gray-800 dark:bg-gray-900">
@@ -871,6 +1092,164 @@ function MessageContent({ message }: { message: Message }) {
     <p className="whitespace-pre-wrap break-words text-sm leading-6">
       {message.body || `[${message.message_type || "message"}]`}
     </p>
+  );
+}
+
+// ─── KPI Strip pill ──────────────────────────────────────────────────────────
+
+function StatPill({ label, value, color, pulse }: { label: string; value: string | number; color?: "red" | "green" | "amber"; pulse?: boolean }) {
+  const colorClasses = color === "red"
+    ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+    : color === "green"
+    ? "border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300"
+    : color === "amber"
+    ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
+    : "border-gray-200 bg-gray-50 text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300";
+
+  return (
+    <div className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 ${colorClasses} ${pulse ? "animate-pulse" : ""}`}>
+      <span className="text-xs font-medium uppercase tracking-wide opacity-70">{label}</span>
+      <span className="text-lg font-bold">{value}</span>
+    </div>
+  );
+}
+
+// ─── SLA Countdown ───────────────────────────────────────────────────────────
+
+function SLACountdown({ deadline }: { deadline: string }) {
+  const now = Date.now();
+  const dl = new Date(deadline).getTime();
+  const diff = dl - now;
+  const minutes = Math.round(diff / 60000);
+  const isBreaching = diff < 0;
+  const isWarning = !isBreaching && minutes < 10;
+
+  const label = isBreaching ? `${Math.abs(minutes)}m over` : `${minutes}m left`;
+  const className = isBreaching
+    ? "text-red-600 font-semibold dark:text-red-400"
+    : isWarning
+    ? "text-amber-600 font-semibold dark:text-amber-400"
+    : "text-green-600 dark:text-green-400";
+
+  return <span className={className}>{label}</span>;
+}
+
+// ─── Issue Detail Panel ──────────────────────────────────────────────────────
+
+function IssueDetailPanel({
+  detail,
+  onNavigateToEscalation,
+  onRefresh,
+}: {
+  detail: { issue: IssueDetail; escalations: IssueEscalation[]; activities: ActivityEntry[] };
+  onNavigateToEscalation: (phone: string) => void;
+  onRefresh: () => void;
+}) {
+  const { issue, escalations, activities } = detail;
+  const [resolving, setResolving] = useState(false);
+
+  async function resolveAll() {
+    setResolving(true);
+    try {
+      const res = await apiFetch(`/api/admin/issues/${issue.id}/resolve`, { method: "POST" });
+      if (res.ok) onRefresh();
+    } catch { /* ignore */ }
+    finally { setResolving(false); }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-sm font-bold text-purple-600 dark:text-purple-400 font-mono">ISS-{issue.issue_number}</span>
+          <span className={`rounded-full px-2 py-0.5 text-xs ${issue.status === "resolved" ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" : issue.status === "in_progress" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"}`}>
+            {issue.status === "in_progress" ? "In Progress" : issue.status === "open" ? "Open" : "Resolved"}
+          </span>
+          <span className={`rounded-full px-2 py-0.5 text-xs ${issue.priority === "high" ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" : issue.priority === "medium" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"}`}>
+            {issue.priority.toUpperCase()}
+          </span>
+        </div>
+        <h2 className="text-lg font-semibold">{issue.title}</h2>
+        {issue.description && <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{issue.description}</p>}
+        <div className="mt-2 flex flex-wrap gap-4 text-xs text-gray-500 dark:text-gray-400">
+          {issue.department_name && <span>Dept: <strong className="text-gray-700 dark:text-gray-200">{issue.department_name}</strong></span>}
+          {issue.assignee_name && <span>Assigned: <strong className="text-gray-700 dark:text-gray-200">{issue.assignee_name}</strong></span>}
+          {issue.creator_name && <span>Created by <strong className="text-gray-700 dark:text-gray-200">{issue.creator_name}</strong> · {formatDate(issue.created_at)}</span>}
+        </div>
+      </div>
+
+      {/* Actions */}
+      {issue.status !== "resolved" && (
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={resolveAll}
+            disabled={resolving}
+            className="rounded-md border border-green-500 px-3 py-1.5 text-sm font-medium text-green-600 hover:bg-green-50 disabled:opacity-50 dark:text-green-400 dark:hover:bg-green-900/20"
+          >
+            {resolving ? "Resolving…" : "Resolve All"}
+          </button>
+        </div>
+      )}
+
+      {/* Linked Escalations */}
+      <div>
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">
+          Linked Escalations <span className="ml-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-700">{escalations.length}</span>
+        </h3>
+        {escalations.length === 0 ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400">No escalations linked to this issue yet.</p>
+        ) : (
+          <div className="space-y-1">
+            {escalations.map((esc) => (
+              <div
+                key={esc.link_id}
+                className={`flex items-center gap-3 rounded-md border px-3 py-2 ${esc.breaching ? "border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950/20" : "border-gray-200 dark:border-gray-700"}`}
+              >
+                <div className={`w-1 self-stretch rounded-full ${esc.breaching ? "bg-red-500" : esc.escalation_stage === "picked_up" ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-600"}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm">{esc.display_name || esc.phone_e164}</span>
+                    {esc.breaching && <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-900/40 dark:text-red-300">SLA BREACH</span>}
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{esc.escalation_reason || esc.escalation_category || "—"}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {esc.escalation_sla_deadline && <SLACountdown deadline={esc.escalation_sla_deadline} />}
+                  <button
+                    type="button"
+                    onClick={() => onNavigateToEscalation(esc.phone_e164)}
+                    className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 whitespace-nowrap"
+                  >
+                    View →
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Activity Timeline */}
+      {activities.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Activity</h3>
+          <div className="space-y-2">
+            {activities.map((a) => (
+              <div key={a.id} className="flex items-start gap-2 text-xs">
+                <div className={`mt-1 w-2 h-2 shrink-0 rounded-full ${a.action.includes("resolved") ? "bg-green-500" : a.action.includes("linked") || a.action.includes("created") ? "bg-purple-500" : a.action.includes("picked") ? "bg-blue-500" : "bg-gray-400"}`} />
+                <div>
+                  <span className="font-medium text-gray-700 dark:text-gray-200">{a.actor_label ?? "System"}</span>{" "}
+                  <span className="text-gray-500 dark:text-gray-400">{a.action.replace(/_/g, " ")}</span>
+                  <span className="ml-2 text-gray-400 dark:text-gray-500">{formatDate(a.created_at)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
