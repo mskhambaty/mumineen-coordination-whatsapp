@@ -4,6 +4,7 @@ import { z } from "zod";
 import { canAccessInbox } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { logEscalationActivity } from "@/lib/escalation/activity";
+import { notifyDepartmentIssueContacts } from "@/lib/issues/notify";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 // ---------------------------------------------------------------------------
@@ -158,6 +159,16 @@ export async function POST(req: NextRequest) {
       details: { title, priority: priority ?? "medium" },
     });
   } catch { /* swallowed */ }
+
+  // Notify department contacts (email + WhatsApp) — fire-and-forget.
+  if (department_id) {
+    void notifyDepartmentIssueContacts({
+      issueId: issue.id,
+      title,
+      description: description ?? null,
+      departmentId: department_id,
+    });
+  }
 
   return NextResponse.json({ issue }, { status: 201 });
 }

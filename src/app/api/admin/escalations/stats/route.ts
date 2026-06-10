@@ -14,20 +14,19 @@ export async function GET(req: NextRequest) {
 
   const supabase = getSupabaseAdmin();
 
-  // Fetch all active escalation sessions (not 'none', not 'resolved')
-  // Plus legacy tickets where escalation_stage='none' but escalation_status='pending'
+  // Fetch escalation sessions that the sidebar considers "active" — those with
+  // escalation_status='pending'. This matches the Escalations tab filter so the
+  // KPI strip numbers agree with what the user sees in the sidebar.
   const { data: sessions } = await supabase
     .from("conversation_sessions")
     .select("id, escalation_stage, escalation_status, escalation_sla_deadline, escalated_at, escalation_assigned_at")
-    .or("escalation_stage.neq.none,and(escalation_stage.eq.none,escalation_status.eq.pending)");
+    .eq("escalation_status", "pending");
 
   const now = new Date();
-  const active = (sessions ?? []).filter(
-    (s) => s.escalation_stage !== "resolved" || (s.escalation_stage === "none" && s.escalation_status === "pending"),
-  );
+  const active = sessions ?? [];
 
   const pendingCount = active.filter(
-    (s) => s.escalation_stage === "pending" || (s.escalation_stage === "none" && s.escalation_status === "pending"),
+    (s) => s.escalation_stage === "pending" || s.escalation_stage === "none",
   ).length;
 
   const breachingCount = active.filter((s) => {

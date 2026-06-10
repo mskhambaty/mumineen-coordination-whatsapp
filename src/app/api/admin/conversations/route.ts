@@ -71,9 +71,11 @@ export async function GET(req: NextRequest) {
   const selectedPhone = req.nextUrl.searchParams.get("phone");
   const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") ?? 75) || 75, 200);
 
+  const sessionColumns = "id, phone_e164, user_id, current_intent, state, last_message_at, created_at, handling_mode, handling_mode_at, escalation_status, escalation_reason, escalation_priority, escalation_category, escalated_at, escalation_stage, escalation_assigned_to, escalation_assigned_at, escalation_sla_deadline, linked_issue_id, quality_score, quality_reason, quality_analyzed_at, user:whatsapp_users!conversation_sessions_user_id_fkey(id, display_name, phone_e164, email, role, global_role), assigned_user:whatsapp_users!conversation_sessions_escalation_assigned_to_fkey(id, display_name, phone_e164, email, role, global_role), issue:issues!conversation_sessions_linked_issue_id_fkey(id, issue_number, title)";
+
   let sessionsQuery = supabase
     .from("conversation_sessions")
-    .select("id, phone_e164, user_id, current_intent, state, last_message_at, created_at, handling_mode, handling_mode_at, escalation_status, escalation_reason, escalation_priority, escalation_category, escalated_at, escalation_stage, escalation_assigned_to, escalation_assigned_at, escalation_sla_deadline, linked_issue_id, quality_score, quality_reason, quality_analyzed_at, user:whatsapp_users!conversation_sessions_user_id_fkey(id, display_name, phone_e164, email, role, global_role), assigned_user:whatsapp_users!conversation_sessions_escalation_assigned_to_fkey(id, display_name, phone_e164, email, role, global_role), issue:issues!conversation_sessions_linked_issue_id_fkey(id, issue_number, title)")
+    .select(sessionColumns)
     .order("last_message_at", { ascending: false })
     .limit(limit);
 
@@ -81,10 +83,34 @@ export async function GET(req: NextRequest) {
     sessionsQuery = sessionsQuery.eq("phone_e164", selectedPhone);
   }
 
-  const { data: sessions, error: sessionsError } = await sessionsQuery;
-  if (sessionsError) {
-    return NextResponse.json({ error: sessionsError.message }, { status: 500 });
+  // Fetch recent sessions + ALL pending escalations in parallel so the
+  // Escalations tab always shows every open ticket, not just those within
+  // the recent-conversations window.
+  const escalationsQuery = selectedPhone
+    ? null
+    : supabase
+        .from("conversation_sessions")
+        .select(sessionColumns)
+        .eq("escalation_status", "pending")
+        .order("last_message_at", { ascending: false });
+
+  const [recentResult, escalationResult] = await Promise.all([
+    sessionsQuery,
+    escalationsQuery ?? Promise.resolve({ data: [] as SessionRow[], error: null }),
+  ]);
+
+  if (recentResult.error) {
+    return NextResponse.json({ error: recentResult.error.message }, { status: 500 });
   }
+  if (escalationResult.error) {
+    return NextResponse.json({ error: escalationResult.error.message }, { status: 500 });
+  }
+
+  // Merge & deduplicate: pending escalations that fall outside the recent
+  // window still appear so the sidebar and KPI strip agree.
+  const seenIds = new Set(((recentResult.data ?? []) as SessionRow[]).map((s) => s.id));
+  const extra = ((escalationResult.data ?? []) as SessionRow[]).filter((s) => !seenIds.has(s.id));
+  const sessions = [...(recentResult.data ?? []) as SessionRow[], ...extra];
 
   const phoneNumbers = ((sessions ?? []) as SessionRow[]).map((session) => session.phone_e164);
   if (phoneNumbers.length === 0) {

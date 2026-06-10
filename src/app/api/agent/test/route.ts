@@ -12,7 +12,7 @@ export const maxDuration = 120;
  * plus the tools it called, WITHOUT side effects.
  *
  * - Auth: admin key (same `x-admin-key` as the other admin routes).
- * - Side-effecting tools (create_issue, move_to_escalation, create_task, …) are
+ * - Side-effecting tools (move_to_escalation, create_task, …) are
  *   RECORDED but not executed — no real tickets/escalations are created.
  * - The agent does not persist messages, so test calls leave no conversation trace.
  *

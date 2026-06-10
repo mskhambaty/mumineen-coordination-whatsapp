@@ -58,11 +58,6 @@ const toolMetadata: Record<string, ToolMetadata> = {
     audience: "external",
     ...activeApiStatus,
   },
-  create_issue: {
-    internal_api: "POST /api/issues",
-    audience: "external",
-    ...activeApiStatus,
-  },
   get_my_tasks: {
     internal_api: "GET /api/tasks or GET /api/tasks/kanban",
     audience: "internal",

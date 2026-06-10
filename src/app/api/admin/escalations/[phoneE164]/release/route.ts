@@ -13,42 +13,47 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
 
   const { phoneE164 } = await params;
   const phone = decodeURIComponent(phoneE164);
-  const body = (await req.json().catch(() => ({}))) as { resolution_note?: unknown };
-  const note = typeof body.resolution_note === "string" ? body.resolution_note.trim() : "";
 
   const supabase = getSupabaseAdmin();
+
+  const { data: session } = await supabase
+    .from("conversation_sessions")
+    .select("id, escalation_stage, escalation_assigned_to")
+    .eq("phone_e164", phone)
+    .maybeSingle();
+
+  if (!session || session.escalation_stage !== "picked_up") {
+    return NextResponse.json(
+      { error: "Escalation is not currently picked up." },
+      { status: 409 },
+    );
+  }
 
   const { data, error } = await supabase
     .from("conversation_sessions")
     .update({
-      escalation_stage: "resolved",
-      escalation_status: "resolved",
-      handling_mode: "ai",
-      handling_mode_at: new Date().toISOString(),
+      escalation_stage: "pending",
+      escalation_assigned_to: null,
+      escalation_assigned_at: null,
     })
-    .eq("phone_e164", phone)
-    .in("escalation_stage", ["pending", "picked_up", "waiting_on_department"])
-    .select("id, phone_e164, escalation_stage, escalation_status")
+    .eq("id", session.id)
+    .select("id, phone_e164, escalation_stage, escalation_assigned_to")
     .maybeSingle();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
   if (!data) {
-    return NextResponse.json(
-      { error: "No active escalation found for this conversation." },
-      { status: 404 },
-    );
+    return NextResponse.json({ error: "Failed to release escalation." }, { status: 500 });
   }
 
   try {
     await logEscalationActivity({
       sessionId: data.id,
       phoneE164: phone,
-      action: "resolved",
+      action: "released",
       actorUserId: auth.caller.user_id ?? undefined,
       actorLabel: auth.caller.display_name ?? undefined,
-      details: note ? { resolution_note: note } : undefined,
     });
   } catch { /* swallowed */ }
 

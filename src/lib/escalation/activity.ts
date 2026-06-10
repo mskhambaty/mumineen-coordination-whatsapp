@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 export type EscalationAction =
   | "escalated"
   | "picked_up"
+  | "released"
   | "created_task"
   | "linked_to_task"
   | "unlinked_from_task"
@@ -12,7 +13,8 @@ export type EscalationAction =
   | "created_issue"
   | "linked_to_issue"
   | "unlinked_from_issue"
-  | "issue_resolved";
+  | "issue_resolved"
+  | "issue_close_notified";
 
 export type LogActivityParams = {
   sessionId?: string;

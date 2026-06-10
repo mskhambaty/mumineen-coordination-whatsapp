@@ -16,7 +16,6 @@ export const publicTools = new Set([
   "answer_religious_questions",
   "get_lisan_word_meaning",
   "move_to_escalation",
-  "create_issue",
   "flag_knowledge_gap",
   "get_family_meal_rsvps",
   "set_family_meal_rsvps",

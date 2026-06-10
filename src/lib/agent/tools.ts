@@ -149,36 +149,9 @@ export const allToolDefinitions: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "create_issue",
-      description:
-        "Log an issue ONLY for a concrete problem the visitor reports that the team needs to fix or track — e.g. a broken facility, a maintenance or safety problem, or a specific complaint. Do NOT use this to forward a query, connect the user to a person, hand off a conversation, or for accommodation/utaro requests — those are escalations (use move_to_escalation) or have their own form. Never use it for general questions you can answer with get_site_content_faq.",
-      parameters: {
-        type: "object",
-        properties: {
-          title: { type: "string", description: "Short summary of the issue." },
-          description: { type: "string", description: "Details of what the visitor reported." },
-          priority: {
-            type: "string",
-            enum: ["low", "medium", "high"],
-            description: "Defaults to medium; use high for safety or time-sensitive problems.",
-          },
-          department: {
-            type: "string",
-            description:
-              "Name of the department that should own this issue. Pick the best match from the Available Departments list in your system prompt.",
-          },
-        },
-        required: ["title"],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
       name: "flag_knowledge_gap",
       description:
-        "Log a knowledge gap when you genuinely CANNOT answer a visitor's INFORMATIONAL question because the topic isn't covered in get_site_content_faq (or any source available to you) — so the team can publish the info. Call this IN ADDITION to telling the user the details aren't available yet. Do NOT use it for: questions you can already answer; concrete problems to fix (use create_issue); human hand-offs, accommodation/utaro, or visa requests (use move_to_escalation or the relevant form). One call per distinct topic.",
+        "Log a knowledge gap when you genuinely CANNOT answer a visitor's INFORMATIONAL question because the topic isn't covered in get_site_content_faq (or any source available to you) — so the team can publish the info. Call this IN ADDITION to telling the user the details aren't available yet. Do NOT use it for: questions you can already answer; concrete problems to fix or human hand-offs (use move_to_escalation); accommodation/utaro or visa requests (use move_to_escalation or the relevant form). One call per distinct topic.",
       parameters: {
         type: "object",
         properties: {
@@ -695,17 +668,6 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
           category: args.category,
           department: args.department,
           source: "ai",
-        },
-      });
-    case "create_issue":
-      return callInternalApi("/api/issues", {
-        method: "POST",
-        phone: context.phoneE164,
-        body: {
-          title: args.title,
-          description: args.description,
-          priority: args.priority,
-          department: args.department,
         },
       });
     case "flag_knowledge_gap":
