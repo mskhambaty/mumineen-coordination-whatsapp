@@ -1660,7 +1660,13 @@ function StatPill({ label, value, color, pulse }: { label: string; value: string
 // ─── SLA Countdown ───────────────────────────────────────────────────────────
 
 function SLACountdown({ deadline }: { deadline: string }) {
-  const now = Date.now();
+  // Tick so the countdown stays live. Date.now() can't run during render (the React Compiler flags
+  // it as impure), so it lives in state — lazy-seeded once, then refreshed on an interval.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
   const dl = new Date(deadline).getTime();
   const diff = dl - now;
   const minutes = Math.round(diff / 60000);

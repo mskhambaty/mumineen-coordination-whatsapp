@@ -545,17 +545,16 @@ export default function ParkingPage() {
 
   // Rows shown in the table: server-filtered set, narrowed client-side by the name
   // search and (when active) the target lot's purpose fit — both AND with the chips.
-  const visible = useMemo(() => {
-    let v = rows;
-    if (purposeFit && bulkLot && bulkLot.purposes.length > 0) {
-      v = v.filter((r) => matchesLotPurposes(r, bulkLot.purposes));
-    }
-    if (search) {
-      const q = search.toLowerCase();
-      v = v.filter((r) => r.head_name.toLowerCase().includes(q) || r.hof_its.includes(q));
-    }
-    return v;
-  }, [rows, search, purposeFit, bulkLot]);
+  // Plain derivation — the React Compiler memoizes it. A manual useMemo here couldn't be
+  // preserved by the compiler (the conditional filter-reassignment chain), which failed the build.
+  let visible = rows;
+  if (purposeFit && bulkLot && bulkLot.purposes.length > 0) {
+    visible = visible.filter((r) => matchesLotPurposes(r, bulkLot.purposes));
+  }
+  if (search) {
+    const q = search.toLowerCase();
+    visible = visible.filter((r) => r.head_name.toLowerCase().includes(q) || r.hof_its.includes(q));
+  }
 
   // Pagination is purely visual — selection, the capacity meter, and CSV export all
   // operate on the full filtered set. safePage derives the clamp (e.g. when a search
