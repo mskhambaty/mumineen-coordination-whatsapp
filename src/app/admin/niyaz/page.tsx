@@ -316,12 +316,12 @@ export default function NiyazPage() {
                   <th className="px-2 py-1.5 text-right">Yes adults</th>
                   <th className="px-2 py-1.5 text-right">Yes kids</th>
                   <th className="px-2 py-1.5 text-right">Yes families</th>
+                  <th className="px-2 py-1.5 text-right" title="Unregistered adults">Unreg</th>
+                  <th className="px-2 py-1.5 text-right" title="Unregistered kids">Unreg kids</th>
                   <th className="px-2 py-1.5 text-right">Thaals</th>
                   <th className="px-2 py-1.5 text-right">No adults</th>
                   <th className="px-2 py-1.5 text-right">No kids</th>
                   <th className="px-2 py-1.5 text-right">No families</th>
-                  <th className="px-2 py-1.5 text-right" title="Unregistered adults">Unreg</th>
-                  <th className="px-2 py-1.5 text-right" title="Unregistered kids">Unreg kids</th>
                   <th className="px-2 py-1.5"></th>
                 </tr>
               </thead>
@@ -343,12 +343,12 @@ export default function NiyazPage() {
                     <td className={num}>{e.yesAdults}</td>
                     <td className={num}>{e.yesKids}</td>
                     <td className={num}>{e.yesFamilies}</td>
+                    <td className={`${num} text-orange-600 dark:text-orange-400`}>{e.unregAdults || ""}</td>
+                    <td className={`${num} text-orange-600 dark:text-orange-400`}>{e.unregKids || ""}</td>
                     <td className={`${num} font-semibold`}>{e.thaalCount}</td>
                     <td className={`${num} text-gray-500`}>{e.noAdults}</td>
                     <td className={`${num} text-gray-500`}>{e.noKids}</td>
                     <td className={`${num} text-gray-500`}>{e.noFamilies}</td>
-                    <td className={`${num} text-orange-600 dark:text-orange-400`}>{e.unregAdults || ""}</td>
-                    <td className={`${num} text-orange-600 dark:text-orange-400`}>{e.unregKids || ""}</td>
                     <td className="px-2 py-1.5" onClick={(ev) => ev.stopPropagation()}>
                       <button type="button" onClick={() => openEdit(e)} className="rounded border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
                         Edit
