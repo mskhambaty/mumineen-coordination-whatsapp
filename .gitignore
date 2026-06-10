@@ -41,8 +41,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# claude code agent memory (local, per-developer)
+# claude code agent memory and internal state (local, per-developer)
 memory/
+.claude/
 
 # superpowers working docs (specs/plans, local per-developer)
 /docs/superpowers/
