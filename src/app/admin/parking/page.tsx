@@ -400,12 +400,12 @@ export default function ParkingPage() {
   const loadHouseholds = useCallback(
     async (f: Filters) => {
       const params = new URLSearchParams();
-      tri("eligible", f.eligible);
-      if (f.local_mehman) params.set("local_mehman", f.local_mehman);
       const tri = (key: string, val: boolean | null) => {
         if (val === true) params.set(key, "1");
         else if (val === false) params.set(key, "0");
       };
+      tri("eligible", f.eligible);
+      if (f.local_mehman) params.set("local_mehman", f.local_mehman);
       tri("any_rahat", f.any_rahat);
       tri("any_senior", f.any_senior);
       tri("all_rahat", f.all_rahat);
