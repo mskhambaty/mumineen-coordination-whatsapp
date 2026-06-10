@@ -198,45 +198,47 @@ export function pickAssignable(rows: HouseholdRow[], lotId: string, count: numbe
 }
 
 export type HouseholdFilters = {
-  // Tri-state: true = only eligible, false = only ineligible, undefined = no filter.
-  eligible?: boolean;
+  // Structural filters — always applied as AND regardless of filterMode.
+  eligible?: boolean; // tri-state: true = eligible only, false = ineligible only
   local_mehman?: string; // "Local" | "Mehman" | "" (all)
-  // Tri-state boolean filters: true = must match, false = must NOT match, undefined = no filter.
+  assigned?: "assigned" | "unassigned" | "";
+  q?: string; // head-name or ITS substring, case-insensitive
+  // "and": row must match all active criteria chips.
+  // "or":  row must match at least one active criteria chip.
+  filterMode?: "and" | "or";
+  // Tri-state criteria chips: true = must match, false = must NOT match, undefined = inactive.
   any_rahat?: boolean;    // any rahat-flagged or wheelchair member
   any_senior?: boolean;   // any member 65+
-  all_rahat?: boolean;    // every member rahat-flagged
-  all_65?: boolean;       // every member 65+
+  all_rahat?: boolean;    // every attending member rahat-flagged
+  all_65?: boolean;       // every attending member 65+
   wheelchair?: boolean;   // any member needing a wheelchair
   has_phone?: boolean;    // household has a contact phone number
   has_category?: boolean; // any member carries a roster category value (e.g. VIP)
   kids_under_7?: boolean;
-  assigned?: "assigned" | "unassigned" | "";
-  q?: string; // head-name substring, case-insensitive
 };
 
 export function matchesFilters(row: HouseholdRow, f: HouseholdFilters): boolean {
+  // Structural filters — always AND.
   if (f.eligible === true  && !row.eligible) return false;
   if (f.eligible === false && row.eligible)  return false;
   if (f.local_mehman && row.local_mehman !== f.local_mehman) return false;
-  // Tri-state: true = must have, false = must NOT have, undefined = skip
-  if (f.any_rahat === true  && row.rahat_count === 0) return false;
-  if (f.any_rahat === false && row.rahat_count > 0) return false;
-  if (f.any_senior === true  && row.senior_count === 0) return false;
-  if (f.any_senior === false && row.senior_count > 0) return false;
-  if (f.all_rahat === true  && !row.all_rahat) return false;
-  if (f.all_rahat === false && row.all_rahat) return false;
-  if (f.all_65 === true  && !row.all_65_plus) return false;
-  if (f.all_65 === false && row.all_65_plus) return false;
-  if (f.wheelchair === true  && row.wheelchair_count === 0) return false;
-  if (f.wheelchair === false && row.wheelchair_count > 0) return false;
-  if (f.has_phone === true  && !row.phone) return false;
-  if (f.has_phone === false && row.phone) return false;
-  if (f.has_category === true  && row.categories.length === 0) return false;
-  if (f.has_category === false && row.categories.length > 0) return false;
-  if (f.kids_under_7 === true  && row.kids_under_7 === 0) return false;
-  if (f.kids_under_7 === false && row.kids_under_7 > 0) return false;
-  if (f.assigned === "assigned" && row.passes.length === 0) return false;
-  if (f.assigned === "unassigned" && row.passes.length > 0) return false;
+  if (f.assigned === "assigned"   && row.passes.length === 0) return false;
+  if (f.assigned === "unassigned" && row.passes.length > 0)  return false;
   if (f.q && !row.head_name.toLowerCase().includes(f.q.toLowerCase())) return false;
-  return true;
+
+  // Criteria chips — collect active ones then apply AND / OR.
+  const checks: Array<() => boolean> = [];
+  if (f.any_rahat    !== undefined) checks.push(() => f.any_rahat    === true ? row.rahat_count > 0        : row.rahat_count === 0);
+  if (f.any_senior   !== undefined) checks.push(() => f.any_senior   === true ? row.senior_count > 0       : row.senior_count === 0);
+  if (f.all_rahat    !== undefined) checks.push(() => f.all_rahat    === true ? row.all_rahat              : !row.all_rahat);
+  if (f.all_65       !== undefined) checks.push(() => f.all_65       === true ? row.all_65_plus            : !row.all_65_plus);
+  if (f.wheelchair   !== undefined) checks.push(() => f.wheelchair   === true ? row.wheelchair_count > 0   : row.wheelchair_count === 0);
+  if (f.has_phone    !== undefined) checks.push(() => f.has_phone    === true ? Boolean(row.phone)         : !row.phone);
+  if (f.has_category !== undefined) checks.push(() => f.has_category === true ? row.categories.length > 0  : row.categories.length === 0);
+  if (f.kids_under_7 !== undefined) checks.push(() => f.kids_under_7 === true ? row.kids_under_7 > 0       : row.kids_under_7 === 0);
+
+  if (checks.length === 0) return true;
+  return f.filterMode === "or"
+    ? checks.some((c) => c())
+    : checks.every((c) => c());
 }
