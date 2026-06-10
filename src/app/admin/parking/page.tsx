@@ -386,6 +386,7 @@ export default function ParkingPage() {
   // on server-filter changes (the set it was built against changed) and after an assign.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lotFilter, setLotFilter] = useState(""); // client-side: show only rows with a pass in this lot
+  const [multiPassFilter, setMultiPassFilter] = useState(false); // client-side: suggested_passes > 1
   const [bulkLotId, setBulkLotId] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
   const [selectN, setSelectN] = useState(""); // "select N rows" input
@@ -561,6 +562,9 @@ export default function ParkingPage() {
   }
   if (lotFilter) {
     visible = visible.filter((r) => r.passes.some((p) => p.lot_id === lotFilter));
+  }
+  if (multiPassFilter) {
+    visible = visible.filter((r) => r.suggested_passes > 1);
   }
   if (search) {
     const q = search.toLowerCase();
@@ -772,6 +776,11 @@ export default function ParkingPage() {
           label="Not eligible"
           negative
           onClick={() => applyFilter({ eligible: filters.eligible === false ? null : false })}
+        />
+        <FilterChip
+          active={multiPassFilter}
+          label="2+ passes"
+          onClick={() => { setMultiPassFilter(!multiPassFilter); setPage(1); }}
         />
         <select
           value={filters.local_mehman}
