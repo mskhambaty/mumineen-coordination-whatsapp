@@ -114,7 +114,8 @@ export default function NiyazPage() {
         (r) =>
           (r.mumin?.full_name ?? "").toLowerCase().includes(q) ||
           (r.mumin?.its ?? "").toLowerCase().includes(q) ||
-          (r.family?.hof_its ?? "").toLowerCase().includes(q),
+          (r.family?.hof_its ?? "").toLowerCase().includes(q) ||
+          (r.responded_by_phone ?? "").toLowerCase().includes(q),
       )
     : responses;
 
@@ -382,7 +383,7 @@ export default function NiyazPage() {
                   type="search"
                   value={respSearch}
                   onChange={(e) => setRespSearch(e.target.value)}
-                  placeholder="Search by name or ITS…"
+                  placeholder="Search by name, ITS, or phone…"
                   className={`${inputCls} max-w-xs`}
                 />
                 {q && (
@@ -416,7 +417,6 @@ export default function NiyazPage() {
                   <thead className="sticky top-0 bg-white text-xs uppercase text-gray-400 dark:bg-gray-900">
                     <tr>
                       <th className="px-2 py-1.5">Name</th>
-                      <th className="px-2 py-1.5">ITS</th>
                       <th className="px-2 py-1.5">RSVP</th>
                       <th className="px-2 py-1.5" title="How this RSVP was set">Source</th>
                       <th className="px-2 py-1.5" title="Phone (WhatsApp) or admin who set it">Responded by</th>
@@ -432,7 +432,6 @@ export default function NiyazPage() {
                             {r.mumin?.full_name ?? r.mumin?.its ?? "—"}
                             {r.mumin?.is_adult === false ? <span className="ml-1 text-xs text-gray-400">(kid)</span> : null}
                           </td>
-                          <td className="px-2 py-1.5 font-mono text-xs text-gray-500">{r.mumin?.its ?? "—"}</td>
                           <td className="px-2 py-1.5">
                             <span className={r.attending ? "text-green-600 dark:text-green-400" : "text-red-500"}>{r.attending ? "Yes" : "No"}</span>
                           </td>
