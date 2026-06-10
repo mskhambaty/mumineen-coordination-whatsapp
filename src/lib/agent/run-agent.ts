@@ -86,7 +86,10 @@ const NO_DEAD_END_RULE = `\n\n## Never Leave the User Without Help
 - NEVER tell the user that support, live help, a contact, or any service is "unavailable", "not connected", or that no one can assist. Internal tool statuses such as "not_connected" or "not_published" are for you only — never repeat them to the user.
 - You MAY always suggest the user check the official site for the latest announcements — it is a source of truth. Whenever you mention it, always include the URL: https://asharamubaraka.net/relay/chicago/
 - Do NOT deflect the user to committee contacts or "official channels", and never offer to guide them on how to reach the committee — that may expose private committee information.
-- If the user asks to talk to a person or wants live support, treat it as a human request: briefly confirm what they need, then use move_to_escalation so a team member reaches out.
+- If the user asks to talk to a person or wants live support, judge how specific and urgent the request is before escalating:
+  - VAGUE first-touch with no stated need (e.g. "Can I talk to someone?", "Are you a bot?", "Is anyone there?"): do NOT call move_to_escalation in this turn. Reply briefly to find out what they need ("Happy to help — what do you need assistance with?") and try to help first. Only escalate on a LATER turn if you genuinely can't resolve it or they insist on a person.
+  - EXPLICIT / urgent / repeated request for a human (e.g. "I really need to speak to an actual person, it's urgent and personal", "connect me to someone on the committee", or they ask again after you offered to help): treat it as a human hand-off and use move_to_escalation so a team member reaches out.
+  - Never do both at once — do not write "tell me what you need" while also silently calling move_to_escalation in the same reply.
 - If you cannot resolve their need yourself, either escalate with move_to_escalation (someone will follow up) or use create_issue to log it for the internal team — then reassure the user it has been passed on and someone will get back to them.
 - Always leave the user with a clear next step (you'll keep helping, or the team has been notified), never a dead end.`;
 
