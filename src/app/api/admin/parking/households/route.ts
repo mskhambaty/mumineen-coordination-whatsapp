@@ -44,17 +44,24 @@ export async function GET(req: NextRequest) {
   const canManage = auth.caller.portal ? canManageParking(auth.caller.portal) : false;
 
   const { searchParams } = new URL(req.url);
+
+  // Tri-state helper: "1" → true, "0" → false, absent → undefined (no filter).
+  function tri(key: string): boolean | undefined {
+    const v = searchParams.get(key);
+    return v === "1" ? true : v === "0" ? false : undefined;
+  }
+
   const filters: HouseholdFilters = {
-    eligible: searchParams.get("eligible") === "1",
+    eligible: tri("eligible"),
     local_mehman: searchParams.get("local_mehman") ?? "",
-    any_rahat: searchParams.get("any_rahat") === "1",
-    any_senior: searchParams.get("any_senior") === "1",
-    all_rahat: searchParams.get("all_rahat") === "1",
-    all_65: searchParams.get("all_65") === "1",
-    wheelchair: searchParams.get("wheelchair") === "1",
-    has_phone: searchParams.get("has_phone") === "1",
-    has_category: searchParams.get("has_category") === "1",
-    kids_under_7: searchParams.get("kids_under_7") === "1",
+    any_rahat: tri("any_rahat"),
+    any_senior: tri("any_senior"),
+    all_rahat: tri("all_rahat"),
+    all_65: tri("all_65"),
+    wheelchair: tri("wheelchair"),
+    has_phone: tri("has_phone"),
+    has_category: tri("has_category"),
+    kids_under_7: tri("kids_under_7"),
     assigned: (searchParams.get("assigned") ?? "") as HouseholdFilters["assigned"],
     q: searchParams.get("q") ?? "",
   };

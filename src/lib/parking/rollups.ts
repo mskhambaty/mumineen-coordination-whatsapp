@@ -188,14 +188,16 @@ export function pickAssignable(rows: HouseholdRow[], lotId: string, count: numbe
 }
 
 export type HouseholdFilters = {
+  // Tri-state: true = only eligible, false = only ineligible, undefined = no filter.
   eligible?: boolean;
   local_mehman?: string; // "Local" | "Mehman" | "" (all)
-  any_rahat?: boolean;   // any rahat-flagged or wheelchair member
-  any_senior?: boolean;  // any member 65+
-  all_rahat?: boolean;   // every member rahat-flagged
-  all_65?: boolean;      // every member 65+
-  wheelchair?: boolean;  // any member needing a wheelchair
-  has_phone?: boolean;   // household has a contact phone number
+  // Tri-state boolean filters: true = must match, false = must NOT match, undefined = no filter.
+  any_rahat?: boolean;    // any rahat-flagged or wheelchair member
+  any_senior?: boolean;   // any member 65+
+  all_rahat?: boolean;    // every member rahat-flagged
+  all_65?: boolean;       // every member 65+
+  wheelchair?: boolean;   // any member needing a wheelchair
+  has_phone?: boolean;    // household has a contact phone number
   has_category?: boolean; // any member carries a roster category value (e.g. VIP)
   kids_under_7?: boolean;
   assigned?: "assigned" | "unassigned" | "";
@@ -203,16 +205,26 @@ export type HouseholdFilters = {
 };
 
 export function matchesFilters(row: HouseholdRow, f: HouseholdFilters): boolean {
-  if (f.eligible && !row.eligible) return false;
+  if (f.eligible === true  && !row.eligible) return false;
+  if (f.eligible === false && row.eligible)  return false;
   if (f.local_mehman && row.local_mehman !== f.local_mehman) return false;
-  if (f.any_rahat && row.rahat_count === 0) return false;
-  if (f.any_senior && row.senior_count === 0) return false;
-  if (f.all_rahat && !row.all_rahat) return false;
-  if (f.all_65 && !row.all_65_plus) return false;
-  if (f.wheelchair && row.wheelchair_count === 0) return false;
-  if (f.has_phone && !row.phone) return false;
-  if (f.has_category && row.categories.length === 0) return false;
-  if (f.kids_under_7 && row.kids_under_7 === 0) return false;
+  // Tri-state: true = must have, false = must NOT have, undefined = skip
+  if (f.any_rahat === true  && row.rahat_count === 0) return false;
+  if (f.any_rahat === false && row.rahat_count > 0) return false;
+  if (f.any_senior === true  && row.senior_count === 0) return false;
+  if (f.any_senior === false && row.senior_count > 0) return false;
+  if (f.all_rahat === true  && !row.all_rahat) return false;
+  if (f.all_rahat === false && row.all_rahat) return false;
+  if (f.all_65 === true  && !row.all_65_plus) return false;
+  if (f.all_65 === false && row.all_65_plus) return false;
+  if (f.wheelchair === true  && row.wheelchair_count === 0) return false;
+  if (f.wheelchair === false && row.wheelchair_count > 0) return false;
+  if (f.has_phone === true  && !row.phone) return false;
+  if (f.has_phone === false && row.phone) return false;
+  if (f.has_category === true  && row.categories.length === 0) return false;
+  if (f.has_category === false && row.categories.length > 0) return false;
+  if (f.kids_under_7 === true  && row.kids_under_7 === 0) return false;
+  if (f.kids_under_7 === false && row.kids_under_7 > 0) return false;
   if (f.assigned === "assigned" && row.passes.length === 0) return false;
   if (f.assigned === "unassigned" && row.passes.length > 0) return false;
   if (f.q && !row.head_name.toLowerCase().includes(f.q.toLowerCase())) return false;

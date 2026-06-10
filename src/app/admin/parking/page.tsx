@@ -30,7 +30,7 @@ type Lot = {
 // Server-side filters (each change re-fetches). The name search is intentionally NOT
 // here — it filters the loaded rows client-side so typing doesn't refetch per keystroke.
 type Filters = {
-  eligible: boolean;
+  eligible: boolean | null;
   local_mehman: string;
   // Tri-state: null = off, true = must match, false = must NOT match.
   any_rahat: boolean | null;
@@ -45,7 +45,7 @@ type Filters = {
 };
 
 const DEFAULT_FILTERS: Filters = {
-  eligible: true,
+  eligible: true, // default: show only eligible households
   local_mehman: "",
   any_rahat: null,
   any_senior: null,
@@ -400,7 +400,7 @@ export default function ParkingPage() {
   const loadHouseholds = useCallback(
     async (f: Filters) => {
       const params = new URLSearchParams();
-      if (f.eligible) params.set("eligible", "1");
+      tri("eligible", f.eligible);
       if (f.local_mehman) params.set("local_mehman", f.local_mehman);
       const tri = (key: string, val: boolean | null) => {
         if (val === true) params.set(key, "1");
@@ -686,9 +686,15 @@ export default function ParkingPage() {
       {/* Filter bar */}
       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
         <FilterChip
-          active={filters.eligible}
-          label="Eligible (local or mehman w/ rental)"
-          onClick={() => applyFilter({ eligible: !filters.eligible })}
+          active={filters.eligible === true}
+          label="Eligible"
+          onClick={() => applyFilter({ eligible: filters.eligible === true ? null : true })}
+        />
+        <FilterChip
+          active={filters.eligible === false}
+          label="Not eligible"
+          negative
+          onClick={() => applyFilter({ eligible: filters.eligible === false ? null : false })}
         />
         <select
           value={filters.local_mehman}
