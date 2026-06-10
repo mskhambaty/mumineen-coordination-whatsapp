@@ -10,6 +10,13 @@
 -- a stale window so the broadcast still finishes. This is at-least-once, not at-most-once: a drain
 -- that sent but died before flipping to 'sent' may re-send that one row after the stale window —
 -- vastly better than the old always-double-send behavior.
+--
+-- NOTE: an older overload claim_broadcast_recipients(p_batch int) returning SETOF broadcast_recipients
+-- (from the superseded whatsapp_broadcasts system) shadowed this on existing projects, so the code's
+-- rpc("claim_broadcast_recipients", { p_batch_size }) call failed with "Could not find the function …
+-- in the schema cache". Drop that legacy overload first so only this template-broadcast version remains.
+
+drop function if exists public.claim_broadcast_recipients(integer);
 
 -- 1. Track when a recipient was claimed, so stuck 'sending' rows can be reclaimed.
 alter table public.template_broadcast_recipients
