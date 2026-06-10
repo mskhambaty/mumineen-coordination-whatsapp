@@ -379,7 +379,7 @@ export default function ParkingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null); // bulk-assign result message
-  const [assignFor, setAssignFor] = useState<{ familyId: string; rect: DOMRect } | null>(null);
+  const [assignFor, setAssignFor] = useState<{ familyId: string; rect: DOMRect; extra?: boolean } | null>(null);
   const [assignCount, setAssignCount] = useState<Record<string, number>>({});
   const [page, setPage] = useState(1);
   // Bulk "fill lot" flow: selection spans pages and survives search narrowing; it clears
@@ -965,6 +965,7 @@ export default function ParkingPage() {
               <th className="px-3 py-2">Criteria</th>
               <th className="px-3 py-2">Guests</th>
               <th className="px-3 py-2">Passes</th>
+              {canManage && <th className="px-3 py-2">Additional</th>}
               {canManage && <th className="px-3 py-2" />}
             </tr>
           </thead>
@@ -1053,16 +1054,22 @@ export default function ParkingPage() {
                   </div>
                 </td>
                 {canManage && (
+                  <td className="px-3 py-2 text-center">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setAssignFor(assignFor?.familyId === r.family_id && assignFor.extra ? null : { familyId: r.family_id, rect, extra: true });
+                      }}
+                      className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-500 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-800"
+                    >
+                      + Pass
+                    </button>
+                  </td>
+                )}
+                {canManage && (
                   <td className="px-3 py-2 text-right">
-                    {r.suggested_passes > 0 && r.passes.length >= r.suggested_passes && r.passes.length === 1 ? (
-                      <button
-                        type="button"
-                        onClick={() => void revokePass(r.passes[0].id)}
-                        className="rounded-md border border-red-200 px-2 py-1 text-xs text-red-500 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950"
-                      >
-                        Unassign
-                      </button>
-                    ) : (
+                    {r.suggested_passes > 0 && r.passes.length >= r.suggested_passes ? null : (
                       <div className="flex items-center justify-end gap-1.5">
                         {r.suggested_passes > 0 && (() => {
                           const remaining = Math.max(0, r.suggested_passes - r.passes.length);
@@ -1085,7 +1092,7 @@ export default function ParkingPage() {
                           type="button"
                           onClick={(e) => {
                             const rect = e.currentTarget.getBoundingClientRect();
-                            setAssignFor(assignFor?.familyId === r.family_id ? null : { familyId: r.family_id, rect });
+                            setAssignFor(assignFor?.familyId === r.family_id && !assignFor.extra ? null : { familyId: r.family_id, rect });
                           }}
                           className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                         >
@@ -1098,6 +1105,7 @@ export default function ParkingPage() {
                         lots={lots}
                         anchorRect={assignFor.rect}
                         onAssign={(lotId, notes) => {
+                          if (assignFor.extra) return assignPass(r.family_id, lotId, notes, 1);
                           const remaining = Math.max(0, r.suggested_passes - r.passes.length);
                           const count = r.suggested_passes > 0
                             ? Math.min(remaining, assignCount[r.family_id] ?? remaining)
@@ -1113,7 +1121,7 @@ export default function ParkingPage() {
             ))}
             {!loading && visible.length === 0 && (
               <tr>
-                <td colSpan={canManage ? 8 : 6} className="px-3 py-8 text-center text-sm text-gray-400">
+                <td colSpan={canManage ? 9 : 6} className="px-3 py-8 text-center text-sm text-gray-400">
                   No households match the current filters.
                 </td>
               </tr>
