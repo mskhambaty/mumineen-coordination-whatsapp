@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { canManageParking, canViewParking } from "@/lib/admin/access";
+import { canManageParking, canViewParking, isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 import {
   LOT_PURPOSES,
@@ -111,11 +111,15 @@ function Badge({ label, tone }: { label: string; tone?: "blue" | "amber" | "gray
 function LotCard({
   lot,
   canManage,
+  canDelete,
   onSave,
+  onDelete,
 }: {
   lot: Lot;
   canManage: boolean;
+  canDelete: boolean;
   onSave: (patch: { id: string; name: string; capacity: number; color: string; purposes: string[] }) => Promise<boolean>;
+  onDelete: (id: string) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(lot.name);
@@ -123,6 +127,7 @@ function LotCard({
   const [color, setColor] = useState(lot.color ?? "");
   const [purposes, setPurposes] = useState<string[]>(lot.purposes);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const over = lot.capacity > 0 && lot.assigned > lot.capacity;
   const full = lot.capacity > 0 && lot.assigned === lot.capacity;
@@ -224,11 +229,11 @@ function LotCard({
               ))}
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={save}
-              disabled={saving || !name.trim()}
+              disabled={saving || deleting || !name.trim()}
               className="rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
               {saving ? "Saving…" : "Save"}
@@ -236,10 +241,29 @@ function LotCard({
             <button
               type="button"
               onClick={() => setEditing(false)}
-              className="rounded border border-gray-300 px-2.5 py-1 text-xs text-gray-600 dark:border-gray-600 dark:text-gray-300"
+              disabled={saving || deleting}
+              className="rounded border border-gray-300 px-2.5 py-1 text-xs text-gray-600 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300"
             >
               Cancel
             </button>
+            {canDelete && (
+              <button
+                type="button"
+                disabled={saving || deleting}
+                onClick={async () => {
+                  if (!window.confirm(`Delete "${lot.name}"? This cannot be undone.`)) return;
+                  setDeleting(true);
+                  try {
+                    await onDelete(lot.id);
+                  } finally {
+                    setDeleting(false);
+                  }
+                }}
+                className="ml-auto rounded border border-red-300 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
+              >
+                {deleting ? "Deleting…" : "Delete"}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -311,6 +335,7 @@ export default function ParkingPage() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [canManage, setCanManage] = useState(false);
+  const [canDelete, setCanDelete] = useState(false);
 
   const [lots, setLots] = useState<Lot[]>([]);
   const [rows, setRows] = useState<HouseholdRow[]>([]);
@@ -345,6 +370,8 @@ export default function ParkingPage() {
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setCanManage(canManageParking(user));
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCanDelete(isAdminOrLeadership(user));
     setReady(true);
   }, [router]);
 
@@ -442,6 +469,17 @@ export default function ParkingPage() {
       setError(json.error ?? "Failed to revoke pass");
       return;
     }
+    await loadAll(filters);
+  }
+
+  async function deleteLot(id: string) {
+    const res = await apiFetch(`/api/admin/parking/lots?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(json.error ?? "Failed to delete lot");
+      return;
+    }
+    setError(null);
     await loadAll(filters);
   }
 
@@ -621,7 +659,7 @@ export default function ParkingPage() {
       {/* Lot dashboard */}
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {lots.map((lot) => (
-          <LotCard key={lot.id} lot={lot} canManage={canManage} onSave={saveLot} />
+          <LotCard key={lot.id} lot={lot} canManage={canManage} canDelete={canDelete} onSave={saveLot} onDelete={deleteLot} />
         ))}
       </div>
 

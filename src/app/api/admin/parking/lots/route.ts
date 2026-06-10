@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { canManageParking, canViewParking } from "@/lib/admin/access";
+import { canManageParking, canViewParking, isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { LOT_PURPOSES } from "@/lib/parking/rollups";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -94,4 +94,39 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Lot not found." }, { status: 404 });
   }
   return NextResponse.json({ ok: true, lot });
+}
+
+// DELETE /api/admin/parking/lots?id=<lot-id> — permanently remove a lot (admin/leadership only).
+// Blocked if any passes are still assigned — revoke them first.
+export async function DELETE(req: NextRequest) {
+  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  if (auth instanceof NextResponse) return auth;
+
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get("id");
+  if (!id) {
+    return NextResponse.json({ error: "Missing lot id." }, { status: 400 });
+  }
+
+  const supabase = getSupabaseAdmin();
+
+  const { count, error: countErr } = await supabase
+    .from("parking_passes")
+    .select("id", { count: "exact", head: true })
+    .eq("lot_id", id);
+  if (countErr) {
+    return NextResponse.json({ error: countErr.message }, { status: 500 });
+  }
+  if (count && count > 0) {
+    return NextResponse.json(
+      { error: `Cannot delete — ${count} pass${count === 1 ? "" : "es"} are still assigned to this lot. Revoke them first.` },
+      { status: 409 },
+    );
+  }
+
+  const { error } = await supabase.from("parking_lots").delete().eq("id", id);
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true });
 }
