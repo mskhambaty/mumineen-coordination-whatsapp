@@ -1,25 +1,7 @@
--- Fix Moharram dinner event titles (off-by-one) and remove the duplicate
--- "1st Moharram ul Haram" lunch event (Pehli Raat already covers 1st Moharram).
--- Also insert the missing Jun 17 dinner event.
+-- Fix Moharram dinner event titles (off-by-one) and insert the missing Jun 17 dinner.
+-- Pehli Raat = 1st Moharram Night; Jun 15 lunch = 1st Moharram Day (kept).
 
--- 1. Delete the Jun 15 lunch "1st Moharram ul Haram" — Pehli Raat covers 1st Moharram.
---    Child rows cascade or need explicit cleanup.
-delete from public.niyaz_rsvp
-  where registration_instance_id = (
-    select id from public.rsvp_registration_instance
-    where event_date = '2026-06-15' and meal = 'lunch'
-  );
-
-delete from public.niyaz_family_headcount
-  where registration_instance_id = (
-    select id from public.rsvp_registration_instance
-    where event_date = '2026-06-15' and meal = 'lunch'
-  );
-
-delete from public.rsvp_registration_instance
-  where event_date = '2026-06-15' and meal = 'lunch';
-
--- 2. Fix all dinner titles: each is currently labeled one Moharram number too low.
+-- 1. Fix all dinner titles: each was labeled one Moharram number too low.
 --    Pattern: Nth Moharram dinner = Jun (13+N), so Jun 15 dinner = 2nd, Jun 16 = 3rd, etc.
 update public.rsvp_registration_instance as ri set
   title = v.new_title,
@@ -38,14 +20,13 @@ from (values
 ) as v(event_date, meal, new_title, new_hijri)
 where ri.event_date = v.event_date and ri.meal = v.meal;
 
--- 3. Insert the missing Jun 17 dinner "4th Moharram ul Haram" (packet).
+-- 2. Insert the missing Jun 17 dinner "4th Moharram ul Haram" (packet).
 insert into public.rsvp_registration_instance
   (title, event_date, hijri_date, meal, serving_type, status)
 values
   ('4th Moharram ul Haram', '2026-06-17', '4 Muharram al-Haram 1448H', 'dinner', 'packet', 'open');
 
--- 4. Backfill niyaz_rsvp rows for the new Jun 17 dinner event using arrival-date logic.
---    Same rule as seed_family_niyaz_rsvp: no arrival_at → attending; arrival_at <= event_date → attending.
+-- 3. Backfill niyaz_rsvp rows for the new Jun 17 dinner event using arrival-date logic.
 insert into public.niyaz_rsvp (registration_instance_id, mumin_id, family_id, attending, source)
 select
   ri.id,

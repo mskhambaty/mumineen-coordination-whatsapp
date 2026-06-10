@@ -12,17 +12,17 @@ responses come in.
 
 - **Events** live in `rsvp_registration_instance` (`title`, `event_date`, `hijri_date`, `meal`
   `lunch`|`dinner`, `serving_type` `thaal`|`packet`, `description`, unique `(event_date, meal)`).
-  Ashara 1448H = **19 events**: **Pehli Raat (Jun 14, dinner thaal)**, **2nd Moharram dinner
-  (Jun 15)**, **2nd–9th lunch + 3rd–10th dinner (Jun 16–23)**, **Ashura (Jun 24, dinner thaal)**.
-  Hijri night-first ordering: lunch = Nth Day, dinner = (N+1)th Night on each Gregorian day.
-  (Corrected in `20260610110000_fix_moharram_dates_and_titles` and
+  Ashara 1448H = **20 events**: **Pehli Raat (Jun 14, dinner thaal)**, **1st Moharram lunch +
+  2nd Moharram dinner (Jun 15)**, **2nd–9th lunch + 3rd–10th dinner (Jun 16–23)**, **Ashura (Jun 24,
+  dinner thaal)**. Hijri night-first ordering: lunch = Nth Day, dinner = (N+1)th Night on each
+  Gregorian day. (Corrected in `20260610110000_fix_moharram_dates_and_titles` and
   `20260610140000_fix_moharram_dinner_titles`.)
 - **`niyaz_rsvp`** (`20260608131000_*`): one row per `(registration_instance_id, mumin_id)` with
   `attending boolean`, `family_id`, and `source` (`default`|`registration`|`whatsapp`|`admin`). RLS
   on, service-role access only. `rsvp_responses` is retired (left empty) for the meal flow.
 - **Default rule** (America/Chicago calendar date): `not_attending` ⇒ No; no `arrival_at` ⇒ Yes
   (present all of Ashara, e.g. locals); else Yes when `event_date ≥ arrival date`. Seeded by the
-  backfill (`20260609140000_*`, all registered active mumineen × the 19 events) and by the
+  backfill (`20260609140000_*`, all registered active mumineen × the 20 events) and by the
   `seed_family_niyaz_rsvp(family)` SQL function, which the registration submit/edit calls
   (`src/app/api/register/route.ts`). The function recomputes only `default`/`registration` rows, never
   clobbering a `whatsapp`/`admin` override — so button/head-count responses refine the baseline.
