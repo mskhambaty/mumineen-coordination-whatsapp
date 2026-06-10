@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { canViewRegistrations } from "@/lib/admin/access";
+import { canViewRegistrationDetail } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { jamaatCountry } from "@/lib/registration/jamaat-country";
 import { isRegisteredStatus, matchesStatusFilter } from "@/lib/registration/status";
@@ -86,11 +86,11 @@ export type DetailRow = {
 };
 
 export async function GET(req: NextRequest) {
-  // Per-person drill-down rows carry ITS, full name, phone, and email across the
-  // whole roster. The detail view is open to all portal users for operational use,
-  // but mass CSV export of registrants remains admin/leadership only (see
-  // /api/admin/mumineen/export).
-  const auth = await requirePortalCaller(req, canViewRegistrations);
+  // Per-person drill-down rows carry ITS, full name, phone, and email across the whole roster, so
+  // they're limited to admins/leadership + department PM/HOD (canViewRegistrationDetail) — the
+  // leads who need contact details to confirm registrations. Mass full-roster CSV export stays on
+  // its own admin/leadership gate (see /api/admin/mumineen/export).
+  const auth = await requirePortalCaller(req, canViewRegistrationDetail);
   if (auth instanceof NextResponse) return auth;
 
   const { searchParams } = new URL(req.url);

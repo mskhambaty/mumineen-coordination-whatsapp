@@ -6,6 +6,7 @@ import {
   canManageInternalTools,
   canManageKnowledge,
   canManageParking,
+  canViewRegistrationDetail,
   canViewRegistrations,
 } from "@/lib/admin/access";
 
@@ -33,6 +34,16 @@ describe("roster bulk import stays tight", () => {
     expect(canImportMumineen(committeeMember)).toBe(false);
     expect(canImportMumineen(committeePm)).toBe(false);
     expect(canImportMumineen(null)).toBe(false);
+  });
+});
+
+describe("registration drill-down detail stays PM/HOD", () => {
+  it("allows admins/leadership and department PM/HOD, denies plain committee members", () => {
+    expect(canViewRegistrationDetail(admin)).toBe(true);
+    expect(canViewRegistrationDetail(committeePm)).toBe(true);
+    expect(canViewRegistrationDetail(committeeMember)).toBe(false);
+    expect(canViewRegistrationDetail(visitor)).toBe(false);
+    expect(canViewRegistrationDetail(null)).toBe(false);
   });
 });
 

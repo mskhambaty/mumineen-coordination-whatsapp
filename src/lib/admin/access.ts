@@ -64,10 +64,17 @@ export function canManageInternalTools(user: PortalUser | null | undefined) {
   return canAccessPortal(user);
 }
 
-// Registration Analytics + Daily Digest + Accommodations: any portal user.
-// (Drill-down detail and per-segment CSV live under the same gate.)
+// Registration Analytics KPI counts + Daily Digest + Accommodations: any portal user.
 export function canViewRegistrations(user: PortalUser | null | undefined) {
   return canAccessPortal(user);
+}
+
+// Per-person registration drill-down (individual records carrying name/phone/email) and the
+// per-segment CSV export on the analytics page: admins/leadership plus department PM/HOD
+// (is_manager). The KPI counts stay open to all portal users (canViewRegistrations); only the
+// PII-bearing detail is restricted to the leads who need it to contact registrants.
+export function canViewRegistrationDetail(user: PortalUser | null | undefined) {
+  return isAdminOrLeadership(user) || user?.is_manager === true;
 }
 
 // Parking pass tool — full write (assign/revoke/edit lots/export CSV):
