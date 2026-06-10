@@ -688,7 +688,7 @@ export default function ParkingPage() {
       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
         <FilterChip
           active={filters.eligible === true}
-          label="Eligible"
+          label="Eligible (local or mehman w/ rental)"
           onClick={() => applyFilter({ eligible: filters.eligible === true ? null : true })}
         />
         <FilterChip
