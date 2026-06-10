@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { canManageParking, canViewParking, isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
@@ -294,28 +295,31 @@ function AssignMenu({
   lots,
   onAssign,
   onClose,
+  anchorRect,
 }: {
   lots: Lot[];
   onAssign: (lotId: string, notes: string) => Promise<void>;
   onClose: () => void;
+  anchorRect: DOMRect;
 }) {
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
-  const [openUp, setOpenUp] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (menuRef.current) {
-      const rect = menuRef.current.getBoundingClientRect();
-      if (rect.bottom > window.innerHeight - 16) setOpenUp(true);
-    }
-  }, []);
+  // Render via portal so the table's overflow-x-auto never clips the menu.
+  const menuHeight = 300;
+  const openUp = anchorRect.bottom + menuHeight + 16 > window.innerHeight;
+  const style: React.CSSProperties = {
+    position: "fixed",
+    right: window.innerWidth - anchorRect.right,
+    width: "15rem",
+    zIndex: 50,
+    ...(openUp
+      ? { bottom: window.innerHeight - anchorRect.top + 4 }
+      : { top: anchorRect.bottom + 4 }),
+  };
 
-  return (
-    <div
-      ref={menuRef}
-      className={`absolute right-0 z-40 w-60 rounded-md border bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-800 ${openUp ? "bottom-full mb-1" : "top-full mt-1"}`}
-    >
+  return createPortal(
+    <div style={style} className="rounded-md border bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-800">
       <input
         type="text"
         value={notes}
@@ -354,7 +358,8 @@ function AssignMenu({
           );
         })}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -374,7 +379,7 @@ export default function ParkingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null); // bulk-assign result message
-  const [assignFor, setAssignFor] = useState<string | null>(null); // family_id with open assign menu
+  const [assignFor, setAssignFor] = useState<{ familyId: string; rect: DOMRect } | null>(null);
   const [assignCount, setAssignCount] = useState<Record<string, number>>({});
   const [page, setPage] = useState(1);
   // Bulk "fill lot" flow: selection spans pages and survives search narrowing; it clears
@@ -1048,7 +1053,7 @@ export default function ParkingPage() {
                   </div>
                 </td>
                 {canManage && (
-                  <td className="relative px-3 py-2 text-right">
+                  <td className="px-3 py-2 text-right">
                     {r.suggested_passes > 0 && r.passes.length >= r.suggested_passes ? (
                       <button
                         type="button"
@@ -1078,16 +1083,20 @@ export default function ParkingPage() {
                         })()}
                         <button
                           type="button"
-                          onClick={() => setAssignFor(assignFor === r.family_id ? null : r.family_id)}
+                          onClick={(e) => {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setAssignFor(assignFor?.familyId === r.family_id ? null : { familyId: r.family_id, rect });
+                          }}
                           className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                         >
                           Assign
                         </button>
                       </div>
                     )}
-                    {assignFor === r.family_id && (
+                    {assignFor?.familyId === r.family_id && (
                       <AssignMenu
                         lots={lots}
+                        anchorRect={assignFor.rect}
                         onAssign={(lotId, notes) => {
                           const remaining = Math.max(0, r.suggested_passes - r.passes.length);
                           const count = r.suggested_passes > 0
