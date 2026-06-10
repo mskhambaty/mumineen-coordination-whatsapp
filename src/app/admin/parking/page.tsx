@@ -661,6 +661,7 @@ export default function ParkingPage() {
   if (!ready) return null;
 
   const passCount = visible.reduce((n, r) => n + r.passes.length, 0);
+  const suggestedCount = visible.reduce((n, r) => n + r.suggested_passes, 0);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
@@ -1127,6 +1128,26 @@ export default function ParkingPage() {
               </tr>
             )}
           </tbody>
+          <tfoot className="border-t border-gray-200 bg-gray-50 text-xs font-medium dark:border-gray-700 dark:bg-gray-800">
+            <tr>
+              {canManage && <td />}
+              <td className="px-3 py-2 text-gray-500 dark:text-gray-400">
+                {visible.length} household{visible.length !== 1 ? "s" : ""}
+              </td>
+              <td colSpan={4} />
+              <td className="px-3 py-2">
+                <span className="text-gray-500 dark:text-gray-400">
+                  {passCount} assigned
+                </span>
+                {suggestedCount > 0 && (
+                  <span className="ml-2 text-gray-400 dark:text-gray-500">
+                    / {suggestedCount} suggested
+                  </span>
+                )}
+              </td>
+              {canManage && <td colSpan={2} />}
+            </tr>
+          </tfoot>
         </table>
       </div>
 
