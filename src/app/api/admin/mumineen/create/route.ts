@@ -52,6 +52,7 @@ export async function POST(req: NextRequest) {
   }
 
   let familyId: string;
+  let createdFamily = false;
 
   if (body.is_head) {
     const { data: existingFam } = await supabase
@@ -60,18 +61,21 @@ export async function POST(req: NextRequest) {
       .eq("hof_its", body.its)
       .maybeSingle();
     if (existingFam) {
-      return NextResponse.json({ error: `A family row already exists for HoF ITS ${body.its}.` }, { status: 409 });
+      // The family already exists but its HoF wasn't in the roster (an acting head stood in).
+      // Attach the now-arriving HoF mumin to that existing family instead of rejecting.
+      familyId = existingFam.id;
+    } else {
+      const { data: newFam, error: famErr } = await supabase
+        .from("families")
+        .insert({ hof_its: body.its, roster_active: true, registration_status: "not_started" })
+        .select("id")
+        .single();
+      if (famErr || !newFam) {
+        return NextResponse.json({ error: famErr?.message ?? "Failed to create family row" }, { status: 500 });
+      }
+      familyId = newFam.id;
+      createdFamily = true;
     }
-
-    const { data: newFam, error: famErr } = await supabase
-      .from("families")
-      .insert({ hof_its: body.its, roster_active: true, registration_status: "not_started" })
-      .select("id")
-      .single();
-    if (famErr || !newFam) {
-      return NextResponse.json({ error: famErr?.message ?? "Failed to create family row" }, { status: 500 });
-    }
-    familyId = newFam.id;
   } else {
     const { data: fam } = await supabase
       .from("families")
@@ -110,7 +114,8 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (muminErr || !newMumin) {
-    if (body.is_head) {
+    // Only roll back a family row we created here — never an existing one we attached to.
+    if (createdFamily) {
       await supabase.from("families").delete().eq("hof_its", body.its);
     }
     return NextResponse.json({ error: muminErr?.message ?? "Failed to create mumin record" }, { status: 500 });

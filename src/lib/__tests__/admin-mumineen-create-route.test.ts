@@ -94,4 +94,42 @@ describe("POST /api/admin/mumineen/create", () => {
     expect(res.status).toBe(403);
     expect(muminInsert).not.toHaveBeenCalled();
   });
+
+  it("attaches a new HoF to an existing family (acting-head case) instead of rejecting", async () => {
+    const familyInsert = vi.fn();
+    getSupabaseAdmin.mockReturnValue({
+      from(table: string) {
+        const chain = {
+          select: () => chain,
+          eq: () => chain,
+          delete: () => chain,
+          insert(payload: Record<string, unknown>) {
+            if (table === "mumineen") muminInsert(payload);
+            if (table === "families") familyInsert(payload);
+            return chain;
+          },
+          // ITS not yet in roster (null); the family already exists (imported without its HoF).
+          maybeSingle: () => Promise.resolve({ data: table === "families" ? { id: "fam-1" } : null, error: null }),
+          single: () =>
+            Promise.resolve(
+              table === "mumineen"
+                ? { data: { its: "40454143", full_name: "Murtaza" }, error: null }
+                : { data: { id: "fam-1" }, error: null },
+            ),
+        };
+        return chain;
+      },
+    });
+
+    const res = await POST(
+      postWith({ its: "40454143", full_name: "Murtaza", is_head: true, gender: "M", local_mehman: "Local", age: 45 }),
+    );
+
+    expect(res.status).toBe(201);
+    expect(familyInsert).not.toHaveBeenCalled(); // attached to the existing family, no new family row
+    const payload = muminInsert.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.is_head).toBe(true);
+    expect(payload.family_id).toBe("fam-1");
+    expect(payload.hof_its).toBe("40454143");
+  });
 });
