@@ -206,6 +206,43 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ segment, value, count: rows.length, rows });
   }
 
+  if (segment === "registered_member") {
+    // Welcome-team view: every ATTENDING member of a registered (submitted/confirmed) family,
+    // with their HOF ITS and the family's utaro Host ITS. Honors the local_mehman/gender filters.
+    const fams = await fetchAll<{ hof_its: string; registration_status: string | null; utaro_host_its: string | null }>((from, to) =>
+      supabase.from("families").select("hof_its, registration_status, utaro_host_its").eq("roster_active", true).range(from, to),
+    );
+    const hostByHof = new Map<string, string | null>();
+    for (const f of fams) {
+      if (isRegisteredStatus(f.registration_status)) hostByHof.set(f.hof_its, f.utaro_host_its);
+    }
+
+    let pool = await fetchAll<MuminDetail>((from, to) =>
+      supabase.from("mumineen").select(MUMIN_SELECT).eq("roster_active", true).range(from, to),
+    );
+    pool = pool.filter((m) => !m.not_attending && hostByHof.has(m.hof_its));
+    if (localMehmanFilter) pool = pool.filter((m) => m.local_mehman === localMehmanFilter);
+    if (genderFilter) pool = pool.filter((m) => (m.gender?.trim() ?? "") === genderFilter);
+    pool = pool
+      .slice()
+      .sort((a, b) => a.hof_its.localeCompare(b.hof_its) || (a.full_name ?? "").localeCompare(b.full_name ?? ""));
+
+    rows = pool.map((m) => ({
+      its: m.its,
+      name: m.full_name ?? m.its,
+      gender: m.gender?.trim() ?? "—",
+      age: "—",
+      local_mehman: m.local_mehman ?? "—",
+      whatsapp: m.whatsapp_e164 ?? "",
+      email: m.email ?? "",
+      detail: "",
+      hof_its: m.hof_its,
+      utaro_host_its: hostByHof.get(m.hof_its) ?? undefined,
+    }));
+
+    return NextResponse.json({ segment, value, count: rows.length, rows });
+  }
+
   if (isFamilySegment) {
     // Family-level segment — fetch families + their HoF name
     const allFams = await fetchAll<FamilyDetail>((from, to) =>
