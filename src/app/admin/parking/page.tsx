@@ -390,6 +390,7 @@ export default function ParkingPage() {
   const [multiPassFilter, setMultiPassFilter] = useState(false); // client-side: suggested_passes > 1
   const [exhaustedFilter, setExhaustedFilter] = useState(false); // client-side: passes >= suggested_passes > 0
   const [notFilledFilter, setNotFilledFilter] = useState(false); // client-side: suggested_passes > 0 && passes < suggested_passes
+  const [overAllocatedFilter, setOverAllocatedFilter] = useState(false); // client-side: passes.length > suggested_passes
   const [bulkLotId, setBulkLotId] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
   const [selectN, setSelectN] = useState(""); // "select N rows" input
@@ -574,6 +575,9 @@ export default function ParkingPage() {
   }
   if (notFilledFilter) {
     visible = visible.filter((r) => r.suggested_passes > 0 && r.passes.length < r.suggested_passes);
+  }
+  if (overAllocatedFilter) {
+    visible = visible.filter((r) => r.passes.length > r.suggested_passes);
   }
   if (search) {
     const q = search.toLowerCase();
@@ -807,6 +811,12 @@ export default function ParkingPage() {
           active={notFilledFilter}
           label="Passes not filled"
           onClick={() => { setNotFilledFilter(!notFilledFilter); setPage(1); }}
+        />
+        <FilterChip
+          active={overAllocatedFilter}
+          label="Over-allocated"
+          negative
+          onClick={() => { setOverAllocatedFilter(!overAllocatedFilter); setPage(1); }}
         />
         <select
           value={filters.local_mehman}
