@@ -88,6 +88,37 @@ describe("setFamilyNiyazRsvp partial attendance", () => {
     expect(kid?.attending).toBe(false);
   });
 
+  it("treats an unspecified kids count as 0, not all (adults=2 only → 2 adults, 0 kids)", async () => {
+    // Family of 2 adults + 1 kid. "2 from my family will eat" passed as {adults:2} must NOT
+    // silently keep the kid too — kids defaults to 0.
+    await setFamilyNiyazRsvp(
+      "fam-1",
+      [{ attending: true, dates: ["2026-06-21"], meal: "dinner" as const }],
+      { source: "whatsapp", phone: "+15551234567" },
+      { adults: 2 },
+    );
+    const rows = upsertedRows[0];
+    const head = rows.find((r) => r.mumin_id === "m-head");
+    const spouse = rows.find((r) => r.mumin_id === "m-spouse");
+    const kid = rows.find((r) => r.mumin_id === "m-kid");
+    expect(head?.attending).toBe(true);
+    expect(spouse?.attending).toBe(true);
+    expect(kid?.attending).toBe(false);
+  });
+
+  it("treats an unspecified adults count as 0 (kids=1 only → 0 adults, 1 kid)", async () => {
+    await setFamilyNiyazRsvp(
+      "fam-1",
+      [{ attending: true, dates: ["2026-06-21"], meal: "dinner" as const }],
+      { source: "whatsapp", phone: "+15551234567" },
+      { kids: 1 },
+    );
+    const rows = upsertedRows[0];
+    expect(rows.filter((r) => r.attending === true)).toHaveLength(1);
+    const kid = rows.find((r) => r.mumin_id === "m-kid");
+    expect(kid?.attending).toBe(true);
+  });
+
   it("keeps head + kid when adults=1, kids=1", async () => {
     await setFamilyNiyazRsvp(
       "fam-1",

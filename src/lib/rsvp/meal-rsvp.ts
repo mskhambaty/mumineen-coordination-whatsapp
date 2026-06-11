@@ -167,13 +167,17 @@ function decideEvents(events: NiyazEvent[], entries: NiyazRsvpEntry[]): Map<stri
 // Pick which members attend when the caller gives explicit adults/kids counts smaller than the
 // family. Priority: head of family first, then other adults, then kids. Members flagged
 // not_attending are excluded up front (they were never in the attending pool).
+//
+// Partial mode means "here is exactly who is attending this event", so an UNSPECIFIED category
+// defaults to 0, not to the whole family. This is what stops "2 from my family will eat" (passed as
+// {adults:2}) from silently keeping all the kids too — it now means 2 adults, 0 kids.
 function selectPartialTargets(targets: RsvpTarget[], counts: PartialCounts): Set<string> {
   const eligible = targets.filter((t) => !t.notAttending);
   const adults = eligible.filter((t) => t.isAdult);
   const kids = eligible.filter((t) => !t.isAdult);
 
-  const wantAdults = counts.adults ?? adults.length;
-  const wantKids = counts.kids ?? kids.length;
+  const wantAdults = counts.adults ?? 0;
+  const wantKids = counts.kids ?? 0;
 
   // Head of family first, then remaining adults
   const sortedAdults = [...adults].sort((a, b) => (a.isHead === b.isHead ? 0 : a.isHead ? -1 : 1));
