@@ -601,15 +601,18 @@ export default function ParkingPage() {
     }
   }
 
-  // Bulk flow derived state. effectiveNew counts only selections that would consume a
-  // space in the chosen lot (already-in-lot households get skipped server-side too).
+  // Bulk flow derived state. effectiveNew = total passes that would be inserted:
+  // sum of (suggested_passes - existing_in_lot) per selected family, clamped ≥ 0.
   const rowByFamily = useMemo(() => new Map(rows.map((r) => [r.family_id, r])), [rows]);
   const effectiveNew = useMemo(() => {
     if (!bulkLot) return 0;
     let n = 0;
     for (const id of selected) {
       const row = rowByFamily.get(id);
-      if (row && !row.passes.some((p) => p.lot_id === bulkLot.id)) n++;
+      if (row) {
+        const have = row.passes.filter((p) => p.lot_id === bulkLot.id).length;
+        n += Math.max(0, row.suggested_passes - have);
+      }
     }
     return n;
   }, [selected, rowByFamily, bulkLot]);
@@ -643,7 +646,11 @@ export default function ParkingPage() {
     try {
       const res = await apiFetch("/api/admin/parking/passes/bulk", {
         method: "POST",
-        body: JSON.stringify({ lot_id: bulkLot.id, family_ids: [...selected] }),
+        body: JSON.stringify({
+          lot_id: bulkLot.id,
+          family_ids: [...selected],
+          quotas: Object.fromEntries([...selected].map((id) => [id, rowByFamily.get(id)?.suggested_passes ?? 1])),
+        }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
