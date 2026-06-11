@@ -88,22 +88,28 @@ export async function GET(req: NextRequest) {
     );
     const scopedTasks = (tasks ?? []) as TaskRow[];
 
+    // PostgREST default limit is 1000 rows — override to avoid silently capped counts.
+    const ROW_CAP = 10_000;
     const [{ data: sessions }, { data: messages }, { data: toolCalls }, { data: milestoneRows }] = await Promise.all([
       supabase
         .from("conversation_sessions")
         .select("id, phone_e164, handling_mode, last_message_at, created_at, escalation_status, quality_score, quality_analyzed_at")
-        .gte("last_message_at", thirtyDaysAgo.toISOString()),
+        .gte("last_message_at", thirtyDaysAgo.toISOString())
+        .limit(ROW_CAP),
       supabase
         .from("messages")
         .select("id, phone_e164, direction, created_at")
-        .gte("created_at", thirtyDaysAgo.toISOString()),
+        .gte("created_at", thirtyDaysAgo.toISOString())
+        .limit(ROW_CAP),
       supabase
         .from("tool_audit_logs")
         .select("id, phone_e164, tool_name, allowed, created_at")
-        .gte("created_at", thirtyDaysAgo.toISOString()),
+        .gte("created_at", thirtyDaysAgo.toISOString())
+        .limit(ROW_CAP),
       supabase
         .from("milestones")
-        .select("id, status, department_id"),
+        .select("id, status, department_id")
+        .limit(ROW_CAP),
     ]);
 
     const typedSessions = (sessions ?? []) as SessionRow[];
