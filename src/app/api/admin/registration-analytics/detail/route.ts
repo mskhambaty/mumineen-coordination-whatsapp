@@ -109,7 +109,7 @@ export async function GET(req: NextRequest) {
   const FAMILY_SELECT =
     "hof_its, registration_status, acc_type, hotel_name, open_to_utaro, transport_mode, transport_detail, submitted_at, utaro_host_name, utaro_host_its, utaro_host_address, utaro_host_whatsapp_e164, utaro_host_email";
 
-  const isFamilySegment = ["hotel", "transport", "acc_type", "registration_status", "host"].includes(segment);
+  const isFamilySegment = ["hotel", "transport", "acc_type", "registration_status", "all_families", "host"].includes(segment);
 
   let rows: DetailRow[] = [];
 
@@ -332,7 +332,8 @@ export async function GET(req: NextRequest) {
       else if (segment === "acc_type") detail = f.acc_type ?? "—";
       else if (segment === "transport") detail = [f.transport_mode, f.transport_detail].filter(Boolean).join(" — ");
       // Registered families show their submission date; pending families have no status column.
-      else if (segment === "registration_status") detail = isRegisteredStatus(f.registration_status) ? `Submitted ${f.submitted_at?.slice(0, 10) ?? ""}`.trim() : "";
+      // all_families is the "Total families" drill — every active family, same row shape.
+      else if (segment === "registration_status" || segment === "all_families") detail = isRegisteredStatus(f.registration_status) ? `Submitted ${f.submitted_at?.slice(0, 10) ?? ""}`.trim() : "";
       else if (segment === "host")
         detail = [f.utaro_host_name?.trim(), f.utaro_host_its?.trim() ? `ITS ${f.utaro_host_its.trim()}` : null]
           .filter(Boolean)
@@ -351,10 +352,10 @@ export async function GET(req: NextRequest) {
         email: "",
         detail,
         hof_its: f.hof_its,
-        // Per-household count for the registration_status drill: attending count for registered
-        // families, full family size for pending (not-yet-registered) families.
+        // Per-household count for the registration_status / all_families drills: attending count for
+        // registered families, full family size for pending (not-yet-registered) families.
         attending:
-          segment === "registration_status"
+          segment === "registration_status" || segment === "all_families"
             ? String((isRegisteredStatus(f.registration_status) ? attendingByHof : totalByHof).get(f.hof_its) ?? 0)
             : undefined,
         // Pass utaro host fields through for the panel to render separately

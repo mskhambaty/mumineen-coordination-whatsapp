@@ -138,6 +138,19 @@ describe("GET /api/admin/registration-analytics/detail — registration_status d
     expect(json.rows[0].attending).toBe("1");
     expect(json.rows[0].detail).toMatch(/^Submitted/);
   });
+
+  it("all_families returns one row per active family (registered + pending) at the family level", async () => {
+    const json = await (await GET(req("segment=all_families"))).json();
+    // Both families, one row each — family-level (head/acting-head), not per-member.
+    expect(json.rows.map((r: { hof_its: string }) => r.hof_its).sort()).toEqual(["900", "901"]);
+    expect(json.count).toBe(2);
+    const pending = json.rows.find((r: { hof_its: string }) => r.hof_its === "900");
+    const reg = json.rows.find((r: { hof_its: string }) => r.hof_its === "901");
+    // Pending: full family size, no status detail. Registered: attending count + submitted date.
+    expect(pending).toMatchObject({ name: "Pending Head", attending: "2", detail: "" });
+    expect(reg.attending).toBe("1");
+    expect(reg.detail).toMatch(/^Submitted/);
+  });
 });
 
 describe("GET /api/admin/registration-analytics/detail — registered_member (welcome team)", () => {
