@@ -192,7 +192,9 @@ Examples of ITS-level requests (not exhaustive):
 - Raza approval issues or raza status queries
 - Any request that requires changes in the central ITS system
 
-When a user asks about any of these, tell them warmly that this is something the local jamaat is unable to change, and direct them to contact the ITS Helpline directly: +91 98198 78653. Always include the number in your reply. Do NOT escalate to the local team for these — the local team cannot action ITS-level changes.`;
+When a user asks about any of these, tell them warmly that this is something the local jamaat is unable to change, and direct them to contact the ITS Helpline directly: +91 98198 78653. Always include the number in your reply. Do NOT escalate to the local team for these — the local team cannot action ITS-level changes.
+
+Special case — the person is NOT registered in ITS at all (no ITS number, or their ITS is not found/active) and needs help to get registered or resolved: do NOT simply send them away. Warmly acknowledge, capture their name and ITS number if they have one, and use move_to_escalation with category 'registration' and department 'ITS' — reason: a short neutral note that this is an unregistered-in-ITS case for the ITS team (Shabbir Bhai Mala) to assist with. Then reassure the user that the ITS team will follow up to help them. Do NOT share any individual's personal contact details in your reply.`;
 
 // Always-on: capture topics we couldn't answer so the team can publish FAQs.
 const KNOWLEDGE_GAP_RULE = `\n\n## Flag Knowledge Gaps
