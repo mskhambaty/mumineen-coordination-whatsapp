@@ -143,7 +143,10 @@ cost, send. No auto-scheduling — every send is a button press.
   `POST /api/admin/templates/drain` ("Send pending" in the console) lets an admin push pending recipients
   manually — so a broadcast never silently hangs in `running` when the cron isn't firing. Throttled
   batches go through the shared `sendTemplateNotification` pipeline; logged in `template_broadcasts` /
-  `template_broadcast_recipients`.
+  `template_broadcast_recipients`. A broadcast is finalized to `completed` only once it has at least one
+  recipient row and none are still `queued`/`sending` — a broadcast with zero recipient rows is treated
+  as not-yet-populated (the row is inserted a moment before its recipients), so a concurrent drain can't
+  finalize it empty and strand its recipients as `queued`.
 - Delivery status: the WhatsApp webhook applies Meta `delivered`/`read`/`failed` callbacks by
   `wa_message_id` and marks `replied` when a target messages back (`src/lib/whatsapp/broadcast-status.ts`).
   When a `failed` callback carries a Meta `errors[]` entry, its `code: title` (plus a plain-language

@@ -24,6 +24,9 @@ let claimRows: ClaimRow[] = [];
 let batchQueue: ClaimRow[][] = [];
 let runningBroadcasts: { id: string }[] = [];
 let pendingCount = 0;
+// Total recipient rows for a broadcast (queued+sending+sent+failed+skipped). finalizeCompletedBroadcasts
+// reads this WITHOUT a send_status filter (no .in()), so the mock returns it when .in() wasn't called.
+let totalCount = 0;
 const rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
 const updateCalls: { table: string; values: Record<string, unknown>; eqVal?: unknown }[] = [];
 
@@ -37,7 +40,7 @@ const supabase = {
     return { data: null, error: null };
   }),
   from: (table: string) => {
-    const state: { values?: Record<string, unknown>; eqVal?: unknown; head: boolean } = { head: false };
+    const state: { values?: Record<string, unknown>; eqVal?: unknown; head: boolean; inCalled: boolean } = { head: false, inCalled: false };
     const builder: Record<string, unknown> = {
       select: (_cols: string, opts?: { head?: boolean }) => {
         if (opts?.head) state.head = true;
@@ -51,14 +54,18 @@ const supabase = {
         state.eqVal = val;
         return builder;
       },
-      in: () => builder,
+      in: () => {
+        state.inCalled = true;
+        return builder;
+      },
       then: (resolve: (v: unknown) => unknown) => {
         if (state.values !== undefined) {
           updateCalls.push({ table, values: state.values, eqVal: state.eqVal });
           return Promise.resolve({ data: null, error: null }).then(resolve);
         }
         if (table === "template_broadcasts") return Promise.resolve({ data: runningBroadcasts, error: null }).then(resolve);
-        if (state.head) return Promise.resolve({ count: pendingCount, error: null }).then(resolve);
+        // Recipient head-counts: with .in([...]) → pending count; without → total recipient rows.
+        if (state.head) return Promise.resolve({ count: state.inCalled ? pendingCount : totalCount, error: null }).then(resolve);
         return Promise.resolve({ data: [], error: null }).then(resolve);
       },
     };
@@ -78,6 +85,7 @@ beforeEach(() => {
   batchQueue = [];
   runningBroadcasts = [];
   pendingCount = 0;
+  totalCount = 0;
   sendTemplateNotification.mockResolvedValue({ status: "sent", waMessageId: "wamid.1" });
 });
 
@@ -127,6 +135,48 @@ describe("drainBroadcasts", () => {
 
     expect(updateCalls.some((u) => u.values.send_status === "failed" && u.eqVal === "r1")).toBe(true);
     expect(rpcCalls.filter((c) => c.fn === "bump_broadcast_counter" && c.args.p_field === "count_failed")).toHaveLength(1);
+  });
+});
+
+describe("finalizeCompletedBroadcasts (run via drainBroadcasts when the claim is empty)", () => {
+  const completed = () => updateCalls.filter((u) => u.table === "template_broadcasts" && u.values.status === "completed");
+
+  it("does NOT finalize a running broadcast that has zero recipient rows yet (the create-race guard)", async () => {
+    // Regression: createBroadcast inserts the broadcast row before its recipient rows. A drain landing
+    // in that gap used to see 0 pending recipients and mark the broadcast 'completed', after which the
+    // running-only claim could never send its (later-inserted) rows — stranding them all as 'queued'.
+    claimRows = [];
+    runningBroadcasts = [{ id: "b1" }];
+    totalCount = 0; // recipients not enqueued yet
+    pendingCount = 0; // ...so nothing pending either — must NOT be read as "done"
+
+    await drainBroadcasts();
+
+    expect(completed()).toHaveLength(0);
+  });
+
+  it("finalizes a running broadcast once it has recipient rows and none are pending", async () => {
+    claimRows = [];
+    runningBroadcasts = [{ id: "b1" }];
+    totalCount = 18; // recipients enqueued
+    pendingCount = 0; // all settled (sent/failed/skipped)
+
+    await drainBroadcasts();
+
+    const done = completed();
+    expect(done).toHaveLength(1);
+    expect(done[0].eqVal).toBe("b1");
+  });
+
+  it("does NOT finalize while recipients are still pending", async () => {
+    claimRows = [];
+    runningBroadcasts = [{ id: "b1" }];
+    totalCount = 18;
+    pendingCount = 5; // still draining
+
+    await drainBroadcasts();
+
+    expect(completed()).toHaveLength(0);
   });
 });
 
