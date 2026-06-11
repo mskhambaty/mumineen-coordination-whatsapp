@@ -4,6 +4,7 @@ import { canAccessInbox } from "@/lib/admin/access";
 import { countUnreadInbound, groupRowsByPhoneChronologically } from "@/lib/admin/conversations";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { RELIGIOUS_TOOL_NAMES } from "@/lib/admin/religious-transcript";
 
 type MessageRow = {
   id: string;
@@ -143,6 +144,17 @@ export async function GET(req: NextRequest) {
   const messagesByPhone = groupRowsByPhoneChronologically((messages ?? []) as MessageRow[]);
   const toolsByPhone = groupRowsByPhoneChronologically((toolCalls ?? []) as ToolAuditRow[]);
 
+  // Reliable "religious/Lisan tool used" flag — independent of the truncated tool_calls window
+  // above (which caps total rows). One narrow query over the loaded phones.
+  const { data: religiousRows } = await supabase
+    .from("tool_audit_logs")
+    .select("phone_e164")
+    .in("phone_e164", phoneNumbers)
+    .in("tool_name", RELIGIOUS_TOOL_NAMES as unknown as string[]);
+  const religiousPhones = new Set(
+    ((religiousRows ?? []) as { phone_e164: string }[]).map((r) => r.phone_e164),
+  );
+
   const conversations = ((sessions ?? []) as SessionRow[]).map((session) => {
     const user = Array.isArray(session.user) ? session.user[0] : session.user;
     const assignedUser = Array.isArray(session.assigned_user) ? session.assigned_user[0] : session.assigned_user;
@@ -182,6 +194,7 @@ export async function GET(req: NextRequest) {
       unread_inbound_count: unreadCount,
       messages: sessionMessages,
       tool_calls: toolsByPhone.get(session.phone_e164) ?? [],
+      used_religious_tool: religiousPhones.has(session.phone_e164),
     };
   });
 

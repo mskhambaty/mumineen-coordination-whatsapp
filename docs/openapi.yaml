@@ -314,6 +314,32 @@ paths:
         "200": { description: Conversations with handling mode, messages, and tool calls. }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /admin/conversations/religious-export:
+    get:
+      tags: [conversations]
+      summary: Export religious / Lisan chats as a mobile-readable HTML transcript.
+      description: >-
+        Downloads a self-contained HTML chat transcript (WhatsApp-style bubbles + tool badges) of
+        every conversation where the bot used a religious tool (`answer_religious_questions` or
+        `get_lisan_word_meaning`), optionally bounded by a date range. Admin/leadership only.
+        Contains PII (phone numbers, message bodies) — guarded by admin auth.
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      parameters:
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+          description: Inclusive start date (YYYY-MM-DD). Omit for all-time.
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+          description: Inclusive end date (YYYY-MM-DD). Omit for all-time.
+      responses:
+        "200":
+          description: An HTML file attachment (`Content-Disposition: attachment`).
+          content:
+            text/html: { schema: { type: string } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /admin/conversations/stream:
     get:
       tags: [conversations]
