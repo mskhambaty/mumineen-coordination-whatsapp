@@ -18,54 +18,55 @@ const ENTRY_ZONES: Record<string, { label: string; direction: string; textColor:
 
 function zoneInfo(color: string | null) {
   const key = (color ?? "").toLowerCase();
-  return (
-    ENTRY_ZONES[key] ?? {
-      label: (color ?? "").toUpperCase(),
-      direction: "",
-      textColor: "#374151",
-    }
-  );
+  return ENTRY_ZONES[key] ?? { label: (color ?? "").toUpperCase(), direction: "", textColor: "#374151" };
 }
 
+// Portrait-style pass: title → logo → table → footer (stacked vertically).
 function PassCard({ pass, lot }: { pass: Pass; lot: Lot }) {
   const zone = zoneInfo(lot.color);
   return (
     <div
       style={{
         border: "2px solid #222",
-        padding: "14px 18px",
+        padding: "20px 18px 16px",
         fontFamily: "Arial, Helvetica, sans-serif",
         background: "#fff",
         color: "#111",
         boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        width: "100%",
       }}
     >
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: "11px", fontWeight: "bold", letterSpacing: "0.08em", color: "#111", lineHeight: 1.3 }}>
-            ASHARA MUBARAKA 1448H &nbsp;/&nbsp; CHICAGO RELAY CENTER
-          </div>
-          <div style={{ fontSize: "16px", fontWeight: "bold", letterSpacing: "0.12em", color: "#111", marginTop: "2px" }}>
-            PARKING ENTRY
-          </div>
+      {/* Centered title */}
+      <div style={{ textAlign: "center", marginBottom: "14px" }}>
+        <div style={{ fontSize: "15px", fontWeight: "bold", letterSpacing: "0.07em", color: "#111", lineHeight: 1.4 }}>
+          ASHARA MUBARAKA 1448H
         </div>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/logo.jpg"
-          alt="Ashara Mubaraka 1448H — Chicago Relay Center"
-          style={{ height: "72px", width: "auto", objectFit: "contain", marginLeft: "16px", flexShrink: 0 }}
-          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-        />
+        <div style={{ fontSize: "15px", fontWeight: "bold", letterSpacing: "0.07em", color: "#111", lineHeight: 1.4 }}>
+          CHICAGO RELAY CENTER
+        </div>
+        <div style={{ fontSize: "13px", fontWeight: "bold", letterSpacing: "0.12em", color: "#111", marginTop: "4px" }}>
+          PARKING ENTRY
+        </div>
       </div>
 
-      {/* Name / Phone row */}
+      {/* Logo */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/logo.jpg"
+        alt="Ashara Mubaraka 1448H — Chicago Relay Center"
+        style={{ height: "140px", width: "auto", objectFit: "contain", marginBottom: "16px" }}
+        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+      />
+
+      {/* Data table: Name | Phone | Entry Zone */}
       <table
         style={{
           width: "100%",
           borderCollapse: "collapse",
-          marginBottom: "10px",
-          fontSize: "13px",
+          fontSize: "12px",
           color: "#111",
         }}
       >
@@ -78,7 +79,7 @@ function PassCard({ pass, lot }: { pass: Pass; lot: Lot }) {
                 background: "#e8e8e8",
                 fontWeight: "bold",
                 whiteSpace: "nowrap",
-                width: "1%",
+                width: "38%",
                 color: "#111",
               }}
             >
@@ -87,14 +88,16 @@ function PassCard({ pass, lot }: { pass: Pass; lot: Lot }) {
             <td
               style={{
                 border: "1px solid #888",
-                padding: "7px 12px",
+                padding: "7px 10px",
                 fontWeight: "600",
-                fontSize: "14px",
+                fontSize: "13px",
                 color: "#111",
               }}
             >
               {pass.head_name}
             </td>
+          </tr>
+          <tr>
             <td
               style={{
                 border: "1px solid #888",
@@ -102,7 +105,6 @@ function PassCard({ pass, lot }: { pass: Pass; lot: Lot }) {
                 background: "#e8e8e8",
                 fontWeight: "bold",
                 whiteSpace: "nowrap",
-                width: "1%",
                 color: "#111",
               }}
             >
@@ -111,49 +113,46 @@ function PassCard({ pass, lot }: { pass: Pass; lot: Lot }) {
             <td
               style={{
                 border: "1px solid #888",
-                padding: "7px 12px",
-                width: "22%",
+                padding: "7px 10px",
                 color: "#111",
               }}
             >
               {pass.phone ?? "—"}
             </td>
           </tr>
+          <tr>
+            <td
+              style={{
+                border: "1px solid #888",
+                padding: "7px 10px",
+                background: "#e8e8e8",
+                color: "#111",
+              }}
+            >
+              <span style={{ fontWeight: "bold" }}>Entry Zone </span>
+              <span style={{ fontWeight: "bold", color: zone.textColor }}>{zone.label}</span>
+            </td>
+            <td
+              style={{
+                border: "1px solid #888",
+                padding: "7px 10px",
+                color: "#111",
+              }}
+            >
+              {zone.direction}
+            </td>
+          </tr>
         </tbody>
       </table>
-
-      {/* Entry zone */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "10px",
-          border: "1px solid #888",
-          padding: "8px 12px",
-          marginBottom: "8px",
-          fontSize: "14px",
-          color: "#111",
-        }}
-      >
-        <span style={{ fontWeight: "bold", color: "#111" }}>Entry Zone</span>
-        <span style={{ color: zone.textColor, fontWeight: "bold", fontSize: "16px", letterSpacing: "0.06em" }}>
-          {zone.label}
-        </span>
-        {zone.direction && (
-          <>
-            <span style={{ color: "#888", fontSize: "16px", fontWeight: "300" }}>|</span>
-            <span style={{ color: "#111" }}>{zone.direction}</span>
-          </>
-        )}
-      </div>
 
       {/* Footer */}
       <div
         style={{
           textAlign: "center",
-          fontSize: "11px",
+          fontSize: "10px",
           color: "#555",
           fontStyle: "italic",
+          marginTop: "10px",
           letterSpacing: "0.04em",
         }}
       >
@@ -198,7 +197,7 @@ function PrintContent() {
     void load();
   }, [router, load]);
 
-  // Pair passes for 2-per-page layout.
+  // Group passes into pairs — 2 portrait cards side-by-side per landscape page.
   const pairs: [Pass, Pass | null][] = [];
   for (let i = 0; i < passes.length; i += 2) {
     pairs.push([passes[i], passes[i + 1] ?? null]);
@@ -225,14 +224,19 @@ function PrintContent() {
       <style>{`
         @media print {
           .no-print { display: none !important; }
-          @page { size: letter portrait; margin: 0.45in; }
+          @page { size: letter landscape; margin: 0.4in; }
           body { background: white !important; }
           .pass-page { page-break-after: always; page-break-inside: avoid; }
           .pass-page:last-child { page-break-after: avoid; }
         }
         @media screen {
           body { background: #e5e7eb; }
-          .pass-page { background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.12); margin-bottom: 32px; }
+          .pass-page {
+            background: white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+            margin-bottom: 32px;
+            border-radius: 4px;
+          }
         }
       `}</style>
 
@@ -282,26 +286,32 @@ function PrintContent() {
           No passes are assigned to this lot yet.
         </div>
       ) : (
-        <div style={{ padding: "24px 32px", maxWidth: "780px", margin: "0 auto" }}>
+        // Max-width matches landscape letter minus margins (~10in). Screen preview uses the same.
+        <div style={{ padding: "24px 32px", maxWidth: "1000px", margin: "0 auto" }}>
           {pairs.map((pair, i) => (
             <div
               key={i}
               className="pass-page"
-              style={{ padding: "20px" }}
+              style={{
+                display: "flex",
+                flexDirection: "row",
+                gap: "24px",
+                padding: "20px",
+                alignItems: "stretch",
+              }}
             >
-              {lot && <PassCard pass={pair[0]} lot={lot} />}
-
-              {/* Mid-page separator / second pass */}
-              <div style={{ margin: "18px 0", borderTop: "2px dashed #ccc" }} />
-
-              {pair[1] && lot ? (
-                <PassCard pass={pair[1]} lot={lot} />
-              ) : (
-                // Empty placeholder so the page is the right height even for odd pass counts.
-                <div style={{ height: "170px", border: "2px dashed #e5e7eb", borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <span style={{ color: "#d1d5db", fontSize: "12px", fontFamily: "Arial, sans-serif" }}>— blank —</span>
-                </div>
-              )}
+              <div style={{ flex: 1 }}>
+                {lot && <PassCard pass={pair[0]} lot={lot} />}
+              </div>
+              <div style={{ flex: 1 }}>
+                {pair[1] && lot ? (
+                  <PassCard pass={pair[1]} lot={lot} />
+                ) : (
+                  <div style={{ border: "2px dashed #e5e7eb", borderRadius: "4px", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <span style={{ color: "#d1d5db", fontSize: "12px", fontFamily: "Arial, sans-serif" }}>— blank —</span>
+                  </div>
+                )}
+              </div>
             </div>
           ))}
         </div>
