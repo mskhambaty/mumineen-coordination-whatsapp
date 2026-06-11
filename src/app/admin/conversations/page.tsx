@@ -643,7 +643,6 @@ export default function ConversationsPage() {
         ),
       );
       setSelectedPhone(phone);
-      setTab("conversations");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to resolve escalation");
     } finally {
