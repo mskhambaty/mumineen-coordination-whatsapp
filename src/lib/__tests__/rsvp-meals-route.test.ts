@@ -161,4 +161,23 @@ describe("POST /api/rsvp/meals", () => {
       { adults: 1, kids: 0 },
     );
   });
+
+  it("surfaces a clamp notice (with a message) when the count exceeded the family size", async () => {
+    resolveFamilyForPhone.mockResolvedValue(FAMILY);
+    setFamilyNiyazRsvp.mockResolvedValue({
+      updated: 3,
+      grid: [],
+      clamped: { requestedAdults: 6, requestedKids: undefined, maxAdults: 2, maxKids: 1 },
+    });
+    const res = await POST(req("POST", {
+      entries: [{ attending: true, all: true }],
+      adults: 6,
+    }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.status).toBe("ok");
+    expect(json.clamped.maxAdults).toBe(2);
+    expect(json.clamped.requestedAdults).toBe(6);
+    expect(json.clamped.message).toMatch(/capped|own phones/i);
+  });
 });

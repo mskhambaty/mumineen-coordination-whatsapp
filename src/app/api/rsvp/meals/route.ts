@@ -111,5 +111,15 @@ export async function POST(req: NextRequest) {
     partial,
   );
 
-  return NextResponse.json({ status: "ok", updated: result.updated, grid: result.grid });
+  // If the requested counts exceeded the family size, tell the agent so it can explain to the user
+  // that we capped at their registered family and the extras must register from their own phones.
+  const clampNotice = result.clamped
+    ? {
+        ...result.clamped,
+        message:
+          "The number of attendees you set is higher than this family's registered size, so it was capped at the family's actual members. The additional people must message this number from their own phones to register and RSVP separately.",
+      }
+    : undefined;
+
+  return NextResponse.json({ status: "ok", updated: result.updated, grid: result.grid, clamped: clampNotice });
 }

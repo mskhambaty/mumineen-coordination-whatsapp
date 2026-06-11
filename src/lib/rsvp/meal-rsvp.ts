@@ -130,7 +130,10 @@ export type NiyazRsvpEntry = {
   all?: boolean;
 };
 
-export type ApplyResult = { updated: number; grid: FamilyGridRow[] };
+// When the caller asked for more attendees than the family has, `clamped` reports the cap that was
+// applied so the agent can tell the user the extras must register from their own phones.
+export type ClampNotice = { requestedAdults?: number; requestedKids?: number; maxAdults: number; maxKids: number };
+export type ApplyResult = { updated: number; grid: FamilyGridRow[]; clamped?: ClampNotice };
 
 type RsvpTarget = { muminId: string; notAttending: boolean; isAdult: boolean; isHead: boolean };
 type ApplyOpts = { source: "whatsapp" | "admin"; phone?: string | null; recordedBy?: string | null; respectNotAttending?: boolean };
@@ -235,14 +238,22 @@ export async function setFamilyNiyazRsvp(
   const eligible = targets.filter((t) => !t.notAttending);
   const maxAdults = eligible.filter((t) => t.isAdult).length;
   const maxKids = eligible.filter((t) => !t.isAdult).length;
-  const clamped: PartialCounts | undefined = partial
+  const clampedCounts: PartialCounts | undefined = partial
     ? {
         adults: partial.adults !== undefined ? Math.min(partial.adults, maxAdults) : undefined,
         kids: partial.kids !== undefined ? Math.min(partial.kids, maxKids) : undefined,
       }
     : undefined;
-  const updated = await applyNiyazRsvp(targets, familyId, entries, { ...opts, respectNotAttending: true }, clamped);
-  return { updated, grid: await getFamilyNiyazGrid(familyId) };
+  // Flag when the requested counts exceeded the family — so the agent tells the user the extras
+  // must message this number from their own phones to register and RSVP separately.
+  const wasClamped =
+    (partial?.adults !== undefined && partial.adults > maxAdults) ||
+    (partial?.kids !== undefined && partial.kids > maxKids);
+  const clamped: ClampNotice | undefined = wasClamped
+    ? { requestedAdults: partial?.adults, requestedKids: partial?.kids, maxAdults, maxKids }
+    : undefined;
+  const updated = await applyNiyazRsvp(targets, familyId, entries, { ...opts, respectNotAttending: true }, clampedCounts);
+  return { updated, grid: await getFamilyNiyazGrid(familyId), clamped };
 }
 
 // Individual RSVP: records only the one responding mumin (their explicit answer overrides the

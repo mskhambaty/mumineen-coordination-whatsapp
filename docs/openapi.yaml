@@ -1497,15 +1497,16 @@ paths:
       tags: [rsvp]
       summary: Get the caller's family Niyaz RSVP grid
       description: >-
-        Self-scoped via x-whatsapp-from. Returns every Niyaz event with how many of the family
-        are attending (split into adults/kids via mumineen.is_adult) vs. family size. Phone→family
-        resolution checks mumin_phone_links first, then falls back to the member's own
-        mumineen.whatsapp_e164, so roster-seeded numbers without a registration link still resolve.
-        For genuinely unlinked phones, returns status=unregistered with any existing unregistered_rsvps
-        rows plus an events array (canonical date/meal/title per jaman) so the agent maps day
-        references to real dates. Used by the get_family_meal_rsvps agent tool.
+        Self-scoped via x-whatsapp-from. Returns every UPCOMING Niyaz event (today-and-future in
+        America/Chicago — past events are filtered out) with how many of the family are attending
+        (split into adults/kids via mumineen.is_adult) vs. family size. Phone→family resolution
+        checks mumin_phone_links first, then falls back to the member's own mumineen.whatsapp_e164,
+        so roster-seeded numbers without a registration link still resolve. For genuinely unlinked
+        phones, returns status=unregistered with any existing (future) unregistered_rsvps rows plus
+        an events array (canonical date/meal/title per jaman) so the agent maps day references to
+        real dates. Used by the get_family_meal_rsvps agent tool.
       responses:
-        "200": { description: "Grid rows { event, attending, adults, kids, total, dateLabel } + familyMembers [{name, isAdult, isHead, notAttending}] (status=ok; dateLabel e.g. 'Mon, Jun 15' has the weekday pre-computed for the agent's read-back), or status=unregistered with rsvps + events (each with a weekday `label`) for unlinked phones." }
+        "200": { description: "Upcoming-only grid rows { event, attending, adults, kids, total, dateLabel } + familyMembers [{name, isAdult, isHead, notAttending}] (status=ok; dateLabel e.g. 'Mon, Jun 15' has the weekday pre-computed for the agent's read-back), or status=unregistered with rsvps + events (each with a weekday `label`) for unlinked phones." }
         "400": { $ref: "#/components/responses/BadRequest" }
     post:
       tags: [rsvp]
@@ -1535,11 +1536,11 @@ paths:
                       dates: { type: array, items: { type: string, format: date } }
                       meal: { type: string, enum: [lunch, dinner] }
                       all: { type: boolean }
-                adults: { type: integer, description: "Number of adults attending. For registered families, triggers partial attendance (head of family kept first). For unregistered callers, records head count." }
-                kids: { type: integer, description: "Number of kids attending. For registered families, triggers partial attendance. For unregistered callers, records head count." }
+                adults: { type: integer, description: "Number of adults attending. For registered families, triggers partial attendance (head of family kept first); capped at the family's adult count. For unregistered callers, records head count." }
+                kids: { type: integer, description: "Number of kids attending. For registered families, triggers partial attendance; capped at the family's kid count. For unregistered callers, records head count." }
                 its_number: { type: string, description: "Unregistered callers only — optional ITS for family matching." }
       responses:
-        "200": { description: "Updated row count + refreshed grid (or status=unregistered for unlinked phones — upserts into unregistered_rsvps)." }
+        "200": { description: "Updated row count + refreshed grid. When the requested adults/kids exceeded the family size, also returns clamped {requestedAdults, requestedKids, maxAdults, maxKids, message} so the agent tells the user the count was capped and extras must register separately. (Or status=unregistered for unlinked phones — upserts into unregistered_rsvps.)" }
         "400": { $ref: "#/components/responses/BadRequest" }
 
   /api/admin/niyaz/instances:
