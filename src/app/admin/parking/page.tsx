@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 
 import { canManageParking, canViewParking, isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
+import { proximityConflict } from "@/lib/parking/proximity";
 import {
   LOT_PURPOSES,
   PURPOSE_LABELS,
@@ -378,6 +379,26 @@ function AssignMenu({
   );
 }
 
+// ─── Proximity audit types ─────────────────────────────────────────────────────
+
+type ProximityAuditIssue = {
+  family_id: string;
+  hof_its: string;
+  head_name: string;
+  anchor_color: string;
+  anchor_lot_name: string;
+  passes_to_revoke: { id: string; lot_name: string; lot_color: string | null }[];
+  overflow_lot: { id: string; name: string; color: string | null } | null;
+  using_fallback: boolean;
+  over_capacity: boolean;
+};
+
+type ProximityAuditResult = {
+  issues: ProximityAuditIssue[];
+  total_families: number;
+  total_to_revoke: number;
+};
+
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ParkingPage() {
@@ -412,6 +433,12 @@ export default function ParkingPage() {
   // Auto-narrow the list to households fitting the target lot's purposes. Turned on
   // when a narrowable lot is picked; the chip stays toggleable for deliberate overrides.
   const [purposeFit, setPurposeFit] = useState(false);
+
+  const [proximityOpen, setProximityOpen] = useState(false);
+  const [proximityAudit, setProximityAudit] = useState<ProximityAuditResult | null>(null);
+  const [proximityLoading, setProximityLoading] = useState(false);
+  const [proximityFixing, setProximityFixing] = useState(false);
+  const [proximityNotice, setProximityNotice] = useState<string | null>(null);
 
   // Gate: signed-in portal user with parking view access (see canViewParking).
   useEffect(() => {
@@ -648,6 +675,20 @@ export default function ParkingPage() {
     return n;
   }, [selected, rowByFamily, bulkLot]);
 
+  // Selected households whose existing anchor pass conflicts with the target lot —
+  // surfaced as a proximity warning in the bulk bar, never a block.
+  const proximityViolations = useMemo(() => {
+    if (!bulkLot || selected.size === 0) return 0;
+    let n = 0;
+    for (const id of selected) {
+      const row = rowByFamily.get(id);
+      if (row && row.passes.length > 0) {
+        if (proximityConflict(row.passes.map((p) => p.lot_color), bulkLot.color)) n++;
+      }
+    }
+    return n;
+  }, [selected, rowByFamily, bulkLot]);
+
   async function bulkAssign() {
     if (!bulkLot || selected.size === 0) return;
     if (
@@ -710,6 +751,55 @@ export default function ParkingPage() {
     }
   }
 
+  const loadProximityAudit = useCallback(async () => {
+    setProximityLoading(true);
+    setProximityNotice(null);
+    try {
+      const res = await apiFetch("/api/admin/parking/proximity");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setProximityNotice((json as { error?: string }).error ?? "Failed to load audit");
+        setProximityOpen(true);
+        return;
+      }
+      setProximityAudit(json as ProximityAuditResult);
+      setProximityOpen(true);
+    } finally {
+      setProximityLoading(false);
+    }
+  }, []);
+
+  async function fixProximity() {
+    if (!proximityAudit || proximityAudit.total_families === 0) return;
+    if (
+      !window.confirm(
+        `Move ${proximityAudit.total_to_revoke} misallocated pass${proximityAudit.total_to_revoke === 1 ? "" : "es"} across ${proximityAudit.total_families} famil${proximityAudit.total_families === 1 ? "y" : "ies"} to their correct overflow lots?`,
+      )
+    ) return;
+    setProximityFixing(true);
+    try {
+      const res = await apiFetch("/api/admin/parking/proximity", { method: "POST" });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean; revoked?: number; assigned?: number; skipped?: number; fallbacks_used?: number; error?: string;
+      };
+      if (!res.ok) {
+        setProximityNotice(json.error ?? "Fix failed");
+        return;
+      }
+      const parts = [
+        `${json.revoked ?? 0} revoked`,
+        `${json.assigned ?? 0} reassigned`,
+        ...(json.skipped ? [`${json.skipped} skipped`] : []),
+        ...(json.fallbacks_used ? [`${json.fallbacks_used} used fallback lot`] : []),
+      ];
+      setProximityNotice(`Done — ${parts.join(", ")}.`);
+      setProximityAudit(null);
+      await loadAll(filters);
+    } finally {
+      setProximityFixing(false);
+    }
+  }
+
   // One CSV row per pass across the currently visible households.
   function exportCsv() {
     const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
@@ -747,6 +837,19 @@ export default function ParkingPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {canManage && (
+            <button
+              type="button"
+              onClick={() => {
+                if (proximityOpen) { setProximityOpen(false); return; }
+                void loadProximityAudit();
+              }}
+              disabled={proximityLoading}
+              className="rounded-md border border-orange-300 px-3 py-1.5 text-xs font-medium text-orange-700 hover:bg-orange-50 disabled:opacity-50 dark:border-orange-700 dark:text-orange-300 dark:hover:bg-orange-900/20"
+            >
+              {proximityLoading ? "Loading…" : proximityOpen ? "Hide Proximity" : "Proximity Audit"}
+            </button>
+          )}
           <a
             href="/admin/parking/print"
             target="_blank"
@@ -777,6 +880,118 @@ export default function ParkingPage() {
       {notice && (
         <div className="mb-4 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700 dark:border-green-900 dark:bg-green-900/20 dark:text-green-300">
           {notice}
+        </div>
+      )}
+
+      {/* Proximity audit panel */}
+      {canManage && proximityOpen && (
+        <div className="mb-4 rounded-xl border border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-900/10">
+          <div className="flex items-center justify-between border-b border-orange-200 px-3 py-2.5 dark:border-orange-800">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-orange-800 dark:text-orange-300">Proximity Audit</span>
+              {proximityAudit && !proximityLoading && (
+                <span className="text-xs text-orange-600 dark:text-orange-400">
+                  {proximityAudit.total_families === 0
+                    ? "No issues found"
+                    : `${proximityAudit.total_families} famil${proximityAudit.total_families === 1 ? "y" : "ies"} · ${proximityAudit.total_to_revoke} pass${proximityAudit.total_to_revoke === 1 ? "" : "es"} to move`}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setProximityOpen(false)}
+              className="text-xs text-orange-400 hover:text-orange-600 dark:hover:text-orange-200"
+            >
+              Close ×
+            </button>
+          </div>
+
+          {proximityLoading && (
+            <div className="px-3 py-5 text-center text-xs text-orange-500">Loading audit…</div>
+          )}
+
+          {!proximityLoading && proximityNotice && (
+            <div className="px-3 py-2.5 text-xs text-orange-700 dark:text-orange-300">{proximityNotice}</div>
+          )}
+
+          {!proximityLoading && proximityAudit && (
+            <>
+              {proximityAudit.total_families === 0 ? (
+                <div className="px-3 py-5 text-center text-xs text-orange-500">
+                  All passes are correctly allocated.
+                </div>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-orange-100 text-left text-[10px] uppercase tracking-wide text-orange-500 dark:border-orange-800 dark:text-orange-400">
+                          <th className="px-3 py-2">Household</th>
+                          <th className="px-3 py-2">Anchor lot</th>
+                          <th className="px-3 py-2">Passes to move</th>
+                          <th className="px-3 py-2">Target lot</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-orange-100 dark:divide-orange-900">
+                        {proximityAudit.issues.map((issue) => (
+                          <tr key={issue.family_id}>
+                            <td className="px-3 py-2 text-gray-700 dark:text-gray-300">
+                              <div className="font-medium">{issue.head_name}</div>
+                              <div className="text-[10px] text-gray-400">{issue.hof_its}</div>
+                            </td>
+                            <td className="px-3 py-2 text-gray-600 dark:text-gray-300">
+                              <div className="flex items-center gap-1.5">
+                                <ColorDot color={issue.anchor_color} />
+                                {issue.anchor_lot_name}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex flex-wrap gap-1">
+                                {issue.passes_to_revoke.map((p) => (
+                                  <span
+                                    key={p.id}
+                                    className="inline-flex items-center gap-1 rounded border border-gray-200 px-1.5 py-0.5 text-gray-600 dark:border-gray-600 dark:text-gray-300"
+                                  >
+                                    <ColorDot color={p.lot_color} />
+                                    {p.lot_name}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2">
+                              {issue.overflow_lot ? (
+                                <div className={`flex items-center gap-1.5 ${issue.using_fallback ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"}`}>
+                                  <ColorDot color={issue.overflow_lot.color} />
+                                  {issue.overflow_lot.name}
+                                  {issue.using_fallback && <span className="text-[10px]">(fallback)</span>}
+                                  {issue.over_capacity && <span title="Over capacity — will soft-exceed">⚠</span>}
+                                </div>
+                              ) : (
+                                <span className="text-red-500">No lot available</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-orange-200 px-3 py-2.5 dark:border-orange-800">
+                    <span className="text-xs text-orange-600 dark:text-orange-400">
+                      {proximityAudit.total_to_revoke} pass{proximityAudit.total_to_revoke === 1 ? "" : "es"} will be moved
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void fixProximity()}
+                      disabled={proximityFixing}
+                      className="rounded-md bg-orange-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-700 disabled:opacity-50"
+                    >
+                      {proximityFixing ? "Fixing…" : `Fix All (${proximityAudit.total_to_revoke} move${proximityAudit.total_to_revoke === 1 ? "" : "s"})`}
+                    </button>
+                  </div>
+                </>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -1082,6 +1297,13 @@ export default function ParkingPage() {
                     {`⚠ ${unqualified} of ${selected.size} selected ${
                       unqualified === 1 ? "doesn't" : "don't"
                     } match this lot's purposes (${bulkLot.purposes.map((p) => PURPOSE_LABELS[p] ?? p).join(", ")})`}
+                  </span>
+                )}
+                {proximityViolations > 0 && (
+                  <span className="font-medium text-orange-600 dark:text-orange-400">
+                    {`⚠ ${proximityViolations} of ${selected.size} selected ${
+                      proximityViolations === 1 ? "has" : "have"
+                    } an anchor pass that conflicts with this lot's proximity rules`}
                   </span>
                 )}
                 <button

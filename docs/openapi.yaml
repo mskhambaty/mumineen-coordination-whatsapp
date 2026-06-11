@@ -2691,6 +2691,79 @@ components:
         401: { $ref: "#/components/responses/Unauthorized" }
         500: { $ref: "#/components/responses/ServerError" }
 
+  /api/admin/parking/proximity:
+    get:
+      summary: Audit parking passes for proximity violations
+      description: |
+        Returns all families whose passes violate proximity rules (anchor lot + wrong overflow).
+        Proximity rules: Gold/White anchor → overflow Red (fallback Blue); Blue anchor → overflow Blue.
+        Requires canManageParking.
+      tags: [Parking]
+      security: [{ portalSession: [] }]
+      responses:
+        200:
+          description: Audit result with per-family issues and planned fix targets.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  issues:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        family_id: { type: string, format: uuid }
+                        hof_its: { type: string }
+                        head_name: { type: string }
+                        anchor_color: { type: string }
+                        anchor_lot_name: { type: string }
+                        passes_to_revoke:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id: { type: string, format: uuid }
+                              lot_name: { type: string }
+                              lot_color: { type: string, nullable: true }
+                        overflow_lot:
+                          type: object
+                          nullable: true
+                          properties:
+                            id: { type: string, format: uuid }
+                            name: { type: string }
+                            color: { type: string, nullable: true }
+                        using_fallback: { type: boolean }
+                        over_capacity: { type: boolean }
+                  total_families: { type: integer }
+                  total_to_revoke: { type: integer }
+        401: { $ref: "#/components/responses/Unauthorized" }
+        500: { $ref: "#/components/responses/ServerError" }
+    post:
+      summary: Fix all parking pass proximity violations
+      description: |
+        Revokes all misallocated passes and inserts replacements in the correct overflow lot.
+        Processes families sequentially; tracks running lot counts to respect capacity.
+        Capacity is soft — if both primary and fallback lots are full the fix proceeds with a warning.
+        Requires canManageParking.
+      tags: [Parking]
+      security: [{ portalSession: [] }]
+      responses:
+        200:
+          description: Fix summary.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  revoked: { type: integer }
+                  assigned: { type: integer }
+                  skipped: { type: integer }
+                  fallbacks_used: { type: integer }
+        401: { $ref: "#/components/responses/Unauthorized" }
+        500: { $ref: "#/components/responses/ServerError" }
+
   /api/admin/parking/print:
     get:
       summary: Get lot details and all passes for print layout
