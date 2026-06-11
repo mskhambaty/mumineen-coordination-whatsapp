@@ -6,7 +6,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { canViewParking } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
-type Pass = { id: string; hof_its: string; head_name: string; phone: string | null };
+type Pass = { id: string; hof_its: string; head_name: string; phone: string | null; lot_name: string; lot_color: string | null };
 type Lot = { id: string; name: string; color: string | null };
 
 const ENTRY_ZONES: Record<string, { label: string; direction: string; textColor: string }> = {
@@ -22,8 +22,8 @@ function zoneInfo(color: string | null) {
 }
 
 // Portrait-style pass: title → logo → table → footer (stacked vertically).
-function PassCard({ pass, lot }: { pass: Pass; lot: Lot }) {
-  const zone = zoneInfo(lot.color);
+function PassCard({ pass }: { pass: Pass }) {
+  const zone = zoneInfo(pass.lot_color);
   return (
     <div
       style={{
@@ -197,12 +197,10 @@ function PrintContent() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!lotId) {
-      setError("No lot selected. Close this tab and click a lot's Print button.");
-      setLoading(false);
-      return;
-    }
-    const res = await apiFetch(`/api/admin/parking/print?lot_id=${encodeURIComponent(lotId)}`);
+    const url = lotId
+      ? `/api/admin/parking/print?lot_id=${encodeURIComponent(lotId)}`
+      : `/api/admin/parking/print`;
+    const res = await apiFetch(url);
     const json = (await res.json().catch(() => ({}))) as { lot?: Lot; passes?: Pass[]; error?: string };
     if (!res.ok) {
       setError(json.error ?? "Failed to load passes.");
@@ -290,7 +288,7 @@ function PrintContent() {
         }}
       >
         <div>
-          <span style={{ fontWeight: "700", fontSize: "15px", color: "#111" }}>{lot?.name ?? "Lot"} — Parking Passes</span>
+          <span style={{ fontWeight: "700", fontSize: "15px", color: "#111" }}>{lot ? `${lot.name} — Parking Passes` : "All Parking Passes (by ITS)"}</span>
           <span style={{ marginLeft: "10px", fontSize: "13px", color: "#6b7280" }}>
             {passes.length} pass{passes.length === 1 ? "" : "es"} · {pairs.length} page{pairs.length === 1 ? "" : "s"}
           </span>
@@ -315,7 +313,7 @@ function PrintContent() {
 
       {passes.length === 0 ? (
         <div style={{ display: "flex", height: "40vh", alignItems: "center", justifyContent: "center", fontFamily: "Arial, sans-serif", color: "#9ca3af", fontSize: "14px" }}>
-          No passes are assigned to this lot yet.
+          No passes found.
         </div>
       ) : (
         // Max-width matches landscape letter minus margins (~10in). Screen preview uses the same.
@@ -334,11 +332,11 @@ function PrintContent() {
               }}
             >
               <div style={{ flex: 1, display: "flex" }}>
-                {lot && <PassCard pass={pair[0]} lot={lot} />}
+                <PassCard pass={pair[0]} />
               </div>
               <div style={{ flex: 1, display: "flex" }}>
-                {pair[1] && lot ? (
-                  <PassCard pass={pair[1]} lot={lot} />
+                {pair[1] ? (
+                  <PassCard pass={pair[1]} />
                 ) : (
                   <div style={{ border: "2px dashed #e5e7eb", borderRadius: "4px", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <span style={{ color: "#d1d5db", fontSize: "12px", fontFamily: "Arial, sans-serif" }}>— blank —</span>
