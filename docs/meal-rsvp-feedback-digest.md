@@ -177,24 +177,28 @@ recipients into *messaged ≤24h (free)* vs *needs a template (paid)*.
 
 **Reach segments** (header summary + sendable audiences). `segmentCounts()` (`audience.ts`) sizes
 three segments, each split free/paid, exposed by `GET /api/admin/templates/segments` and shown as
-cards atop the page; the same keys are selectable in the Audience dropdown:
-- `segment_all_users` — every attending roster member with a number (`all_members`) **∪** every
-  distinct `unregistered_rsvps` phone, deduped.
-- `segment_hof` — one head-of-family per **roster-active** family (`rosterHofRecipients()`) **∪**
-  every distinct `unregistered_rsvps` phone (each unregistered phone assumed to be one HOF), deduped.
-  HOF is **roster-wide, not gated on app registration** — it covers imported families that never
-  completed in-app registration. `rosterHofRecipients()` takes one reachable number per family,
-  preferring the `is_head` member, else any member.
-- `segment_hof_unresponded` — roster HOF whose family has **no RSVP response on record** (no
+cards atop the page; the same keys are selectable in the Audience dropdown. **All three are scoped to
+people we expect to attend** — members of **registered (submitted) families** plus unregistered
+callers who told us they're coming for Niyaz. Registration is our attendance signal (arrival date,
+hotel, …), so the imported-but-never-registered roster is intentionally excluded (same principle as
+the `/admin/niyaz` min/max tallies):
+- `segment_all_users` — every attending member of a **registered** family
+  (`registeredMemberRecipients()`) **∪** every distinct `unregistered_rsvps` phone, deduped.
+- `segment_hof` — one head-of-family per **registered** family (`registered_hof`) **∪** every distinct
+  `unregistered_rsvps` phone (each unregistered phone assumed to be one HOF), deduped. One reachable
+  number per family, preferring the `is_head` member, else any member.
+- `segment_hof_unresponded` — registered HOF whose family has **no RSVP response on record** (no
   `niyaz_rsvp` row sourced `whatsapp`/`admin` and no `niyaz_family_headcount`), via
   `respondedFamilyIds()`. Unregistered phones are excluded — they're in `unregistered_rsvps`
   *because* they responded. This is the "who haven't we heard from?" chase list.
 
+`submittedFamilyIds()` is the shared registration gate (`registration_status='submitted'`).
+
 **Head-of-family identity.** The import marks `mumineen.is_head` where a member's own ITS equals the
 family's `hof_its` (~933). Families whose head ITS isn't present as a member row had no head, so a
 one-time backfill (`20260611111345_backfill_family_heads`) designates a primary person per such
-family (preferring a member with a number, then an adult, then earliest), giving every roster family
-exactly one head.
+family (preferring a member with a number, then an adult, then earliest), giving every family exactly
+one head — so a registered family is never missed for lack of a head flag.
 
 **Scale note.** PostgREST caps a response at 1000 rows, which had silently truncated the roster
 scans (3k+ members read as ~900). `audience.ts` now pages through those reads (`fetchAllRows`), and

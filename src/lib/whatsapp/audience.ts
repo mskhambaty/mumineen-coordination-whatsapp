@@ -254,10 +254,28 @@ function oneReachablePerFamily(members: RosterMember[], opts: { onlyFamilyIds?: 
   return dedupeByPhone([...recipients, ...individuals]);
 }
 
-// One reachable head-of-family per roster-active family (no app-registration gate) — the roster-wide
-// HOF set for the reach segments.
-export async function rosterHofRecipients(): Promise<Recipient[]> {
-  return oneReachablePerFamily(await fetchAttendingRosterMembers());
+// Family ids that completed in-app registration (registration_status='submitted'). Registration is
+// our signal of intended attendance (arrival date, hotel, etc.), so the reach segments are scoped to
+// these families — not the whole imported roster. Paginated for safety.
+export async function submittedFamilyIds(): Promise<Set<string>> {
+  const supabase = getSupabaseAdmin();
+  const rows = await fetchAllRows<{ id: string }>(() =>
+    supabase.from("families").select("id").eq("roster_active", true).eq("registration_status", "submitted").order("id", { ascending: true }) as unknown as Pageable<{ id: string }>,
+  );
+  return new Set(rows.map((f) => f.id));
+}
+
+// Every attending member of a registered (submitted) family, deduped by phone — the "registered
+// users" side of the All-users segment.
+export async function registeredMemberRecipients(): Promise<Recipient[]> {
+  const submitted = await submittedFamilyIds();
+  if (submitted.size === 0) return [];
+  const members = await fetchAttendingRosterMembers();
+  return dedupeByPhone(
+    members
+      .filter((m) => m.family_id && submitted.has(m.family_id))
+      .map((m) => ({ phone: normalizePhone(m.whatsapp_e164), familyId: m.family_id, muminId: m.id, fields: fieldsOf(m) })),
+  );
 }
 
 // Resolve the raw (deduped) recipient list for an audience. `selectedUserIds` is used by
@@ -275,17 +293,18 @@ export async function resolveAudience(
     throw new Error("csv_upload audiences are provided as an explicit recipient list, not resolved from the database.");
   }
 
-  // Niyaz reach segments. "All users" = every attending roster member; HOF = one head per
-  // roster-active family (roster-wide, not gated on app registration). Both union the unregistered
-  // RSVP callers; the unresponded segment then drops families we've already heard from.
+  // Niyaz reach segments — scoped to people we expect to attend: members of registered (submitted)
+  // families plus unregistered callers who told us they're coming for Niyaz. "All users" = every
+  // registered member; HOF = one head per registered family. Both union the unregistered RSVP
+  // callers; the unresponded segment then drops families we've already heard from.
   if (key === "segment_all_users" || key === "segment_hof") {
-    const base = key === "segment_all_users" ? await resolveAudience("all_members") : await rosterHofRecipients();
+    const base = key === "segment_all_users" ? await registeredMemberRecipients() : await resolveAudience("registered_hof");
     const unregistered = await unregisteredRsvpRecipients();
     return dedupeByPhone([...base, ...unregistered]);
   }
 
   if (key === "segment_hof_unresponded") {
-    const hof = await rosterHofRecipients();
+    const hof = await resolveAudience("registered_hof");
     const responded = await respondedFamilyIds();
     return hof.filter((r) => r.familyId && !responded.has(r.familyId));
   }
@@ -329,10 +348,7 @@ export async function resolveAudience(
   // member scan is paginated + filtered in-app — avoids both the 1000-row cap and a giant
   // family_id IN (...) URL that silently returned nothing at scale.
   if (key === "registered_hof" || key === "arrived_hof") {
-    const submitted = await fetchAllRows<{ id: string }>(() =>
-      supabase.from("families").select("id").eq("roster_active", true).eq("registration_status", "submitted").order("id", { ascending: true }) as unknown as Pageable<{ id: string }>,
-    );
-    const submittedIds = new Set(submitted.map((f) => f.id));
+    const submittedIds = await submittedFamilyIds();
     if (submittedIds.size === 0) return [];
     const members = await fetchAttendingRosterMembers();
     return oneReachablePerFamily(members, { onlyFamilyIds: submittedIds, onlyArrived: key === "arrived_hof" });
