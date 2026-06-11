@@ -15,6 +15,11 @@ export const AUDIENCE_KEYS = [
   "arrived_hof",
   "registered_hof",
   "all_members",
+  // Niyaz reach segments (registered ∪ unregistered RSVP), used both as sendable audiences and as
+  // the header summary on the console — see segmentCounts().
+  "segment_all_users",
+  "segment_hof",
+  "segment_hof_unresponded",
   "custom",
   "csv_upload",
 ] as const;
@@ -31,6 +36,9 @@ export const AUDIENCE_LABEL: Record<AudienceKey, string> = {
   arrived_hof: "Arrived families (one per family)",
   registered_hof: "All registered families (one per family)",
   all_members: "All family members (deduped by number)",
+  segment_all_users: "All users (registered + unregistered RSVP)",
+  segment_hof: "Heads of family (registered + unregistered RSVP)",
+  segment_hof_unresponded: "HOF with no RSVP response yet",
   custom: "Custom filter",
   csv_upload: "Uploaded CSV",
 };
@@ -147,6 +155,30 @@ export async function enrichFieldsByPhone(recipients: Recipient[]): Promise<void
   }
 }
 
+// Distinct phones that have submitted an unregistered Niyaz RSVP (one per number). These callers
+// aren't on the roster, so they carry no mappable fields — segment sends should use no-variable
+// templates. Each phone is treated as one head of family for the HOF segments.
+export async function unregisteredRsvpRecipients(): Promise<Recipient[]> {
+  const { data } = await getSupabaseAdmin().from("unregistered_rsvps").select("phone_e164");
+  return dedupeByPhone(((data ?? []) as { phone_e164: string }[]).map((r) => ({ phone: r.phone_e164, familyId: null })));
+}
+
+// Family ids that have a real RSVP response on record — a niyaz_rsvp row sourced from a WhatsApp
+// button/admin entry, or a family head-count. Used to carve out the "haven't heard from" segment.
+export async function respondedFamilyIds(): Promise<Set<string>> {
+  const supabase = getSupabaseAdmin();
+  const ids = new Set<string>();
+  const { data: rsvps } = await supabase
+    .from("niyaz_rsvp")
+    .select("family_id")
+    .in("source", ["whatsapp", "admin"])
+    .not("family_id", "is", null);
+  for (const r of (rsvps ?? []) as { family_id: string | null }[]) if (r.family_id) ids.add(r.family_id);
+  const { data: heads } = await supabase.from("niyaz_family_headcount").select("family_id").not("family_id", "is", null);
+  for (const r of (heads ?? []) as { family_id: string | null }[]) if (r.family_id) ids.add(r.family_id);
+  return ids;
+}
+
 // Resolve the raw (deduped) recipient list for an audience. `selectedUserIds` is used by
 // "selected_users"; `rules` by "custom".
 export async function resolveAudience(
@@ -160,6 +192,19 @@ export async function resolveAudience(
   // as an explicit list (see parseAudienceCsv + the explicit-recipients path in createBroadcast).
   if (key === "csv_upload") {
     throw new Error("csv_upload audiences are provided as an explicit recipient list, not resolved from the database.");
+  }
+
+  // Niyaz reach segments, composed from the base roster audiences plus unregistered RSVP callers.
+  if (key === "segment_all_users" || key === "segment_hof") {
+    const base = await resolveAudience(key === "segment_all_users" ? "all_members" : "registered_hof", selectedUserIds, rules);
+    const unregistered = await unregisteredRsvpRecipients();
+    return dedupeByPhone([...base, ...unregistered]);
+  }
+
+  if (key === "segment_hof_unresponded") {
+    const hof = await resolveAudience("registered_hof", selectedUserIds, rules);
+    const responded = await respondedFamilyIds();
+    return hof.filter((r) => r.familyId && !responded.has(r.familyId));
   }
 
   if (key === "custom") {
@@ -317,4 +362,28 @@ export async function previewExplicitRecipients(recipients: Recipient[]): Promis
     est_cost_usd: Number((paid * utilityMessageCostUsd()).toFixed(2)),
     recipients: enriched,
   };
+}
+
+export const SEGMENT_KEYS = ["segment_all_users", "segment_hof", "segment_hof_unresponded"] as const;
+
+export type SegmentCount = {
+  key: (typeof SEGMENT_KEYS)[number];
+  label: string;
+  total: number;
+  in_window: number; // messaged in last 24h — reachable for free via a session message
+  out_window: number; // not messaged in 24h — needs a template (counts against the daily cap)
+};
+
+// Sizes of the three Niyaz reach segments, each split into the free 24h-window vs the rest. Powers
+// the console's header so staff can see how many template sends a segment would actually require.
+// Resolves each segment list and the in-window phone set once.
+export async function segmentCounts(): Promise<SegmentCount[]> {
+  const inWindow = await getInWindowPhones();
+  const out: SegmentCount[] = [];
+  for (const key of SEGMENT_KEYS) {
+    const recipients = await resolveAudience(key);
+    const free = recipients.filter((r) => inWindow.has(normalizePhone(r.phone))).length;
+    out.push({ key, label: AUDIENCE_LABEL[key], total: recipients.length, in_window: free, out_window: recipients.length - free });
+  }
+  return out;
 }
