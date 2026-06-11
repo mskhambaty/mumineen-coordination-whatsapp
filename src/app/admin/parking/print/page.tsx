@@ -6,7 +6,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { canViewParking } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
-type Pass = { id: string; head_name: string; phone: string | null };
+type Pass = { id: string; hof_its: string; head_name: string; phone: string | null };
 type Lot = { id: string; name: string; color: string | null };
 
 const ENTRY_ZONES: Record<string, { label: string; direction: string; textColor: string }> = {
@@ -95,6 +95,29 @@ function PassCard({ pass, lot }: { pass: Pass; lot: Lot }) {
               }}
             >
               {pass.head_name}
+            </td>
+          </tr>
+          <tr>
+            <td
+              style={{
+                border: "1px solid #888",
+                padding: "7px 10px",
+                background: "#e8e8e8",
+                fontWeight: "bold",
+                whiteSpace: "nowrap",
+                color: "#111",
+              }}
+            >
+              ITS #:
+            </td>
+            <td
+              style={{
+                border: "1px solid #888",
+                padding: "7px 10px",
+                color: "#111",
+              }}
+            >
+              {pass.hof_its}
             </td>
           </tr>
           <tr>

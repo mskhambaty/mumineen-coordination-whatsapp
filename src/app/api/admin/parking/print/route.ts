@@ -68,6 +68,7 @@ export async function GET(req: NextRequest) {
       const head = mems.find((m) => m.is_head) ?? mems[0] ?? null;
       return {
         id: p.id,
+        hof_its: hofIts,
         head_name: head?.full_name ?? hofIts,
         phone: head?.whatsapp_e164 ?? mems.find((m) => m.whatsapp_e164)?.whatsapp_e164 ?? null,
       };
