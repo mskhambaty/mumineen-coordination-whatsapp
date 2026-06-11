@@ -192,11 +192,17 @@ the `/admin/niyaz` min/max tallies):
   `unregistered_rsvps` phone (each unregistered phone assumed to be one HOF), deduped. One reachable
   number per family, preferring the `is_head` member, else any member.
 - `segment_hof_unresponded` — registered HOF whose family has **no RSVP response on record** (no
-  `niyaz_rsvp` row sourced `whatsapp`/`admin` and no `niyaz_family_headcount`), via
-  `respondedFamilyIds()`. Unregistered phones are excluded — they're in `unregistered_rsvps`
-  *because* they responded. This is the "who haven't we heard from?" chase list.
+  `niyaz_rsvp` row sourced `whatsapp`/`admin` and no `niyaz_family_headcount`, via
+  `respondedFamilyIds()`) **and** whom we **haven't already sent a template** (`templatedPhones()`).
+  Unregistered phones are excluded — they're in `unregistered_rsvps` *because* they responded. This
+  is the "fresh contacts" chase list: people we still need to reach for the first time, so it's the
+  natural target when rationing the daily template cap.
 
 `submittedFamilyIds()` is the shared registration gate (`registration_status='submitted'`).
+`templatedPhones()` is the set of numbers we've already sent any approved template to — every send
+routes through `sendTemplateNotification` → `recordOutboundMessage`, which logs an outbound
+`messages` row with body prefixed `[template:…]`, so that prefix is the marker (covers registration
+reminders, daily Niyaz RSVP, and notifications alike).
 
 **Head-of-family identity.** The import marks `mumineen.is_head` where a member's own ITS equals the
 family's `hof_its` (~933). Families whose head ITS isn't present as a member row had no head, so a

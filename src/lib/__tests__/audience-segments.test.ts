@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   niyaz_rsvp: [] as unknown[],
   niyaz_family_headcount: [] as unknown[],
   conversation_sessions: [] as unknown[],
+  messages: [] as unknown[],
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -23,6 +24,7 @@ vi.mock("@/lib/supabase/server", () => ({
         in: () => builder,
         not: () => builder,
         gte: () => builder,
+        like: () => builder,
         order: () => builder,
         range: () => Promise.resolve(result()),
         then: (resolve: (v: unknown) => unknown) => Promise.resolve(result()).then(resolve),
@@ -41,6 +43,7 @@ beforeEach(() => {
   state.niyaz_rsvp = [];
   state.niyaz_family_headcount = [];
   state.conversation_sessions = [];
+  state.messages = [];
 });
 
 const member = (over: Record<string, unknown>) => ({
@@ -112,6 +115,12 @@ describe("segment_hof_unresponded", () => {
     state.niyaz_family_headcount = [{ family_id: "f2" }]; // f2 responded via head count → dropped
     const r = await resolveAudience("segment_hof_unresponded");
     expect(r.map((x) => x.familyId)).toEqual(["f1"]);
+  });
+
+  it("excludes HOF we've already sent a template to", async () => {
+    state.messages = [{ phone_e164: "+13125550001" }]; // f1's head was templated → dropped
+    const r = await resolveAudience("segment_hof_unresponded");
+    expect(r.map((x) => x.familyId)).toEqual(["f2"]);
   });
 });
 

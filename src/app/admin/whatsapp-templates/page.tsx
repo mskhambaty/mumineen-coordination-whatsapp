@@ -50,7 +50,7 @@ const AUDIENCES: { key: string; label: string }[] = [
   { key: "all_members", label: "All family members (deduped by number)" },
   { key: "segment_all_users", label: "Segment: All users (registered + unregistered RSVP)" },
   { key: "segment_hof", label: "Segment: Heads of family (registered + unregistered RSVP)" },
-  { key: "segment_hof_unresponded", label: "Segment: HOF with no RSVP response yet" },
+  { key: "segment_hof_unresponded", label: "Segment: HOF — no RSVP response & no prior template" },
   { key: "custom", label: "Custom filter…" },
   { key: "csv_upload", label: "Upload CSV…" },
 ];

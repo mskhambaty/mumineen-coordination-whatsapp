@@ -38,7 +38,7 @@ export const AUDIENCE_LABEL: Record<AudienceKey, string> = {
   all_members: "All family members (deduped by number)",
   segment_all_users: "All users (registered + unregistered RSVP)",
   segment_hof: "Heads of family (registered + unregistered RSVP)",
-  segment_hof_unresponded: "HOF with no RSVP response yet",
+  segment_hof_unresponded: "HOF — no RSVP response & no prior template",
   custom: "Custom filter",
   csv_upload: "Uploaded CSV",
 };
@@ -199,6 +199,20 @@ export async function respondedFamilyIds(): Promise<Set<string>> {
   return ids;
 }
 
+// Phones we've already sent an approved template to (any purpose — registration reminders, daily
+// Niyaz RSVP, notifications). Every template send routes through sendTemplateNotification →
+// recordOutboundMessage, which logs an outbound `messages` row whose body is prefixed `[template:…]`
+// (message_type stays 'text'), so that prefix is the canonical "we templated this number" marker.
+// Paginated — thousands of rows. Used to keep the "fresh contacts" segment to people we haven't
+// burned a template on yet.
+export async function templatedPhones(): Promise<Set<string>> {
+  const supabase = getSupabaseAdmin();
+  const rows = await fetchAllRows<{ phone_e164: string }>(() =>
+    supabase.from("messages").select("phone_e164").eq("direction", "outbound").like("body", "[template:%").order("id", { ascending: true }) as unknown as Pageable<{ phone_e164: string }>,
+  );
+  return new Set(rows.map((r) => normalizePhone(r.phone_e164)));
+}
+
 // One attending roster member row, with the columns the audiences personalize on.
 type RosterMember = Record<string, unknown> & {
   id: string;
@@ -305,8 +319,8 @@ export async function resolveAudience(
 
   if (key === "segment_hof_unresponded") {
     const hof = await resolveAudience("registered_hof");
-    const responded = await respondedFamilyIds();
-    return hof.filter((r) => r.familyId && !responded.has(r.familyId));
+    const [responded, templated] = await Promise.all([respondedFamilyIds(), templatedPhones()]);
+    return hof.filter((r) => r.familyId && !responded.has(r.familyId) && !templated.has(normalizePhone(r.phone)));
   }
 
   if (key === "custom") {
