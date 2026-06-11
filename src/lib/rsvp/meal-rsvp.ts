@@ -85,6 +85,17 @@ export async function getFamilyNiyazGrid(familyId: string): Promise<FamilyGridRo
   });
 }
 
+// When the bot reads a registered family's RSVP back (GET), promote any default-sourced rows to
+// whatsapp — the user has now seen and implicitly confirmed their attendance via a bot interaction.
+// Fire-and-forget; doesn't change attending values, only the source tag so the min view picks them up.
+export async function markFamilyRsvpConfirmed(familyId: string, phone: string): Promise<void> {
+  await getSupabaseAdmin()
+    .from("niyaz_rsvp")
+    .update({ source: "whatsapp", responded_by_phone: phone })
+    .eq("family_id", familyId)
+    .in("source", ["default", "registration"]);
+}
+
 // One instruction from the agent/admin: mark a family attending (or not) for specific dates (or all
 // days), optionally narrowed to one meal. Omit dates (or set all=true) to apply to every event.
 export type NiyazRsvpEntry = {

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveFamilyForPhone = vi.fn();
 const getFamilyNiyazGrid = vi.fn();
+const markFamilyRsvpConfirmed = vi.fn();
 const setFamilyNiyazRsvp = vi.fn();
 const getUnregisteredRsvps = vi.fn();
 const recordUnregisteredRsvp = vi.fn();
@@ -13,6 +14,7 @@ vi.mock("@/lib/rsvp/family", () => ({
 }));
 vi.mock("@/lib/rsvp/meal-rsvp", () => ({
   getFamilyNiyazGrid: (...args: unknown[]) => getFamilyNiyazGrid(...args),
+  markFamilyRsvpConfirmed: (...args: unknown[]) => markFamilyRsvpConfirmed(...args),
   setFamilyNiyazRsvp: (...args: unknown[]) => setFamilyNiyazRsvp(...args),
   getUnregisteredRsvps: (...args: unknown[]) => getUnregisteredRsvps(...args),
   recordUnregisteredRsvp: (...args: unknown[]) => recordUnregisteredRsvp(...args),
@@ -34,7 +36,10 @@ function req(method: string, body?: unknown, withPhone = true): NextRequest {
   });
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  markFamilyRsvpConfirmed.mockResolvedValue(undefined);
+});
 
 describe("GET /api/rsvp/meals", () => {
   it("rejects a request with no x-whatsapp-from header (unauthorized)", async () => {
@@ -56,6 +61,8 @@ describe("GET /api/rsvp/meals", () => {
     // Jun 15 2026 is a Monday — the label is computed server-side so the agent never guesses it.
     expect(json.grid[0].dateLabel).toBe("Mon, Jun 15");
     expect(getFamilyNiyazGrid).toHaveBeenCalledWith("fam-1");
+    // Viewing the RSVP via the bot promotes default rows to whatsapp for the min view.
+    expect(markFamilyRsvpConfirmed).toHaveBeenCalledWith("fam-1", PHONE);
   });
 
   it("returns unregistered (with the canonical events list incl. weekday labels) when the number isn't on the roster", async () => {

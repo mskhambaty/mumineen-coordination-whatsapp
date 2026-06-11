@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { resolveFamilyForPhone } from "@/lib/rsvp/family";
-import { getFamilyNiyazGrid, setFamilyNiyazRsvp, getUnregisteredRsvps, recordUnregisteredRsvp, getEvents } from "@/lib/rsvp/meal-rsvp";
+import { getFamilyNiyazGrid, markFamilyRsvpConfirmed, setFamilyNiyazRsvp, getUnregisteredRsvps, recordUnregisteredRsvp, getEvents } from "@/lib/rsvp/meal-rsvp";
 
 export const runtime = "nodejs";
 
@@ -61,6 +61,9 @@ export async function GET(req: NextRequest) {
   }
 
   const grid = await getFamilyNiyazGrid(family.familyId);
+  // The user is viewing their RSVP via the bot — promote default/registration rows to whatsapp
+  // so the min view counts them as confirmed. Fire-and-forget (don't block the response).
+  markFamilyRsvpConfirmed(family.familyId, phone).catch(() => {});
   // Attach a weekday date label per row so the agent's summary read-back can show "Mon, Jun 15"
   // without computing the weekday itself.
   const labeledGrid = grid.map((row) => ({ ...row, dateLabel: dateLabel(row.event.eventDate) }));

@@ -1,7 +1,10 @@
--- Fix min-mode tallies: include registration-sourced RSVPs (people who actively registered and
--- had their attendance seeded from arrival dates). Previously only counted 'whatsapp' and 'admin'
--- sources, which excluded the 90+ families that registered but hadn't yet interacted with the bot.
--- Now excludes only 'default' (pure arrival-date seeded rows with no active confirmation).
+-- Min-mode event tallies: same aggregation as niyaz_event_tallies but only counts RSVPs
+-- from active confirmations (source = 'whatsapp' or 'admin'), excluding the default
+-- arrival-date seeded rows. Used for the "Min" tab on the admin Niyaz page.
+--
+-- The GET /api/rsvp/meals endpoint promotes default/registration rows to source='whatsapp'
+-- when a registered family views their RSVP via the bot, so anyone who has interacted
+-- about RSVP gets counted here.
 
 create or replace function public.niyaz_event_tallies_min()
 returns table (
@@ -26,7 +29,7 @@ returns table (
   from public.rsvp_registration_instance i
   left join public.niyaz_rsvp r
     on r.registration_instance_id = i.id
-    and r.source != 'default'
+    and r.source in ('whatsapp', 'admin')
   left join public.mumineen m on m.id = r.mumin_id
   group by i.id;
 $$ language sql security invoker;
