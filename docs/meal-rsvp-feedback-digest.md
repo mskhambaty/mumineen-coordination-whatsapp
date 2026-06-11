@@ -180,12 +180,26 @@ three segments, each split free/paid, exposed by `GET /api/admin/templates/segme
 cards atop the page; the same keys are selectable in the Audience dropdown:
 - `segment_all_users` — every attending roster member with a number (`all_members`) **∪** every
   distinct `unregistered_rsvps` phone, deduped.
-- `segment_hof` — registered HOF (`registered_hof`) **∪** every distinct `unregistered_rsvps` phone
-  (each unregistered phone assumed to be one HOF), deduped.
-- `segment_hof_unresponded` — registered HOF whose family has **no RSVP response on record** (no
+- `segment_hof` — one head-of-family per **roster-active** family (`rosterHofRecipients()`) **∪**
+  every distinct `unregistered_rsvps` phone (each unregistered phone assumed to be one HOF), deduped.
+  HOF is **roster-wide, not gated on app registration** — it covers imported families that never
+  completed in-app registration. `rosterHofRecipients()` takes one reachable number per family,
+  preferring the `is_head` member, else any member.
+- `segment_hof_unresponded` — roster HOF whose family has **no RSVP response on record** (no
   `niyaz_rsvp` row sourced `whatsapp`/`admin` and no `niyaz_family_headcount`), via
   `respondedFamilyIds()`. Unregistered phones are excluded — they're in `unregistered_rsvps`
   *because* they responded. This is the "who haven't we heard from?" chase list.
+
+**Head-of-family identity.** The import marks `mumineen.is_head` where a member's own ITS equals the
+family's `hof_its` (~933). Families whose head ITS isn't present as a member row had no head, so a
+one-time backfill (`20260611111345_backfill_family_heads`) designates a primary person per such
+family (preferring a member with a number, then an adult, then earliest), giving every roster family
+exactly one head.
+
+**Scale note.** PostgREST caps a response at 1000 rows, which had silently truncated the roster
+scans (3k+ members read as ~900). `audience.ts` now pages through those reads (`fetchAllRows`), and
+the per-family audiences filter a single paginated member scan in-app instead of a giant
+`family_id IN (...)` query that failed at scale — so the counts are now complete.
 
 **Template hygiene.** A **Manage templates** popup lets admins give each Meta template a
 `friendly_name` and an `is_active` flag (`whatsapp_template_settings`, via

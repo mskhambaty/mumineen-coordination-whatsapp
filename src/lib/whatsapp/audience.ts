@@ -84,6 +84,25 @@ function dedupeByPhone(candidates: Recipient[]): Recipient[] {
 
 const isEmptyField = (v: unknown) => v == null || String(v).trim() === "";
 
+// PostgREST caps a single response at 1000 rows, which silently truncated the roster scans and made
+// audience counts collapse (e.g. 3k+ members read as ~900). Page through a query in 1000-row windows
+// so the full set is returned. `make` must return a fresh query builder each call (so .range() can be
+// applied) and the query must carry a stable .order() for correct, non-overlapping paging.
+interface Pageable<T> {
+  range(from: number, to: number): PromiseLike<{ data: T[] | null }>;
+}
+async function fetchAllRows<T>(make: () => Pageable<T>): Promise<T[]> {
+  const PAGE = 1000;
+  const out: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data } = await make().range(from, from + PAGE - 1);
+    const rows = data ?? [];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
 // Resolve roster identity + mappable fields for a set of phones — direct via mumineen.whatsapp_e164,
 // then a mumin_phone_links fallback (e.g. a shared/registration number). Chunked so large lists
 // (CSV uploads) don't blow the query/URL size limit. Returns the matched mumineen rows keyed by
@@ -165,18 +184,80 @@ export async function unregisteredRsvpRecipients(): Promise<Recipient[]> {
 
 // Family ids that have a real RSVP response on record — a niyaz_rsvp row sourced from a WhatsApp
 // button/admin entry, or a family head-count. Used to carve out the "haven't heard from" segment.
+// Paginated: there are thousands of niyaz_rsvp response rows, well past the 1000-row cap.
 export async function respondedFamilyIds(): Promise<Set<string>> {
   const supabase = getSupabaseAdmin();
   const ids = new Set<string>();
-  const { data: rsvps } = await supabase
-    .from("niyaz_rsvp")
-    .select("family_id")
-    .in("source", ["whatsapp", "admin"])
-    .not("family_id", "is", null);
-  for (const r of (rsvps ?? []) as { family_id: string | null }[]) if (r.family_id) ids.add(r.family_id);
-  const { data: heads } = await supabase.from("niyaz_family_headcount").select("family_id").not("family_id", "is", null);
-  for (const r of (heads ?? []) as { family_id: string | null }[]) if (r.family_id) ids.add(r.family_id);
+  const rsvps = await fetchAllRows<{ family_id: string | null }>(() =>
+    supabase.from("niyaz_rsvp").select("family_id").in("source", ["whatsapp", "admin"]).not("family_id", "is", null).order("family_id", { ascending: true }) as unknown as Pageable<{ family_id: string | null }>,
+  );
+  for (const r of rsvps) if (r.family_id) ids.add(r.family_id);
+  const heads = await fetchAllRows<{ family_id: string | null }>(() =>
+    supabase.from("niyaz_family_headcount").select("family_id").not("family_id", "is", null).order("family_id", { ascending: true }) as unknown as Pageable<{ family_id: string | null }>,
+  );
+  for (const r of heads) if (r.family_id) ids.add(r.family_id);
   return ids;
+}
+
+// One attending roster member row, with the columns the audiences personalize on.
+type RosterMember = Record<string, unknown> & {
+  id: string;
+  family_id: string | null;
+  whatsapp_e164: string;
+  is_head: boolean | null;
+  arrival_at: string | null;
+  not_attending: boolean;
+};
+
+// Every attending, roster-active member that has a WhatsApp number — paginated so the full roster
+// (3k+ rows) is read, not just the first 1000. Shared by all_members and the per-family audiences.
+async function fetchAttendingRosterMembers(): Promise<RosterMember[]> {
+  const supabase = getSupabaseAdmin();
+  return fetchAllRows<RosterMember>(() =>
+    supabase
+      .from("mumineen")
+      .select(`id, family_id, whatsapp_e164, is_head, arrival_at, not_attending, ${MAPPABLE_COLS.join(", ")}`)
+      .eq("roster_active", true)
+      .eq("not_attending", false)
+      .not("whatsapp_e164", "is", null)
+      .order("id", { ascending: true }) as unknown as Pageable<RosterMember>,
+  );
+}
+
+// Collapse a member list to one reachable number per family, preferring the head-of-family member,
+// else any member (so a family whose head lacks a number is still reached). Members with no family
+// are each kept individually. `onlyFamilyIds` restricts to a family set; `onlyArrived` keeps only
+// families with at least one arrived member.
+function oneReachablePerFamily(members: RosterMember[], opts: { onlyFamilyIds?: Set<string>; onlyArrived?: boolean } = {}): Recipient[] {
+  const byFamily = new Map<string, { member: RosterMember; arrived: boolean }>();
+  const individuals: Recipient[] = [];
+  const now = Date.now();
+  for (const m of members) {
+    if (!m.family_id) {
+      if (!opts.onlyFamilyIds) individuals.push({ phone: normalizePhone(m.whatsapp_e164), familyId: null, muminId: m.id, fields: fieldsOf(m) });
+      continue;
+    }
+    if (opts.onlyFamilyIds && !opts.onlyFamilyIds.has(m.family_id)) continue;
+    const arrived = m.arrival_at ? new Date(m.arrival_at).getTime() <= now : false;
+    const existing = byFamily.get(m.family_id);
+    if (!existing || m.is_head) {
+      byFamily.set(m.family_id, { member: m, arrived: arrived || (existing?.arrived ?? false) });
+    } else if (arrived && !existing.arrived) {
+      existing.arrived = true;
+    }
+  }
+  const recipients: Recipient[] = [];
+  for (const [familyId, info] of byFamily) {
+    if (opts.onlyArrived && !info.arrived) continue;
+    recipients.push({ phone: normalizePhone(info.member.whatsapp_e164), familyId, muminId: info.member.id, fields: fieldsOf(info.member) });
+  }
+  return dedupeByPhone([...recipients, ...individuals]);
+}
+
+// One reachable head-of-family per roster-active family (no app-registration gate) — the roster-wide
+// HOF set for the reach segments.
+export async function rosterHofRecipients(): Promise<Recipient[]> {
+  return oneReachablePerFamily(await fetchAttendingRosterMembers());
 }
 
 // Resolve the raw (deduped) recipient list for an audience. `selectedUserIds` is used by
@@ -194,15 +275,17 @@ export async function resolveAudience(
     throw new Error("csv_upload audiences are provided as an explicit recipient list, not resolved from the database.");
   }
 
-  // Niyaz reach segments, composed from the base roster audiences plus unregistered RSVP callers.
+  // Niyaz reach segments. "All users" = every attending roster member; HOF = one head per
+  // roster-active family (roster-wide, not gated on app registration). Both union the unregistered
+  // RSVP callers; the unresponded segment then drops families we've already heard from.
   if (key === "segment_all_users" || key === "segment_hof") {
-    const base = await resolveAudience(key === "segment_all_users" ? "all_members" : "registered_hof", selectedUserIds, rules);
+    const base = key === "segment_all_users" ? await resolveAudience("all_members") : await rosterHofRecipients();
     const unregistered = await unregisteredRsvpRecipients();
     return dedupeByPhone([...base, ...unregistered]);
   }
 
   if (key === "segment_hof_unresponded") {
-    const hof = await resolveAudience("registered_hof", selectedUserIds, rules);
+    const hof = await rosterHofRecipients();
     const responded = await respondedFamilyIds();
     return hof.filter((r) => r.familyId && !responded.has(r.familyId));
   }
@@ -241,72 +324,35 @@ export async function resolveAudience(
     return recipients;
   }
 
-  // The remaining audiences are roster families. Pull active, registered families and one
-  // reachable number each (head member's WhatsApp, else any member's), carrying that member's fields.
+  // registered_hof / arrived_hof: app-registered (submitted) roster families, one reachable number
+  // each (head's WhatsApp, else any member's). The submitted-family set is held in memory and the
+  // member scan is paginated + filtered in-app — avoids both the 1000-row cap and a giant
+  // family_id IN (...) URL that silently returned nothing at scale.
   if (key === "registered_hof" || key === "arrived_hof") {
-    const { data: families } = await supabase
-      .from("families")
-      .select("id, registration_status, roster_active")
-      .eq("roster_active", true)
-      .eq("registration_status", "submitted");
-
-    const familyIds = ((families ?? []) as { id: string }[]).map((f) => f.id);
-    if (familyIds.length === 0) return [];
-
-    const { data: members } = await supabase
-      .from("mumineen")
-      .select(`id, family_id, whatsapp_e164, is_head, arrival_at, not_attending, ${MAPPABLE_COLS.join(", ")}`)
-      .in("family_id", familyIds)
-      .eq("roster_active", true)
-      .not("whatsapp_e164", "is", null);
-
-    type M = Record<string, unknown> & { id: string; family_id: string; whatsapp_e164: string; is_head: boolean; arrival_at: string | null; not_attending: boolean };
-    const byFamily = new Map<string, { member: M; arrived: boolean }>();
-    const now = Date.now();
-    for (const m of (members ?? []) as unknown as M[]) {
-      if (m.not_attending) continue;
-      const arrived = m.arrival_at ? new Date(m.arrival_at).getTime() <= now : false;
-      const existing = byFamily.get(m.family_id);
-      if (!existing || m.is_head) {
-        byFamily.set(m.family_id, { member: m, arrived: arrived || (existing?.arrived ?? false) });
-      } else if (arrived && !existing.arrived) {
-        existing.arrived = true;
-      }
-    }
-
-    const recipients: Recipient[] = [];
-    for (const [familyId, info] of byFamily) {
-      if (key === "arrived_hof" && !info.arrived) continue;
-      recipients.push({ phone: info.member.whatsapp_e164, familyId, muminId: info.member.id, fields: fieldsOf(info.member) });
-    }
-    return dedupeByPhone(recipients);
+    const submitted = await fetchAllRows<{ id: string }>(() =>
+      supabase.from("families").select("id").eq("roster_active", true).eq("registration_status", "submitted").order("id", { ascending: true }) as unknown as Pageable<{ id: string }>,
+    );
+    const submittedIds = new Set(submitted.map((f) => f.id));
+    if (submittedIds.size === 0) return [];
+    const members = await fetchAttendingRosterMembers();
+    return oneReachablePerFamily(members, { onlyFamilyIds: submittedIds, onlyArrived: key === "arrived_hof" });
   }
 
   // all_members: every attending roster member with a number, deduped by phone.
-  const { data: members } = await supabase
-    .from("mumineen")
-    .select(`id, family_id, whatsapp_e164, not_attending, roster_active, ${MAPPABLE_COLS.join(", ")}`)
-    .eq("roster_active", true)
-    .eq("not_attending", false)
-    .not("whatsapp_e164", "is", null);
+  const members = await fetchAttendingRosterMembers();
   return dedupeByPhone(
-    ((members ?? []) as unknown as (Record<string, unknown> & { id: string; family_id: string | null; whatsapp_e164: string })[]).map((m) => ({
-      phone: m.whatsapp_e164,
-      familyId: m.family_id,
-      muminId: m.id,
-      fields: fieldsOf(m),
-    })),
+    members.map((m) => ({ phone: normalizePhone(m.whatsapp_e164), familyId: m.family_id, muminId: m.id, fields: fieldsOf(m) })),
   );
 }
 
-// Set of phone numbers currently inside the free 24h customer-service window.
+// Set of phone numbers currently inside the free 24h customer-service window. Paginated so the count
+// stays correct as in-window traffic grows past 1000 during Ashara.
 export async function getInWindowPhones(): Promise<Set<string>> {
   const cutoff = new Date(Date.now() - WINDOW_MS).toISOString();
-  const { data } = await getSupabaseAdmin()
-    .from("conversation_sessions")
-    .select("phone_e164, last_message_at")
-    .gte("last_message_at", cutoff);
-  return new Set(((data ?? []) as { phone_e164: string }[]).map((r) => normalizePhone(r.phone_e164)));
+  const rows = await fetchAllRows<{ phone_e164: string }>(() =>
+    getSupabaseAdmin().from("conversation_sessions").select("phone_e164").gte("last_message_at", cutoff).order("phone_e164", { ascending: true }) as unknown as Pageable<{ phone_e164: string }>,
+  );
+  return new Set(rows.map((r) => normalizePhone(r.phone_e164)));
 }
 
 export function utilityMessageCostUsd(): number {
