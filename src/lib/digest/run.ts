@@ -149,18 +149,20 @@ async function distribute(
         counters.errors.push(`email ${r.user_id}: ${err instanceof Error ? err.message : "failed"}`);
       }
     }
-    if (r.phone_e164 && !seenPhone.has(r.phone_e164)) {
-      seenPhone.add(r.phone_e164);
-      const res = await sendTemplateNotification({
-        phoneE164: r.phone_e164,
-        userId: r.user_id,
-        templateName: WA_TEMPLATE,
-        bodyParams: [departmentLabel, s.short || "See dashboard for today's summary."],
-        source: "department_digest",
-      });
-      if (res.status === "sent") counters.whatsapp++;
-      else counters.errors.push(`wa ${r.user_id}: ${res.error ?? "failed"}`);
-    }
+    // TEMPORARILY DISABLED: WhatsApp digest sends paused to conserve Meta's 250/day
+    // template cap for higher-priority broadcasts. Re-enable when cap is lifted.
+    // if (r.phone_e164 && !seenPhone.has(r.phone_e164)) {
+    //   seenPhone.add(r.phone_e164);
+    //   const res = await sendTemplateNotification({
+    //     phoneE164: r.phone_e164,
+    //     userId: r.user_id,
+    //     templateName: WA_TEMPLATE,
+    //     bodyParams: [departmentLabel, s.short || "See dashboard for today's summary."],
+    //     source: "department_digest",
+    //   });
+    //   if (res.status === "sent") counters.whatsapp++;
+    //   else counters.errors.push(`wa ${r.user_id}: ${res.error ?? "failed"}`);
+    // }
   }
 }
 
