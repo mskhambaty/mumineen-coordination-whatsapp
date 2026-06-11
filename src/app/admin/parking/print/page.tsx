@@ -36,7 +36,8 @@ function PassCard({ pass, lot }: { pass: Pass; lot: Lot }) {
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        width: "100%",
+        justifyContent: "space-between",
+        flex: 1,
       }}
     >
       {/* Centered title */}
@@ -323,10 +324,10 @@ function PrintContent() {
                 alignItems: "stretch",
               }}
             >
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, display: "flex" }}>
                 {lot && <PassCard pass={pair[0]} lot={lot} />}
               </div>
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, display: "flex" }}>
                 {pair[1] && lot ? (
                   <PassCard pass={pair[1]} lot={lot} />
                 ) : (
