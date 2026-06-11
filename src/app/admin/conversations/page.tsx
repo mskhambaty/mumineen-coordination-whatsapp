@@ -101,6 +101,7 @@ type Conversation = {
   unread_inbound_count: number;
   messages: Message[];
   tool_calls: ToolCall[];
+  used_religious_tool?: boolean;
   quality_score: "good" | "poor" | null;
   quality_reason: string | null;
   quality_analyzed_at: string | null;
@@ -222,6 +223,10 @@ export default function ConversationsPage() {
   const [linkCopied, setLinkCopied] = useState(false);
   const [search, setSearch] = useState("");
   const [qualityFilter, setQualityFilter] = useState<"all" | "poor">("all");
+  const [religiousOnly, setReligiousOnly] = useState(false);
+  const [exportFrom, setExportFrom] = useState("");
+  const [exportTo, setExportTo] = useState("");
+  const [exporting, setExporting] = useState(false);
   const [attachment, setAttachment] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagePaneRef = useRef<HTMLDivElement>(null);
@@ -339,6 +344,9 @@ export default function ConversationsPage() {
     if (qualityFilter === "poor") {
       list = list.filter((c) => c.quality_score === "poor");
     }
+    if (religiousOnly) {
+      list = list.filter((c) => c.used_religious_tool);
+    }
     const q = search.trim().toLowerCase();
     if (!q) return list;
     return list.filter((c) => {
@@ -347,7 +355,31 @@ export default function ConversationsPage() {
       if ((c.email ?? "").toLowerCase().includes(q)) return true;
       return c.messages.some((m) => (m.body ?? "").toLowerCase().includes(q));
     });
-  }, [visibleConversations, search, qualityFilter]);
+  }, [visibleConversations, search, qualityFilter, religiousOnly]);
+
+  // Download a self-contained, mobile-readable HTML transcript of all religious/Lisan chats in the
+  // chosen date range (queries the DB directly — not limited to the conversations loaded above).
+  async function handleExportReligiousChats() {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (exportFrom) params.set("from", exportFrom);
+      if (exportTo) params.set("to", exportTo);
+      const res = await apiFetch(`/api/admin/conversations/religious-export?${params.toString()}`);
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `religious-chats-${exportFrom || "all"}_${exportTo || "all"}.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const selected = useMemo(
     () => visibleConversations.find((conversation) => conversation.phone_e164 === selectedPhone) ?? searchedConversations[0] ?? visibleConversations[0] ?? null,
@@ -900,6 +932,52 @@ export default function ConversationsPage() {
                 />
                 Show only needs-review
               </label>
+              {tab === "conversations" && (
+                <>
+                  <label className="mt-1.5 flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                    <input
+                      type="checkbox"
+                      checked={religiousOnly}
+                      onChange={(e) => setReligiousOnly(e.target.checked)}
+                    />
+                    Religious / Lisan tool used
+                  </label>
+                  {hasInboxAccess && (
+                    <div className="mt-2 flex flex-wrap items-end gap-1.5 rounded-md border border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-800/50">
+                      <div className="basis-full text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                        Export religious / Lisan chats (mobile-readable HTML)
+                      </div>
+                      <label className="text-[11px] text-gray-500 dark:text-gray-400">
+                        From
+                        <input
+                          type="date"
+                          value={exportFrom}
+                          onChange={(e) => setExportFrom(e.target.value)}
+                          className="mt-0.5 block rounded border px-1.5 py-1 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                        />
+                      </label>
+                      <label className="text-[11px] text-gray-500 dark:text-gray-400">
+                        To
+                        <input
+                          type="date"
+                          value={exportTo}
+                          onChange={(e) => setExportTo(e.target.value)}
+                          className="mt-0.5 block rounded border px-1.5 py-1 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => void handleExportReligiousChats()}
+                        disabled={exporting}
+                        title="Download every religious / Lisan chat in the date range as a chat-style HTML file"
+                        className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+                      >
+                        {exporting ? "Exporting…" : "Export HTML"}
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
             {/* ── Escalation filters ── */}
