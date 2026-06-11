@@ -746,17 +746,27 @@ export default function ParkingPage() {
             {canManage ? "Assign lot passes to households and export for printing." : "Read-only view."}
           </p>
         </div>
-        {canManage && (
-          <button
-            type="button"
-            onClick={exportCsv}
-            disabled={loading || passCount === 0}
-            title="Exports one row per pass for the households currently shown"
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+        <div className="flex items-center gap-2">
+          <a
+            href="/admin/parking/print"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-md border border-purple-300 px-3 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-300 dark:hover:bg-purple-900/20"
           >
-            Export CSV ({passCount} passes)
-          </button>
-        )}
+            Print All (by ITS)
+          </a>
+          {canManage && (
+            <button
+              type="button"
+              onClick={exportCsv}
+              disabled={loading || passCount === 0}
+              title="Exports one row per pass for the households currently shown"
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              Export CSV ({passCount} passes)
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
