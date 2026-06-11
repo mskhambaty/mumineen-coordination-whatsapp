@@ -387,6 +387,7 @@ export default function ParkingPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lotFilter, setLotFilter] = useState(""); // client-side: show only rows with a pass in this lot
   const [multiPassFilter, setMultiPassFilter] = useState(false); // client-side: suggested_passes > 1
+  const [exhaustedFilter, setExhaustedFilter] = useState(false); // client-side: passes >= suggested_passes > 0
   const [bulkLotId, setBulkLotId] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
   const [selectN, setSelectN] = useState(""); // "select N rows" input
@@ -565,6 +566,9 @@ export default function ParkingPage() {
   }
   if (multiPassFilter) {
     visible = visible.filter((r) => r.suggested_passes > 1);
+  }
+  if (exhaustedFilter) {
+    visible = visible.filter((r) => r.suggested_passes > 0 && r.passes.length >= r.suggested_passes);
   }
   if (search) {
     const q = search.toLowerCase();
@@ -781,6 +785,11 @@ export default function ParkingPage() {
           active={multiPassFilter}
           label="2+ passes"
           onClick={() => { setMultiPassFilter(!multiPassFilter); setPage(1); }}
+        />
+        <FilterChip
+          active={exhaustedFilter}
+          label="All passes filled"
+          onClick={() => { setExhaustedFilter(!exhaustedFilter); setPage(1); }}
         />
         <select
           value={filters.local_mehman}
