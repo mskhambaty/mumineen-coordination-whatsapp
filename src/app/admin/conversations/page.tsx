@@ -520,6 +520,13 @@ export default function ConversationsPage() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
+  // Load the selected conversation's full thread on demand (the list fetch caps messages globally,
+  // so older conversations open empty otherwise).
+  useEffect(() => {
+    if (selectedPhone) void loadConversationThread(selectedPhone);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPhone]);
+
   async function loadConversations(religious = religiousOnly) {
     setLoading(true);
     setError(null);
@@ -549,6 +556,29 @@ export default function ConversationsPage() {
       setConversations((data.conversations ?? []) as Conversation[]);
     } catch {
       // Ignore transient polling failures.
+    }
+  }
+
+  // Load the FULL thread for one conversation on demand. The list fetch caps messages globally
+  // (newest ~1000 across all loaded phones), so older conversations — e.g. the religious chats the
+  // filter surfaces from days ago — arrive with no messages. Fetching ?phone=<phone> pulls that
+  // conversation's own messages (and tool calls) regardless of the global window.
+  async function loadConversationThread(phone: string) {
+    try {
+      const res = await apiFetch(`/api/admin/conversations?phone=${encodeURIComponent(phone)}`);
+      if (!res.ok) return;
+      const data = await res.json().catch(() => ({}));
+      const full = ((data.conversations ?? []) as Conversation[])[0];
+      if (!full) return;
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.phone_e164 === phone
+            ? { ...c, messages: full.messages, tool_calls: full.tool_calls, used_religious_tool: full.used_religious_tool ?? c.used_religious_tool }
+            : c,
+        ),
+      );
+    } catch {
+      // Ignore transient failures; the list-level data still renders.
     }
   }
 
