@@ -184,20 +184,34 @@ function LotCard({
           ))}
         </div>
       )}
-      {canManage && !editing && (
-        <button
-          type="button"
-          onClick={() => {
-            setName(lot.name);
-            setCapacity(String(lot.capacity));
-            setColor(lot.color ?? "");
-            setPurposes(lot.purposes);
-            setEditing(true);
-          }}
-          className="mt-2 text-[11px] text-blue-600 hover:underline dark:text-blue-400"
-        >
-          Edit
-        </button>
+      {!editing && (
+        <div className="mt-2 flex items-center gap-3">
+          {canManage && (
+            <button
+              type="button"
+              onClick={() => {
+                setName(lot.name);
+                setCapacity(String(lot.capacity));
+                setColor(lot.color ?? "");
+                setPurposes(lot.purposes);
+                setEditing(true);
+              }}
+              className="text-[11px] text-blue-600 hover:underline dark:text-blue-400"
+            >
+              Edit
+            </button>
+          )}
+          {lot.assigned > 0 && (
+            <a
+              href={`/admin/parking/print?lot_id=${lot.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] text-purple-600 hover:underline dark:text-purple-400"
+            >
+              Print Passes ({lot.assigned})
+            </a>
+          )}
+        </div>
       )}
       {editing && (
         <div className="mt-2 space-y-2 border-t border-gray-100 pt-2 dark:border-gray-700">

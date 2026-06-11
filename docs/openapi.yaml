@@ -2640,3 +2640,44 @@ components:
                       past_count: { type: integer }
         401: { $ref: "#/components/responses/Unauthorized" }
         500: { $ref: "#/components/responses/ServerError" }
+
+  /api/admin/parking/print:
+    get:
+      summary: Get lot details and all passes for print layout
+      description: |
+        Returns the lot's metadata and every parking pass in that lot with the
+        family head's name and phone number, sorted alphabetically by name.
+        Used by the /admin/parking/print page to render a 2-per-page printable layout.
+      tags: [Parking]
+      security: [{ portalSession: [] }]
+      parameters:
+        - name: lot_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Lot details and pass list.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lot:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      name: { type: string }
+                      color: { type: string, nullable: true }
+                  passes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        head_name: { type: string }
+                        phone: { type: string, nullable: true }
+        400: { $ref: "#/components/responses/BadRequest" }
+        401: { $ref: "#/components/responses/Unauthorized" }
+        404: { $ref: "#/components/responses/NotFound" }
+        500: { $ref: "#/components/responses/ServerError" }
