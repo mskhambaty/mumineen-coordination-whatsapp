@@ -206,15 +206,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ segment, value, count: rows.length, rows });
   }
 
-  if (segment === "registered_member") {
-    // Welcome-team view: every ATTENDING member of a registered (submitted/confirmed) family,
-    // with their HOF ITS and the family's utaro Host ITS. Honors the local_mehman/gender filters.
+  if (segment === "registered_member" || segment === "all_member") {
+    // Welcome-team view: every ATTENDING member, with their HOF ITS and the family's utaro Host ITS.
+    // `registered_member` is restricted to registered (submitted/confirmed) families; `all_member`
+    // covers every active family in the roster (the "Total families" drill). Honors local_mehman/gender.
+    const onlyRegistered = segment === "registered_member";
     const fams = await fetchAll<{ hof_its: string; registration_status: string | null; utaro_host_its: string | null }>((from, to) =>
       supabase.from("families").select("hof_its, registration_status, utaro_host_its").eq("roster_active", true).range(from, to),
     );
     const hostByHof = new Map<string, string | null>();
     for (const f of fams) {
-      if (isRegisteredStatus(f.registration_status)) hostByHof.set(f.hof_its, f.utaro_host_its);
+      if (!onlyRegistered || isRegisteredStatus(f.registration_status)) hostByHof.set(f.hof_its, f.utaro_host_its);
     }
 
     let pool = await fetchAll<MuminDetail>((from, to) =>
@@ -231,7 +233,7 @@ export async function GET(req: NextRequest) {
       its: m.its,
       name: m.full_name ?? m.its,
       gender: m.gender?.trim() ?? "—",
-      age: "—",
+      age: m.age !== null ? String(m.age) : "—",
       local_mehman: m.local_mehman ?? "—",
       whatsapp: m.whatsapp_e164 ?? "",
       email: m.email ?? "",

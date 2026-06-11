@@ -1029,6 +1029,7 @@ export default function RegistrationAnalyticsPage() {
                   <Kpi
                     value={summary.total_families}
                     label={activeFilterCount ? `${summary.filtered_families.toLocaleString()} in filter` : "total in roster"}
+                    onClick={() => drill({ segment: "all_member", label: "All Individuals", showHofIts: true, showHostIts: true })}
                   />
                   <Kpi
                     value={summary.submitted_families}

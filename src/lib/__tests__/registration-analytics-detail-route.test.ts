@@ -155,9 +155,21 @@ describe("GET /api/admin/registration-analytics/detail — registered_member (we
     getSupabaseAdmin.mockReturnValue(stubSupabase({ families: RM_FAMILIES, mumineen: RM_MUMINEEN }));
   });
 
-  it("lists only attending members of registered families, with HOF ITS and Host ITS", async () => {
+  it("lists only attending members of registered families, with HOF ITS, Host ITS and Age", async () => {
     const json = await (await GET(req("segment=registered_member"))).json();
     expect(json.rows.map((r: { its: string }) => r.its)).toEqual(["100"]);
-    expect(json.rows[0]).toMatchObject({ hof_its: "100", utaro_host_its: "HOST1", local_mehman: "Mehman", gender: "M" });
+    expect(json.rows[0]).toMatchObject({ hof_its: "100", utaro_host_its: "HOST1", local_mehman: "Mehman", gender: "M", age: "40" });
+  });
+
+  it("all_member lists attending members of EVERY active family (registered or not), with Age", async () => {
+    const json = await (await GET(req("segment=all_member"))).json();
+    // 100 (registered, attending) and 201 (unregistered family, attending). 101 is not attending → excluded.
+    expect(json.rows.map((r: { its: string }) => r.its).sort()).toEqual(["100", "201"]);
+    const reg = json.rows.find((r: { its: string }) => r.its === "100");
+    const pending = json.rows.find((r: { its: string }) => r.its === "201");
+    expect(reg).toMatchObject({ hof_its: "100", utaro_host_its: "HOST1", age: "40" });
+    // Unregistered family has no host; its drilled row still appears with age populated.
+    expect(pending).toMatchObject({ hof_its: "200", age: "50" });
+    expect(pending.utaro_host_its).toBeUndefined();
   });
 });
