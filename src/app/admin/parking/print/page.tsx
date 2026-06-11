@@ -9,16 +9,16 @@ import { apiFetch, readAdminUser } from "@/lib/admin/client";
 type Pass = { id: string; hof_its: string; head_name: string; phone: string | null; lot_name: string; lot_color: string | null };
 type Lot = { id: string; name: string; color: string | null };
 
-const ENTRY_ZONES: Record<string, { label: string; direction: string; textColor: string }> = {
-  red:   { label: "RED",   direction: "Enter from Hillside Ln.",         textColor: "#cc0000" },
-  blue:  { label: "BLUE",  direction: "Enter from 91st St.",             textColor: "#1d4ed8" },
-  white: { label: "WHITE", direction: "Enter from Kingery Hwy (Rt. 83)", textColor: "#374151" },
-  gold:  { label: "GOLD",  direction: "Enter from Kingery Hwy (Rt. 83)", textColor: "#92400e" },
+const ENTRY_ZONES: Record<string, { label: string; direction: string; textColor: string; stampBg: string; stampText: string }> = {
+  red:   { label: "RED",   direction: "Enter from Hillside Ln.",         textColor: "#cc0000", stampBg: "#dc2626", stampText: "#fff" },
+  blue:  { label: "BLUE",  direction: "Enter from 91st St.",             textColor: "#1d4ed8", stampBg: "#2563eb", stampText: "#fff" },
+  white: { label: "WHITE", direction: "Enter from Kingery Hwy (Rt. 83)", textColor: "#374151", stampBg: "#f0f0f0", stampText: "#111" },
+  gold:  { label: "GOLD",  direction: "Enter from Kingery Hwy (Rt. 83)", textColor: "#92400e", stampBg: "#d4a017", stampText: "#111" },
 };
 
 function zoneInfo(color: string | null) {
   const key = (color ?? "").toLowerCase();
-  return ENTRY_ZONES[key] ?? { label: (color ?? "").toUpperCase(), direction: "", textColor: "#374151" };
+  return ENTRY_ZONES[key] ?? { label: (color ?? "").toUpperCase(), direction: "", textColor: "#374151", stampBg: "#9ca3af", stampText: "#fff" };
 }
 
 // Portrait-style pass: title → logo → table → footer (stacked vertically).
@@ -38,8 +38,32 @@ function PassCard({ pass }: { pass: Pass }) {
         alignItems: "center",
         justifyContent: "space-between",
         flex: 1,
+        position: "relative",
       }}
     >
+      {/* Color-coded lot stamp */}
+      <div
+        style={{
+          position: "absolute",
+          top: "14px",
+          right: "14px",
+          width: "68px",
+          height: "68px",
+          borderRadius: "50%",
+          background: zone.stampBg,
+          border: zone.label === "WHITE" ? "2px solid #bbb" : "3px solid rgba(0,0,0,0.18)",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          boxShadow: "0 2px 6px rgba(0,0,0,0.20)",
+        }}
+      >
+        <span style={{ color: zone.stampText, fontWeight: "bold", fontSize: "13px", letterSpacing: "0.04em", lineHeight: 1 }}>
+          {zone.label}
+        </span>
+      </div>
+
       {/* Centered title */}
       <div style={{ textAlign: "center", marginBottom: "14px" }}>
         <div style={{ fontSize: "15px", fontWeight: "bold", letterSpacing: "0.07em", color: "#111", lineHeight: 1.4 }}>
