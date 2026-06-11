@@ -36,6 +36,7 @@ function PassCard({ pass, lot }: { pass: Pass; lot: Lot }) {
         padding: "14px 18px",
         fontFamily: "Arial, Helvetica, sans-serif",
         background: "#fff",
+        color: "#111",
         boxSizing: "border-box",
       }}
     >
@@ -65,6 +66,7 @@ function PassCard({ pass, lot }: { pass: Pass; lot: Lot }) {
           borderCollapse: "collapse",
           marginBottom: "10px",
           fontSize: "13px",
+          color: "#111",
         }}
       >
         <tbody>
@@ -73,10 +75,11 @@ function PassCard({ pass, lot }: { pass: Pass; lot: Lot }) {
               style={{
                 border: "1px solid #888",
                 padding: "7px 10px",
-                background: "#f0f0f0",
+                background: "#e8e8e8",
                 fontWeight: "bold",
                 whiteSpace: "nowrap",
                 width: "1%",
+                color: "#111",
               }}
             >
               Name:
@@ -87,6 +90,7 @@ function PassCard({ pass, lot }: { pass: Pass; lot: Lot }) {
                 padding: "7px 12px",
                 fontWeight: "600",
                 fontSize: "14px",
+                color: "#111",
               }}
             >
               {pass.head_name}
@@ -95,10 +99,11 @@ function PassCard({ pass, lot }: { pass: Pass; lot: Lot }) {
               style={{
                 border: "1px solid #888",
                 padding: "7px 10px",
-                background: "#f0f0f0",
+                background: "#e8e8e8",
                 fontWeight: "bold",
                 whiteSpace: "nowrap",
                 width: "1%",
+                color: "#111",
               }}
             >
               Phone / Contact:
@@ -108,6 +113,7 @@ function PassCard({ pass, lot }: { pass: Pass; lot: Lot }) {
                 border: "1px solid #888",
                 padding: "7px 12px",
                 width: "22%",
+                color: "#111",
               }}
             >
               {pass.phone ?? "—"}
@@ -126,16 +132,17 @@ function PassCard({ pass, lot }: { pass: Pass; lot: Lot }) {
           padding: "8px 12px",
           marginBottom: "8px",
           fontSize: "14px",
+          color: "#111",
         }}
       >
-        <span style={{ fontWeight: "bold" }}>Entry Zone</span>
+        <span style={{ fontWeight: "bold", color: "#111" }}>Entry Zone</span>
         <span style={{ color: zone.textColor, fontWeight: "bold", fontSize: "16px", letterSpacing: "0.06em" }}>
           {zone.label}
         </span>
         {zone.direction && (
           <>
-            <span style={{ color: "#aaa", fontSize: "16px", fontWeight: "300" }}>|</span>
-            <span style={{ color: "#333" }}>{zone.direction}</span>
+            <span style={{ color: "#888", fontSize: "16px", fontWeight: "300" }}>|</span>
+            <span style={{ color: "#111" }}>{zone.direction}</span>
           </>
         )}
       </div>
