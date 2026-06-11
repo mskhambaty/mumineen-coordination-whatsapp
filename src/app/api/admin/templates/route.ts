@@ -4,7 +4,6 @@ import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { listMessageTemplates } from "@/lib/meta/whatsapp";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { defaultPacing } from "@/lib/whatsapp/broadcast";
 import { getTemplateSettings } from "@/lib/whatsapp/template-settings";
 import { describeTemplate } from "@/lib/whatsapp/templates";
 
@@ -42,7 +41,5 @@ export async function GET(req: NextRequest) {
       name: u.display_name ?? "(no name)",
       role: u.role,
     })),
-    // Default send-throttle the console pre-fills; an admin overrides per broadcast on the form.
-    broadcast_defaults: defaultPacing(),
   });
 }

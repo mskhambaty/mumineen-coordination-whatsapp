@@ -214,25 +214,16 @@ and Single-recipient dropdowns** (the popup still lists them so they can be reac
   key as a guard). `audience-export` accepts `csv_upload` too: it returns the **resolved** audience
   (deduped, roster-enriched, free/paid-labelled) — the rows that will actually be messaged, not the raw
   uploaded file — using the same parse + `enrichFieldsByPhone` + `previewExplicitRecipients` pipeline.
-- Engine (`src/lib/whatsapp/broadcast.ts`): a broadcast enqueues recipients; the send route kicks **one
-  paced batch inline** (`drainBroadcasts`) for immediacy, then `/api/cron/broadcast-drain` (every minute)
-  paces the rest, and `POST /api/admin/templates/drain` ("Send pending" in the console) lets an admin
-  push pending recipients manually — so a broadcast never silently hangs in `running`. Sends go through
-  the shared `sendTemplateNotification` pipeline; logged in `template_broadcasts` /
+- Engine (`src/lib/whatsapp/broadcast.ts`): a broadcast enqueues recipients; the send route then drains
+  **inline until the queue is empty** (`drainUntilEmpty`, a bounded loop) so small/medium sends complete
+  in-request. `/api/cron/broadcast-drain` (every minute) is a backstop for large sends, and
+  `POST /api/admin/templates/drain` ("Send pending" in the console) lets an admin push pending recipients
+  manually — so a broadcast never silently hangs in `running` when the cron isn't firing. Throttled
+  batches go through the shared `sendTemplateNotification` pipeline; logged in `template_broadcasts` /
   `template_broadcast_recipients`. A broadcast is finalized to `completed` only once it has at least one
   recipient row and none are still `queued`/`sending` — a broadcast with zero recipient rows is treated
   as not-yet-populated (the row is inserted a moment before its recipients), so a concurrent drain can't
   finalize it empty and strand its recipients as `queued`.
-- **Send throttle (anti-spam).** To stay under Meta's spam/throughput rate limit (error **131048** —
-  which can fire well below the 250/day tier), the drain **paces** sends: at most `batch_size` recipients
-  per invocation, each spaced `send_interval_ms` apart. Both are set per broadcast on the console (with a
-  live "≈ N/min" estimate), stored on `template_broadcasts`, and resolved at drain time as the most
-  conservative of the running broadcasts (smallest batch, longest interval), falling back to
-  `WHATSAPP_DRAIN_BATCH_SIZE` / `WHATSAPP_SEND_INTERVAL_MS` (defaults 5 and 2000ms) then constants. A
-  wall-clock budget (~45s) keeps any setting inside the function time limit, releasing unsent claims back
-  to `queued` for the next tick. Bursting is the main 131048 trigger; the per-send delay is the primary
-  lever (raise it / lower the batch when Meta throttles). Residual quality causes (number quality rating,
-  MARKETING-vs-UTILITY template category) are Meta-side, outside this pacing.
 - Delivery status: the WhatsApp webhook applies Meta `delivered`/`read`/`failed` callbacks by
   `wa_message_id` and marks `replied` when a target messages back (`src/lib/whatsapp/broadcast-status.ts`).
   When a `failed` callback carries a Meta `errors[]` entry, its `code: title` (plus a plain-language

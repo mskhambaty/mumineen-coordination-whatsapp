@@ -1743,7 +1743,7 @@ paths:
     post:
       tags: [admin, templates]
       summary: Start a manual template broadcast
-      description: Admin/leadership only. Creates a broadcast, enqueues recipients, kicks one paced batch inline, then the minute cron paces the rest (throttled to avoid Meta's spam rate limit). Manual — no auto-scheduling. For audience_key=custom pass rules; for csv_upload pass csv (raw CSV text in the audience-export/failures-export format); template variables are bound via variable_bindings. Optional batch_size / send_interval_ms set the per-broadcast send throttle.
+      description: Admin/leadership only. Creates a broadcast, enqueues recipients, then drains inline until the queue is empty (bounded); the minute cron is a backstop. Manual — no auto-scheduling. For audience_key=custom pass rules; for csv_upload pass csv (raw CSV text in the audience-export/failures-export format); template variables are bound via variable_bindings.
       requestBody:
         required: true
         content:
@@ -1759,8 +1759,6 @@ paths:
                 rules: { type: object, description: react-querybuilder rule tree (audience_key=custom) }
                 csv: { type: string, description: Raw CSV text in the audience-export format (audience_key=csv_upload) }
                 variable_bindings: { type: object, description: Per-variable static value or roster-field mapping }
-                batch_size: { type: integer, minimum: 1, maximum: 150, description: "Send-throttle: recipients drained per minute-cron tick for this broadcast. Omit to use env/default pacing." }
-                send_interval_ms: { type: integer, minimum: 0, maximum: 60000, description: "Send-throttle: delay between individual sends within a batch (ms). Omit to use env/default pacing." }
       responses:
         "200": { description: "status=started + broadcastId + counts." }
         "400": { $ref: "#/components/responses/BadRequest" }

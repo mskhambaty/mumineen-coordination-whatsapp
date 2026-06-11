@@ -82,9 +82,6 @@ export default function SendTemplatesPage() {
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [csvText, setCsvText] = useState<string>(""); // raw text of an uploaded audience CSV
   const [csvFileName, setCsvFileName] = useState<string>("");
-  // Per-broadcast send throttle (anti-spam pacing). Defaults come from the server (env/constant).
-  const [batchSize, setBatchSize] = useState<number>(5);
-  const [sendIntervalSec, setSendIntervalSec] = useState<number>(2);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [busy, setBusy] = useState(false);
@@ -169,9 +166,6 @@ export default function SendTemplatesPage() {
       const data = await res.json();
       setTemplates((data.templates as TemplateDescriptor[]) ?? []);
       setUsers((data.selectable_users as SelectableUser[]) ?? []);
-      const d = data.broadcast_defaults as { batchSize?: number; intervalMs?: number } | undefined;
-      if (typeof d?.batchSize === "number") setBatchSize(d.batchSize);
-      if (typeof d?.intervalMs === "number") setSendIntervalSec(Math.max(0, Math.round(d.intervalMs / 1000)));
       return true;
     }
     setError("You don't have access to this page, or templates failed to load.");
@@ -366,8 +360,6 @@ export default function SendTemplatesPage() {
           rules: audience === "custom" ? query : undefined,
           csv: audience === "csv_upload" ? csvText : undefined,
           variable_bindings: buildBindingsPayload(),
-          batch_size: batchSize,
-          send_interval_ms: sendIntervalSec * 1000,
         }),
       });
       const data = await res.json();
@@ -572,40 +564,6 @@ export default function SendTemplatesPage() {
               )}
             </div>
           )}
-
-          {/* Send pacing — keeps the fan-out under Meta's spam/throughput limit (error 131048). Each
-              batch goes out about once a minute; the rest queue and drain on later ticks. */}
-          <div className="rounded-md border border-gray-100 p-3 dark:border-gray-800">
-            <div className="mb-2 text-xs uppercase tracking-wide text-gray-400">Send pacing (anti-spam)</div>
-            <div className="flex flex-wrap items-end gap-4">
-              <label className="text-xs uppercase tracking-wide text-gray-400">
-                Messages per batch
-                <input
-                  type="number"
-                  min={1}
-                  max={150}
-                  value={batchSize}
-                  onChange={(e) => setBatchSize(Math.max(1, Math.min(150, Math.trunc(Number(e.target.value) || 1))))}
-                  className={`${input} mt-1 block w-28`}
-                />
-              </label>
-              <label className="text-xs uppercase tracking-wide text-gray-400">
-                Seconds between messages
-                <input
-                  type="number"
-                  min={0}
-                  max={60}
-                  value={sendIntervalSec}
-                  onChange={(e) => setSendIntervalSec(Math.max(0, Math.min(60, Math.trunc(Number(e.target.value) || 0))))}
-                  className={`${input} mt-1 block w-28`}
-                />
-              </label>
-              <span className="pb-2 text-xs text-gray-500 dark:text-gray-400">
-                ≈ <b>{sendIntervalSec > 0 ? Math.min(batchSize, Math.floor(45 / sendIntervalSec) + 1) : batchSize}</b> messages/min.
-                Lower these if Meta flags spam; raise them once sends stop getting rate-limited.
-              </span>
-            </div>
-          </div>
 
           <div className="flex items-center gap-3">
             <button type="button" onClick={runPreview} disabled={busy} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-gray-700">

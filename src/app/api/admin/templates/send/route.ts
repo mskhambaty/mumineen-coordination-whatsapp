@@ -7,7 +7,7 @@ import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { AUDIENCE_KEYS, enrichFieldsByPhone } from "@/lib/whatsapp/audience";
 import { parseAudienceCsv } from "@/lib/whatsapp/audience-csv";
 import { validateRules, type RuleGroup } from "@/lib/whatsapp/audience-filter";
-import { createBroadcast, drainBroadcasts } from "@/lib/whatsapp/broadcast";
+import { createBroadcast, drainUntilEmpty } from "@/lib/whatsapp/broadcast";
 import type { VariableBindings } from "@/lib/whatsapp/templates";
 
 export const runtime = "nodejs";
@@ -21,9 +21,6 @@ const schema = z.object({
   rules: z.any().optional(), // react-querybuilder tree for the "custom" audience
   csv: z.string().optional(), // raw CSV text for the "csv_upload" audience (audience-export format)
   variable_bindings: z.any().optional(),
-  // Per-broadcast send throttle (anti-spam pacing). Omitted → env/default pacing at drain time.
-  batch_size: z.number().int().min(1).max(150).optional(),
-  send_interval_ms: z.number().int().min(0).max(60000).optional(),
 });
 
 // POST /api/admin/templates/send — create a broadcast (enqueues all recipients) and kick off the
@@ -68,18 +65,15 @@ export async function POST(req: NextRequest) {
     recipients: csvRecipients,
     variableBindings: parsed.data.variable_bindings as VariableBindings | undefined,
     triggeredByUserId,
-    batchSize: parsed.data.batch_size ?? null,
-    sendIntervalMs: parsed.data.send_interval_ms ?? null,
   });
 
   if ("error" in result) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
 
-  // Kick a single paced batch inline for immediacy; the every-minute cron paces the rest. We no longer
-  // drain-until-empty here — that would blast the whole broadcast out at once and trip Meta's spam rate
-  // limit (131048). Pacing (batch size + per-send delay) is honored by drainBroadcasts.
-  after(() => drainBroadcasts().catch((err) => console.error("Initial broadcast drain failed:", err)));
+  // Drain inline until the queue is empty (bounded); the cron is a backstop, not a dependency, so small/
+  // medium broadcasts complete in this request instead of hanging in 'running' if the cron isn't firing.
+  after(() => drainUntilEmpty().catch((err) => console.error("Initial broadcast drain failed:", err)));
 
   return NextResponse.json({ status: "started", ...result });
 }
