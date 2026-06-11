@@ -58,7 +58,7 @@ function PassCard({ pass, lot }: { pass: Pass; lot: Lot }) {
       <img
         src="/logo.jpg"
         alt="Ashara Mubaraka 1448H — Chicago Relay Center"
-        style={{ height: "140px", width: "auto", objectFit: "contain", marginBottom: "16px" }}
+        style={{ height: "180px", width: "auto", objectFit: "contain", marginBottom: "20px" }}
         onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
       />
 
@@ -250,8 +250,14 @@ function PrintContent() {
           .no-print { display: none !important; }
           @page { size: letter landscape; margin: 0; }
           body { background: white !important; }
-          .print-content { padding: 0.4in !important; }
-          .pass-page { page-break-after: always; page-break-inside: avoid; }
+          .print-content { padding: 0 !important; }
+          .pass-page {
+            height: 100vh;
+            box-sizing: border-box;
+            padding: 0.35in !important;
+            page-break-after: always;
+            page-break-inside: avoid;
+          }
           .pass-page:last-child { page-break-after: avoid; }
         }
         @media screen {
@@ -261,6 +267,7 @@ function PrintContent() {
             box-shadow: 0 2px 8px rgba(0,0,0,0.12);
             margin-bottom: 32px;
             border-radius: 4px;
+            min-height: 560px;
           }
         }
       `}</style>
