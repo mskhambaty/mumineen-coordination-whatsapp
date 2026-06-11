@@ -90,4 +90,19 @@ describe("send route auth + behavior", () => {
     const res = await sendPost(req({ template_code: "t", audience_key: "selected_users" }));
     expect(res.status).toBe(400);
   });
+
+  it("forwards the per-broadcast send throttle (batch_size / send_interval_ms)", async () => {
+    requirePortalCaller.mockResolvedValue(allow());
+    createBroadcast.mockResolvedValue({ broadcastId: "b1", total: 3, free: 0, paid: 3, skipped: 0, estCostUsd: 0 });
+    const res = await sendPost(req({ template_code: "t", audience_key: "chicago_committee", batch_size: 3, send_interval_ms: 4000 }));
+    expect(res.status).toBe(200);
+    expect(createBroadcast).toHaveBeenCalledWith(expect.objectContaining({ batchSize: 3, sendIntervalMs: 4000 }));
+  });
+
+  it("rejects an out-of-range throttle (400) and does not create a broadcast", async () => {
+    requirePortalCaller.mockResolvedValue(allow());
+    const res = await sendPost(req({ template_code: "t", audience_key: "chicago_committee", batch_size: 0 }));
+    expect(res.status).toBe(400);
+    expect(createBroadcast).not.toHaveBeenCalled();
+  });
 });

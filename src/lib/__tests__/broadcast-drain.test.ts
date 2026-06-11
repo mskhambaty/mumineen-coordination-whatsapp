@@ -22,8 +22,10 @@ let claimRows: ClaimRow[] = [];
 // Optional per-call claim sequence: each drainBroadcasts() shifts one batch. Falls back to claimRows
 // when empty (so existing single-drain tests are unaffected).
 let batchQueue: ClaimRow[][] = [];
-let runningBroadcasts: { id: string }[] = [];
+let runningBroadcasts: { id: string; batch_size?: number | null; send_interval_ms?: number | null }[] = [];
 let pendingCount = 0;
+// Inter-send delay is injected so pacing never burns real time; spy records the ms it was called with.
+const sleepSpy = vi.fn(async (ms: number) => { void ms; });
 // Total recipient rows for a broadcast (queued+sending+sent+failed+skipped). finalizeCompletedBroadcasts
 // reads this WITHOUT a send_status filter (no .in()), so the mock returns it when .in() wasn't called.
 let totalCount = 0;
@@ -96,7 +98,11 @@ describe("drainBroadcasts", () => {
       { id: "r2", broadcast_id: "b1", phone_e164: "+13125550002", body_params: { bodyParams: ["b"] }, template_code: "t", template_language: "en_US" },
     ];
 
-    const result = await drainBroadcasts(150);
+    const result = await drainBroadcasts({ batchSize: 150, sleeper: sleepSpy });
+
+    // Paced: one inter-send delay between the two sends, at the env-default interval (2000ms).
+    expect(sleepSpy).toHaveBeenCalledTimes(1);
+    expect(sleepSpy).toHaveBeenCalledWith(2000);
 
     // Recipients are claimed through the atomic RPC (not a status-filtered SELECT).
     const claim = rpcCalls.find((c) => c.fn === "claim_broadcast_recipients");
@@ -120,7 +126,7 @@ describe("drainBroadcasts", () => {
 
   it("does nothing (no sends) when the claim returns no rows", async () => {
     claimRows = [];
-    const result = await drainBroadcasts();
+    const result = await drainBroadcasts({ sleeper: sleepSpy });
     expect(sendTemplateNotification).not.toHaveBeenCalled();
     expect(result.processed).toBe(0);
   });
@@ -131,7 +137,7 @@ describe("drainBroadcasts", () => {
     ];
     sendTemplateNotification.mockResolvedValueOnce({ status: "failed" as const, error: "send failed" } as never);
 
-    await drainBroadcasts();
+    await drainBroadcasts({ sleeper: sleepSpy });
 
     expect(updateCalls.some((u) => u.values.send_status === "failed" && u.eqVal === "r1")).toBe(true);
     expect(rpcCalls.filter((c) => c.fn === "bump_broadcast_counter" && c.args.p_field === "count_failed")).toHaveLength(1);
@@ -150,7 +156,7 @@ describe("finalizeCompletedBroadcasts (run via drainBroadcasts when the claim is
     totalCount = 0; // recipients not enqueued yet
     pendingCount = 0; // ...so nothing pending either — must NOT be read as "done"
 
-    await drainBroadcasts();
+    await drainBroadcasts({ sleeper: sleepSpy });
 
     expect(completed()).toHaveLength(0);
   });
@@ -161,7 +167,7 @@ describe("finalizeCompletedBroadcasts (run via drainBroadcasts when the claim is
     totalCount = 18; // recipients enqueued
     pendingCount = 0; // all settled (sent/failed/skipped)
 
-    await drainBroadcasts();
+    await drainBroadcasts({ sleeper: sleepSpy });
 
     const done = completed();
     expect(done).toHaveLength(1);
@@ -174,7 +180,7 @@ describe("finalizeCompletedBroadcasts (run via drainBroadcasts when the claim is
     totalCount = 18;
     pendingCount = 5; // still draining
 
-    await drainBroadcasts();
+    await drainBroadcasts({ sleeper: sleepSpy });
 
     expect(completed()).toHaveLength(0);
   });
@@ -185,7 +191,7 @@ describe("drainUntilEmpty", () => {
     // 2 then 1 then 0 — three claim calls, then it stops.
     batchQueue = [[row("1"), row("2")], [row("3")], []];
 
-    const result = await drainUntilEmpty();
+    const result = await drainUntilEmpty({ sleeper: sleepSpy });
 
     expect(result.processed).toBe(3);
     expect(result.batches).toBe(3);
@@ -197,10 +203,53 @@ describe("drainUntilEmpty", () => {
     // claimRows is non-empty and batchQueue is empty, so every claim returns a row — never drains.
     claimRows = [row("9")];
 
-    const result = await drainUntilEmpty({ maxBatches: 3 });
+    const result = await drainUntilEmpty({ maxBatches: 3, sleeper: sleepSpy });
 
     expect(result.batches).toBe(3);
     expect(result.processed).toBe(3);
     expect(rpcCalls.filter((c) => c.fn === "claim_broadcast_recipients")).toHaveLength(3);
+  });
+});
+
+describe("send pacing (anti-spam throttle)", () => {
+  it("uses the running broadcast's own batch_size / send_interval_ms over the env default", async () => {
+    // A running broadcast sets a smaller batch and a custom interval; the drain must honor them.
+    runningBroadcasts = [{ id: "b1", batch_size: 2, send_interval_ms: 1234 }];
+    claimRows = [row("1"), row("2")];
+
+    await drainBroadcasts({ sleeper: sleepSpy });
+
+    // Claimed at the broadcast's batch size, not the env default of 5.
+    expect(rpcCalls.find((c) => c.fn === "claim_broadcast_recipients")?.args).toMatchObject({ p_batch_size: 2 });
+    // One inter-send delay, at the broadcast's interval.
+    expect(sleepSpy).toHaveBeenCalledTimes(1);
+    expect(sleepSpy).toHaveBeenCalledWith(1234);
+  });
+
+  it("takes the most conservative pacing across multiple running broadcasts (min batch, max interval)", async () => {
+    runningBroadcasts = [
+      { id: "b1", batch_size: 10, send_interval_ms: 1000 },
+      { id: "b2", batch_size: 3, send_interval_ms: 5000 },
+    ];
+    claimRows = [row("1"), row("2")];
+
+    await drainBroadcasts({ sleeper: sleepSpy });
+
+    expect(rpcCalls.find((c) => c.fn === "claim_broadcast_recipients")?.args).toMatchObject({ p_batch_size: 3 });
+    expect(sleepSpy).toHaveBeenCalledWith(5000);
+  });
+
+  it("stops at the wall-clock budget and releases unsent claims back to 'queued'", async () => {
+    // budgetMs=0 → after the first send the budget is exhausted; the rest are released, not sent.
+    claimRows = [row("1"), row("2"), row("3")];
+
+    const result = await drainBroadcasts({ budgetMs: 0, sleeper: sleepSpy });
+
+    // Only the first row sent; the other two were released for the next tick.
+    expect(sendTemplateNotification).toHaveBeenCalledTimes(1);
+    expect(result.processed).toBe(1);
+    const released = updateCalls.filter((u) => u.table === "template_broadcast_recipients" && u.values.send_status === "queued");
+    expect(released.length).toBeGreaterThan(0);
+    expect(released.every((u) => u.values.claimed_at === null)).toBe(true);
   });
 });

@@ -2,6 +2,7 @@ import { getInWindowPhones, previewAudience, utilityMessageCostUsd, type Audienc
 import type { RuleGroup } from "@/lib/whatsapp/audience-filter";
 import { resolveApprovedTemplate, sendTemplateNotification } from "@/lib/whatsapp/send-template";
 import { resolveBindings, type SendComponentInputs, type VariableBindings } from "@/lib/whatsapp/templates";
+import { optionalEnv } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 // Broadcast engine for the template-send console. A broadcast is created with all its recipients
@@ -11,8 +12,48 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 // bound to a static value or a per-recipient roster field; recipients whose mapped field is empty
 // (or who have no roster fields) are recorded 'skipped'. Per-recipient resolved params are frozen
 // onto the recipient row at create time.
+//
+// Pacing: to stay under Meta's spam/throughput rate limit (error 131048), the drain sends at most
+// `batchSize` recipients per invocation and waits `intervalMs` between each send. Both are resolved
+// per drain from the running broadcasts' own settings (set on the send form), falling back to the
+// WHATSAPP_DRAIN_BATCH_SIZE / WHATSAPP_SEND_INTERVAL_MS env vars, then to the constants below.
 
-const DEFAULT_BATCH_SIZE = 150; // per drain invocation; ~4k recipients clear in well under an hour
+const DEFAULT_BATCH_SIZE = 5; // recipients per drain invocation (conservative; tune per broadcast / env)
+const DEFAULT_SEND_INTERVAL_MS = 2000; // delay between individual sends within a batch
+const DRAIN_BUDGET_MS = 45_000; // wall-clock cap per invocation, safely under the 60s function limit
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+function envInt(name: string, fallback: number): number {
+  const raw = optionalEnv(name);
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : fallback;
+}
+
+// The pacing the console pre-fills and the drain falls back to when a broadcast has no per-send
+// override: from the WHATSAPP_DRAIN_BATCH_SIZE / WHATSAPP_SEND_INTERVAL_MS env vars, then constants.
+export function defaultPacing(): { batchSize: number; intervalMs: number } {
+  return {
+    batchSize: Math.max(1, envInt("WHATSAPP_DRAIN_BATCH_SIZE", DEFAULT_BATCH_SIZE)),
+    intervalMs: envInt("WHATSAPP_SEND_INTERVAL_MS", DEFAULT_SEND_INTERVAL_MS),
+  };
+}
+
+// Effective pacing for this drain: the most conservative of the currently-running broadcasts' own
+// settings (smallest batch, longest interval); env defaults when no running broadcast specifies one.
+async function resolvePacing(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+): Promise<{ batchSize: number; intervalMs: number }> {
+  const { batchSize: envBatch, intervalMs: envInterval } = defaultPacing();
+  const { data } = await supabase.from("template_broadcasts").select("batch_size, send_interval_ms").eq("status", "running");
+  const rows = (data ?? []) as { batch_size: number | null; send_interval_ms: number | null }[];
+  const batches = rows.map((r) => r.batch_size).filter((v): v is number => typeof v === "number" && v >= 1);
+  const intervals = rows.map((r) => r.send_interval_ms).filter((v): v is number => typeof v === "number" && v >= 0);
+  return {
+    batchSize: batches.length ? Math.min(...batches) : envBatch,
+    intervalMs: intervals.length ? Math.max(...intervals) : envInterval,
+  };
+}
 
 export type CreateBroadcastInput = {
   templateCode: string;
@@ -27,6 +68,9 @@ export type CreateBroadcastInput = {
   recipients?: Recipient[];
   // Per-send quick-reply button payloads, frozen onto every recipient (e.g. RSVP buttons).
   quickReplyButtons?: { index: number; payload: string }[];
+  // Per-broadcast send throttle (set on the console). Null/omitted → env/default pacing at drain time.
+  batchSize?: number | null; // recipients per drain invocation (1-150)
+  sendIntervalMs?: number | null; // delay between sends within a batch (0-60000 ms)
 };
 
 export type CreateBroadcastResult = { broadcastId: string; total: number; free: number; paid: number; skipped: number; estCostUsd: number };
@@ -104,6 +148,8 @@ export async function createBroadcast(input: CreateBroadcastInput): Promise<Crea
       count_excluded: 0,
       count_skipped: skipped,
       est_cost_usd: estCostUsd,
+      batch_size: input.batchSize ?? null,
+      send_interval_ms: input.sendIntervalMs ?? null,
     })
     .select("id")
     .single();
@@ -121,13 +167,29 @@ export async function createBroadcast(input: CreateBroadcastInput): Promise<Crea
 
 export type DrainResult = { processed: number; broadcastsTouched: number };
 
-// Process up to `batchSize` pending recipients across running broadcasts. Called by the drain cron
-// (and once inline after creation for immediacy). Safe to run concurrently: it claims a batch
-// atomically (flipping rows 'queued' -> 'sending' under FOR UPDATE SKIP LOCKED) BEFORE sending, so
-// two overlapping drains can never grab the same recipient and double-send. Rows stuck in 'sending'
+// Process up to `batchSize` pending recipients across running broadcasts, PACED: it waits `intervalMs`
+// between each send so the fan-out stays under Meta's spam/throughput rate limit (131048). Called by
+// the drain cron (and once inline after creation for immediacy). Safe to run concurrently: it claims a
+// batch atomically (flipping rows 'queued' -> 'sending' under FOR UPDATE SKIP LOCKED) BEFORE sending,
+// so two overlapping drains can never grab the same recipient and double-send. Rows stuck in 'sending'
 // from a drain that died mid-batch are reclaimed by the RPC after a stale window.
-export async function drainBroadcasts(batchSize = DEFAULT_BATCH_SIZE): Promise<DrainResult> {
+//
+// Pacing/budget resolve from the running broadcasts' own settings (env/default fallback) unless the
+// caller overrides. A wall-clock `budgetMs` caps one invocation under the function time limit; any
+// claimed-but-unsent rows are released back to 'queued' so the next drain finishes them. `sleeper` is
+// injectable for tests so the delay doesn't burn real time.
+export async function drainBroadcasts(override?: {
+  batchSize?: number;
+  intervalMs?: number;
+  budgetMs?: number;
+  sleeper?: (ms: number) => Promise<void>;
+}): Promise<DrainResult> {
   const supabase = getSupabaseAdmin();
+  const pacing = await resolvePacing(supabase);
+  const batchSize = override?.batchSize ?? pacing.batchSize;
+  const intervalMs = override?.intervalMs ?? pacing.intervalMs;
+  const budgetMs = override?.budgetMs ?? DRAIN_BUDGET_MS;
+  const nap = override?.sleeper ?? sleep;
 
   const { data: claimed, error: claimErr } = await supabase.rpc("claim_broadcast_recipients", {
     p_batch_size: batchSize,
@@ -152,8 +214,20 @@ export async function drainBroadcasts(batchSize = DEFAULT_BATCH_SIZE): Promise<D
   const descriptors = new Map<string, Awaited<ReturnType<typeof resolveApprovedTemplate>> | null>();
   const touched = new Set<string>();
   let processed = 0;
+  const start = Date.now();
 
-  for (const row of rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    // Out of time budget: release this row and the rest of the claim back to 'queued' (never leave
+    // them stuck in 'sending') and let the next drain tick continue. The first row always sends so we
+    // always make forward progress.
+    if (i > 0 && Date.now() - start >= budgetMs) {
+      await releaseClaims(supabase, rows.slice(i).map((r) => r.id));
+      break;
+    }
+    // Pace the sends: wait between each so we don't burst (the main 131048 trigger).
+    if (i > 0 && intervalMs > 0) await nap(intervalMs);
+
     touched.add(row.broadcast_id);
     const code = row.template_code;
     if (!descriptors.has(code)) {
@@ -191,6 +265,12 @@ export async function drainBroadcasts(batchSize = DEFAULT_BATCH_SIZE): Promise<D
   return { processed, broadcastsTouched: touched.size };
 }
 
+// Release claimed-but-unsent recipients back to 'queued' so a later drain can finish them.
+async function releaseClaims(supabase: ReturnType<typeof getSupabaseAdmin>, ids: string[]) {
+  if (ids.length === 0) return;
+  await supabase.from("template_broadcast_recipients").update({ send_status: "queued", claimed_at: null }).in("id", ids);
+}
+
 export type DrainUntilEmptyResult = { processed: number; batches: number };
 
 // Drain repeatedly until the queue is empty (a batch returns 0 processed) or a bound is hit. Used by
@@ -198,15 +278,18 @@ export type DrainUntilEmptyResult = { processed: number; batches: number };
 // depends solely on the minute cron. Bounded by BOTH a batch cap and a wall-clock deadline — never an
 // unbounded loop (AGENTS.md guardrail). Each underlying drainBroadcasts() call still claims atomically,
 // so this is safe to run concurrently with the cron.
-export async function drainUntilEmpty(opts?: { maxBatches?: number; deadlineMs?: number; batchSize?: number }): Promise<DrainUntilEmptyResult> {
+export async function drainUntilEmpty(opts?: { maxBatches?: number; deadlineMs?: number; sleeper?: (ms: number) => Promise<void> }): Promise<DrainUntilEmptyResult> {
   const maxBatches = opts?.maxBatches ?? 20;
   const deadlineMs = opts?.deadlineMs ?? 50_000;
-  const batchSize = opts?.batchSize ?? DEFAULT_BATCH_SIZE;
   const start = Date.now();
   let processed = 0;
   let batches = 0;
-  while (batches < maxBatches && Date.now() - start < deadlineMs) {
-    const { processed: n } = await drainBroadcasts(batchSize);
+  while (batches < maxBatches) {
+    // Hand each paced batch only the time left in our deadline, so the loop (and the function) never
+    // overruns even with a long per-send interval × large batch.
+    const remaining = deadlineMs - (Date.now() - start);
+    if (remaining <= 1000) break;
+    const { processed: n } = await drainBroadcasts({ budgetMs: remaining, sleeper: opts?.sleeper });
     batches += 1;
     processed += n;
     if (n === 0) break; // queue drained
