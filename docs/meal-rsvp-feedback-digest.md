@@ -54,6 +54,8 @@ roster member with a usable number, and the runtime fallback covers any future g
 Code: `src/lib/rsvp/family.ts` (phone → roster family), `src/lib/rsvp/meal-rsvp.ts`
 (`getFamilyNiyazGrid` — per event, family attending split into **adults/kids** via
 `mumineen.is_adult` (null = adult) so the agent reads back "2 adults, 2 kids" not "4 adults";
+`getFamilyMembers` — roster-active member list with name/isAdult/isHead/notAttending for the agent
+to list when the user's count exceeds the family size;
 `setFamilyNiyazRsvp` whole-family cascade, `getEventTallies(mode)`,
 `recordUnregisteredRsvp`, `getUnregisteredRsvps`, `recordUnregisteredHeadCount`,
 `mergeUnregisteredRsvps`, `getMealAttendanceTotals`). API: `GET/POST /api/rsvp/meals` (self-scoped via `x-whatsapp-from`,

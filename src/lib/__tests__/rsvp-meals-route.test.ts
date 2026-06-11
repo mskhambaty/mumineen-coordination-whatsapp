@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveFamilyForPhone = vi.fn();
+const getFamilyMembers = vi.fn();
 const getFamilyNiyazGrid = vi.fn();
 const markFamilyRsvpConfirmed = vi.fn();
 const setFamilyNiyazRsvp = vi.fn();
@@ -13,6 +14,7 @@ vi.mock("@/lib/rsvp/family", () => ({
   resolveFamilyForPhone: (...args: unknown[]) => resolveFamilyForPhone(...args),
 }));
 vi.mock("@/lib/rsvp/meal-rsvp", () => ({
+  getFamilyMembers: (...args: unknown[]) => getFamilyMembers(...args),
   getFamilyNiyazGrid: (...args: unknown[]) => getFamilyNiyazGrid(...args),
   markFamilyRsvpConfirmed: (...args: unknown[]) => markFamilyRsvpConfirmed(...args),
   setFamilyNiyazRsvp: (...args: unknown[]) => setFamilyNiyazRsvp(...args),
@@ -36,9 +38,16 @@ function req(method: string, body?: unknown, withPhone = true): NextRequest {
   });
 }
 
+const MEMBERS = [
+  { name: "Head Person", isAdult: true, isHead: true, notAttending: false },
+  { name: "Spouse Person", isAdult: true, isHead: false, notAttending: false },
+  { name: "Kid Person", isAdult: false, isHead: false, notAttending: false },
+];
+
 beforeEach(() => {
   vi.clearAllMocks();
   markFamilyRsvpConfirmed.mockResolvedValue(undefined);
+  getFamilyMembers.mockResolvedValue(MEMBERS);
 });
 
 describe("GET /api/rsvp/meals", () => {
@@ -60,6 +69,7 @@ describe("GET /api/rsvp/meals", () => {
     expect(json.grid).toHaveLength(1);
     // Jun 15 2026 is a Monday — the label is computed server-side so the agent never guesses it.
     expect(json.grid[0].dateLabel).toBe("Mon, Jun 15");
+    expect(json.familyMembers).toEqual(MEMBERS);
     expect(getFamilyNiyazGrid).toHaveBeenCalledWith("fam-1");
     // Viewing the RSVP via the bot promotes default rows to whatsapp for the min view.
     expect(markFamilyRsvpConfirmed).toHaveBeenCalledWith("fam-1", PHONE);
