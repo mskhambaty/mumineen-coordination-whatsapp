@@ -520,11 +520,11 @@ export default function ConversationsPage() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
-  async function loadConversations() {
+  async function loadConversations(religious = religiousOnly) {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch("/api/admin/conversations");
+      const res = await apiFetch(religious ? "/api/admin/conversations?religious=1" : "/api/admin/conversations");
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data.error ?? "Failed to load conversations");
@@ -543,7 +543,7 @@ export default function ConversationsPage() {
   // loading spinner, surface errors, or change the selected conversation.
   async function refreshConversationsSilently() {
     try {
-      const res = await apiFetch("/api/admin/conversations");
+      const res = await apiFetch(religiousOnly ? "/api/admin/conversations?religious=1" : "/api/admin/conversations");
       if (!res.ok) return;
       const data = await res.json().catch(() => ({}));
       setConversations((data.conversations ?? []) as Conversation[]);
@@ -938,11 +938,15 @@ export default function ConversationsPage() {
                     <input
                       type="checkbox"
                       checked={religiousOnly}
-                      onChange={(e) => setReligiousOnly(e.target.checked)}
+                      onChange={(e) => {
+                        const on = e.target.checked;
+                        setReligiousOnly(on);
+                        void loadConversations(on); // refetch ALL religious chats from the server when on
+                      }}
                     />
                     Religious / Lisan tool used
                   </label>
-                  {hasInboxAccess && (
+                  {religiousOnly && hasInboxAccess && (
                     <div className="mt-2 flex flex-wrap items-end gap-1.5 rounded-md border border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-800/50">
                       <div className="basis-full text-[11px] font-medium text-gray-500 dark:text-gray-400">
                         Export religious / Lisan chats (mobile-readable HTML)
