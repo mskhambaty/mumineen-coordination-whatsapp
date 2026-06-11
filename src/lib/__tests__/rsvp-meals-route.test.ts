@@ -162,6 +162,21 @@ describe("POST /api/rsvp/meals", () => {
     );
   });
 
+  it("passes title-targeted entries through (no date guessing)", async () => {
+    resolveFamilyForPhone.mockResolvedValue(FAMILY);
+    setFamilyNiyazRsvp.mockResolvedValue({ updated: 3, grid: [] });
+    const res = await POST(req("POST", {
+      entries: [{ attending: false, titles: ["Pehli Raat"], meal: "dinner" }],
+    }));
+    expect(res.status).toBe(200);
+    expect(setFamilyNiyazRsvp).toHaveBeenCalledWith(
+      "fam-1",
+      [{ attending: false, titles: ["Pehli Raat"], dates: undefined, meal: "dinner", all: undefined }],
+      { source: "whatsapp", phone: PHONE },
+      undefined,
+    );
+  });
+
   it("surfaces a clamp notice (with a message) when the count exceeded the family size", async () => {
     resolveFamilyForPhone.mockResolvedValue(FAMILY);
     setFamilyNiyazRsvp.mockResolvedValue({

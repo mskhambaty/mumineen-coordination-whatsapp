@@ -196,12 +196,17 @@ export const allToolDefinitions: ToolDefinition[] = [
               type: "object",
               properties: {
                 attending: { type: "boolean", description: "true if the family will attend, false if not." },
+                titles: {
+                  type: "array",
+                  items: { type: "string", description: "An event title copied EXACTLY from the grid/events list, e.g. 'Pehli Raat', '2nd Moharram ul Haram', 'Ashura'." },
+                  description: "PREFERRED way to target a named event. Copy the title verbatim from get_family_meal_rsvps — the server resolves it to the correct date, so you never guess. A title like '2nd Moharram ul Haram' exists as BOTH a lunch and a dinner on different days, so ALWAYS pair titles with `meal`.",
+                },
                 dates: {
                   type: "array",
                   items: { type: "string", description: "A date in YYYY-MM-DD." },
-                  description: "Specific days to apply to. Omit (or set all=true) to apply to every day.",
+                  description: "Specific days to apply to, ONLY when the user gave an explicit calendar date. For named events (Pehli Raat, Nth Moharram, Ashura) use `titles` instead — never translate a name to a date yourself. Omit (or set all=true) to apply to every day.",
                 },
-                meal: { type: "string", enum: ["lunch", "dinner"], description: "Narrow to one meal; omit to apply to every event on the day(s)." },
+                meal: { type: "string", enum: ["lunch", "dinner"], description: "Narrow to one meal; omit to apply to every event on the day(s). Required when using `titles` to disambiguate lunch vs dinner." },
                 all: { type: "boolean", description: "Set true to apply to every day (same as omitting dates)." },
               },
               required: ["attending"],

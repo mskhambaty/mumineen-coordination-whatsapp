@@ -121,14 +121,23 @@ export async function markFamilyRsvpConfirmed(familyId: string, phone: string): 
     .in("source", ["default", "registration"]);
 }
 
-// One instruction from the agent/admin: mark a family attending (or not) for specific dates (or all
-// days), optionally narrowed to one meal. Omit dates (or set all=true) to apply to every event.
+// One instruction from the agent/admin: mark a family attending (or not) for specific events,
+// selected by event title (e.g. "Pehli Raat") and/or date, optionally narrowed to one meal.
+// Omit all selectors (or set all=true) to apply to every event.
+//
+// `titles` is the preferred, guess-proof selector: the agent reads an event's exact title off the
+// grid and passes it straight back, so the hijri night-shift (a dinner's date isn't the day you'd
+// guess) can never produce a wrong date. A title like "2nd Moharram ul Haram" maps to BOTH a lunch
+// and a dinner on different days — pair it with `meal` to disambiguate.
 export type NiyazRsvpEntry = {
   attending: boolean;
+  titles?: string[]; // event titles (case-insensitive), e.g. ["Pehli Raat"]
   dates?: string[]; // specific YYYY-MM-DD days
   meal?: Meal; // narrow to lunch or dinner; omit for both
   all?: boolean;
 };
+
+const normTitle = (s: string): string => s.trim().toLowerCase();
 
 // When the caller asked for more attendees than the family has, `clamped` reports the cap that was
 // applied so the agent can tell the user the extras must register from their own phones.
@@ -144,8 +153,10 @@ function decideEvents(events: NiyazEvent[], entries: NiyazRsvpEntry[]): Map<stri
   const decisions = new Map<string, boolean>();
   for (const entry of entries) {
     const dateSet = entry.all || !entry.dates || entry.dates.length === 0 ? null : new Set(entry.dates);
+    const titleSet = entry.all || !entry.titles || entry.titles.length === 0 ? null : new Set(entry.titles.map(normTitle));
     for (const ev of events) {
       if (dateSet && !dateSet.has(ev.eventDate)) continue;
+      if (titleSet && !titleSet.has(normTitle(ev.title))) continue;
       if (entry.meal && ev.meal !== entry.meal) continue;
       decisions.set(ev.id, entry.attending);
     }

@@ -61,8 +61,12 @@ to list when the user's count exceeds the family size;
 `setFamilyNiyazRsvp` whole-family cascade, `getEventTallies(mode)`,
 `recordUnregisteredRsvp`, `getUnregisteredRsvps`, `recordUnregisteredHeadCount`,
 `mergeUnregisteredRsvps`, `getMealAttendanceTotals`). API: `GET/POST /api/rsvp/meals` (self-scoped via `x-whatsapp-from`,
-Zod-validated; POST entries are `{attending, dates?, meal?, all?}` with optional `adults`, `kids`,
-`its_number` — for registered families, `adults`/`kids` enable **partial attendance**: only that many
+Zod-validated; POST entries are `{attending, titles?, dates?, meal?, all?}` with optional `adults`, `kids`,
+`its_number`. **Event targeting:** the agent selects named jaman by `titles` (exact title copied from
+the grid, e.g. "Pehli Raat") + `meal` rather than translating a name into a date — `decideEvents`
+resolves title→date server-side, eliminating hijri night-shift date-guessing (a dinner's date isn't
+the Gregorian day you'd guess; a shared title like "2nd Moharram ul Haram" is disambiguated by meal).
+`dates` is reserved for explicit calendar dates. For registered families, `adults`/`kids` enable **partial attendance**: only that many
 members are marked attending (head of family kept first, then other adults, then kids), and the rest
 are marked not-attending for those events; for unregistered callers they record the head count.
 Changes go to `unregistered_rsvps` for unlinked phones). Agent tools: `get_family_meal_rsvps`, `set_family_meal_rsvps`

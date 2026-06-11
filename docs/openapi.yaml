@@ -1533,7 +1533,8 @@ paths:
                     required: [attending]
                     properties:
                       attending: { type: boolean }
-                      dates: { type: array, items: { type: string, format: date } }
+                      titles: { type: array, items: { type: string }, description: "Preferred selector — event titles copied verbatim from the grid (e.g. 'Pehli Raat'). Server resolves title (+meal) to the correct date, avoiding hijri night-shift date guessing. Pair with meal to disambiguate a title shared by a lunch and a dinner." }
+                      dates: { type: array, items: { type: string, format: date }, description: "Explicit calendar dates only. For named events use titles instead." }
                       meal: { type: string, enum: [lunch, dinner] }
                       all: { type: boolean }
                 adults: { type: integer, description: "Number of adults attending. For registered families, triggers partial attendance (head of family kept first); capped at the family's adult count. For unregistered callers, records head count." }

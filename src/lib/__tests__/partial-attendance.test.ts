@@ -9,6 +9,11 @@ const FAMILY_MEMBERS = [
 
 const EVENTS = [
   { id: "e-21-dinner", title: "8th Moharram", event_date: "2026-06-21", hijri_date: null, meal: "dinner", serving_type: "packet", description: null },
+  // Pehli Raat (Jun 14 dinner) and the hijri-shifted "2nd Moharram ul Haram" which is BOTH a
+  // Jun 15 dinner and a Jun 16 lunch — title+meal must disambiguate.
+  { id: "e-14-dinner", title: "Pehli Raat", event_date: "2026-06-14", hijri_date: null, meal: "dinner", serving_type: "thaal", description: null },
+  { id: "e-15-dinner", title: "2nd Moharram ul Haram", event_date: "2026-06-15", hijri_date: null, meal: "dinner", serving_type: "packet", description: null },
+  { id: "e-16-lunch", title: "2nd Moharram ul Haram", event_date: "2026-06-16", hijri_date: null, meal: "lunch", serving_type: "thaal", description: null },
 ];
 
 // Track upserted rows so we can inspect per-member attending values.
@@ -122,6 +127,32 @@ describe("setFamilyNiyazRsvp partial attendance", () => {
       { adults: 1, kids: 0 },
     );
     expect(result.clamped).toBeUndefined();
+  });
+
+  it("targets a named event by title+meal (Pehli Raat dinner = Jun 14), not by a guessed date", async () => {
+    await setFamilyNiyazRsvp(
+      "fam-1",
+      [{ attending: false, titles: ["Pehli Raat"], meal: "dinner" as const }],
+      { source: "whatsapp", phone: "+15551234567" },
+    );
+    expect(upsertedRows).toHaveLength(1);
+    const rows = upsertedRows[0];
+    // Only the Pehli Raat (Jun 14) instance, all 3 members not attending.
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r) => r.registration_instance_id === "e-14-dinner")).toBe(true);
+    expect(rows.every((r) => r.attending === false)).toBe(true);
+  });
+
+  it("disambiguates a shared title by meal (2nd Moharram dinner = Jun 15, not the Jun 16 lunch)", async () => {
+    await setFamilyNiyazRsvp(
+      "fam-1",
+      [{ attending: false, titles: ["2nd Moharram ul Haram"], meal: "dinner" as const }],
+      { source: "whatsapp", phone: "+15551234567" },
+    );
+    const rows = upsertedRows[0];
+    // Only the Jun 15 dinner instance — the Jun 16 lunch with the same title is untouched.
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r) => r.registration_instance_id === "e-15-dinner")).toBe(true);
   });
 
   it("does not apply partial counts to attending=false events", async () => {

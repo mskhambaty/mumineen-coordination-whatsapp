@@ -13,6 +13,7 @@ export const runtime = "nodejs";
 
 const entrySchema = z.object({
   attending: z.boolean(),
+  titles: z.array(z.string().min(1)).optional(),
   dates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional(),
   meal: z.enum(["lunch", "dinner"]).optional(),
   all: z.boolean().optional(),
@@ -106,7 +107,7 @@ export async function POST(req: NextRequest) {
 
   const result = await setFamilyNiyazRsvp(
     family.familyId,
-    parsed.data.entries.map((e) => ({ attending: e.attending, dates: e.dates, meal: e.meal, all: e.all })),
+    parsed.data.entries.map((e) => ({ attending: e.attending, titles: e.titles, dates: e.dates, meal: e.meal, all: e.all })),
     { source: "whatsapp", phone },
     partial,
   );
