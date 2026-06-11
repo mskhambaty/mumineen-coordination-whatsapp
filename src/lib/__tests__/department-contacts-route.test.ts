@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 const requirePortalCaller = vi.fn();
 const getSupabaseAdmin = vi.fn();
 const sendAdminWelcomeNotification = vi.fn();
 
 // Insert/update spies keyed by table, so tests assert what was written where.
-const inserts: Record<string, ReturnType<typeof vi.fn>> = {
+const inserts: Record<string, Mock> = {
   department_contacts: vi.fn(),
   whatsapp_users: vi.fn(),
   department_members: vi.fn(),
 };
-const updates: Record<string, ReturnType<typeof vi.fn>> = {
+const updates: Record<string, Mock> = {
   department_members: vi.fn(),
 };
 
@@ -29,7 +29,7 @@ import { GET, POST } from "@/app/api/admin/department-contacts/route";
 
 type StubOpts = {
   existingUser?: { id: string } | null;
-  existingMembership?: { id: string } | null;
+  existingMembership?: { id: string; dept_role?: string } | null;
   referenceRows?: Record<string, unknown>[];
   memberRows?: Record<string, unknown>[];
 };
@@ -99,39 +99,38 @@ describe("POST /api/admin/department-contacts", () => {
     expect(data.contact.kind).toBe("reference");
   });
 
-  it("existing_user mode flags the user as a department issue contact", async () => {
+  it("existing_user mode flags an existing member as an issue contact (no insert, no role change)", async () => {
+    getSupabaseAdmin.mockReturnValue(makeSupabase({ existingMembership: { id: "mem-7", dept_role: "hod" } }));
+
     const res = await POST(post({
       mode: "existing_user",
       department_id: "11111111-1111-4111-8111-111111111111",
       user_id: "22222222-2222-4222-8222-222222222222",
-      dept_role: "pm",
     }));
     const data = await res.json();
-
-    expect(res.status).toBe(201);
-    expect(inserts.department_members).toHaveBeenCalledOnce();
-    const payload = inserts.department_members.mock.calls[0][0] as Record<string, unknown>;
-    expect(payload.contact_for_issues).toBe(true);
-    expect(payload.dept_role).toBe("pm");
-    expect(inserts.department_contacts).not.toHaveBeenCalled();
-    expect(data.contact.kind).toBe("member");
-  });
-
-  it("reactivates an existing membership instead of inserting a duplicate", async () => {
-    getSupabaseAdmin.mockReturnValue(makeSupabase({ existingMembership: { id: "mem-7" } }));
-
-    const res = await POST(post({
-      mode: "existing_user",
-      department_id: "11111111-1111-4111-8111-111111111111",
-      user_id: "22222222-2222-4222-8222-222222222222",
-    }));
 
     expect(res.status).toBe(201);
     expect(updates.department_members).toHaveBeenCalledOnce();
     const payload = updates.department_members.mock.calls[0][0] as Record<string, unknown>;
     expect(payload.contact_for_issues).toBe(true);
     expect(payload.is_active).toBe(true);
+    expect("dept_role" in payload).toBe(false); // role is managed on the Departments page, not here
     expect(inserts.department_members).not.toHaveBeenCalled();
+    expect(data.contact.kind).toBe("member");
+    expect(data.contact.role).toBe("HOD"); // carried from the existing membership
+  });
+
+  it("existing_user mode rejects a user who isn't a member of the department", async () => {
+    // Default stub: no existing membership for this user/department.
+    const res = await POST(post({
+      mode: "existing_user",
+      department_id: "11111111-1111-4111-8111-111111111111",
+      user_id: "22222222-2222-4222-8222-222222222222",
+    }));
+
+    expect(res.status).toBe(400);
+    expect(inserts.department_members).not.toHaveBeenCalled();
+    expect(updates.department_members).not.toHaveBeenCalled();
   });
 
   it("new_user mode creates a portal user (committee/member) and a contact membership", async () => {

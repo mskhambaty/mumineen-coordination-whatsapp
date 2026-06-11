@@ -29,12 +29,13 @@ const ReferenceSchema = z.object({
   display_order: z.number().int().min(0).max(999).optional(),
 });
 
-// Flag an existing portal user as a department issue contact.
+// Flag an existing department member as an issue contact. This only sets contact_for_issues on a
+// membership that already exists — adding a user to a department (and their role) is managed on the
+// Departments page, not here.
 const ExistingUserSchema = z.object({
   mode: z.literal("existing_user"),
   department_id: z.string().uuid(),
   user_id: z.string().uuid(),
-  dept_role: z.enum(DEPT_ROLES).optional(),
 });
 
 // Create a new portal user and flag them as a department issue contact.
@@ -151,10 +152,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ contact: { ...data, kind: "reference" } }, { status: 201 });
   }
 
-  // Both member modes resolve to a user_id, then upsert a department_members issue-contact row.
+  // Both member modes end with a department_members issue-contact row, but they differ: existing_user
+  // only flags a membership that already exists, while new_user provisions the user + membership.
   let userId: string;
   let deptRole: string;
   let departmentId: string;
+  let membershipId: string;
 
   if (mode === "existing_user") {
     const parsed = ExistingUserSchema.safeParse(raw);
@@ -162,8 +165,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid input" }, { status: 400 });
     }
     userId = parsed.data.user_id;
-    deptRole = parsed.data.dept_role ?? "member";
     departmentId = parsed.data.department_id;
+
+    // Membership must already exist — we only flag it. (Department membership is managed elsewhere.)
+    const { data: membership } = await supabase
+      .from("department_members")
+      .select("id, dept_role")
+      .eq("user_id", userId)
+      .eq("department_id", departmentId)
+      .maybeSingle();
+    if (!membership) {
+      return NextResponse.json(
+        { error: "That user isn't a member of this department. Add them on the Departments page first." },
+        { status: 400 },
+      );
+    }
+    const { data, error } = await supabase
+      .from("department_members")
+      .update({ contact_for_issues: true, is_active: true })
+      .eq("id", membership.id)
+      .select("id")
+      .single();
+    if (error || !data) return NextResponse.json({ error: error?.message ?? "Failed to update membership" }, { status: 500 });
+    membershipId = data.id as string;
+    deptRole = membership.dept_role as string;
   } else if (mode === "new_user") {
     const parsed = NewUserSchema.safeParse(raw);
     if (!parsed.success) {
@@ -204,36 +229,34 @@ export async function POST(req: NextRequest) {
     if (parsed.data.send_welcome) {
       await sendAdminWelcomeNotification({ userId, departmentId }).catch(() => undefined);
     }
+
+    // Create or reactivate the membership as an active issue contact.
+    const { data: existingM } = await supabase
+      .from("department_members")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("department_id", departmentId)
+      .maybeSingle();
+    if (existingM) {
+      const { data, error } = await supabase
+        .from("department_members")
+        .update({ is_active: true, contact_for_issues: true, dept_role: deptRole })
+        .eq("id", existingM.id)
+        .select("id")
+        .single();
+      if (error || !data) return NextResponse.json({ error: error?.message ?? "Failed to update membership" }, { status: 500 });
+      membershipId = data.id as string;
+    } else {
+      const { data, error } = await supabase
+        .from("department_members")
+        .insert({ user_id: userId, department_id: departmentId, dept_role: deptRole, is_active: true, contact_for_issues: true })
+        .select("id")
+        .single();
+      if (error || !data) return NextResponse.json({ error: error?.message ?? "Failed to add membership" }, { status: 500 });
+      membershipId = data.id as string;
+    }
   } else {
     return NextResponse.json({ error: `Unknown mode '${mode}'` }, { status: 400 });
-  }
-
-  // Upsert the membership as an active issue contact.
-  const { data: existingM } = await supabase
-    .from("department_members")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("department_id", departmentId)
-    .maybeSingle();
-
-  let membershipId: string;
-  if (existingM) {
-    const { data, error } = await supabase
-      .from("department_members")
-      .update({ is_active: true, contact_for_issues: true, dept_role: deptRole })
-      .eq("id", existingM.id)
-      .select("id")
-      .single();
-    if (error || !data) return NextResponse.json({ error: error?.message ?? "Failed to update membership" }, { status: 500 });
-    membershipId = data.id as string;
-  } else {
-    const { data, error } = await supabase
-      .from("department_members")
-      .insert({ user_id: userId, department_id: departmentId, dept_role: deptRole, is_active: true, contact_for_issues: true })
-      .select("id")
-      .single();
-    if (error || !data) return NextResponse.json({ error: error?.message ?? "Failed to add membership" }, { status: 500 });
-    membershipId = data.id as string;
   }
 
   // Build the response contact from the now-current user + department.

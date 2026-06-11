@@ -86,6 +86,9 @@ export default function EscalationPage() {
   const [editDraft, setEditDraft] = useState<ContactDraft>(EMPTY_DRAFT);
   const [savingContact, setSavingContact] = useState(false);
   const [removingContactId, setRemovingContactId] = useState<string | null>(null);
+  // Members of the department selected in the add-contact form (for the "existing user" picker).
+  const [deptUsers, setDeptUsers] = useState<{ id: string; display_name: string | null; email: string | null; phone_e164: string | null; contact_for_issues: boolean }[]>([]);
+  const [deptUsersLoading, setDeptUsersLoading] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -179,6 +182,24 @@ export default function EscalationPage() {
 
   // ─── Department contacts ──────────────────────────────────────────────────
 
+  // Load the selected department's members for the "existing user" picker. We only ever flag an
+  // existing member as a contact here, so the picker must be scoped to that department.
+  async function loadDeptUsers(departmentId: string) {
+    if (!departmentId) {
+      setDeptUsers([]);
+      return;
+    }
+    setDeptUsersLoading(true);
+    try {
+      const res = await apiFetch(`/api/admin/users?department_id=${departmentId}`);
+      setDeptUsers(res.ok ? await res.json() : []);
+    } catch {
+      setDeptUsers([]);
+    } finally {
+      setDeptUsersLoading(false);
+    }
+  }
+
   async function addContact(e: React.FormEvent) {
     e.preventDefault();
     if (!contactDraft.department_id) return;
@@ -188,7 +209,7 @@ export default function EscalationPage() {
     let payload: Record<string, unknown>;
     if (contactDraft.source === "existing_user") {
       if (!contactDraft.user_id) return;
-      payload = { mode: "existing_user", department_id: contactDraft.department_id, user_id: contactDraft.user_id, dept_role: contactDraft.dept_role };
+      payload = { mode: "existing_user", department_id: contactDraft.department_id, user_id: contactDraft.user_id };
     } else if (contactDraft.also_user) {
       if (!contactDraft.name.trim() || !contactDraft.phone_e164.trim()) return;
       payload = {
@@ -305,12 +326,9 @@ export default function EscalationPage() {
     return acc;
   }, {});
 
-  // Users selectable in the "existing user" picker: portal users not already an issue contact for
-  // the chosen department.
-  const contactUserIdsInDept = new Set(
-    contacts.filter((c) => c.kind === "member" && c.department_id === contactDraft.department_id).map((c) => c.user_id),
-  );
-  const pickableUsers = users.filter((u) => !contactUserIdsInDept.has(u.id));
+  // Users selectable in the "existing user" picker: members of the chosen department who aren't
+  // already an issue contact.
+  const pickableUsers = deptUsers.filter((u) => !u.contact_for_issues);
 
   if (loading) {
     return <div className="flex items-center justify-center py-20"><p className="text-gray-500 dark:text-gray-400">Loading…</p></div>;
@@ -430,7 +448,11 @@ export default function EscalationPage() {
                 <select
                   required
                   value={contactDraft.department_id}
-                  onChange={(e) => setContactDraft({ ...contactDraft, department_id: e.target.value, user_id: "" })}
+                  onChange={(e) => {
+                    const department_id = e.target.value;
+                    setContactDraft({ ...contactDraft, department_id, user_id: "" });
+                    if (contactDraft.source === "existing_user") void loadDeptUsers(department_id);
+                  }}
                   className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm"
                 >
                   <option value="">Select department…</option>
@@ -440,13 +462,16 @@ export default function EscalationPage() {
                 </select>
               </div>
 
-              {/* Source: link an existing portal user, or enter a new contact (optionally a new user). */}
+              {/* Source: link an existing department member, or enter a new contact (optionally a new user). */}
               <div className="flex gap-2 text-sm">
                 {([["existing_user", "Existing user"], ["new_contact", "New contact"]] as const).map(([val, label]) => (
                   <button
                     key={val}
                     type="button"
-                    onClick={() => setContactDraft({ ...contactDraft, source: val })}
+                    onClick={() => {
+                      setContactDraft({ ...contactDraft, source: val, user_id: "" });
+                      if (val === "existing_user") void loadDeptUsers(contactDraft.department_id);
+                    }}
                     className={`rounded-md px-3 py-1.5 ${contactDraft.source === val ? "bg-blue-600 text-white" : "border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"}`}
                   >
                     {label}
@@ -455,36 +480,29 @@ export default function EscalationPage() {
               </div>
 
               {contactDraft.source === "existing_user" ? (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">User *</label>
-                    <select
-                      required
-                      value={contactDraft.user_id}
-                      onChange={(e) => setContactDraft({ ...contactDraft, user_id: e.target.value })}
-                      className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm"
-                    >
-                      <option value="">Select a user…</option>
-                      {pickableUsers.map((u) => (
-                        <option key={u.id} value={u.id}>{u.display_name ?? u.email ?? u.phone_e164}</option>
-                      ))}
-                    </select>
-                    {pickableUsers.length === 0 && (
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">No more users available to add as a contact.</p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Department role</label>
-                    <select
-                      value={contactDraft.dept_role}
-                      onChange={(e) => setContactDraft({ ...contactDraft, dept_role: e.target.value })}
-                      className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm"
-                    >
-                      <option value="member">Member</option>
-                      <option value="pm">PM</option>
-                      <option value="hod">HOD</option>
-                    </select>
-                  </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Department member *</label>
+                  <select
+                    required
+                    value={contactDraft.user_id}
+                    disabled={!contactDraft.department_id || deptUsersLoading}
+                    onChange={(e) => setContactDraft({ ...contactDraft, user_id: e.target.value })}
+                    className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm disabled:opacity-50"
+                  >
+                    <option value="">
+                      {!contactDraft.department_id ? "Select a department first…" : deptUsersLoading ? "Loading…" : "Select a department member…"}
+                    </option>
+                    {pickableUsers.map((u) => (
+                      <option key={u.id} value={u.id}>{u.display_name ?? u.email ?? u.phone_e164}</option>
+                    ))}
+                  </select>
+                  {contactDraft.department_id && !deptUsersLoading && pickableUsers.length === 0 && (
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {deptUsers.length === 0
+                        ? "No members in this department yet — add them on the Departments page."
+                        : "All members of this department are already contacts."}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <>

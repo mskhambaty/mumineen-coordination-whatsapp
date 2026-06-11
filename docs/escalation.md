@@ -222,8 +222,10 @@ All notification sends are fire-and-forget (failures never block the agent reply
    section lists two kinds of contact, merged: `reference` rows (freestanding
    `department_contacts` — external people with no portal account) and `member` rows (portal
    users flagged `contact_for_issues`, shown with a **User** badge). "+ Add contact" supports:
-   - **Existing user** — pick a portal user → sets `contact_for_issues=true` on their
-     `department_members` row (creating/reactivating it).
+   - **Existing user** — pick a **member of the selected department** (the picker is scoped to
+     that department's members) → sets `contact_for_issues=true` on their existing
+     `department_members` row. It does **not** add the user to the department or change their
+     role — that's managed on the Departments page (400 if the user isn't already a member).
    - **New contact** — free-text name/role/phone/email/notes → a `reference` row by default.
      Tick **"Also add as a department user"** to instead create a portal user (role `committee`
      / global `member`, reusing any existing user with the same phone) and a `contact_for_issues`
