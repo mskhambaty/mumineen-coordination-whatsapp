@@ -248,8 +248,9 @@ function PrintContent() {
       <style>{`
         @media print {
           .no-print { display: none !important; }
-          @page { size: letter landscape; margin: 0.4in; }
+          @page { size: letter landscape; margin: 0; }
           body { background: white !important; }
+          .print-content { padding: 0.4in !important; }
           .pass-page { page-break-after: always; page-break-inside: avoid; }
           .pass-page:last-child { page-break-after: avoid; }
         }
@@ -311,7 +312,8 @@ function PrintContent() {
         </div>
       ) : (
         // Max-width matches landscape letter minus margins (~10in). Screen preview uses the same.
-        <div style={{ padding: "24px 32px", maxWidth: "1000px", margin: "0 auto" }}>
+        // Print padding replaces @page margins (which are zeroed to suppress the browser URL footer).
+        <div style={{ padding: "24px 32px", maxWidth: "1000px", margin: "0 auto" }} className="print-content">
           {pairs.map((pair, i) => (
             <div
               key={i}
