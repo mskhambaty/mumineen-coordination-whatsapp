@@ -1828,6 +1828,44 @@ paths:
         "200": { description: "{ name, text, is_default }." }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /api/admin/department-contacts:
+    get:
+      tags: [admin, escalation]
+      summary: List department contacts (reference rows + member users)
+      description: >
+        Admin-portal gated (canAccessPortal). Returns a merged list of `kind: "reference"`
+        (freestanding department_contacts rows) and `kind: "member"` (whatsapp_users flagged as
+        department issue contacts via department_members.contact_for_issues). Optional
+        ?department_id filter.
+      parameters:
+        - { name: department_id, in: query, required: false, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ contacts[] } — each item has a `kind` of reference|member." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [admin, escalation]
+      summary: Add a department contact (reference, existing user, or new user)
+      description: >
+        Admin-portal gated (canAccessPortal). `mode` selects the behavior:
+        `reference` (default) inserts a freestanding department_contacts row;
+        `existing_user` flags an existing whatsapp_users portal user as a department issue
+        contact (upserts department_members with contact_for_issues=true);
+        `new_user` creates a portal user (role committee / global_role member, reusing any
+        existing user with the same phone) and flags them as a contact. Returns `{ contact }`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - { type: object, required: [department_id, name], properties: { mode: { type: string, enum: [reference] }, department_id: { type: string, format: uuid }, name: { type: string }, role: { type: string, nullable: true }, phone_e164: { type: string, nullable: true }, email: { type: string, format: email, nullable: true }, notes: { type: string, nullable: true }, display_order: { type: integer } } }
+                - { type: object, required: [mode, department_id, user_id], properties: { mode: { type: string, enum: [existing_user] }, department_id: { type: string, format: uuid }, user_id: { type: string, format: uuid }, dept_role: { type: string, enum: [member, pm, hod] } } }
+                - { type: object, required: [mode, department_id, name, phone_e164], properties: { mode: { type: string, enum: [new_user] }, department_id: { type: string, format: uuid }, name: { type: string }, phone_e164: { type: string }, email: { type: string, format: email, nullable: true }, dept_role: { type: string, enum: [member, pm, hod] }, send_welcome: { type: boolean } } }
+      responses:
+        "201": { description: "{ contact } — kind reference|member." }
+        "400": { description: Invalid input. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /api/admin/department-digest:
     get:
       tags: [admin, digest]
