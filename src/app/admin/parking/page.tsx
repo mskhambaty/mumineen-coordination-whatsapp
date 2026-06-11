@@ -71,6 +71,7 @@ const COLOR_SWATCH: Record<string, string> = {
   pink: "#ec4899",
   cream: "#fffdd0",
   white: "#ffffff",
+  red: "#ef4444",
 };
 
 function swatch(color: string | null): string {
