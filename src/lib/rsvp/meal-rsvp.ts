@@ -85,6 +85,42 @@ export async function getFamilyNiyazGrid(familyId: string): Promise<FamilyGridRo
   });
 }
 
+export type FamilyMember = {
+  name: string | null;
+  isAdult: boolean;
+  isHead: boolean;
+  notAttending: boolean;
+};
+
+// The roster-active members of a family, for the agent to list when the user's requested count
+// exceeds the family size ("your family includes: X, Y, Z — ask others to RSVP from their phone").
+export async function getFamilyMembers(familyId: string): Promise<FamilyMember[]> {
+  const { data } = await getSupabaseAdmin()
+    .from("mumineen")
+    .select("full_name, is_adult, is_head, not_attending")
+    .eq("family_id", familyId)
+    .eq("roster_active", true)
+    .order("is_head", { ascending: false });
+  type Row = { full_name: string | null; is_adult: boolean | null; is_head: boolean | null; not_attending: boolean };
+  return ((data ?? []) as Row[]).map((m) => ({
+    name: m.full_name,
+    isAdult: m.is_adult !== false,
+    isHead: m.is_head === true,
+    notAttending: m.not_attending,
+  }));
+}
+
+// When the bot reads a registered family's RSVP back (GET), promote any default-sourced rows to
+// whatsapp — the user has now seen and implicitly confirmed their attendance via a bot interaction.
+// Fire-and-forget; doesn't change attending values, only the source tag so the min view picks them up.
+export async function markFamilyRsvpConfirmed(familyId: string, phone: string): Promise<void> {
+  await getSupabaseAdmin()
+    .from("niyaz_rsvp")
+    .update({ source: "whatsapp", responded_by_phone: phone })
+    .eq("family_id", familyId)
+    .in("source", ["default", "registration"]);
+}
+
 // One instruction from the agent/admin: mark a family attending (or not) for specific dates (or all
 // days), optionally narrowed to one meal. Omit dates (or set all=true) to apply to every event.
 export type NiyazRsvpEntry = {

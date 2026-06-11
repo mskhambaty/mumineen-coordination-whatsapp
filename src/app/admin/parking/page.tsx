@@ -71,6 +71,7 @@ const COLOR_SWATCH: Record<string, string> = {
   pink: "#ec4899",
   cream: "#fffdd0",
   white: "#ffffff",
+  red: "#ef4444",
 };
 
 function swatch(color: string | null): string {
@@ -387,6 +388,9 @@ export default function ParkingPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lotFilter, setLotFilter] = useState(""); // client-side: show only rows with a pass in this lot
   const [multiPassFilter, setMultiPassFilter] = useState(false); // client-side: suggested_passes > 1
+  const [exhaustedFilter, setExhaustedFilter] = useState(false); // client-side: passes >= suggested_passes > 0
+  const [notFilledFilter, setNotFilledFilter] = useState(false); // client-side: suggested_passes > 0 && passes < suggested_passes
+  const [overAllocatedFilter, setOverAllocatedFilter] = useState(false); // client-side: passes.length > suggested_passes
   const [bulkLotId, setBulkLotId] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
   const [selectN, setSelectN] = useState(""); // "select N rows" input
@@ -566,6 +570,15 @@ export default function ParkingPage() {
   if (multiPassFilter) {
     visible = visible.filter((r) => r.suggested_passes > 1);
   }
+  if (exhaustedFilter) {
+    visible = visible.filter((r) => r.suggested_passes > 0 && r.passes.length >= r.suggested_passes);
+  }
+  if (notFilledFilter) {
+    visible = visible.filter((r) => r.suggested_passes > 0 && r.passes.length < r.suggested_passes);
+  }
+  if (overAllocatedFilter) {
+    visible = visible.filter((r) => r.passes.length > r.suggested_passes);
+  }
   if (search) {
     const q = search.toLowerCase();
     visible = visible.filter((r) => r.head_name.toLowerCase().includes(q) || r.hof_its.includes(q));
@@ -592,15 +605,18 @@ export default function ParkingPage() {
     }
   }
 
-  // Bulk flow derived state. effectiveNew counts only selections that would consume a
-  // space in the chosen lot (already-in-lot households get skipped server-side too).
+  // Bulk flow derived state. effectiveNew = total passes that would be inserted:
+  // sum of (suggested_passes - existing_in_lot) per selected family, clamped ≥ 0.
   const rowByFamily = useMemo(() => new Map(rows.map((r) => [r.family_id, r])), [rows]);
   const effectiveNew = useMemo(() => {
     if (!bulkLot) return 0;
     let n = 0;
     for (const id of selected) {
       const row = rowByFamily.get(id);
-      if (row && !row.passes.some((p) => p.lot_id === bulkLot.id)) n++;
+      if (row) {
+        const have = row.passes.filter((p) => p.lot_id === bulkLot.id).length;
+        n += Math.max(0, row.suggested_passes - have);
+      }
     }
     return n;
   }, [selected, rowByFamily, bulkLot]);
@@ -634,7 +650,11 @@ export default function ParkingPage() {
     try {
       const res = await apiFetch("/api/admin/parking/passes/bulk", {
         method: "POST",
-        body: JSON.stringify({ lot_id: bulkLot.id, family_ids: [...selected] }),
+        body: JSON.stringify({
+          lot_id: bulkLot.id,
+          family_ids: [...selected],
+          quotas: Object.fromEntries([...selected].map((id) => [id, rowByFamily.get(id)?.suggested_passes ?? 1])),
+        }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -781,6 +801,22 @@ export default function ParkingPage() {
           active={multiPassFilter}
           label="2+ passes"
           onClick={() => { setMultiPassFilter(!multiPassFilter); setPage(1); }}
+        />
+        <FilterChip
+          active={exhaustedFilter}
+          label="All passes filled"
+          onClick={() => { setExhaustedFilter(!exhaustedFilter); setPage(1); }}
+        />
+        <FilterChip
+          active={notFilledFilter}
+          label="Passes not filled"
+          onClick={() => { setNotFilledFilter(!notFilledFilter); setPage(1); }}
+        />
+        <FilterChip
+          active={overAllocatedFilter}
+          label="Over-allocated"
+          negative
+          onClick={() => { setOverAllocatedFilter(!overAllocatedFilter); setPage(1); }}
         />
         <select
           value={filters.local_mehman}

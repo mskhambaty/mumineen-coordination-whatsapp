@@ -749,6 +749,7 @@ export default function RegistrationAnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [estimates, setEstimates] = useState<Estimates | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const [filters, setFilters] = useState<Filters>({ local_mehman: "", status: "", attending: "", gender: "" });
   const [detail, setDetail] = useState<DetailRequest | null>(null);
@@ -825,6 +826,31 @@ export default function RegistrationAnalyticsPage() {
     return () => obs.disconnect();
   }, [data]);
 
+  async function exportPendingCsv() {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams({ segment: "registration_status", value: "pending" });
+      if (filters.local_mehman) params.set("local_mehman", filters.local_mehman);
+      if (filters.attending) params.set("attending", filters.attending);
+      if (filters.gender) params.set("gender", filters.gender);
+      const res = await apiFetch(`/api/admin/registration-analytics/detail?${params}`);
+      const json = await res.json().catch(() => ({ rows: [] }));
+      const rows: DetailRow[] = json.rows ?? [];
+      const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+      const header = ["Full Name", "ITS", "WhatsApp", "Email", "Type"];
+      const lines = rows.map((r) => [r.name, r.its, r.whatsapp, r.email, r.local_mehman].map(esc).join(","));
+      const blob = new Blob(["﻿" + [header.join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "pending-registration.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   if (error)
     return (
       <main className="mx-auto max-w-7xl px-4 py-10">
@@ -895,14 +921,26 @@ export default function RegistrationAnalyticsPage() {
               {data?.generated_at && <span className="ml-2 text-gray-400">Updated {fmtDate(data.generated_at)}</span>}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => void load(filters)}
-            disabled={loading}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-          >
-            {loading ? "Loading…" : "Refresh"}
-          </button>
+          <div className="flex items-center gap-2">
+            {canDrill && (
+              <button
+                type="button"
+                onClick={() => void exportPendingCsv()}
+                disabled={exporting || loading}
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                {exporting ? "Exporting…" : "Export Pending CSV"}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => void load(filters)}
+              disabled={loading}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+            >
+              {loading ? "Loading…" : "Refresh"}
+            </button>
+          </div>
         </div>
 
         {/* ── Sticky toolbar: filters + section nav stick together on scroll ── */}

@@ -191,7 +191,25 @@ export async function PUT(req: NextRequest) {
       if (error) throw new Error(error.message);
       return NextResponse.json({ ok: true, action: "updated" });
     } else {
-      // Create new
+      // Create new, or if HOF already exists, just re-enable utaro hosting.
+      const { data: existing, error: findErr } = await supabase
+        .from("accommodation_hosts")
+        .select("id")
+        .eq("hof_its", parsed.hof_its)
+        .maybeSingle();
+
+      if (findErr) throw new Error(findErr.message);
+
+      if (existing) {
+        const { error: enableErr } = await supabase
+          .from("accommodation_hosts")
+          .update({ can_provide_utaro: true, updated_at: new Date().toISOString() })
+          .eq("id", existing.id);
+        if (enableErr) throw new Error(enableErr.message);
+        return NextResponse.json({ ok: true, action: "enabled_existing" });
+      }
+
+      // Create brand-new host
       const { error } = await supabase
         .from("accommodation_hosts")
         .insert({ ...record, created_at: new Date().toISOString() });

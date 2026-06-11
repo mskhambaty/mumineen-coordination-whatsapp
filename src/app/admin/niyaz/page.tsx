@@ -320,8 +320,8 @@ export default function NiyazPage() {
           ) : (
             <>
               <span className="font-semibold text-gray-700 dark:text-gray-200">Min (confirmed only):</span>{" "}
-              counts only members who actively said yes via WhatsApp or an admin — arrival-date defaults are excluded.
-              Use this to see who has explicitly confirmed.
+              counts only members who interacted via WhatsApp or were set by an admin — arrival-date defaults are excluded.
+              Viewing your RSVP via the bot counts as confirmation. Use this to see who has actively confirmed.
             </>
           )}{" "}
           Thaals = ceil(attending heads ÷ 8). Unreg columns are guests not linked to a registered family.
