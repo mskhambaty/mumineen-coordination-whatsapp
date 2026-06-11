@@ -231,7 +231,17 @@ export async function setFamilyNiyazRsvp(
     isAdult: m.is_adult !== false,
     isHead: m.is_head === true,
   }));
-  const updated = await applyNiyazRsvp(targets, familyId, entries, { ...opts, respectNotAttending: true }, partial);
+  // Clamp partial counts to actual family size so the agent can't inflate numbers
+  const eligible = targets.filter((t) => !t.notAttending);
+  const maxAdults = eligible.filter((t) => t.isAdult).length;
+  const maxKids = eligible.filter((t) => !t.isAdult).length;
+  const clamped: PartialCounts | undefined = partial
+    ? {
+        adults: partial.adults !== undefined ? Math.min(partial.adults, maxAdults) : undefined,
+        kids: partial.kids !== undefined ? Math.min(partial.kids, maxKids) : undefined,
+      }
+    : undefined;
+  const updated = await applyNiyazRsvp(targets, familyId, entries, { ...opts, respectNotAttending: true }, clamped);
   return { updated, grid: await getFamilyNiyazGrid(familyId) };
 }
 

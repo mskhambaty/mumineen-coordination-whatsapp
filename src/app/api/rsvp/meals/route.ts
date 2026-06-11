@@ -30,6 +30,11 @@ function requirePhone(req: NextRequest): string | null {
   return phone && phone.trim() ? phone.trim() : null;
 }
 
+// Today in America/Chicago as YYYY-MM-DD — events on or after this date are "upcoming".
+function todayChicago(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+}
+
 // Human date label with the weekday for an event's YYYY-MM-DD date, e.g. "Sat, Jun 14". Computed
 // server-side (at UTC noon, formatted in UTC) so it's deterministic and the agent never has to work
 // out a weekday itself — it just echoes this label in the RSVP summary it reads back to the user.
@@ -45,17 +50,17 @@ export async function GET(req: NextRequest) {
   const phone = requirePhone(req);
   if (!phone) return NextResponse.json({ error: "Missing x-whatsapp-from header" }, { status: 400 });
 
+  const today = todayChicago();
+
   const family = await resolveFamilyForPhone(phone);
   if (!family) {
     const [rsvps, events] = await Promise.all([getUnregisteredRsvps(phone), getEvents()]);
+    const upcoming = events.filter((e) => e.eventDate >= today);
     return NextResponse.json({
       status: "unregistered",
       grid: [],
-      // Canonical event list so the agent maps the caller's day references to real dates
-      // (e.g. "2nd Moharram dinner" -> the dinner titled that, on its actual date) instead of guessing.
-      // `label` carries the weekday (e.g. "Sat, Jun 14") for the RSVP summary read-back.
-      events: events.map((e) => ({ date: e.eventDate, label: dateLabel(e.eventDate), meal: e.meal, title: e.title })),
-      rsvps,
+      events: upcoming.map((e) => ({ date: e.eventDate, label: dateLabel(e.eventDate), meal: e.meal, title: e.title })),
+      rsvps: rsvps.filter((r) => r.event_date >= today),
       message: "This number isn't linked to a registered family. Any previous RSVPs from this number are shown in rsvps. Use events for the canonical date/meal/title of each jaman.",
     });
   }
@@ -64,12 +69,10 @@ export async function GET(req: NextRequest) {
     getFamilyNiyazGrid(family.familyId),
     getFamilyMembers(family.familyId),
   ]);
-  // The user is viewing their RSVP via the bot — promote default/registration rows to whatsapp
-  // so the min view counts them as confirmed. Fire-and-forget (don't block the response).
   markFamilyRsvpConfirmed(family.familyId, phone).catch(() => {});
-  // Attach a weekday date label per row so the agent's summary read-back can show "Mon, Jun 15"
-  // without computing the weekday itself.
-  const labeledGrid = grid.map((row) => ({ ...row, dateLabel: dateLabel(row.event.eventDate) }));
+  const labeledGrid = grid
+    .filter((row) => row.event.eventDate >= today)
+    .map((row) => ({ ...row, dateLabel: dateLabel(row.event.eventDate) }));
   return NextResponse.json({ status: "ok", grid: labeledGrid, familyMembers });
 }
 

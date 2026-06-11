@@ -99,6 +99,19 @@ describe("setFamilyNiyazRsvp partial attendance", () => {
     expect(kid?.attending).toBe(true);
   });
 
+  it("clamps inflated counts to actual family size (2 adults, 1 kid)", async () => {
+    await setFamilyNiyazRsvp(
+      "fam-1",
+      [{ attending: true, dates: ["2026-06-21"], meal: "dinner" as const }],
+      { source: "whatsapp", phone: "+15551234567" },
+      { adults: 6, kids: 5 },
+    );
+    const rows = upsertedRows[0];
+    // All 3 members should be attending — 6 clamped to 2 adults, 5 clamped to 1 kid
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r) => r.attending === true)).toBe(true);
+  });
+
   it("does not apply partial counts to attending=false events", async () => {
     await setFamilyNiyazRsvp(
       "fam-1",
