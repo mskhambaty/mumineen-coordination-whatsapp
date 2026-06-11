@@ -222,7 +222,8 @@ export async function GET(req: NextRequest) {
     let pool = await fetchAll<MuminDetail>((from, to) =>
       supabase.from("mumineen").select(MUMIN_SELECT).eq("roster_active", true).range(from, to),
     );
-    pool = pool.filter((m) => !m.not_attending && hostByHof.has(m.hof_its));
+    // registered_member is attending-only; all_member includes everyone (attending + not attending).
+    pool = pool.filter((m) => hostByHof.has(m.hof_its) && (!onlyRegistered || !m.not_attending));
     if (localMehmanFilter) pool = pool.filter((m) => m.local_mehman === localMehmanFilter);
     if (genderFilter) pool = pool.filter((m) => (m.gender?.trim() ?? "") === genderFilter);
     pool = pool
@@ -239,6 +240,8 @@ export async function GET(req: NextRequest) {
       email: m.email ?? "",
       detail: "",
       hof_its: m.hof_its,
+      // all_member spans attending + not-attending, so surface the Attending column to tell them apart.
+      attending: onlyRegistered ? undefined : m.not_attending ? "No" : "Yes",
       utaro_host_its: hostByHof.get(m.hof_its) ?? undefined,
     }));
 

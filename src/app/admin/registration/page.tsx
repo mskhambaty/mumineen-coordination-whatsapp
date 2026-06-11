@@ -1045,7 +1045,11 @@ export default function RegistrationAnalyticsPage() {
                   />
                 </KpiCluster>
                 <KpiCluster label="Mumineen · Registration Funnel">
-                  <Kpi value={summary.total_mumineen} label="total in roster" />
+                  <Kpi
+                    value={summary.total_mumineen}
+                    label="total in roster"
+                    onClick={() => drill({ segment: "all_member", label: "All Individuals", showHofIts: true, showHostIts: true })}
+                  />
                   <Kpi
                     value={summary.submitted_mumineen}
                     suffix={`${submittedMuminPct}%`}

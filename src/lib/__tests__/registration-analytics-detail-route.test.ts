@@ -161,15 +161,17 @@ describe("GET /api/admin/registration-analytics/detail — registered_member (we
     expect(json.rows[0]).toMatchObject({ hof_its: "100", utaro_host_its: "HOST1", local_mehman: "Mehman", gender: "M", age: "40" });
   });
 
-  it("all_member lists attending members of EVERY active family (registered or not), with Age", async () => {
+  it("all_member lists EVERY member of EVERY active family (attending + not), with Age and an Attending flag", async () => {
     const json = await (await GET(req("segment=all_member"))).json();
-    // 100 (registered, attending) and 201 (unregistered family, attending). 101 is not attending → excluded.
-    expect(json.rows.map((r: { its: string }) => r.its).sort()).toEqual(["100", "201"]);
+    // 100 (registered, attending), 101 (not attending — now INCLUDED), 201 (unregistered family, attending).
+    expect(json.rows.map((r: { its: string }) => r.its).sort()).toEqual(["100", "101", "201"]);
     const reg = json.rows.find((r: { its: string }) => r.its === "100");
+    const notAttending = json.rows.find((r: { its: string }) => r.its === "101");
     const pending = json.rows.find((r: { its: string }) => r.its === "201");
-    expect(reg).toMatchObject({ hof_its: "100", utaro_host_its: "HOST1", age: "40" });
-    // Unregistered family has no host; its drilled row still appears with age populated.
-    expect(pending).toMatchObject({ hof_its: "200", age: "50" });
+    expect(reg).toMatchObject({ hof_its: "100", utaro_host_its: "HOST1", age: "40", attending: "Yes" });
+    expect(notAttending).toMatchObject({ hof_its: "100", age: "8", attending: "No" });
+    // Unregistered family has no host; its drilled row still appears with age + attending populated.
+    expect(pending).toMatchObject({ hof_its: "200", age: "50", attending: "Yes" });
     expect(pending.utaro_host_its).toBeUndefined();
   });
 });
