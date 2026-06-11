@@ -22,36 +22,28 @@ type DepartmentRow = {
   name: string;
 };
 
-type SessionRow = {
-  id: string;
-  phone_e164: string;
-  handling_mode: "ai" | "manual" | null;
-  last_message_at: string | null;
-  created_at: string | null;
-  escalation_status?: string | null;
-  quality_score?: "good" | "poor" | null;
-  quality_analyzed_at?: string | null;
-};
-
 type MilestoneRow = {
   id: string;
   status: string;
   department_id: string;
 };
 
-type MessageRow = {
-  id: string;
-  phone_e164: string;
-  direction: "inbound" | "outbound";
-  created_at: string;
-};
-
-type ToolAuditRow = {
-  id: string;
-  phone_e164: string | null;
-  tool_name: string;
-  allowed: boolean;
-  created_at: string;
+type ConversationStats = {
+  session_counts: {
+    total: number;
+    ai: number;
+    manual: number;
+    escalation_pending: number;
+    quality_good: number;
+    quality_poor: number;
+    quality_unscored: number;
+  };
+  quality_by_day: Array<{ date: string; good: number; poor: number }>;
+  message_counts: { total: number; inbound: number; outbound: number };
+  messages_by_day: Array<{ date: string; inbound: number; outbound: number }>;
+  user_message_split: { external: number; internal: number };
+  tool_counts: { total: number; blocked: number };
+  top_tools: Array<{ name: string; count: number }>;
 };
 
 export async function GET(req: NextRequest) {
@@ -88,49 +80,60 @@ export async function GET(req: NextRequest) {
     );
     const scopedTasks = (tasks ?? []) as TaskRow[];
 
-    // PostgREST default limit is 1000 rows — override to avoid silently capped counts.
-    const ROW_CAP = 10_000;
-    const [{ data: sessions }, { data: messages }, { data: toolCalls }, { data: milestoneRows }] = await Promise.all([
-      supabase
-        .from("conversation_sessions")
-        .select("id, phone_e164, handling_mode, last_message_at, created_at, escalation_status, quality_score, quality_analyzed_at")
-        .gte("last_message_at", thirtyDaysAgo.toISOString())
-        .limit(ROW_CAP),
-      supabase
-        .from("messages")
-        .select("id, phone_e164, direction, created_at")
-        .gte("created_at", thirtyDaysAgo.toISOString())
-        .limit(ROW_CAP),
-      supabase
-        .from("tool_audit_logs")
-        .select("id, phone_e164, tool_name, allowed, created_at")
-        .gte("created_at", thirtyDaysAgo.toISOString())
-        .limit(ROW_CAP),
-      supabase
-        .from("milestones")
-        .select("id, status, department_id")
-        .limit(ROW_CAP),
+    // Conversation/message/tool stats are aggregated server-side via a SQL function
+    // to avoid the PostgREST max_rows cap (1000).
+    const [{ data: convStats, error: convError }, { data: milestoneRows }] = await Promise.all([
+      supabase.rpc("dashboard_conversation_stats", { p_since: thirtyDaysAgo.toISOString() }),
+      supabase.from("milestones").select("id, status, department_id"),
     ]);
 
-    const typedSessions = (sessions ?? []) as SessionRow[];
+    if (convError) {
+      return NextResponse.json({ error: convError.message }, { status: 500 });
+    }
 
-    // Resolve which phones belong to committee/admin users for external vs internal split
-    const { data: knownUsers } = await supabase
-      .from("whatsapp_users")
-      .select("phone_e164, role")
-      .in("role", ["committee", "admin"]);
-    const memberPhones = new Set((knownUsers ?? []).map((u: { phone_e164: string }) => u.phone_e164));
+    const stats = convStats as ConversationStats;
+
+    // Fill in days with zero messages so the chart always has 31 bars
+    const dayMap = new Map<string, { date: string; inbound: number; outbound: number }>();
+    for (let offset = 0; offset <= 30; offset++) {
+      const d = new Date(thirtyDaysAgo);
+      d.setDate(thirtyDaysAgo.getDate() + offset);
+      const key = d.toISOString().split("T")[0];
+      dayMap.set(key, { date: key, inbound: 0, outbound: 0 });
+    }
+    for (const row of stats.messages_by_day) {
+      const bucket = dayMap.get(row.date);
+      if (bucket) {
+        bucket.inbound = row.inbound;
+        bucket.outbound = row.outbound;
+      }
+    }
 
     return NextResponse.json({
       departments: departments ?? [],
       tasks: buildTaskAnalytics(scopedTasks, departmentMap, today),
-      conversations: buildConversationAnalytics(
-        typedSessions,
-        (messages ?? []) as MessageRow[],
-        (toolCalls ?? []) as ToolAuditRow[],
-        thirtyDaysAgo,
-        memberPhones,
-      ),
+      conversations: {
+        window_days: 30,
+        active_conversations: stats.session_counts.total,
+        manual_conversations: stats.session_counts.manual,
+        ai_conversations: stats.session_counts.ai,
+        inbound_messages: stats.message_counts.inbound,
+        outbound_messages: stats.message_counts.outbound,
+        total_messages: stats.message_counts.total,
+        tool_calls: stats.tool_counts.total,
+        blocked_tool_calls: stats.tool_counts.blocked,
+        messages_by_day: Array.from(dayMap.values()),
+        top_tools: stats.top_tools,
+        escalation_count: stats.session_counts.escalation_pending,
+        quality_summary: {
+          good: stats.session_counts.quality_good,
+          poor: stats.session_counts.quality_poor,
+          unscored: stats.session_counts.quality_unscored,
+        },
+        quality_by_day: stats.quality_by_day,
+        external_user_messages: stats.user_message_split.external,
+        internal_user_messages: stats.user_message_split.internal,
+      },
       milestones: buildMilestoneAnalytics((milestoneRows ?? []) as MilestoneRow[], departmentMap),
     });
   } catch (err) {
@@ -238,74 +241,6 @@ function buildTaskAnalytics(tasks: TaskRow[], departmentMap: Map<string, string>
   };
 }
 
-function buildConversationAnalytics(
-  sessions: SessionRow[],
-  messages: MessageRow[],
-  toolCalls: ToolAuditRow[],
-  since: Date,
-  memberPhones: Set<string>,
-) {
-  const inbound = messages.filter((message) => message.direction === "inbound").length;
-  const outbound = messages.filter((message) => message.direction === "outbound").length;
-  const byDay = buildDailyMessageCounts(messages, since);
-  const topTools = new Map<string, number>();
-
-  for (const call of toolCalls) {
-    topTools.set(call.tool_name, (topTools.get(call.tool_name) ?? 0) + 1);
-  }
-
-  const escalationCount = sessions.filter((s) => s.escalation_status === "pending").length;
-
-  let qualityGood = 0;
-  let qualityPoor = 0;
-  let qualityUnscored = 0;
-  const qualityByDay = new Map<string, { date: string; good: number; poor: number }>();
-  for (const session of sessions) {
-    if (session.quality_score === "good") qualityGood++;
-    else if (session.quality_score === "poor") qualityPoor++;
-    else qualityUnscored++;
-
-    if (session.quality_analyzed_at && session.quality_score) {
-      const day = new Date(session.quality_analyzed_at).toISOString().split("T")[0];
-      const bucket = qualityByDay.get(day) ?? { date: day, good: 0, poor: 0 };
-      if (session.quality_score === "good") bucket.good++;
-      else bucket.poor++;
-      qualityByDay.set(day, bucket);
-    }
-  }
-
-  let externalMessages = 0;
-  let internalMessages = 0;
-  for (const msg of messages) {
-    if (msg.direction === "inbound") {
-      if (memberPhones.has(msg.phone_e164)) internalMessages++;
-      else externalMessages++;
-    }
-  }
-
-  return {
-    window_days: 30,
-    active_conversations: sessions.length,
-    manual_conversations: sessions.filter((session) => session.handling_mode === "manual").length,
-    ai_conversations: sessions.filter((session) => session.handling_mode !== "manual").length,
-    inbound_messages: inbound,
-    outbound_messages: outbound,
-    total_messages: messages.length,
-    tool_calls: toolCalls.length,
-    blocked_tool_calls: toolCalls.filter((call) => !call.allowed).length,
-    messages_by_day: byDay,
-    top_tools: Array.from(topTools.entries())
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10),
-    escalation_count: escalationCount,
-    quality_summary: { good: qualityGood, poor: qualityPoor, unscored: qualityUnscored },
-    quality_by_day: Array.from(qualityByDay.values()).sort((a, b) => a.date.localeCompare(b.date)),
-    external_user_messages: externalMessages,
-    internal_user_messages: internalMessages,
-  };
-}
-
 function buildMilestoneAnalytics(milestones: MilestoneRow[], departmentMap: Map<string, string>) {
   const byStatus: Record<string, number> = { open: 0, in_progress: 0, blocked: 0, complete: 0 };
   const byDepartment = new Map<string, { department_name: string; total: number; complete: number }>();
@@ -333,22 +268,3 @@ function isOverdue(task: TaskRow, today: string) {
   return Boolean(task.due_date && task.due_date < today && task.status !== "complete");
 }
 
-function buildDailyMessageCounts(messages: MessageRow[], since: Date) {
-  const counts = new Map<string, { date: string; inbound: number; outbound: number }>();
-  for (let offset = 0; offset <= 30; offset++) {
-    const date = new Date(since);
-    date.setDate(since.getDate() + offset);
-    const key = date.toISOString().split("T")[0];
-    counts.set(key, { date: key, inbound: 0, outbound: 0 });
-  }
-
-  for (const message of messages) {
-    const key = new Date(message.created_at).toISOString().split("T")[0];
-    const bucket = counts.get(key);
-    if (!bucket) continue;
-    if (message.direction === "inbound") bucket.inbound++;
-    if (message.direction === "outbound") bucket.outbound++;
-  }
-
-  return Array.from(counts.values());
-}
