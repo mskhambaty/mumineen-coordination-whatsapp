@@ -1670,10 +1670,48 @@ paths:
   /api/admin/templates:
     get:
       tags: [admin, templates]
-      summary: Approved templates + selectable test users for the send console
-      description: Admin/leadership only (requireAdminLeadership — admin key + DB-verified role via x-portal-user-id). No phone numbers returned.
+      summary: Approved templates (with friendly-name + active annotations) + selectable test users
+      description: >-
+        Admin/leadership only (requireAdminLeadership — admin key + DB-verified role via
+        x-portal-user-id). Returns the FULL catalog (active + inactive); each template carries
+        friendlyName (string|null) and isActive (boolean) merged from whatsapp_template_settings.
+        The console filters its dropdowns to isActive and drives the cleanup popup from the full
+        list. No phone numbers returned.
       responses:
-        "200": { description: "templates[] + selectable_users[] (id + name only)." }
+        "200": { description: "templates[] (each + friendlyName, isActive) + selectable_users[] (id + name only)." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/admin/templates/settings:
+    put:
+      tags: [admin, templates]
+      summary: Set a template's friendly name and/or active flag
+      description: Admin/leadership only. Upserts whatsapp_template_settings for one Meta template. Inactive templates are hidden from the console's Template dropdowns.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [template_name]
+              properties:
+                template_name: { type: string }
+                friendly_name: { type: string, nullable: true, maxLength: 120 }
+                is_active: { type: boolean }
+      responses:
+        "200": { description: "{ template_name, friendlyName, isActive }." }
+        "400": { description: "Invalid body (no fields to update)." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/admin/templates/segments:
+    get:
+      tags: [admin, templates]
+      summary: Niyaz reach segment sizes (free vs paid split)
+      description: >-
+        Admin/leadership only. Sizes of the three reach segments for the console header, each split
+        into in_window (messaged ≤24h — answerable for free) vs out_window (needs a template —
+        counts against the daily cap). Counts only; no PII.
+      responses:
+        "200": { description: "{ segments: [{ key, label, total, in_window, out_window }] }." }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
   /api/admin/templates/preview:
@@ -1689,7 +1727,7 @@ paths:
               type: object
               required: [audience_key]
               properties:
-                audience_key: { type: string, enum: [selected_users, chicago_committee, arrived_hof, registered_hof, all_members, custom, csv_upload] }
+                audience_key: { type: string, enum: [selected_users, chicago_committee, arrived_hof, registered_hof, all_members, segment_all_users, segment_hof, segment_hof_unresponded, custom, csv_upload] }
                 selected_user_ids: { type: array, items: { type: string, format: uuid } }
                 rules: { type: object, description: react-querybuilder rule tree (audience_key=custom) }
                 csv: { type: string, description: Raw CSV text in the audience-export format (audience_key=csv_upload) }
@@ -1716,7 +1754,7 @@ paths:
               properties:
                 template_code: { type: string }
                 template_language: { type: string }
-                audience_key: { type: string, enum: [selected_users, chicago_committee, arrived_hof, registered_hof, all_members, custom, csv_upload] }
+                audience_key: { type: string, enum: [selected_users, chicago_committee, arrived_hof, registered_hof, all_members, segment_all_users, segment_hof, segment_hof_unresponded, custom, csv_upload] }
                 selected_user_ids: { type: array, items: { type: string, format: uuid } }
                 rules: { type: object, description: react-querybuilder rule tree (audience_key=custom) }
                 csv: { type: string, description: Raw CSV text in the audience-export format (audience_key=csv_upload) }
@@ -2601,4 +2639,45 @@ components:
                       summary: { type: string }
                       past_count: { type: integer }
         401: { $ref: "#/components/responses/Unauthorized" }
+        500: { $ref: "#/components/responses/ServerError" }
+
+  /api/admin/parking/print:
+    get:
+      summary: Get lot details and all passes for print layout
+      description: |
+        Returns the lot's metadata and every parking pass in that lot with the
+        family head's name and phone number, sorted alphabetically by name.
+        Used by the /admin/parking/print page to render a 2-per-page printable layout.
+      tags: [Parking]
+      security: [{ portalSession: [] }]
+      parameters:
+        - name: lot_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Lot details and pass list.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lot:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      name: { type: string }
+                      color: { type: string, nullable: true }
+                  passes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        head_name: { type: string }
+                        phone: { type: string, nullable: true }
+        400: { $ref: "#/components/responses/BadRequest" }
+        401: { $ref: "#/components/responses/Unauthorized" }
+        404: { $ref: "#/components/responses/NotFound" }
         500: { $ref: "#/components/responses/ServerError" }

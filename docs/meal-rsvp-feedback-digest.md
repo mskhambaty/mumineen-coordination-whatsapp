@@ -33,9 +33,11 @@ responses come in.
 - **Unregistered RSVPs** (`unregistered_rsvps`, `20260610120000_*`): one row per
   (phone, event), `adults`/`kids` counts, optional `its_number`/`family_name`. Recorded when an
   unlinked phone taps a button or the agent records their RSVP. Tallied alongside registered counts.
-  Unlike registered families there is **no pre-seeded baseline**, so the agent must send the FULL
-  picture — a `{attending:true, all:true}` baseline plus any `{attending:false, …}` exceptions — in
-  one `set_family_meal_rsvps` call. `recordUnregisteredRsvp` resolves the entries through the shared
+  Unlike registered families there is **no pre-seeded baseline**. The agent ALWAYS defaults
+  unregistered callers to all days attending — even if the caller only mentions one event (because
+  in the Ashara context, that almost certainly means all days). So every `set_family_meal_rsvps`
+  call starts with a `{attending:true, all:true}` baseline plus any `{attending:false, …}`
+  exceptions. After recording, the agent shows the full grid and asks the caller to confirm. `recordUnregisteredRsvp` resolves the entries through the shared
   `decideEvents` (last entry wins per event), so a meal-scoped "not attending" is stored as
   `attending=false` and `adults`/`kids`/`its_number` are written on every resolved row (and omitted
   from the upsert when not supplied, so a later partial update can't clobber them).
@@ -167,10 +169,35 @@ department plus the all-up. Summaries are stored per day for historical referenc
 `requireAdminLeadership`). Pick an approved template, pick an audience, preview free/paid counts +
 cost, send. No auto-scheduling — every send is a button press.
 
+**Why the page is shaped this way:** Meta caps us at ~250 template messages/day, so the console
+helps staff spend that quota deliberately. People who **messaged us in the last 24h** sit inside the
+free customer-service window and can be answered without a template (don't count against the cap);
+everyone else needs a template. So both the header segments and the per-audience preview split
+recipients into *messaged ≤24h (free)* vs *needs a template (paid)*.
+
+**Reach segments** (header summary + sendable audiences). `segmentCounts()` (`audience.ts`) sizes
+three segments, each split free/paid, exposed by `GET /api/admin/templates/segments` and shown as
+cards atop the page; the same keys are selectable in the Audience dropdown:
+- `segment_all_users` — every attending roster member with a number (`all_members`) **∪** every
+  distinct `unregistered_rsvps` phone, deduped.
+- `segment_hof` — registered HOF (`registered_hof`) **∪** every distinct `unregistered_rsvps` phone
+  (each unregistered phone assumed to be one HOF), deduped.
+- `segment_hof_unresponded` — registered HOF whose family has **no RSVP response on record** (no
+  `niyaz_rsvp` row sourced `whatsapp`/`admin` and no `niyaz_family_headcount`), via
+  `respondedFamilyIds()`. Unregistered phones are excluded — they're in `unregistered_rsvps`
+  *because* they responded. This is the "who haven't we heard from?" chase list.
+
+**Template hygiene.** A **Manage templates** popup lets admins give each Meta template a
+`friendly_name` and an `is_active` flag (`whatsapp_template_settings`, via
+`PUT /api/admin/templates/settings`). `GET /api/admin/templates` returns the full catalog with these
+merged in; the console shows the friendly name and **hides inactive templates from both the Broadcast
+and Single-recipient dropdowns** (the popup still lists them so they can be reactivated). The
+`/admin/niyaz` composer and cron/notification flows are unaffected.
+
 - Audiences (`src/lib/whatsapp/audience.ts`), always **deduped by phone**: `selected_users`,
-  `chicago_committee`, `arrived_hof`, `registered_hof`, `all_members`, `custom` (rule-tree filter),
-  and `csv_upload`. Split into in-window (free) vs out-window (paid) using
-  `conversation_sessions.last_message_at`; cost via `WHATSAPP_UTILITY_MSG_COST_USD`.
+  `chicago_committee`, `arrived_hof`, `registered_hof`, `all_members`, the three `segment_*` keys
+  above, `custom` (rule-tree filter), and `csv_upload`. Split into in-window (free) vs out-window
+  (paid) using `conversation_sessions.last_message_at`; cost via `WHATSAPP_UTILITY_MSG_COST_USD`.
 - `csv_upload` (`src/lib/whatsapp/audience-csv.ts`): audience taken from an uploaded CSV in the **same
   format as the app's CSV downloads** (the audience export, or a broadcast's failures export). Columns
   matched by header (case-insensitive, order-free); a `WhatsApp` column is required; the roster columns
@@ -206,7 +233,10 @@ cost, send. No auto-scheduling — every send is a button press.
   24h-window label is only a fallback for failures Meta reports with no error detail (`categorizeFailure`).
   The per-recipient Name/ITS are resolved via the shared `resolveRosterByPhone` (direct + the
   `mumin_phone_links` fallback), so they populate for any failed number that maps to a roster member.
-- API: `GET /api/admin/templates`, `POST /api/admin/templates/preview`, `POST .../send`,
+- API: `GET /api/admin/templates` (catalog + friendly-name/active annotations),
+  `PUT /api/admin/templates/settings` (friendly name / active flag),
+  `GET /api/admin/templates/segments` (reach-segment sizes),
+  `POST /api/admin/templates/preview`, `POST .../send`,
   `POST .../drain`, `GET .../broadcasts(/[id])`, `GET .../broadcasts/[id]/failures`.
 
 The console handles **no-variable** templates to audiences; the older single-recipient composer

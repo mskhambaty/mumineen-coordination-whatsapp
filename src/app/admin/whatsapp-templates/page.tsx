@@ -17,7 +17,10 @@ type TemplateDescriptor = {
   headerVar: string | null;
   urlButtons: { index: number; text: string | null; hasVar: boolean }[];
   category?: string;
+  friendlyName: string | null;
+  isActive: boolean;
 };
+type SegmentCount = { key: string; label: string; total: number; in_window: number; out_window: number };
 type SelectableUser = { id: string; name: string; role: string };
 type Preview = { total: number; in_window: number; out_window: number; est_cost_usd: number; recipients?: { phone: string; full_name: string | null; its: string | null; inWindow: boolean }[]; funnel?: { matched: number; with_whatsapp: number; unique: number } | null; csv_stats?: { parsed: number; skipped: number; duplicates: number; corrupted: number } | null };
 type CatalogField = { key: string; label: string; group: string; type: string; operators: string[]; values: string[] };
@@ -45,9 +48,17 @@ const AUDIENCES: { key: string; label: string }[] = [
   { key: "arrived_hof", label: "Arrived families (one per family)" },
   { key: "registered_hof", label: "All registered families (one per family)" },
   { key: "all_members", label: "All family members (deduped by number)" },
+  { key: "segment_all_users", label: "Segment: All users (registered + unregistered RSVP)" },
+  { key: "segment_hof", label: "Segment: Heads of family (registered + unregistered RSVP)" },
+  { key: "segment_hof_unresponded", label: "Segment: HOF with no RSVP response yet" },
   { key: "custom", label: "Custom filter…" },
   { key: "csv_upload", label: "Upload CSV…" },
 ];
+
+// Display label for a template in the pickers: friendly name when set, else the raw Meta name.
+function tplLabel(t: TemplateDescriptor): string {
+  return t.friendlyName?.trim() || t.name;
+}
 
 const OP_LABELS: Record<string, string> = {
   "=": "is", "!=": "is not", in: "is any of", notIn: "is none of", contains: "contains",
@@ -60,6 +71,8 @@ export default function SendTemplatesPage() {
   const [mode, setMode] = useState<"broadcast" | "single">("broadcast");
   const [templates, setTemplates] = useState<TemplateDescriptor[]>([]);
   const [users, setUsers] = useState<SelectableUser[]>([]);
+  const [segments, setSegments] = useState<SegmentCount[]>([]);
+  const [manageOpen, setManageOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -147,25 +160,38 @@ export default function SendTemplatesPage() {
     }
   }
 
+  const loadTemplates = useCallback(async () => {
+    const res = await apiFetch("/api/admin/templates");
+    if (res.ok) {
+      const data = await res.json();
+      setTemplates((data.templates as TemplateDescriptor[]) ?? []);
+      setUsers((data.selectable_users as SelectableUser[]) ?? []);
+      return true;
+    }
+    setError("You don't have access to this page, or templates failed to load.");
+    return false;
+  }, []);
+
+  const loadSegments = useCallback(async () => {
+    const res = await apiFetch("/api/admin/templates/segments");
+    if (res.ok) setSegments(((await res.json()).segments as SegmentCount[]) ?? []);
+  }, []);
+
   useEffect(() => {
     void (async () => {
-      const res = await apiFetch("/api/admin/templates");
-      if (res.ok) {
-        const data = await res.json();
-        setTemplates((data.templates as TemplateDescriptor[]) ?? []);
-        setUsers((data.selectable_users as SelectableUser[]) ?? []);
-      } else {
-        setError("You don't have access to this page, or templates failed to load.");
-      }
+      await loadTemplates();
       const f = await apiFetch("/api/admin/templates/audience-fields");
       if (f.ok) {
         const fd = await f.json();
         setCatalog((fd.fields as CatalogField[]) ?? []);
         setMappable((fd.mappableFields as MappableField[]) ?? []);
       }
-      await loadBroadcasts();
+      await Promise.all([loadBroadcasts(), loadSegments()]);
     })();
-  }, [loadBroadcasts]);
+  }, [loadBroadcasts, loadTemplates, loadSegments]);
+
+  // Templates offered in the pickers: active only (deactivated ones are managed in the popup).
+  const activeTemplates = useMemo(() => templates.filter((t) => t.isActive), [templates]);
 
   const selectedTpl = templates.find((t) => t.name === tpl) ?? null;
   const selectedSingleTpl = templates.find((t) => t.name === singleTpl) ?? null;
@@ -384,6 +410,28 @@ export default function SendTemplatesPage() {
         Broadcast an approved template to an audience (preset or custom filter), with per-recipient personalization, or send to one recipient. Admin / leadership only.
       </p>
 
+      {/* Reach segments: how many people each segment needs, split into "messaged in last 24h"
+          (free session reply — no template needed) vs "paid" (needs a template — counts against the
+          ~250/day Meta cap). */}
+      {segments.length > 0 && (
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {segments.map((s) => (
+            <div key={s.key} className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+              <div className="text-xs font-medium text-gray-500 dark:text-gray-400">{s.label}</div>
+              <div className="mt-1 text-2xl font-bold">{s.total.toLocaleString()}</div>
+              <div className="mt-1 text-xs">
+                <span className="text-green-600">{s.in_window.toLocaleString()} messaged ≤24h (free)</span>
+                {" · "}
+                <span className="text-amber-600">{s.out_window.toLocaleString()} need a template</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="mt-1 text-xs text-gray-400">
+        “Need a template” counts against Meta’s ~250 template messages/day cap; people who messaged in the last 24h can be answered for free without a template.
+      </p>
+
       <div className="mt-3 flex gap-2">
         <button type="button" onClick={() => setMode("broadcast")} className={`rounded-md px-3 py-1.5 text-sm font-medium ${mode === "broadcast" ? "bg-blue-600 text-white" : "border border-gray-300 dark:border-gray-700"}`}>
           Broadcast
@@ -398,17 +446,22 @@ export default function SendTemplatesPage() {
 
       {mode === "broadcast" ? (
         <section className="mt-5 space-y-4 rounded-lg border border-gray-200 p-4 dark:border-gray-800">
-          <label className="block text-xs uppercase tracking-wide text-gray-400">
-            Template
-            <select value={tpl} onChange={(e) => selectBroadcastTemplate(e.target.value)} className={`${input} mt-1 block w-full`}>
-              <option value="">Select a template…</option>
-              {templates.map((t) => (
-                <option key={`${t.name}/${t.language}`} value={t.name}>
-                  {t.name} ({t.language}){t.bodyVarCount > 0 ? " — has variables" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="flex items-end justify-between gap-2">
+            <label className="block flex-1 text-xs uppercase tracking-wide text-gray-400">
+              Template
+              <select value={tpl} onChange={(e) => selectBroadcastTemplate(e.target.value)} className={`${input} mt-1 block w-full`}>
+                <option value="">Select a template…</option>
+                {activeTemplates.map((t) => (
+                  <option key={`${t.name}/${t.language}`} value={t.name}>
+                    {tplLabel(t)} ({t.language}){t.bodyVarCount > 0 ? " — has variables" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="button" onClick={() => setManageOpen(true)} className="shrink-0 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium dark:border-gray-700">
+              Manage templates
+            </button>
+          </div>
 
           {selectedTpl && <div className="rounded-md bg-gray-50 p-3 text-sm whitespace-pre-wrap dark:bg-gray-900">{previewText() || selectedTpl.bodyText || "(no body preview)"}</div>}
 
@@ -595,8 +648,8 @@ export default function SendTemplatesPage() {
                 className={`${input} block w-full`}
               >
                 <option value="">Select a template…</option>
-                {templates.map((t) => (
-                  <option key={`${t.name}/${t.language}`} value={t.name}>{t.name} ({t.language})</option>
+                {activeTemplates.map((t) => (
+                  <option key={`${t.name}/${t.language}`} value={t.name}>{tplLabel(t)} ({t.language})</option>
                 ))}
               </select>
               {selectedSingleTpl && <div className="rounded-md bg-gray-50 p-3 text-sm whitespace-pre-wrap dark:bg-gray-900">{selectedSingleTpl.bodyText ?? "(no body preview)"}</div>}
@@ -739,6 +792,116 @@ export default function SendTemplatesPage() {
           </table>
         </div>
       </section>
+
+      {manageOpen && (
+        <ManageTemplatesModal
+          templates={templates}
+          onClose={() => setManageOpen(false)}
+          onSaved={async () => {
+            await loadTemplates();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Cleanup popup: give each Meta template a friendly name and toggle whether it shows in the console's
+// pickers. Edits are saved per row via PUT /api/admin/templates/settings; deactivated templates are
+// hidden from the Template dropdowns (this modal still lists them so they can be reactivated).
+function ManageTemplatesModal({
+  templates,
+  onClose,
+  onSaved,
+}: {
+  templates: TemplateDescriptor[];
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [drafts, setDrafts] = useState<Record<string, { friendlyName: string; isActive: boolean }>>(() =>
+    Object.fromEntries(templates.map((t) => [t.name, { friendlyName: t.friendlyName ?? "", isActive: t.isActive }])),
+  );
+  const [savingName, setSavingName] = useState<string | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
+
+  function setDraft(name: string, patch: Partial<{ friendlyName: string; isActive: boolean }>) {
+    setDrafts((prev) => ({ ...prev, [name]: { ...prev[name], ...patch } }));
+  }
+
+  async function save(t: TemplateDescriptor) {
+    const d = drafts[t.name];
+    setSavingName(t.name);
+    setModalError(null);
+    try {
+      const res = await apiFetch("/api/admin/templates/settings", {
+        method: "PUT",
+        body: JSON.stringify({ template_name: t.name, friendly_name: d.friendlyName.trim() || null, is_active: d.isActive }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Save failed");
+      await onSaved();
+    } catch (e) {
+      setModalError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSavingName(null);
+    }
+  }
+
+  const dirty = (t: TemplateDescriptor) =>
+    drafts[t.name].friendlyName !== (t.friendlyName ?? "") || drafts[t.name].isActive !== t.isActive;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="max-h-[85vh] w-full max-w-3xl overflow-auto rounded-lg bg-white p-4 shadow-xl dark:bg-gray-950" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Manage templates</h2>
+          <button type="button" onClick={onClose} className="text-sm text-gray-500 hover:text-gray-700">Close</button>
+        </div>
+        <p className="mt-1 text-xs text-gray-500">
+          Give templates a friendly name and deactivate the ones you don’t use — deactivated templates are hidden from the Template dropdowns on this page.
+        </p>
+        {modalError && <div className="mt-3 rounded-md bg-red-50 p-2 text-sm text-red-700 dark:bg-red-950">{modalError}</div>}
+        <div className="mt-3 overflow-auto rounded-md border border-gray-200 dark:border-gray-800">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-gray-50 text-xs uppercase text-gray-500 dark:bg-gray-900">
+              <tr>
+                <th className="px-2 py-1.5">Template (Meta name)</th>
+                <th className="px-2 py-1.5">Friendly name</th>
+                <th className="px-2 py-1.5">Active</th>
+                <th className="px-2 py-1.5"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {templates.map((t) => (
+                <tr key={`${t.name}/${t.language}`} className="border-t border-gray-100 dark:border-gray-800">
+                  <td className="px-2 py-1.5 font-mono text-xs">{t.name} <span className="text-gray-400">({t.language})</span></td>
+                  <td className="px-2 py-1.5">
+                    <input
+                      value={drafts[t.name].friendlyName}
+                      onChange={(e) => setDraft(t.name, { friendlyName: e.target.value })}
+                      placeholder="e.g. Daily Niyaz RSVP"
+                      className={`${input} w-full`}
+                    />
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <input type="checkbox" checked={drafts[t.name].isActive} onChange={(e) => setDraft(t.name, { isActive: e.target.checked })} />
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <button
+                      type="button"
+                      onClick={() => save(t)}
+                      disabled={!dirty(t) || savingName === t.name}
+                      className="rounded-md bg-blue-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-40"
+                    >
+                      {savingName === t.name ? "Saving…" : "Save"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {templates.length === 0 && <tr><td colSpan={4} className="px-2 py-3 text-center text-gray-400">No templates.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

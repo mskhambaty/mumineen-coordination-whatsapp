@@ -519,6 +519,22 @@ Unique `(registration_instance_id, mumin_id)`. RLS enabled (service-role access 
 Function **`seed_family_niyaz_rsvp(p_family_id uuid)`** (re)defaults one family's rows from current
 arrival dates without clobbering `whatsapp`/`admin` overrides; called on registration submit/edit.
 
+### `whatsapp_template_settings`
+
+Admin annotations on the Meta message templates for the Send Templates console. Meta owns the
+templates; this table only decorates them. Keyed by Meta template name.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `template_name` | text | PK (Meta template name) |
+| `friendly_name` | text | Nullable — display label in the console pickers |
+| `is_active` | boolean | Default `true`; `false` hides the template from the console's Template dropdowns |
+| `created_at` / `updated_at` | timestamptz | `updated_at` trigger-managed |
+
+RLS enabled (service-role access only). Read/written only through `GET /api/admin/templates`
+(merge) and `PUT /api/admin/templates/settings`. Migration
+`20260611041719_whatsapp_template_settings.sql`.
+
 ## Supabase RPC Function
 
 `match_site_content(query_embedding, match_threshold, match_count)` — vector similarity search.  
