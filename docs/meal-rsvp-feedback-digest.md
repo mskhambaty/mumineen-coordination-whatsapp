@@ -211,7 +211,9 @@ and Single-recipient dropdowns** (the popup still lists them so they can be reac
   phone cells serialized as scientific notation (`9.17869E+11`) are unrecoverable, so they're flagged
   as `corrupted` and skipped (never messaged) — the preview reports the count. Not DB-resolved — it
   flows through the explicit-`recipients` path in `createBroadcast` (`resolveAudience` throws for this
-  key as a guard); `audience-export` returns 400 for `csv_upload`.
+  key as a guard). `audience-export` accepts `csv_upload` too: it returns the **resolved** audience
+  (deduped, roster-enriched, free/paid-labelled) — the rows that will actually be messaged, not the raw
+  uploaded file — using the same parse + `enrichFieldsByPhone` + `previewExplicitRecipients` pipeline.
 - Engine (`src/lib/whatsapp/broadcast.ts`): a broadcast enqueues recipients; the send route then drains
   **inline until the queue is empty** (`drainUntilEmpty`, a bounded loop) so small/medium sends complete
   in-request. `/api/cron/broadcast-drain` (every minute) is a backstop for large sends, and

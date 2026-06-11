@@ -1764,6 +1764,28 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /api/admin/templates/audience-export:
+    post:
+      tags: [admin, templates]
+      summary: Export the full resolved audience as a CSV download
+      description: Admin/leadership only. Returns every matched recipient (Name, ITS, HOF ITS, Jamaat, City, Gender, Local/Mehman, WhatsApp, free/paid Window) as a UTF-8 CSV — the uncapped form of the preview list. For audience_key=custom pass rules; for csv_upload pass csv (raw CSV text) and the export is the resolved audience — deduped by number, roster-enriched by phone, and free/paid-labelled.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [audience_key]
+              properties:
+                audience_key: { type: string, enum: [selected_users, chicago_committee, arrived_hof, registered_hof, all_members, segment_all_users, segment_hof, segment_hof_unresponded, custom, csv_upload] }
+                selected_user_ids: { type: array, items: { type: string, format: uuid } }
+                rules: { type: object, description: react-querybuilder rule tree (audience_key=custom) }
+                csv: { type: string, description: Raw CSV text in the audience-export format (audience_key=csv_upload) }
+      responses:
+        "200": { description: "text/csv attachment of the resolved audience." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /api/admin/templates/drain:
     post:
       tags: [admin, templates]

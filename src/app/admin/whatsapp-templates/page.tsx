@@ -312,11 +312,12 @@ export default function SendTemplatesPage() {
 
   async function exportCsv() {
     setError(null);
+    if (audience === "csv_upload" && !csvText) return setError("Choose a CSV file first.");
     setBusy(true);
     try {
       const res = await apiFetch("/api/admin/templates/audience-export", {
         method: "POST",
-        body: JSON.stringify({ audience_key: audience, selected_user_ids: selectedUsers, rules: audience === "custom" ? query : undefined }),
+        body: JSON.stringify({ audience_key: audience, selected_user_ids: selectedUsers, rules: audience === "custom" ? query : undefined, csv: audience === "csv_upload" ? csvText : undefined }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -568,11 +569,9 @@ export default function SendTemplatesPage() {
             <button type="button" onClick={runPreview} disabled={busy} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-gray-700">
               Preview audience
             </button>
-            {audience !== "csv_upload" && (
-              <button type="button" onClick={exportCsv} disabled={busy} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-gray-700">
-                Export CSV
-              </button>
-            )}
+            <button type="button" onClick={exportCsv} disabled={busy} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-gray-700" title={audience === "csv_upload" ? "Download the resolved audience: deduped, roster-enriched, with free/paid labels" : undefined}>
+              {audience === "csv_upload" ? "Export resolved CSV" : "Export CSV"}
+            </button>
             {preview && (
               <span className="text-sm">
                 <b>{preview.total}</b> recipients · <span className="text-green-600">{preview.in_window} free</span> · <span className="text-amber-600">{preview.out_window} paid</span> ≈ <b>${preview.est_cost_usd}</b>
