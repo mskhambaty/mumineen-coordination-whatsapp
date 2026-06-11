@@ -551,6 +551,16 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     return escalationAck;
   }
 
+  // DIAGNOSTIC (no PII): for any religious turn, record WHY the high model was / wasn't reached.
+  // Only a grounded "answer" proceeds to the final completion (where high-model routing applies);
+  // not_found / offer_last short-circuit below and never call a model. Pairs with the
+  // "[waaz-model] final completion ..." line emitted at the completion site.
+  if (religiousDecision) {
+    console.info(
+      `[waaz-model] decision=${religiousDecision} highConfigured=${AI_MODEL_HIGH !== AI_MODEL} highModel="${AI_MODEL_HIGH}" willCallModel=${religiousDecision === "answer"}`,
+    );
+  }
+
   // DETERMINISTIC religious decisions — the model never narrates a refusal/offer (no citations,
   // no improvisation). Only a grounded "answer" proceeds to the (constrained) final completion.
   if (religiousDecision === "not_found") return NOT_FOUND_REPLY;
@@ -580,6 +590,8 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
       ...chatParams(finalModel, { maxTokens: MAX_FINAL_TOKENS, temperature: AGENT_TEMPERATURE }),
       messages,
     });
+    // DIAGNOSTIC (no PII): confirm a real high-model completion happened (vs. silent fallback).
+    if (finalModel !== AI_MODEL) console.info(`[waaz-model] final completion OK model="${finalModel}"`);
   } catch (err) {
     if (finalModel === AI_MODEL) throw err;
     // Log the opaque model id + error message only (never the messages, which carry PII).
