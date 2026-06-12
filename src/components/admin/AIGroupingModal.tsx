@@ -91,11 +91,10 @@ export default function AIGroupingModal({ onClose }: AIGroupingModalProps) {
       const deptData = deptRes.ok
         ? ((await deptRes.json()) as Department[])
         : [];
-      const membersData = membersRes.ok
-        ? ((await membersRes.json()) as Array<{
-            user: { id: string; display_name: string | null };
-          }>)
-        : [];
+      const membersBody = membersRes.ok
+        ? ((await membersRes.json()) as { members?: Array<{ user: { id: string; display_name: string | null } }> })
+        : {};
+      const membersData = membersBody.members ?? [];
 
       setData(suggestionsData);
       setDepartments(deptData);
