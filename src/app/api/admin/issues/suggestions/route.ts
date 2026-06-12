@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
   const { data: sessions, error: sessErr } = await supabase
     .from("conversation_sessions")
     .select(
-      "id, phone_e164, escalation_reason, escalated_at, escalation_stage, user:whatsapp_users!conversation_sessions_phone_e164_fkey(display_name)",
+      "id, phone_e164, escalation_reason, escalated_at, escalation_stage, escalation_category, escalation_priority, user:whatsapp_users!conversation_sessions_user_id_fkey(display_name)",
     )
     .eq("escalation_status", "pending")
     .in("escalation_stage", ["pending", "picked_up"])
@@ -212,7 +212,7 @@ export async function GET(req: NextRequest) {
       const user = Array.isArray(s.user) ? s.user[0] : s.user;
       const displayName = (user as { display_name: string | null } | null)?.display_name ?? "Unknown";
       const preview = lastMsgMap.get(s.phone_e164 as string) ?? "(no message)";
-      return `${idx + 1}. [${s.id}] ${displayName} | Reason: ${s.escalation_reason ?? "N/A"} | Escalated: ${s.escalated_at} | Last msg: ${preview.slice(0, 120)}`;
+      return `${idx + 1}. [${s.id}] ${displayName} | Reason: ${s.escalation_reason ?? "N/A"} | Category: ${(s as Record<string, unknown>).escalation_category ?? "N/A"} | Priority: ${(s as Record<string, unknown>).escalation_priority ?? "normal"} | Last msg: ${preview.slice(0, 120)}`;
     })
     .join("\n");
 
