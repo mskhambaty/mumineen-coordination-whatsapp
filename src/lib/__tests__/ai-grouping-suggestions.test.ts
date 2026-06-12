@@ -1,23 +1,17 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Stubs
 // ---------------------------------------------------------------------------
 
-const requireAdminKey = vi.fn();
-const resolveCallerFromSession = vi.fn();
+const requirePortalCaller = vi.fn();
 const getSupabaseAdmin = vi.fn();
 const aiCreate = vi.fn();
 
-vi.mock("@/lib/api/auth", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/api/auth")>();
-  return {
-    ...actual,
-    requireAdminKey: (...args: unknown[]) => requireAdminKey(...args),
-    resolveCallerFromSession: (...args: unknown[]) => resolveCallerFromSession(...args),
-  };
-});
+vi.mock("@/lib/api/portal-auth", () => ({
+  requirePortalCaller: (...args: unknown[]) => requirePortalCaller(...args),
+}));
 
 vi.mock("@/lib/supabase/server", () => ({
   getSupabaseAdmin: () => getSupabaseAdmin(),
@@ -72,16 +66,15 @@ function mockSupabase(tables: Record<string, unknown>) {
 
 describe("GET /api/admin/issues/suggestions", () => {
   beforeEach(() => {
-    requireAdminKey.mockReset();
-    resolveCallerFromSession.mockReset();
+    requirePortalCaller.mockReset();
     getSupabaseAdmin.mockReset();
     aiCreate.mockReset();
   });
 
   it("returns 401 when caller lacks inbox access", async () => {
-    requireAdminKey.mockReturnValue(false);
-    const { UnauthorizedError } = await import("@/lib/api/auth");
-    resolveCallerFromSession.mockRejectedValue(new UnauthorizedError("no session"));
+    requirePortalCaller.mockResolvedValue(
+      NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+    );
 
     const res = await GET(req());
     expect(res.status).toBe(401);
@@ -89,7 +82,7 @@ describe("GET /api/admin/issues/suggestions", () => {
   });
 
   it("returns empty suggestions when no ungrouped escalations exist", async () => {
-    requireAdminKey.mockReturnValue(true);
+    requirePortalCaller.mockResolvedValue({ caller: { user_id: "test" } });
     getSupabaseAdmin.mockReturnValue(
       mockSupabase({
         conversation_sessions: [],
@@ -109,7 +102,7 @@ describe("GET /api/admin/issues/suggestions", () => {
   });
 
   it("calls AI model and returns structured suggestions when escalations exist", async () => {
-    requireAdminKey.mockReturnValue(true);
+    requirePortalCaller.mockResolvedValue({ caller: { user_id: "test" } });
 
     const sessions = [
       {
@@ -224,5 +217,112 @@ describe("GET /api/admin/issues/suggestions", () => {
     // meta
     expect(body.meta.ungrouped_count).toBe(2);
     expect(body.meta.analyzed_at).toBeDefined();
+  });
+
+  it("filters out clusters with fewer than 2 valid escalations", async () => {
+    requirePortalCaller.mockResolvedValue({ caller: { user_id: "test" } });
+
+    const sessions = [
+      {
+        id: "s1",
+        phone_e164: "+15551111111",
+        escalation_reason: "AC not working",
+        escalated_at: "2026-06-10T10:00:00Z",
+        escalation_stage: "pending",
+        escalation_status: "pending",
+        linked_issue_id: null,
+        user: { display_name: "Guest A" },
+      },
+      {
+        id: "s2",
+        phone_e164: "+15552222222",
+        escalation_reason: "Hot water issue",
+        escalated_at: "2026-06-10T11:00:00Z",
+        escalation_stage: "pending",
+        escalation_status: "pending",
+        linked_issue_id: null,
+        user: { display_name: "Guest B" },
+      },
+    ];
+
+    getSupabaseAdmin.mockReturnValue({
+      from(table: string) {
+        let data: unknown;
+        if (table === "conversation_sessions") data = sessions;
+        else if (table === "issues") data = [];
+        else if (table === "departments") data = [];
+        else if (table === "issue_escalation_links") data = [];
+        else if (table === "messages") data = [];
+        else data = [];
+
+        const chain: Record<string, unknown> = {
+          select: () => chain,
+          eq: () => chain,
+          neq: () => chain,
+          in: () => chain,
+          is: () => chain,
+          order: () => chain,
+          limit: () => chain,
+          then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
+            Promise.resolve({ data, error: null }).then(res, rej),
+        };
+        return chain;
+      },
+    });
+
+    // AI returns a cluster referencing one valid session and one non-existent session,
+    // plus a match referencing only non-existent sessions
+    aiCreate.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              new_clusters: [
+                {
+                  suggested_title: "Cluster with one invalid escalation",
+                  suggested_description: "Only one of two escalation_ids is valid",
+                  suggested_priority: "medium",
+                  suggested_department_id: null,
+                  suggested_department_name: null,
+                  category: "accommodation",
+                  reasoning: "Testing filter",
+                  escalation_ids: ["s1", "nonexistent-session"],
+                },
+                {
+                  suggested_title: "Valid cluster with two real escalations",
+                  suggested_description: "Both escalation_ids are valid",
+                  suggested_priority: "high",
+                  suggested_department_id: null,
+                  suggested_department_name: null,
+                  category: "accommodation",
+                  reasoning: "Both sessions exist",
+                  escalation_ids: ["s1", "s2"],
+                },
+              ],
+              existing_issue_matches: [
+                {
+                  issue_id: "iss-fake",
+                  reasoning: "No valid escalations",
+                  escalation_ids: ["nonexistent-1", "nonexistent-2"],
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    // First cluster should be filtered out (only 1 valid escalation, needs >= 2)
+    // Second cluster kept (2 valid escalations)
+    expect(body.new_clusters).toHaveLength(1);
+    expect(body.new_clusters[0].suggested_title).toBe("Valid cluster with two real escalations");
+    expect(body.new_clusters[0].escalations).toHaveLength(2);
+
+    // Match with 0 valid escalations should be filtered out
+    expect(body.existing_issue_matches).toHaveLength(0);
   });
 });

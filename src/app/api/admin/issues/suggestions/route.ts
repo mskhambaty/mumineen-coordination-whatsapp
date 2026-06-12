@@ -272,34 +272,40 @@ Rules:
       };
     };
 
-    const newClusters: NewCluster[] = (parsed.new_clusters ?? []).map((c) => ({
-      suggested_title: c.suggested_title,
-      suggested_description: c.suggested_description,
-      suggested_priority: c.suggested_priority,
-      suggested_department_id: c.suggested_department_id,
-      suggested_department_name: c.suggested_department_name,
-      category: c.category,
-      reasoning: c.reasoning,
-      escalations: (c.escalation_ids ?? [])
-        .map(hydrateEscalation)
-        .filter((e): e is EscalationDetail => e !== null),
-    }));
-
-    const existingMatches: ExistingIssueMatch[] = (parsed.existing_issue_matches ?? []).map((m) => {
-      const issue = openIssues.find((i) => i.id === m.issue_id);
-      const dept = issue ? (Array.isArray(issue.department) ? issue.department[0] : issue.department) : null;
-      return {
-        issue_id: m.issue_id,
-        issue_number: (issue?.issue_number as number) ?? 0,
-        issue_title: (issue?.title as string) ?? "Unknown",
-        issue_status: (issue?.status as string) ?? "open",
-        current_escalation_count: linkCountMap.get(m.issue_id) ?? 0,
-        reasoning: m.reasoning,
-        escalations: (m.escalation_ids ?? [])
+    const newClusters: NewCluster[] = (parsed.new_clusters ?? [])
+      .map((c) => ({
+        suggested_title: c.suggested_title,
+        suggested_description: c.suggested_description,
+        suggested_priority: c.suggested_priority,
+        suggested_department_id: c.suggested_department_id,
+        suggested_department_name: c.suggested_department_name,
+        category: c.category,
+        reasoning: c.reasoning,
+        escalations: (c.escalation_ids ?? [])
           .map(hydrateEscalation)
           .filter((e): e is EscalationDetail => e !== null),
-      };
-    });
+      }))
+      // A cluster needs at least 2 valid escalations to be meaningful
+      .filter((c) => c.escalations.length >= 2);
+
+    const existingMatches: ExistingIssueMatch[] = (parsed.existing_issue_matches ?? [])
+      .map((m) => {
+        const issue = openIssues.find((i) => i.id === m.issue_id);
+        const dept = issue ? (Array.isArray(issue.department) ? issue.department[0] : issue.department) : null;
+        return {
+          issue_id: m.issue_id,
+          issue_number: (issue?.issue_number as number) ?? 0,
+          issue_title: (issue?.title as string) ?? "Unknown",
+          issue_status: (issue?.status as string) ?? "open",
+          current_escalation_count: linkCountMap.get(m.issue_id) ?? 0,
+          reasoning: m.reasoning,
+          escalations: (m.escalation_ids ?? [])
+            .map(hydrateEscalation)
+            .filter((e): e is EscalationDetail => e !== null),
+        };
+      })
+      // A match needs at least 1 valid escalation to be meaningful
+      .filter((m) => m.escalations.length >= 1);
 
     const result: SuggestionsResponse = {
       new_clusters: newClusters,
