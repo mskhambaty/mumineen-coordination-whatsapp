@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { canAccessInbox, isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
+import AIGroupingFAB from "@/components/admin/AIGroupingFAB";
+import AIGroupingModal from "@/components/admin/AIGroupingModal";
 import CloseIssueModal from "@/components/admin/CloseIssueModal";
 import QuickEditModal from "@/components/admin/QuickEditModal";
 
@@ -226,6 +228,7 @@ export default function ConversationsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagePaneRef = useRef<HTMLDivElement>(null);
   const [showQuickEdit, setShowQuickEdit] = useState(false);
+  const [showGroupingModal, setShowGroupingModal] = useState(false);
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [showHistoricToolCalls, setShowHistoricToolCalls] = useState(false);
@@ -1151,6 +1154,17 @@ export default function ConversationsPage() {
                           {claimingPhone === selected.phone_e164 ? "Claiming…" : "Pick Up"}
                         </button>
                       )}
+                      {selected.escalation_status === "pending" && (
+                        <IssueLinkControl
+                          conversation={selected}
+                          issues={issues}
+                          onLink={linkToIssue}
+                          onUnlink={unlinkFromIssue}
+                          onCreate={createAndLinkIssue}
+                          onError={(msg) => setError(msg)}
+                          onNavigateToIssue={(id) => { setTab("issues"); setSelectedIssueId(id); }}
+                        />
+                      )}
                       {selected.escalation_status === "pending" ? (
                         <button
                           type="button"
@@ -1218,16 +1232,6 @@ export default function ConversationsPage() {
                           <SLACountdown deadline={selected.escalation_sla_deadline} />
                         </span>
                       )}
-                      <span className="mx-0.5 text-gray-300 dark:text-gray-600">|</span>
-                      <IssueLinkControl
-                        conversation={selected}
-                        issues={issues}
-                        onLink={linkToIssue}
-                        onUnlink={unlinkFromIssue}
-                        onCreate={createAndLinkIssue}
-                        onError={(msg) => setError(msg)}
-                        onNavigateToIssue={(id) => { setTab("issues"); setSelectedIssueId(id); }}
-                      />
                       <button
                         type="button"
                         onClick={() => void shareChatLink()}
@@ -1490,6 +1494,16 @@ export default function ConversationsPage() {
         </div>
       </main>
       {showQuickEdit && <QuickEditModal onClose={() => setShowQuickEdit(false)} />}
+
+      {/* AI Grouping FAB — visible on escalations and issues tabs */}
+      {hasInboxAccess && (tab === "escalations" || tab === "issues") && (
+        <AIGroupingFAB onClick={() => setShowGroupingModal(true)} />
+      )}
+
+      {/* AI Grouping Modal */}
+      {showGroupingModal && (
+        <AIGroupingModal onClose={() => setShowGroupingModal(false)} />
+      )}
     </>
   );
 }
@@ -2203,7 +2217,7 @@ function IssueLinkControl({
 
   function openModal() {
     setOpen(true);
-    setModalTab("link");
+    setModalTab(issues.length > 0 ? "link" : "create");
     setSearch("");
     setNewTitle(conversation.escalation_reason ?? "");
     setNewDesc("");
@@ -2253,11 +2267,11 @@ function IssueLinkControl({
   // ── Linked state ──
   if (isLinked) {
     return (
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1.5">
         <button
           type="button"
           onClick={() => onNavigateToIssue?.(conversation.linked_issue_id!)}
-          className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-bold text-purple-700 transition-colors hover:bg-purple-200 dark:bg-purple-900/40 dark:text-purple-300 dark:hover:bg-purple-800/60"
+          className="whitespace-nowrap rounded-md bg-purple-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-purple-700"
           title={conversation.linked_issue_title ?? `Issue #${conversation.linked_issue_number}`}
         >
           ISS-{conversation.linked_issue_number}
@@ -2266,7 +2280,7 @@ function IssueLinkControl({
           type="button"
           onClick={() => void handleUnlink()}
           disabled={saving}
-          className="rounded-full p-1 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-50 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+          className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-50 dark:hover:bg-red-900/20 dark:hover:text-red-400"
           title="Unlink from issue"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
@@ -2281,10 +2295,9 @@ function IssueLinkControl({
       <button
         type="button"
         onClick={openModal}
-        className="flex items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-0.5 text-xs font-medium text-purple-600 transition-colors hover:bg-purple-50 dark:text-purple-400 dark:hover:bg-purple-900/20"
+        className="whitespace-nowrap rounded-md bg-purple-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-purple-700 disabled:opacity-50"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-        Link Issue
+        Triage
       </button>
 
       {open && (
@@ -2297,6 +2310,7 @@ function IssueLinkControl({
             {/* Header with tabs */}
             <div className="flex shrink-0 items-center justify-between border-b px-6 py-4 dark:border-gray-700">
               <div className="flex items-center gap-1">
+                <span className="mr-2 text-sm font-semibold text-gray-800 dark:text-gray-200">Triage</span>
                 <button
                   type="button"
                   onClick={() => setModalTab("link")}
