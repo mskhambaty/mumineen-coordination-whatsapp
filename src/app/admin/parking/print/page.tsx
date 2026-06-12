@@ -9,199 +9,133 @@ import { apiFetch, readAdminUser } from "@/lib/admin/client";
 type Pass = { id: string; hof_its: string; head_name: string; phone: string | null; lot_name: string; lot_color: string | null };
 type Lot = { id: string; name: string; color: string | null };
 
-const ENTRY_ZONES: Record<string, { label: string; direction: string; textColor: string; stampBg: string; stampText: string }> = {
-  red:   { label: "RED",   direction: "Enter from Hillside Ln.",         textColor: "#cc0000", stampBg: "#dc2626", stampText: "#fff" },
-  blue:  { label: "BLUE",  direction: "Enter from 91st St.",             textColor: "#1d4ed8", stampBg: "#2563eb", stampText: "#fff" },
-  white: { label: "WHITE", direction: "Enter from Kingery Hwy (Rt. 83)", textColor: "#374151", stampBg: "#f0f0f0", stampText: "#111" },
-  gold:  { label: "GOLD",  direction: "Enter from Kingery Hwy (Rt. 83)", textColor: "#92400e", stampBg: "#d4a017", stampText: "#111" },
+const ENTRY_ZONES: Record<string, { label: string; direction: string; textColor: string; bannerBg: string; bannerText: string; bannerBorder?: string }> = {
+  red:   { label: "RED",   direction: "Enter from Hillside Ln.",         textColor: "#cc0000", bannerBg: "#dc2626", bannerText: "#fff" },
+  blue:  { label: "BLUE",  direction: "Enter from 91st St.",             textColor: "#1d4ed8", bannerBg: "#2563eb", bannerText: "#fff" },
+  white: { label: "WHITE", direction: "Enter from Kingery Hwy (Rt. 83)", textColor: "#374151", bannerBg: "#d1d5db", bannerText: "#111", bannerBorder: "2px solid #9ca3af" },
+  gold:  { label: "GOLD",  direction: "Enter from Kingery Hwy (Rt. 83)", textColor: "#92400e", bannerBg: "#d4a017", bannerText: "#111" },
 };
 
 function zoneInfo(color: string | null) {
   const key = (color ?? "").toLowerCase();
-  return ENTRY_ZONES[key] ?? { label: (color ?? "").toUpperCase(), direction: "", textColor: "#374151", stampBg: "#9ca3af", stampText: "#fff" };
+  return ENTRY_ZONES[key] ?? { label: (color ?? "").toUpperCase(), direction: "", textColor: "#374151", bannerBg: "#6b7280", bannerText: "#fff" };
 }
 
-// Portrait-style pass: title → logo → table → footer (stacked vertically).
 function PassCard({ pass }: { pass: Pass }) {
   const zone = zoneInfo(pass.lot_color);
   return (
     <div
       style={{
         border: "2px solid #222",
-        padding: "20px 18px 16px",
         fontFamily: "Arial, Helvetica, sans-serif",
         background: "#fff",
         color: "#111",
         boxSizing: "border-box",
         display: "flex",
         flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "space-between",
         flex: 1,
-        position: "relative",
+        overflow: "hidden",
       }}
     >
-      {/* Color-coded lot stamp */}
+      {/* ── COLOR BANNER ── */}
       <div
         style={{
-          position: "absolute",
-          top: "14px",
-          right: "14px",
-          width: "68px",
-          height: "68px",
-          borderRadius: "50%",
-          background: zone.stampBg,
-          border: zone.label === "WHITE" ? "2px solid #bbb" : "3px solid rgba(0,0,0,0.18)",
+          background: zone.bannerBg,
+          borderBottom: zone.bannerBorder ?? "none",
+          padding: "14px 20px 12px",
           display: "flex",
-          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexShrink: 0,
+        }}
+      >
+        <div>
+          <div style={{ color: zone.bannerText, fontSize: "36px", fontWeight: "900", letterSpacing: "0.06em", lineHeight: 1 }}>
+            {zone.label}
+          </div>
+          <div style={{ color: zone.bannerText, fontSize: "11px", fontWeight: "bold", letterSpacing: "0.16em", marginTop: "5px", opacity: 0.85 }}>
+            PARKING PASS
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ color: zone.bannerText, fontSize: "13px", fontWeight: "bold", letterSpacing: "0.05em", lineHeight: 1.45, opacity: 0.9 }}>
+            ASHARA MUBARAKA 1448H
+          </div>
+          <div style={{ color: zone.bannerText, fontSize: "13px", fontWeight: "bold", letterSpacing: "0.05em", lineHeight: 1.45, opacity: 0.9 }}>
+            CHICAGO RELAY CENTER
+          </div>
+        </div>
+      </div>
+
+      {/* ── LOGO (expands to fill available height) ── */}
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          boxShadow: "0 2px 6px rgba(0,0,0,0.20)",
+          padding: "16px 20px",
+          minHeight: 0,
         }}
       >
-        <span style={{ color: zone.stampText, fontWeight: "bold", fontSize: "13px", letterSpacing: "0.04em", lineHeight: 1 }}>
-          {zone.label}
-        </span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/logo.jpg"
+          alt="Ashara Mubaraka 1448H — Chicago Relay Center"
+          style={{ maxHeight: "100%", maxWidth: "100%", objectFit: "contain" }}
+          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+        />
       </div>
 
-      {/* Centered title */}
-      <div style={{ textAlign: "center", marginBottom: "14px" }}>
-        <div style={{ fontSize: "15px", fontWeight: "bold", letterSpacing: "0.07em", color: "#111", lineHeight: 1.4 }}>
-          ASHARA MUBARAKA 1448H
-        </div>
-        <div style={{ fontSize: "15px", fontWeight: "bold", letterSpacing: "0.07em", color: "#111", lineHeight: 1.4 }}>
-          CHICAGO RELAY CENTER
-        </div>
-        <div style={{ fontSize: "13px", fontWeight: "bold", letterSpacing: "0.12em", color: "#111", marginTop: "4px" }}>
-          PARKING ENTRY
-        </div>
-      </div>
-
-      {/* Logo */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src="/logo.jpg"
-        alt="Ashara Mubaraka 1448H — Chicago Relay Center"
-        style={{ height: "180px", width: "auto", objectFit: "contain", marginBottom: "20px" }}
-        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-      />
-
-      {/* Data table: Name | Phone | Entry Zone */}
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          fontSize: "12px",
-          color: "#111",
-        }}
-      >
+      {/* ── DATA TABLE ── */}
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", color: "#111", flexShrink: 0 }}>
         <tbody>
           <tr>
-            <td
-              style={{
-                border: "1px solid #888",
-                padding: "7px 10px",
-                background: "#e8e8e8",
-                fontWeight: "bold",
-                whiteSpace: "nowrap",
-                width: "38%",
-                color: "#111",
-              }}
-            >
+            <td style={{ border: "1px solid #888", padding: "7px 10px", background: "#e8e8e8", fontWeight: "bold", whiteSpace: "nowrap", width: "38%", color: "#111" }}>
               Name:
             </td>
-            <td
-              style={{
-                border: "1px solid #888",
-                padding: "7px 10px",
-                fontWeight: "600",
-                fontSize: "13px",
-                color: "#111",
-              }}
-            >
+            <td style={{ border: "1px solid #888", padding: "7px 10px", fontWeight: "600", fontSize: "13px", color: "#111" }}>
               {pass.head_name}
             </td>
           </tr>
           <tr>
-            <td
-              style={{
-                border: "1px solid #888",
-                padding: "7px 10px",
-                background: "#e8e8e8",
-                fontWeight: "bold",
-                whiteSpace: "nowrap",
-                color: "#111",
-              }}
-            >
+            <td style={{ border: "1px solid #888", padding: "7px 10px", background: "#e8e8e8", fontWeight: "bold", whiteSpace: "nowrap", color: "#111" }}>
               ITS #:
             </td>
-            <td
-              style={{
-                border: "1px solid #888",
-                padding: "7px 10px",
-                color: "#111",
-              }}
-            >
+            <td style={{ border: "1px solid #888", padding: "7px 10px", color: "#111" }}>
               {pass.hof_its}
             </td>
           </tr>
           <tr>
-            <td
-              style={{
-                border: "1px solid #888",
-                padding: "7px 10px",
-                background: "#e8e8e8",
-                fontWeight: "bold",
-                whiteSpace: "nowrap",
-                color: "#111",
-              }}
-            >
+            <td style={{ border: "1px solid #888", padding: "7px 10px", background: "#e8e8e8", fontWeight: "bold", whiteSpace: "nowrap", color: "#111" }}>
               Phone / Contact:
             </td>
-            <td
-              style={{
-                border: "1px solid #888",
-                padding: "7px 10px",
-                color: "#111",
-              }}
-            >
+            <td style={{ border: "1px solid #888", padding: "7px 10px", color: "#111" }}>
               {pass.phone ?? "—"}
             </td>
           </tr>
           <tr>
-            <td
-              style={{
-                border: "1px solid #888",
-                padding: "7px 10px",
-                background: "#e8e8e8",
-                color: "#111",
-              }}
-            >
+            <td style={{ border: "1px solid #888", padding: "7px 10px", background: "#e8e8e8", color: "#111" }}>
               <span style={{ fontWeight: "bold" }}>Entry Zone </span>
               <span style={{ fontWeight: "bold", color: zone.textColor }}>{zone.label}</span>
             </td>
-            <td
-              style={{
-                border: "1px solid #888",
-                padding: "7px 10px",
-                color: "#111",
-              }}
-            >
+            <td style={{ border: "1px solid #888", padding: "7px 10px", color: "#111" }}>
               {zone.direction}
             </td>
           </tr>
         </tbody>
       </table>
 
-      {/* Footer */}
+      {/* ── FOOTER ── */}
       <div
         style={{
           textAlign: "center",
           fontSize: "10px",
           color: "#555",
           fontStyle: "italic",
-          marginTop: "10px",
+          padding: "7px 12px 8px",
           letterSpacing: "0.04em",
+          flexShrink: 0,
         }}
       >
         Please display clearly on the dashboard.
@@ -243,7 +177,6 @@ function PrintContent() {
     void load();
   }, [router, load]);
 
-  // Group passes into pairs — 2 portrait cards side-by-side per landscape page.
   const pairs: [Pass, Pass | null][] = [];
   for (let i = 0; i < passes.length; i += 2) {
     pairs.push([passes[i], passes[i + 1] ?? null]);
@@ -271,16 +204,23 @@ function PrintContent() {
         @media print {
           .no-print { display: none !important; }
           @page { size: letter landscape; margin: 0; }
-          body { background: white !important; }
-          .print-content { padding: 0 !important; }
+          body, html { margin: 0; padding: 0; background: white !important; }
+          .print-content { padding: 0 !important; margin: 0 !important; }
           .pass-page {
-            height: 100vh;
+            width: 11in;
+            height: 8.5in;
             box-sizing: border-box;
-            padding: 0.35in !important;
+            padding: 0.3in !important;
+            break-after: page;
             page-break-after: always;
+            break-inside: avoid;
             page-break-inside: avoid;
+            display: flex !important;
+            flex-direction: row !important;
+            gap: 0.25in !important;
           }
-          .pass-page:last-child { page-break-after: avoid; }
+          .pass-page:last-child { break-after: avoid; page-break-after: avoid; }
+          .pass-slot { flex: 1; display: flex; min-height: 0; }
         }
         @media screen {
           body { background: #e5e7eb; }
@@ -289,8 +229,9 @@ function PrintContent() {
             box-shadow: 0 2px 8px rgba(0,0,0,0.12);
             margin-bottom: 32px;
             border-radius: 4px;
-            min-height: 560px;
+            min-height: 720px;
           }
+          .pass-slot { flex: 1; display: flex; min-height: 0; }
         }
       `}</style>
 
@@ -312,7 +253,9 @@ function PrintContent() {
         }}
       >
         <div>
-          <span style={{ fontWeight: "700", fontSize: "15px", color: "#111" }}>{lot ? `${lot.name} — Parking Passes` : "All Parking Passes (by ITS)"}</span>
+          <span style={{ fontWeight: "700", fontSize: "15px", color: "#111" }}>
+            {lot ? `${lot.name} — Parking Passes` : "All Parking Passes (by ITS)"}
+          </span>
           <span style={{ marginLeft: "10px", fontSize: "13px", color: "#6b7280" }}>
             {passes.length} pass{passes.length === 1 ? "" : "es"} · {pairs.length} page{pairs.length === 1 ? "" : "s"}
           </span>
@@ -340,9 +283,7 @@ function PrintContent() {
           No passes found.
         </div>
       ) : (
-        // Max-width matches landscape letter minus margins (~10in). Screen preview uses the same.
-        // Print padding replaces @page margins (which are zeroed to suppress the browser URL footer).
-        <div style={{ padding: "24px 32px", maxWidth: "1000px", margin: "0 auto" }} className="print-content">
+        <div style={{ padding: "24px 32px", maxWidth: "1100px", margin: "0 auto" }} className="print-content">
           {pairs.map((pair, i) => (
             <div
               key={i}
@@ -350,19 +291,18 @@ function PrintContent() {
               style={{
                 display: "flex",
                 flexDirection: "row",
-                gap: "24px",
-                padding: "20px",
+                gap: "20px",
                 alignItems: "stretch",
               }}
             >
-              <div style={{ flex: 1, display: "flex" }}>
+              <div className="pass-slot">
                 <PassCard pass={pair[0]} />
               </div>
-              <div style={{ flex: 1, display: "flex" }}>
+              <div className="pass-slot">
                 {pair[1] ? (
                   <PassCard pass={pair[1]} />
                 ) : (
-                  <div style={{ border: "2px dashed #e5e7eb", borderRadius: "4px", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <div style={{ border: "2px dashed #e5e7eb", borderRadius: "4px", flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <span style={{ color: "#d1d5db", fontSize: "12px", fontFamily: "Arial, sans-serif" }}>— blank —</span>
                   </div>
                 )}

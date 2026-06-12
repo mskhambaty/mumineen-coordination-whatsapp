@@ -1,29 +1,35 @@
 // Proximity rules for parking pass allocation.
 // Pure functions — no Supabase imports, fully testable.
 //
-// Geographic proximity groups:
-//   Group A — VIP (Gold), Church (White), Mecca Center (Red): all at/near the same venue.
+// Two geographic groups:
+//   Venue   — Gold (VIP), White (Church), Red (Mecca): all at/near the same venue.
 //             Any combination within this group is acceptable.
-//   Group B — Hillside Ln (Blue): geographically separate.
+//   Hillside — Blue only: geographically separate from the venue lots.
 //
-// A family has a proximity issue when they hold passes in BOTH groups.
-// Fix: revoke all Blue (Group B) passes, replace with Red (Mecca Center, Group A).
+// A family has a proximity issue when their passes span BOTH groups.
+//
+// Fix direction is determined by the highest-priority anchor:
+//   Gold > White present → Venue is the anchor → revoke Blue, assign Red (Mecca)
+//   Blue + Red only (no Gold/White) → Hillside is the anchor → revoke Red, assign Blue
 
-// Anchor colors for display and priority ranking.
-// Red is intentionally excluded — it is only an overflow destination, not an anchor.
+// Priority for display/anchor detection within the Venue group (Gold wins over White).
 export const ANCHOR_PRIORITY = ["white", "gold"] as const;
 export type AnchorColor = (typeof ANCHOR_PRIORITY)[number];
 
-// Fixed overflow targets when fixing Group B (Blue) passes.
+// Fixed overflow when fixing Blue passes for a Venue-anchor family.
 export const OVERFLOW_PRIMARY = "red";   // Mecca Center
 export const OVERFLOW_FALLBACK = "blue"; // fallback if Mecca is full (soft-warn)
 
-function isAnchorColor(color: string | null): color is AnchorColor {
+function isVenueAnchor(color: string | null): color is AnchorColor {
   return ANCHOR_PRIORITY.includes((color ?? "").toLowerCase() as AnchorColor);
 }
 
-// Determine the highest-priority anchor color (Gold > White) among a set of lot colors.
-// Returns null when no anchor-eligible color is present.
+function isVenueColor(color: string | null): boolean {
+  return ["gold", "white", "red"].includes((color ?? "").toLowerCase());
+}
+
+// Determine the highest-priority Venue anchor color (Gold > White) in a set of lot colors.
+// Returns null when no anchor-eligible color (Gold/White) is present.
 export function getAnchorColor(lotColors: (string | null)[]): AnchorColor | null {
   let best: AnchorColor | null = null;
   let bestIdx = -1;
@@ -42,15 +48,15 @@ export type PassRef = { id: string; lot_id: string; lot_color: string | null };
 
 export type ProximityIssue = {
   family_id: string;
-  anchor_pass_id: string;   // first Group A pass, used for display (anchor lot name)
-  anchor_color: AnchorColor;
-  overflow_primary: string; // always "red"
-  overflow_fallback: string; // always "blue"
-  passes_to_revoke: string[]; // all Blue (Group B) passes to revoke
+  anchor_pass_id: string;   // display: first pass of the anchor color
+  anchor_color: string;     // display: "gold", "white", or "blue"
+  overflow_primary: string; // lot color to assign replacements in
+  overflow_fallback: string | null;
+  passes_to_revoke: string[]; // IDs of misallocated passes
 };
 
 // Detect families whose passes span both geographic groups.
-// `passes` in each family should be sorted by created_at ascending.
+// Passes in each family should be sorted by created_at ascending.
 export function detectProximityIssues(
   families: { family_id: string; passes: PassRef[] }[],
 ): ProximityIssue[] {
@@ -59,27 +65,41 @@ export function detectProximityIssues(
   for (const { family_id, passes } of families) {
     if (passes.length <= 1) continue;
 
-    // Issue: family has at least one Group A (Gold/White) anchor pass AND at least one Blue pass.
-    // Gold+White, White+White, Gold+White+Red etc. are all fine — no cross-group mixing.
-    const hasAnchor = passes.some((p) => isAnchorColor(p.lot_color));
+    const hasVenueAnchor = passes.some((p) => isVenueAnchor(p.lot_color));          // Gold or White
     const hasBlue = passes.some((p) => (p.lot_color ?? "").toLowerCase() === "blue");
+    const hasRed = passes.some((p) => (p.lot_color ?? "").toLowerCase() === "red");
 
-    if (!hasAnchor || !hasBlue) continue;
+    let toRevoke: typeof passes;
+    let overflowPrimary: string;
+    let overflowFallback: string | null;
+    let anchorColor: string;
 
-    // Revoke all Blue (Group B) passes.
-    const toRevoke = passes.filter((p) => (p.lot_color ?? "").toLowerCase() === "blue");
+    if (hasVenueAnchor && hasBlue) {
+      // Case 1: family has a VIP/Church anchor → Blue passes must move to Mecca (Red).
+      toRevoke = passes.filter((p) => (p.lot_color ?? "").toLowerCase() === "blue");
+      overflowPrimary = "red";
+      overflowFallback = "blue"; // if Red is full: soft-warn, leave at Blue
+      anchorColor = getAnchorColor(passes.map((p) => p.lot_color)) ?? "white";
+    } else if (hasBlue && hasRed && !hasVenueAnchor) {
+      // Case 2: Hillside anchor (no Gold/White) → Red passes must move to Hillside (Blue).
+      toRevoke = passes.filter((p) => (p.lot_color ?? "").toLowerCase() === "red");
+      overflowPrimary = "blue";
+      overflowFallback = null; // if Blue is full: soft-warn, proceed anyway
+      anchorColor = "blue";
+    } else {
+      continue; // no cross-group issue
+    }
+
     if (toRevoke.length === 0) continue;
 
-    // Pick the highest-priority Group A pass as the display anchor.
-    const anchor = getAnchorColor(passes.map((p) => p.lot_color)) ?? "white";
-    const anchorPass = passes.find((p) => (p.lot_color ?? "").toLowerCase() === anchor);
+    const anchorPass = passes.find((p) => (p.lot_color ?? "").toLowerCase() === anchorColor);
 
     issues.push({
       family_id,
       anchor_pass_id: anchorPass?.id ?? passes[0].id,
-      anchor_color: anchor,
-      overflow_primary: OVERFLOW_PRIMARY,
-      overflow_fallback: OVERFLOW_FALLBACK,
+      anchor_color: anchorColor,
+      overflow_primary: overflowPrimary,
+      overflow_fallback: overflowFallback,
       passes_to_revoke: toRevoke.map((p) => p.id),
     });
   }
@@ -95,11 +115,21 @@ export function proximityConflict(
 ): boolean {
   if (existingColors.length === 0) return false;
   const target = (targetColor ?? "").toLowerCase();
-  const hasAnchor = existingColors.some((c) => isAnchorColor(c));
+  const hasVenueAnchor = existingColors.some((c) => isVenueAnchor(c));
   const hasBlue = existingColors.some((c) => (c ?? "").toLowerCase() === "blue");
-  // Adding Blue to a family that already has a Group A anchor pass
-  if (hasAnchor && target === "blue") return true;
-  // Adding a Group A anchor pass to a Blue-only family
-  if (hasBlue && !hasAnchor && isAnchorColor(targetColor)) return true;
+  const hasRed = existingColors.some((c) => (c ?? "").toLowerCase() === "red");
+  const targetIsVenue = isVenueColor(targetColor);
+  const targetIsBlue = target === "blue";
+
+  // Adding Blue to a family with a VIP/Church anchor
+  if (hasVenueAnchor && targetIsBlue) return true;
+  // Adding VIP/Church to a Blue family
+  if (hasBlue && !hasVenueAnchor && isVenueAnchor(targetColor)) return true;
+  // Adding Red to a Hillside-only family (no Gold/White)
+  if (hasBlue && !hasVenueAnchor && !hasRed && target === "red") return true;
+  // Adding Blue to a Red-only family (no Gold/White)
+  if (hasRed && !hasVenueAnchor && !hasBlue && targetIsBlue) return true;
+
+  void targetIsVenue; // suppress unused-variable lint
   return false;
 }
