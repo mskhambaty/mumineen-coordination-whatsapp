@@ -1,8 +1,9 @@
 import type OpenAI from "openai";
 
 import { canUseTool, canUseTaskToolForCaller, publicTools, taskReadTools, taskWriteTools, taskCreateTools, leadershipTools, type AppUser } from "@/lib/permissions";
-import { retrieveReligiousContext, retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
+import { retrieveReligiousContext, retrieveSiteContext, RELIGIOUS_FALLBACK_MIN_SCORE } from "@/lib/scraper/retrieve-site-context";
 import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
+import { maybeSingleWordQuery } from "@/lib/agent/religious-guard";
 import { ACTIVE_ASHARA_YEAR, LAST_COMPLETED_ASHARA_YEAR, resolveAsharaYear } from "@/lib/knowledge/ashara-config";
 import {
   availableFacets,
@@ -602,7 +603,13 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
 
       // Decision contract (consumed deterministically by runAgent — the model only narrates an
       // "answer"): { decision: "answer", year, context, ... } | { decision: "offer_last" } |
-      // { decision: "not_found" }. Only INDEXED + year-correct content qualifies as an answer.
+      // { decision: "word_lookup", word } | { decision: "not_found" }. Only INDEXED + year-correct
+      // content qualifies as an answer.
+
+      // 0. A bare word-meaning ("meaning of X", "what does X mean") must come from the DICTIONARY,
+      // never a loosely-matched sermon. Backstop for when the model routes a word here.
+      const wordAsk = maybeSingleWordQuery(query);
+      if (wordAsk?.forceAnswer) return { decision: "word_lookup", word: wordAsk.word };
 
       // 1. Specific majlis ("Majlis 2", "second waaz", "4th Muharram") → exact indexed block(s).
       const ref = parseMajlisRef(query);
@@ -651,7 +658,7 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       const decoration = /\b(tazyeen|tazeen|tazyin|decorat|sajawat|sajaawat|artwork|calligraph)\b/i.test(query);
       const cats = decoration ? ["tazyeen"] : ["reflection", "al_dars", "overview"];
       const targetYear = yr.year ?? null;
-      const ctx = await retrieveReligiousContext(query, 5, cats, targetYear);
+      const ctx = await retrieveReligiousContext(query, 5, cats, targetYear, RELIGIOUS_FALLBACK_MIN_SCORE);
       if (ctx) {
         return {
           status: "ok", decision: "answer", source: "indexed_religious_content",
@@ -659,7 +666,7 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
         };
       }
       if (targetYear === ACTIVE_ASHARA_YEAR) {
-        const altCtx = await retrieveReligiousContext(query, 5, cats, LAST_COMPLETED_ASHARA_YEAR);
+        const altCtx = await retrieveReligiousContext(query, 5, cats, LAST_COMPLETED_ASHARA_YEAR, RELIGIOUS_FALLBACK_MIN_SCORE);
         if (altCtx) return { decision: "offer_last", year: LAST_COMPLETED_ASHARA_YEAR };
       }
       return { decision: "not_found" };

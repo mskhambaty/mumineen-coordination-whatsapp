@@ -510,6 +510,7 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   let escalationAck: string | null = null;
   let religiousDecision: string | null = null;
   let groundedYear: string | null = null;
+  let religiousWord: string | null = null;
   const sources = newSourceCollector();
 
   for (const toolCall of firstMessage.tool_calls) {
@@ -538,9 +539,10 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     }
 
     if (toolCall.function.name === "answer_religious_questions") {
-      const r = toolResult as { decision?: string; year?: string | null };
+      const r = toolResult as { decision?: string; year?: string | null; word?: string };
       religiousDecision = r.decision ?? null;
       groundedYear = r.year ?? null;
+      religiousWord = r.word ?? null;
     }
 
     collectSources(sources, toolCall.function.name, toolResult);
@@ -563,6 +565,8 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   // no improvisation). Only a grounded "answer" proceeds to the (constrained) final completion.
   if (religiousDecision === "not_found") return NOT_FOUND_REPLY;
   if (religiousDecision === "offer_last") return THIS_YEAR_OFFER_LAST;
+  // Word-meaning that was routed to the waaz tool → answer from the dictionary, deterministically.
+  if (religiousDecision === "word_lookup" && religiousWord) return renderLisanReply(await lookupLisanWord(religiousWord));
   if (religiousDecision === "answer") {
     messages.push({
       role: "system",

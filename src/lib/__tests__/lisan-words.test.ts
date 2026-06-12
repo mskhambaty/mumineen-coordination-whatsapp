@@ -6,9 +6,9 @@ vi.mock("@/lib/supabase/server", () => ({
   getSupabaseAdmin: () => ({ from: mocks.from, rpc: mocks.rpc }),
 }));
 
-import { normalizeWord, lookupLisanWord, splitForms } from "@/lib/knowledge/lisan-words";
+import { normalizeWord, lookupLisanWord, splitForms, trigramSim, isTrivialLookup } from "@/lib/knowledge/lisan-words";
 
-type Row = { transliteration: string | null; lisan: string | null; meaning: string | null; example: string | null };
+type Row = { transliteration: string | null; lisan: string | null; meaning: string | null; example: string | null; norm?: string | null; similarity?: number };
 
 // Wire the supabase mock:
 //   .eq("norm",…) → exactData,  .eq("norm_skeleton",…) → skelData (legacy fallback)
@@ -47,44 +47,79 @@ describe("normalizeWord", () => {
   });
 });
 
+describe("trigramSim (pg_trgm-compatible)", () => {
+  it("scores a near spelling high and an unrelated same-skeleton word low", () => {
+    expect(trigramSim("zohra", "zohrah")).toBeCloseTo(0.625, 2); // matches Postgres similarity()
+    expect(trigramSim("zohra", "zeher")).toBeLessThan(0.2);
+    expect(trigramSim("abc", "abc")).toBe(1);
+    expect(trigramSim("x", "")).toBe(0);
+  });
+});
+
+describe("isTrivialLookup", () => {
+  it("flags affirmatives / numbers / punctuation / 1-char as NOT words", () => {
+    for (const t of ["Yes", "yes", "ok", "okay", "sure", "haan", "2", "42", "👍", "!", ".", "a"]) {
+      expect(isTrivialLookup(t), t).toBe(true);
+    }
+  });
+  it("does not flag real words", () => {
+    for (const t of ["shadi", "aab", "zohra", "تخت"]) expect(isTrivialLookup(t), t).toBe(false);
+  });
+});
+
 describe("lookupLisanWord", () => {
+  it("returns not_found for a trivial reply (Yes / 2) — never a word definition", async () => {
+    wire({ suggData: [{ transliteration: "Yaas", lisan: "يأس", meaning: "Hopelessness", example: "", similarity: 0.5 }] });
+    expect((await lookupLisanWord("Yes")).status).toBe("not_found");
+    expect((await lookupLisanWord("2")).status).toBe("not_found");
+    expect(mocks.rpc).not.toHaveBeenCalled(); // blocked before any lookup
+  });
+
   it("returns ok with the exact entry when the normalized word matches", async () => {
     wire({ exactData: [{ transliteration: "Aaeen", lisan: "اْئين", meaning: "Regulation, rules, law", example: "" }] });
     const res = await lookupLisanWord("aaeen");
     expect(res.status).toBe("ok");
     expect(res.status === "ok" && res.matches[0].meaning).toContain("Regulation");
-    expect(mocks.rpc).not.toHaveBeenCalled(); // no fuzzy fallback needed
+    expect(mocks.rpc).not.toHaveBeenCalled(); // exact hit, no fuzzy needed
   });
 
-  it("returns did_you_mean (NOT the meaning) when there is no exact match", async () => {
-    wire({ exactData: [], suggData: [{ transliteration: "Aameen", lisan: "آمين", meaning: "So be it", example: "" }] });
+  it("answers the nearest spelling directly (zohra → Zohrah, NOT same-skeleton junk)", async () => {
+    // The real bug: skeleton 'zhr' matched Zeher/Izhaar and short-circuited. Trigram-first +
+    // floor surfaces Zohrah (0.625) and drops the 0.09 junk.
+    wire({ exactData: [], suggData: [
+      { transliteration: "Zohrah", lisan: "زهرة", meaning: "Venus", example: "", similarity: 0.625 },
+      { transliteration: "Zeher", lisan: "زهر", meaning: "Poison", example: "", similarity: 0.091 },
+    ] });
+    const res = await lookupLisanWord("zohra");
+    expect(res.status).toBe("ok");
+    expect(res.status === "ok" && res.matches[0].meaning).toBe("Venus");
+  });
+
+  it("returns did_you_mean for a moderate (not dominant) trigram match", async () => {
+    wire({ exactData: [], suggData: [{ transliteration: "Aameen", lisan: "آمين", meaning: "So be it", example: "", similarity: 0.5 }] });
     const res = await lookupLisanWord("aaeen");
     expect(res.status).toBe("did_you_mean");
     expect(res.status === "did_you_mean" && res.suggestions[0].transliteration).toBe("Aameen");
-    expect(mocks.rpc).toHaveBeenCalledWith("match_lisan_words", expect.objectContaining({ query_norm: "aaeen" }));
   });
 
-  it("answers directly when exactly one consonant-skeleton match exists", async () => {
-    // "sadqe" has no exact norm, but its skeleton "sdq" maps to one entry → answer it.
-    wire({ exactData: [], skelData: [{ transliteration: "Sadaqa", lisan: "صدقة", meaning: "Charity", example: "" }] });
+  it("drops weak look-alikes below the floor → not_found (no misleading list)", async () => {
+    wire({ exactData: [], skelData: [], suggData: [
+      { transliteration: "Jafaa", lisan: "جفاء", meaning: "Harshness", example: "", similarity: 0.30 },
+      { transliteration: "Jafaakaari", lisan: "جفاكاري", meaning: "Reign of terror", example: "", similarity: 0.18 },
+    ] });
+    expect((await lookupLisanWord("jafakash")).status).toBe("not_found");
+  });
+
+  it("skeleton FALLBACK recovers a vowel-dropping variant when trigram finds nothing", async () => {
+    // "sadqe" trigram is below the floor; skeleton 'sdq' → Sadaqa (norm-scored ≥ skeleton floor).
+    wire({ exactData: [], suggData: [], skelData: [{ transliteration: "Sadaqa", lisan: "صدقة", meaning: "Charity", example: "", norm: "sadaqa" }] });
     const res = await lookupLisanWord("sadqe");
     expect(res.status).toBe("ok");
     expect(res.status === "ok" && res.matches[0].meaning).toBe("Charity");
-    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.rpc).toHaveBeenCalled(); // trigram is tried first now
   });
 
-  it("offers numbered did_you_mean when several skeleton matches exist", async () => {
-    wire({ exactData: [], skelData: [
-      { transliteration: "Sidq", lisan: "صدق", meaning: "Truth", example: "" },
-      { transliteration: "Sadaqa", lisan: "صدقة", meaning: "Charity", example: "" },
-    ] });
-    const res = await lookupLisanWord("sadqe");
-    expect(res.status).toBe("did_you_mean");
-    expect(res.status === "did_you_mean" && res.suggestions.map((s) => s.transliteration)).toEqual(["Sidq", "Sadaqa"]);
-    expect(mocks.rpc).not.toHaveBeenCalled();
-  });
-
-  it("returns not_found when neither exact, skeleton, nor fuzzy matches exist", async () => {
+  it("returns not_found when neither exact, trigram, nor skeleton matches exist", async () => {
     wire({ exactData: [], skelData: [], suggData: [] });
     expect((await lookupLisanWord("zzzzz")).status).toBe("not_found");
   });

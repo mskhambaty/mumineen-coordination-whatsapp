@@ -17,8 +17,12 @@ export function maybeSingleWordQuery(message: string): { word: string; forceAnsw
   const m = message.trim();
   if (!m) return null;
 
-  // Explicit word-meaning asks: "what does X mean", "meaning of X", "define/translate X".
-  let mm = m.match(/^(?:what\s+(?:does|is)\s+|what'?s\s+|meaning\s+of\s+|define\s+|translate\s+)["']?([^\s"']{2,40})["']?(?:\s+mean)?\s*[?]?$/i);
+  // Explicit word-meaning asks: "what does X mean", "what is the meaning of X", "meaning of X",
+  // "define/translate X".
+  let mm = m.match(/^(?:what\s+(?:does|is)\s+(?:the\s+meaning\s+of\s+)?|what'?s\s+(?:the\s+meaning\s+of\s+)?|meaning\s+of\s+|define\s+|translate\s+)["']?([^\s"']{2,40})["']?(?:\s+mean)?\s*[?]?$/i);
+  if (mm) return { word: stripPunct(mm[1]), forceAnswer: true };
+  // "X meaning" / "X means" / "X mean".
+  mm = m.match(/^["']?([^\s"']{2,40})["']?\s+(?:meaning|means|mean)\s*[?]?$/i);
   if (mm) return { word: stripPunct(mm[1]), forceAnswer: true };
   // Lisan/Gujarati: "X ni (su) maana", "X no/nu matlab".
   mm = m.match(/^["']?([^\s"']{2,40})["']?\s+(?:ni|no|nu)\s+(?:su\s+|shu\s+)?(?:maana|maena|matlab|meaning)(?:\s+che)?\s*[?]?$/i);

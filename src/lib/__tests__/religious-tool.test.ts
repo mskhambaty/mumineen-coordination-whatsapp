@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/scraper/retrieve-site-context", () => ({
   retrieveReligiousContext: mocks.retrieveReligiousContext,
   retrieveSiteContext: mocks.retrieveSiteContext,
+  RELIGIOUS_FALLBACK_MIN_SCORE: 0.4,
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -63,7 +64,7 @@ describe("answer_religious_questions tool", () => {
 
     // Sermon-content fallback searches the sermon categories (decoration/tazyeen excluded),
     // year-scoped (null = no time cue → most-recent indexed).
-    expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith("what is vaaz talaqi", 5, ["reflection", "al_dars", "overview"], null);
+    expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith("what is vaaz talaqi", 5, ["reflection", "al_dars", "overview"], null, 0.4);
     expect(mocks.retrieveSiteContext).not.toHaveBeenCalled();
     expect(result).toMatchObject({ status: "ok", decision: "answer", source: "indexed_religious_content" });
   });
@@ -76,6 +77,16 @@ describe("answer_religious_questions tool", () => {
       { user: visitor, phoneE164: "+1555" },
     );
     expect(result).toMatchObject({ decision: "not_found" });
+  });
+
+  it("routes a bare word-meaning to the dictionary (decision word_lookup), not a sermon", async () => {
+    const result = await executeTool(
+      "answer_religious_questions",
+      { query: "meaning of shadi" },
+      { user: visitor, phoneE164: "+1555" },
+    );
+    expect(result).toMatchObject({ decision: "word_lookup", word: "shadi" });
+    expect(mocks.retrieveReligiousContext).not.toHaveBeenCalled(); // never reached the vector path
   });
 });
 
