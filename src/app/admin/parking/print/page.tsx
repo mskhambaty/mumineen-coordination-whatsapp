@@ -57,7 +57,7 @@ function CardBanner({ color }: { color: string | null }) {
 
 function CardLogo() {
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "12px 20px", minHeight: 0, gap: "2px" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "12px 20px", minHeight: 0, gap: "0px" }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src="/logo-chicago.avif"
@@ -65,7 +65,7 @@ function CardLogo() {
         style={{ maxHeight: "85%", maxWidth: "100%", objectFit: "contain" }}
         onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
       />
-      <div style={{ fontFamily: "Arial, Helvetica, sans-serif", fontSize: "22px", fontWeight: "900", letterSpacing: "0.04em", color: "#111", textAlign: "center", lineHeight: 1.2 }}>
+      <div style={{ fontFamily: "Arial, Helvetica, sans-serif", fontSize: "22px", fontWeight: "900", letterSpacing: "0.04em", color: "#111", textAlign: "center", lineHeight: 1.2, marginTop: "-10px" }}>
         Ashara Mubaraka 1448H – Relay Center
       </div>
     </div>
