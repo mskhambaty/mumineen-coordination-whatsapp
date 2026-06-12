@@ -57,7 +57,7 @@ function CardBanner({ color }: { color: string | null }) {
 
 function CardLogo() {
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "12px 20px", minHeight: 0, gap: "8px" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "12px 20px", minHeight: 0, gap: "2px" }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src="/logo-chicago.avif"
