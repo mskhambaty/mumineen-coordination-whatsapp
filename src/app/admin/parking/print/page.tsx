@@ -11,7 +11,7 @@ type Lot = { id: string; name: string; color: string | null };
 
 // How many passes to print per lot color (assigned + blank write-in templates).
 const LOT_PRINT_TARGETS: Record<string, number> = {
-  red: 500, white: 500, blue: 500, gold: 125, silver: 200,
+  red: 500, white: 500, blue: 500, gold: 125, green: 200,
 };
 
 const ENTRY_ZONES: Record<string, { label: string; direction: string; textColor: string; bannerBg: string; bannerText: string; bannerBorder?: string }> = {
@@ -19,7 +19,7 @@ const ENTRY_ZONES: Record<string, { label: string; direction: string; textColor:
   blue:   { label: "BLUE",   direction: "Enter from 91st St.",                              textColor: "#111", bannerBg: "#fff", bannerText: "#111", bannerBorder: "2px solid #222" },
   white:  { label: "WHITE",  direction: "Enter from Kingery Hwy (Rt. 83)",                 textColor: "#111", bannerBg: "#fff", bannerText: "#111", bannerBorder: "2px solid #222" },
   gold:   { label: "GOLD",   direction: "Enter from Kingery Hwy (Rt. 83)",                 textColor: "#111", bannerBg: "#fff", bannerText: "#111", bannerBorder: "2px solid #222" },
-  silver: { label: "SILVER", direction: "Anne Jeans School or Burr Ridge Middle School",   textColor: "#111", bannerBg: "#fff", bannerText: "#111", bannerBorder: "2px solid #222" },
+  green:  { label: "GREEN",  direction: "Anne Jeans School or Burr Ridge Middle School",   textColor: "#111", bannerBg: "#fff", bannerText: "#111", bannerBorder: "2px solid #222" },
 };
 
 function zoneInfo(color: string | null) {
