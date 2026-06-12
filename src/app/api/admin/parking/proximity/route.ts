@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { canManageParking } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
-import { detectProximityIssues, OVERFLOW, type PassRef } from "@/lib/parking/proximity";
+import { detectProximityIssues, type PassRef } from "@/lib/parking/proximity";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -145,10 +145,9 @@ export async function GET(req: NextRequest) {
       return { id: passId, lot_name: lot?.name ?? "Unknown", lot_color: lot?.color ?? null };
     });
 
-    const overflowInfo = OVERFLOW[issue.anchor_color];
     const { lot: overflowLot, usingFallback, overCapacity } = resolveOverflowLot(
       issue.overflow_primary,
-      overflowInfo.fallback,
+      issue.overflow_fallback,
       lotsByColor,
     );
 
@@ -202,10 +201,9 @@ export async function POST(req: NextRequest) {
   let fallbacks_used = 0;
 
   for (const issue of rawIssues) {
-    const overflowInfo = OVERFLOW[issue.anchor_color];
     const { lot: targetLot, usingFallback } = resolveOverflowLot(
       issue.overflow_primary,
-      overflowInfo.fallback,
+      issue.overflow_fallback,
       lotsByColor,
     );
 
