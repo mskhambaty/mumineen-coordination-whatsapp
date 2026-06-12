@@ -110,7 +110,7 @@ export function hasReligiousSignal(message: string): boolean {
 
 // ─── Clearly-social messages (greeting / thanks / dua / chant / bare affirmation) → pass ─────
 const SOCIAL_RE =
-  /^(?:\s*(?:(?:as+|wa\s+)?salaam?(?:\s*un)?(?:\s*(?:alaikum|jameel))?|salam|adaab|hi|hello|hey|good\s+(?:morning|evening|afternoon)|shukran|thanks?|thank\s+you|jazakallah|jazakumullah|aameen|ameen|mola(?:\s+mola)*(?:\s+mufaddal)?(?:\s+mola)?|ya\s+ali\s+madad|ya\s+husain|inshallah|insha'?allah|mashallah|subhanallah|alhamdulillah|ok|okay|k|sure|nothing|np|👍|🙏|❤️|🤲)\s*[.!]*\s*)+$/i;
+  /^(?:\s*(?:(?:as+|wa\s+)?salaam?(?:\s*un)?(?:\s*(?:alaikum|jameel))?|salam|adaab|hi|hello|hey|good\s+(?:morning|evening|afternoon)|shukran|thanks?|thank\s+you|jazakallah|jazakumullah|aameen|ameen|mola(?:\s+mola)*(?:\s+mufaddal)?(?:\s+mola)?|ya\s+ali\s+madad|ya\s+husain|inshallah|insha'?allah|mashallah|subhanallah|alhamd[ou]l+il+a+h?|no|nope|nahi|nai|na|ok|okay|k|sure|nothing|np|👍|🙏|❤️|🤲)\s*[.!]*\s*)+$/i;
 
 export function isClearlySocial(message: string): boolean {
   const t = message.trim();
