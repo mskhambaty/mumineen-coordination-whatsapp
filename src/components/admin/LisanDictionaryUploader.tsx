@@ -13,6 +13,11 @@ export default function LisanDictionaryUploader() {
   const [message, setMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Single-word add (the day-to-day path — DB is the source of truth).
+  const [word, setWord] = useState({ transliteration: "", lisan: "", meaning: "", example: "" });
+  const [adding, setAdding] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
   async function fetchCount(): Promise<number | null> {
     try {
       const res = await apiFetch("/api/admin/lisan-words");
@@ -55,6 +60,51 @@ export default function LisanDictionaryUploader() {
     }
   }
 
+  async function addWord(e: React.FormEvent) {
+    e.preventDefault();
+    if (!word.transliteration.trim() && !word.lisan.trim()) return;
+    setAdding(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await apiFetch("/api/admin/lisan-words", { method: "PUT", body: JSON.stringify(word) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Add failed");
+      const label = word.transliteration.trim() || word.lisan.trim();
+      setMessage(data.status === "updated" ? `Updated “${label}”.` : `Added “${label}”.`);
+      setWord({ transliteration: "", lisan: "", meaning: "", example: "" });
+      if (typeof data.count === "number") setCount(data.count);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Add failed");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function exportCsv() {
+    setExporting(true);
+    setError(null);
+    try {
+      const res = await apiFetch("/api/admin/lisan-words?format=csv");
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const disposition = res.headers.get("content-disposition") ?? "";
+      a.download = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "lisan-dictionary.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  const inputClass =
+    "w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100";
+
   return (
     <section className="mt-8 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
       <h2 className="text-lg font-semibold">Lisan ud Dawat Dictionary (exact lookup)</h2>
@@ -85,7 +135,59 @@ export default function LisanDictionaryUploader() {
         >
           {uploading ? "Importing…" : "Upload & Replace"}
         </button>
+        <button
+          type="button"
+          onClick={exportCsv}
+          disabled={exporting}
+          className="shrink-0 rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+        >
+          {exporting ? "Exporting…" : "Export CSV"}
+        </button>
       </form>
+
+      {/* Day-to-day path: add ONE missing word without re-uploading the whole CSV. */}
+      <div className="mt-6 border-t border-gray-100 pt-5 dark:border-gray-800">
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Add a word</h3>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          Adds a single word live (no full re-upload). Re-adding an existing word updates it.
+        </p>
+        <form onSubmit={addWord} className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <input
+            value={word.transliteration}
+            onChange={(e) => setWord((w) => ({ ...w, transliteration: e.target.value }))}
+            placeholder="Transliteration (e.g. Aflaak)"
+            className={inputClass}
+          />
+          <input
+            value={word.lisan}
+            onChange={(e) => setWord((w) => ({ ...w, lisan: e.target.value }))}
+            placeholder="Lisan (e.g. افلاك)"
+            dir="rtl"
+            className={inputClass}
+          />
+          <input
+            value={word.meaning}
+            onChange={(e) => setWord((w) => ({ ...w, meaning: e.target.value }))}
+            placeholder="Meaning"
+            className={inputClass}
+          />
+          <input
+            value={word.example}
+            onChange={(e) => setWord((w) => ({ ...w, example: e.target.value }))}
+            placeholder="Example (optional)"
+            className={inputClass}
+          />
+          <div className="sm:col-span-2">
+            <button
+              type="submit"
+              disabled={adding || (!word.transliteration.trim() && !word.lisan.trim())}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300 dark:disabled:bg-gray-700"
+            >
+              {adding ? "Adding…" : "Add word"}
+            </button>
+          </div>
+        </form>
+      </div>
     </section>
   );
 }

@@ -190,32 +190,90 @@ export type LisanImportRow = {
   example?: string | null;
 };
 
+// A dictionary row with all the computed match columns ready for insert.
+export type PreparedLisanRow = {
+  transliteration: string | null;
+  lisan: string | null;
+  meaning: string | null;
+  example: string | null;
+  norm: string;
+  norm_skeleton: string;
+  skeleton_forms: string[];
+  lisan_forms: string[];
+};
+
+// Compute the stored match columns (norm / skeleton / per-form arrays) for ONE raw row, exactly
+// as bulk import does — so a single add and a full re-import produce identical, searchable rows.
+// Returns null when the row has no usable word text (skip it).
+export function prepareLisanRow(r: LisanImportRow): PreparedLisanRow | null {
+  const transliteration = (r.transliteration ?? "").trim() || null;
+  const lisan = (r.lisan ?? "").trim() || null;
+  const norm = normalizeWord(transliteration ?? lisan ?? "");
+  if (!(transliteration || lisan) || !norm) return null;
+  const skeleton_forms = Array.from(
+    new Set(splitForms(transliteration).map((f) => skeleton(normalizeWord(f))).filter(Boolean)),
+  );
+  const lisan_forms = Array.from(new Set(splitForms(lisan)));
+  return {
+    transliteration,
+    lisan,
+    meaning: (r.meaning ?? "").trim() || null,
+    example: (r.example ?? "").trim() || null,
+    norm,
+    norm_skeleton: skeleton(norm),
+    skeleton_forms,
+    lisan_forms,
+  };
+}
+
+export type AddLisanResult =
+  | { status: "added"; entry: LisanEntry; count: number }
+  | { status: "updated"; entry: LisanEntry; count: number }
+  | { status: "invalid" };
+
+// Add (or update) ONE dictionary word without touching the rest of the table — the day-to-day
+// path for filling a gap. The DB is the source of truth; dedupe on `norm` so the same word can't
+// be added twice (an existing entry is updated in place instead). Returns the new total count.
+export async function addLisanWord(row: LisanImportRow): Promise<AddLisanResult> {
+  const prepared = prepareLisanRow(row);
+  if (!prepared) return { status: "invalid" };
+  const supabase = getSupabaseAdmin();
+
+  // Dedupe: a row with the same normalized word already exists → update it in place.
+  const { data: existing } = await supabase
+    .from("lisan_words")
+    .select("id")
+    .eq("norm", prepared.norm)
+    .limit(1);
+  const existingId = (existing as { id: number }[] | null)?.[0]?.id;
+
+  if (existingId != null) {
+    const { error } = await supabase.from("lisan_words").update(prepared).eq("id", existingId);
+    if (error) throw error;
+    return { status: "updated", entry: pick(prepared), count: await countLisanWords() };
+  }
+
+  const { error } = await supabase.from("lisan_words").insert(prepared);
+  if (error) throw error;
+  return { status: "added", entry: pick(prepared), count: await countLisanWords() };
+}
+
+// Every word in the dictionary, oldest first, for CSV export / backup. Returns the four
+// human-authored columns only (the computed match columns are re-derived on import).
+export async function listAllLisanWords(): Promise<LisanEntry[]> {
+  const { data } = await getSupabaseAdmin()
+    .from("lisan_words")
+    .select("transliteration, lisan, meaning, example")
+    .order("id", { ascending: true });
+  return (data ?? []) as LisanEntry[];
+}
+
 // Full-replace import of the dictionary (it's a single authoritative file). Rows without
 // any word text are skipped. Returns the number of words inserted.
 export async function importLisanWords(rows: LisanImportRow[]): Promise<number> {
   const supabase = getSupabaseAdmin();
 
-  const prepared = rows
-    .map((r) => {
-      const transliteration = (r.transliteration ?? "").trim() || null;
-      const lisan = (r.lisan ?? "").trim() || null;
-      const norm = normalizeWord(transliteration ?? lisan ?? "");
-      const skeleton_forms = Array.from(
-        new Set(splitForms(transliteration).map((f) => skeleton(normalizeWord(f))).filter(Boolean)),
-      );
-      const lisan_forms = Array.from(new Set(splitForms(lisan)));
-      return {
-        transliteration,
-        lisan,
-        meaning: (r.meaning ?? "").trim() || null,
-        example: (r.example ?? "").trim() || null,
-        norm,
-        norm_skeleton: skeleton(norm),
-        skeleton_forms,
-        lisan_forms,
-      };
-    })
-    .filter((r) => (r.transliteration || r.lisan) && r.norm);
+  const prepared = rows.map(prepareLisanRow).filter((r): r is PreparedLisanRow => r !== null);
 
   // Replace the whole dictionary atomically-ish: clear then insert in batches.
   await supabase.from("lisan_words").delete().neq("id", 0);

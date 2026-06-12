@@ -6,7 +6,16 @@ vi.mock("@/lib/supabase/server", () => ({
   getSupabaseAdmin: () => ({ from: mocks.from, rpc: mocks.rpc }),
 }));
 
-import { normalizeWord, lookupLisanWord, splitForms, trigramSim, isTrivialLookup } from "@/lib/knowledge/lisan-words";
+import {
+  normalizeWord,
+  lookupLisanWord,
+  splitForms,
+  trigramSim,
+  isTrivialLookup,
+  prepareLisanRow,
+  addLisanWord,
+  listAllLisanWords,
+} from "@/lib/knowledge/lisan-words";
 
 type Row = { transliteration: string | null; lisan: string | null; meaning: string | null; example: string | null; norm?: string | null; similarity?: number };
 
@@ -141,5 +150,88 @@ describe("lookupLisanWord", () => {
   it("returns not_found for empty input", async () => {
     wire();
     expect((await lookupLisanWord("   ")).status).toBe("not_found");
+  });
+});
+
+describe("prepareLisanRow", () => {
+  it("computes norm / skeleton / forms for a simple word", () => {
+    const r = prepareLisanRow({ transliteration: "Sadaqa", lisan: "صدقة", meaning: "Charity", example: "" });
+    expect(r).toMatchObject({
+      transliteration: "Sadaqa",
+      lisan: "صدقة",
+      meaning: "Charity",
+      example: null,
+      norm: "sadaqa",
+      norm_skeleton: "sdq",
+    });
+  });
+
+  it("splits a compound entry into per-form skeleton / lisan arrays", () => {
+    const r = prepareLisanRow({ transliteration: "Ne'mat - Ne'am, An'um", lisan: "نعمة - نعم، انعم", meaning: "Blessing", example: null });
+    expect(r?.skeleton_forms).toEqual(["nmt", "nm"]); // Ne'mat→nmt, Ne'am/An'um→nm (deduped)
+    expect(r?.lisan_forms).toEqual(["نعمة", "نعم", "انعم"]);
+  });
+
+  it("returns null when there is no usable word text", () => {
+    expect(prepareLisanRow({ transliteration: "  ", lisan: "", meaning: "x", example: "" })).toBeNull();
+    expect(prepareLisanRow({ transliteration: "!!!", lisan: "", meaning: "x", example: "" })).toBeNull(); // norm empties out
+  });
+});
+
+describe("addLisanWord", () => {
+  const insert = vi.fn();
+  const update = vi.fn();
+
+  // Wire the chain for a single add: select("id").eq("norm").limit() → existing rows;
+  // select("id",{head}) → count; insert/update → {error}.
+  function wireAdd({ existing = [] as { id: number }[], count = 1 } = {}) {
+    insert.mockResolvedValue({ error: null });
+    update.mockReturnValue({ eq: () => Promise.resolve({ error: null }) });
+    mocks.from.mockReturnValue({
+      select: (_cols: string, opts?: { head?: boolean }) =>
+        opts?.head
+          ? Promise.resolve({ count })
+          : { eq: () => ({ limit: () => Promise.resolve({ data: existing }) }) },
+      insert,
+      update,
+    });
+  }
+
+  beforeEach(() => {
+    insert.mockReset();
+    update.mockReset();
+  });
+
+  it("inserts a new word with the computed match columns and returns the new count", async () => {
+    wireAdd({ existing: [], count: 42 });
+    const res = await addLisanWord({ transliteration: "Aflaak", lisan: "افلاك", meaning: "Celestial spheres", example: "" });
+    expect(res).toMatchObject({ status: "added", count: 42 });
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ transliteration: "Aflaak", norm: "aflaak", norm_skeleton: expect.any(String) }));
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("dedupes on norm: an existing word is UPDATED in place, not inserted twice", async () => {
+    wireAdd({ existing: [{ id: 7 }], count: 100 });
+    const res = await addLisanWord({ transliteration: "Aflaak", lisan: "افلاك", meaning: "Spheres (revised)", example: "" });
+    expect(res).toMatchObject({ status: "updated", count: 100 });
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it("rejects an empty / textless word without hitting the DB", async () => {
+    wireAdd();
+    const res = await addLisanWord({ transliteration: "   ", lisan: "", meaning: "nothing", example: "" });
+    expect(res).toEqual({ status: "invalid" });
+    expect(insert).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe("listAllLisanWords", () => {
+  it("returns the four authored columns, ordered, for export", async () => {
+    const rows = [{ transliteration: "Aab", lisan: "آب", meaning: "Water", example: null }];
+    mocks.from.mockReturnValue({ select: () => ({ order: () => Promise.resolve({ data: rows }) }) });
+    expect(await listAllLisanWords()).toEqual(rows);
   });
 });

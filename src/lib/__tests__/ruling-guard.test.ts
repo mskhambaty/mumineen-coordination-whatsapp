@@ -20,6 +20,7 @@ vi.mock("@/lib/supabase/server", () => ({
 import {
   isPersonalRuling,
   rulingKeywordHit,
+  looksLogistics,
   flagRulingQuestion,
   RULING_REFUSAL_REPLY,
 } from "@/lib/agent/ruling-guard";
@@ -62,6 +63,38 @@ describe("rulingKeywordHit (deterministic fast-path)", () => {
   });
 });
 
+describe("looksLogistics (FAQ-derived allow-list)", () => {
+  it("fires on clear logistics / accommodation / accessibility / timing questions", () => {
+    for (const q of [
+      "I would want my husband to sit in the masjid last row as he will be on chair or in sehan, whichever u say, but I will need to sit with for his personal needs",
+      "can I bring a wheelchair",
+      "where should my husband sit",
+      "I want utaro",
+      "which hotel has a shuttle",
+      "where is parking",
+      "what time is registration",
+      "do I need to register",
+      "is there a host family for accommodation",
+      "what is the dress code",
+      "where is the nearest bathroom",
+    ]) {
+      expect(looksLogistics(q), q).toBe(true);
+    }
+  });
+
+  it("does NOT fire on bare religious-act / ruling questions", () => {
+    for (const q of [
+      "is dragon fruit halal",
+      "is it wajib to do matam",
+      "do I need to fast on Ashura",
+      "roza farz che",
+      "should women do matam",
+    ]) {
+      expect(looksLogistics(q), q).toBe(false);
+    }
+  });
+});
+
 describe("isPersonalRuling", () => {
   it("keyword hit short-circuits without calling the model", async () => {
     const res = await isPersonalRuling("Is dragon fruit halal?");
@@ -84,7 +117,8 @@ describe("isPersonalRuling", () => {
 
   it("classifier says not-a-ruling → passes through", async () => {
     mocks.create.mockResolvedValue({ choices: [{ message: { content: '{"ruling": false}' } }] });
-    const res = await isPersonalRuling("can I book the early shuttle for tomorrow");
+    // Permission-shaped ("can I") but not logistics and no fiqh keyword → reaches the classifier.
+    const res = await isPersonalRuling("can I bring my own tasbeeh for my family");
     expect(res.ruling).toBe(false);
     expect(mocks.create).toHaveBeenCalledTimes(1);
   });
@@ -93,6 +127,28 @@ describe("isPersonalRuling", () => {
     mocks.create.mockRejectedValue(new Error("model down"));
     const res = await isPersonalRuling("am I supposed to do this thing");
     expect(res.ruling).toBe(false);
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("rescues the reported seating message via logistics WITHOUT calling the classifier", async () => {
+    const res = await isPersonalRuling(
+      "I would want my husband to sit in the masjid last row as he will be on chair or in sehan, whichever u say, but I will need to sit with for his personal needs",
+    );
+    expect(res).toEqual({ ruling: false, via: "logistics" });
+    expect(mocks.create).not.toHaveBeenCalled(); // logistics short-circuit, classifier untouched
+  });
+
+  it("logistics rescue runs only AFTER the keyword fast-path (explicit fatwa still refuses)", async () => {
+    // Mentions the mawaid (logistics word) but explicitly asks halal — keyword wins, no rescue.
+    const res = await isPersonalRuling("is it halal to eat at the mawaid");
+    expect(res).toEqual({ ruling: true, via: "keyword" });
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("an ambiguous non-logistics message still reaches the cautious classifier (unchanged)", async () => {
+    mocks.create.mockResolvedValue({ choices: [{ message: { content: '{"ruling": true}' } }] });
+    const res = await isPersonalRuling("am I supposed to eat dragon fruit during these days");
+    expect(res).toEqual({ ruling: true, via: "classifier" });
     expect(mocks.create).toHaveBeenCalledTimes(1);
   });
 });

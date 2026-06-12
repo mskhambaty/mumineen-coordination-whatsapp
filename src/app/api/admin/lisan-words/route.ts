@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 
 import { canManageKnowledge } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
-import { countLisanWords, importLisanWords, type LisanImportRow } from "@/lib/knowledge/lisan-words";
+import {
+  addLisanWord,
+  countLisanWords,
+  importLisanWords,
+  listAllLisanWords,
+  type LisanImportRow,
+} from "@/lib/knowledge/lisan-words";
 import { parseCsv } from "@/lib/util/csv";
 
 export const runtime = "nodejs";
@@ -10,14 +17,71 @@ export const maxDuration = 120;
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
 
-// GET: how many words are currently loaded.
+// Quote a CSV cell only when needed (comma, quote, or newline); double internal quotes.
+function csvCell(value: string | null): string {
+  const s = value ?? "";
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+// GET: how many words are currently loaded (default), or `?format=csv` to download the whole
+// dictionary as a re-importable CSV (backup / master). DB is the source of truth.
 export async function GET(req: NextRequest) {
   const auth = await requirePortalCaller(req, canManageKnowledge);
   if (auth instanceof NextResponse) return auth;
   try {
+    if (req.nextUrl.searchParams.get("format") === "csv") {
+      const words = await listAllLisanWords();
+      const header = "transliteration,lisan,meaning,example";
+      const body = words
+        .map((w) => [w.transliteration, w.lisan, w.meaning, w.example].map(csvCell).join(","))
+        .join("\n");
+      return new NextResponse(`${header}\n${body}\n`, {
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": 'attachment; filename="lisan-dictionary.csv"',
+        },
+      });
+    }
     return NextResponse.json({ count: await countLisanWords() });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Failed" }, { status: 500 });
+  }
+}
+
+// PUT: add (or update) ONE word — the day-to-day path for filling a dictionary gap without a
+// full CSV re-upload. The DB is the source of truth; dedupe on the normalized word.
+const addWordSchema = z.object({
+  transliteration: z.string().trim().max(200).optional().default(""),
+  lisan: z.string().trim().max(200).optional().default(""),
+  meaning: z.string().trim().max(1000).optional().default(""),
+  example: z.string().trim().max(2000).optional().default(""),
+});
+
+export async function PUT(req: NextRequest) {
+  const auth = await requirePortalCaller(req, canManageKnowledge);
+  if (auth instanceof NextResponse) return auth;
+
+  const json = await req.json().catch(() => null);
+  const parsed = addWordSchema.safeParse(json);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
+  const { transliteration, lisan } = parsed.data;
+  if (!transliteration && !lisan) {
+    return NextResponse.json(
+      { error: "Provide at least a transliteration or a Lisan word." },
+      { status: 422 },
+    );
+  }
+
+  try {
+    const result = await addLisanWord(parsed.data);
+    if (result.status === "invalid") {
+      return NextResponse.json({ error: "Word has no usable text." }, { status: 422 });
+    }
+    return NextResponse.json(result, { status: result.status === "added" ? 201 : 200 });
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Add failed" }, { status: 500 });
   }
 }
 
