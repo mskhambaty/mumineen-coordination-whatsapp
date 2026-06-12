@@ -51,8 +51,26 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
   const reason = session.escalation_reason ?? "";
   const category = session.escalation_category ?? "";
 
+  // Fetch recent inbound messages (last 24h) from this conversation to supplement
+  // the escalation reason — the reason can be vague ("user wants help") while the
+  // actual messages contain the specifics ("the TV isn't working").
+  const { data: recentMsgs } = await supabase
+    .from("messages")
+    .select("body")
+    .eq("phone_e164", phone)
+    .eq("direction", "inbound")
+    .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+    .order("created_at", { ascending: false })
+    .limit(8);
+
+  const msgContext = (recentMsgs ?? [])
+    .filter((m) => m.body)
+    .map((m) => (m.body as string).slice(0, 150))
+    .reverse() // oldest→newest
+    .join(" → ");
+
   // If no context to match on, return empty
-  if (!reason && !category) {
+  if (!reason && !category && !msgContext) {
     const empty: SuggestionsResponse = { matching_issues: [], resolution_history: null };
     setCached(phone, empty);
     return NextResponse.json(empty);
@@ -60,7 +78,7 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
 
   // Run issue matching + resolution history in parallel
   const [matchingIssues, resolutionHistory] = await Promise.all([
-    matchIssuesToEscalation(supabase, reason, category, session.escalation_priority),
+    matchIssuesToEscalation(supabase, reason, category, session.escalation_priority, msgContext),
     summarizeResolutionHistory(supabase, reason, category),
   ]);
 
@@ -76,26 +94,126 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
 // Issue matching via AI
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Keyword fallback: deterministic matching when AI is unavailable or fails.
+// Extracts significant words from escalation context and scores each open
+// issue by how many words overlap with its title + description.
+// ---------------------------------------------------------------------------
+
+type IssueRow = {
+  id: string;
+  issue_number: number;
+  title: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  department: { name: string } | { name: string }[] | null;
+};
+
+const STOP_WORDS = new Set([
+  // English stop words
+  "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+  "have", "has", "had", "do", "does", "did", "will", "would", "could",
+  "should", "may", "might", "can", "shall", "to", "of", "in", "for",
+  "on", "with", "at", "by", "from", "as", "into", "about", "not", "no",
+  "and", "but", "or", "so", "if", "then", "that", "this", "it", "its",
+  "i", "my", "me", "we", "our", "you", "your", "they", "them", "their",
+  "he", "she", "hi", "please", "yes", "yeah", "ok", "okay", "thanks",
+  "thank", "need", "want", "help", "working", "work", "issue", "problem",
+  // Domain-specific: these appear in almost every conversation and cause false matches
+  "masjid", "visitor", "visitors", "mumineen", "ashara", "venue", "team",
+  "reported", "reports", "request", "requests", "requested", "assistance",
+  "urgent", "escalate", "escalation", "escalated", "user", "contact",
+  "information", "check", "details", "support", "follow",
+]);
+
+function extractKeywords(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length >= 2 && !STOP_WORDS.has(w)),
+  );
+}
+
+function deptName(issue: IssueRow): string | null {
+  const dept = Array.isArray(issue.department) ? issue.department[0] : issue.department;
+  return (dept as { name: string } | null)?.name ?? null;
+}
+
+function keywordMatch(
+  issues: IssueRow[],
+  reason: string,
+  msgContext: string,
+): MatchingIssue[] {
+  const contextText = `${reason} ${msgContext}`;
+  const keywords = extractKeywords(contextText);
+  if (keywords.size === 0) return [];
+
+  const scored = issues.map((issue) => {
+    const titleWords = extractKeywords(issue.title);
+    const descWords = extractKeywords(issue.description ?? "");
+    let score = 0;
+    for (const w of keywords) {
+      // Title matches are strong signals (worth 2)
+      if (titleWords.has(w)) { score += 2; continue; }
+      // Description exact matches (worth 1)
+      if (descWords.has(w)) { score += 1; continue; }
+      // Partial matches in title (worth 1)
+      for (const tw of titleWords) {
+        if (tw.includes(w) || w.includes(tw)) { score += 1; break; }
+      }
+    }
+    return { issue, score };
+  }).filter((s) => s.score >= 2) // Need at least one strong match (title) or two description hits
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+
+  return scored.map((s) => ({
+    id: s.issue.id as string,
+    issue_number: s.issue.issue_number as number,
+    title: s.issue.title as string,
+    status: s.issue.status as string,
+    priority: s.issue.priority as string,
+    department_name: deptName(s.issue),
+    relevance_reason: `Keyword match based on escalation context`,
+  }));
+}
+
 async function matchIssuesToEscalation(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   reason: string,
   category: string,
   priority: string,
+  msgContext: string,
 ): Promise<MatchingIssue[]> {
-  const { data: issues } = await supabase
+  const { data: issues, error: issuesErr } = await supabase
     .from("issues")
     .select("id, issue_number, title, description, status, priority, department:departments(name)")
     .in("status", ["open", "in_progress"])
     .order("created_at", { ascending: false })
     .limit(100);
 
+  if (issuesErr) {
+    console.error("[suggestions] issues fetch failed:", issuesErr.message);
+  }
+
   if (!issues || issues.length === 0) return [];
 
   const issueList = issues.map((i, idx) => {
     const dept = Array.isArray(i.department) ? i.department[0] : i.department;
-    return `${idx + 1}. [ISS-${i.issue_number}] ${i.title} | ${(i.description ?? "").slice(0, 120)} | Status: ${i.status} | Priority: ${i.priority} | Dept: ${dept?.name ?? "Unassigned"}`;
+    return `${idx + 1}. [ISS-${i.issue_number}] ${i.title} | ${((i.description as string) ?? "").slice(0, 120)} | Status: ${i.status} | Priority: ${i.priority} | Dept: ${(dept as { name: string } | null)?.name ?? "Unassigned"}`;
   }).join("\n");
 
+  const escalationContext = [
+    reason ? `- Reason: ${reason}` : null,
+    `- Category: ${category || "N/A"}`,
+    `- Priority: ${priority}`,
+    msgContext ? `- Recent messages (oldest→newest): ${msgContext}` : null,
+  ].filter(Boolean).join("\n");
+
+  // Try AI matching first
   try {
     const ai = getAIClient();
     const resp = await ai.chat.completions.create({
@@ -104,11 +222,11 @@ async function matchIssuesToEscalation(
       messages: [
         {
           role: "system",
-          content: `You are a support triage assistant. Given an escalation and a list of open issues, identify the top 1-3 issues most likely related to this escalation. For each match, explain in one sentence why it's relevant. Only include genuinely relevant matches — if nothing is relevant, return an empty array. Return valid JSON: { "matches": [{ "issue_number": N, "reason": "..." }] }`,
+          content: `You are a support triage assistant. Given an escalation and a list of open issues, identify the top 1-3 issues most likely related to this escalation. Use the escalation reason AND the user's recent messages to determine what the issue is about. For each match, explain in one sentence why it's relevant. Only include genuinely relevant matches — if nothing is relevant, return an empty array. Return valid JSON: { "matches": [{ "issue_number": N, "reason": "..." }] }`,
         },
         {
           role: "user",
-          content: `ESCALATION:\n- Reason: ${reason}\n- Category: ${category}\n- Priority: ${priority}\n\nOPEN ISSUES:\n${issueList}`,
+          content: `ESCALATION:\n${escalationContext}\n\nOPEN ISSUES:\n${issueList}`,
         },
       ],
     });
@@ -117,25 +235,32 @@ async function matchIssuesToEscalation(
     const parsed = JSON.parse(text) as { matches?: Array<{ issue_number: number; reason: string }> };
     const matches = parsed.matches ?? [];
 
-    // Map back to full issue data
-    return matches.flatMap((m) => {
-      const issue = issues.find((i) => i.issue_number === m.issue_number);
-      if (!issue) return [];
-      const dept = Array.isArray(issue.department) ? issue.department[0] : issue.department;
-      return [{
-        id: issue.id,
-        issue_number: issue.issue_number,
-        title: issue.title,
-        status: issue.status,
-        priority: issue.priority,
-        department_name: dept?.name ?? null,
-        relevance_reason: m.reason,
-      }];
-    });
+    if (matches.length > 0) {
+      // Map back to full issue data
+      const aiResults = matches.flatMap((m) => {
+        const issue = issues.find((i) => i.issue_number === m.issue_number);
+        if (!issue) return [];
+        return [{
+          id: issue.id as string,
+          issue_number: issue.issue_number as number,
+          title: issue.title as string,
+          status: issue.status as string,
+          priority: issue.priority as string,
+          department_name: deptName(issue as IssueRow),
+          relevance_reason: m.reason,
+        }];
+      });
+      if (aiResults.length > 0) return aiResults;
+    }
+
+    // AI returned empty matches — fall through to keyword fallback
+    console.warn("[suggestions] AI returned 0 matches, trying keyword fallback");
   } catch (err) {
-    console.error("[suggestions] issue matching failed:", (err as Error).message);
-    return [];
+    console.error("[suggestions] AI issue matching failed:", (err as Error).message, "— falling back to keyword matching");
   }
+
+  // Fallback: deterministic keyword matching
+  return keywordMatch(issues as IssueRow[], reason, msgContext);
 }
 
 // ---------------------------------------------------------------------------

@@ -145,6 +145,10 @@ export async function GET(req: NextRequest) {
   // 2b. Round 2 — fetch links scoped to open issue IDs + last messages scoped to session phones
   const openIssueIds = openIssues.map((i) => i.id as string);
 
+  // Only pull messages from the last 24h — for a live event older messages are
+  // noise, and the escalation_reason already captures the core context.
+  const msgWindowStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
   const [linksResult, msgsResult] = await Promise.all([
     openIssueIds.length > 0
       ? supabase
@@ -157,7 +161,7 @@ export async function GET(req: NextRequest) {
       .select("phone_e164, body, created_at")
       .in("phone_e164", phones)
       .eq("direction", "inbound")
-      .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+      .gte("created_at", msgWindowStart)
       .order("created_at", { ascending: false })
       .limit(phones.length * 10),
   ]);
@@ -178,12 +182,14 @@ export async function GET(req: NextRequest) {
     linkCountMap.set(link.issue_id, (linkCountMap.get(link.issue_id) ?? 0) + 1);
   }
 
-  // Build recent-inbound-messages map per phone (up to 3 most recent, within 24h)
+  // Build inbound-messages map per phone (up to 5 most recent, since escalation window).
+  // More messages give the AI better context for matching — single-word replies like
+  // "how" or "yes" are useless alone but meaningful alongside earlier substantive messages.
   const recentMsgsMap = new Map<string, string[]>();
   for (const msg of lastMessages as Array<{ phone_e164: string; body: string | null }>) {
     if (!msg.body) continue;
     const existing = recentMsgsMap.get(msg.phone_e164) ?? [];
-    if (existing.length < 3) {
+    if (existing.length < 5) {
       existing.push(msg.body.slice(0, 150));
       recentMsgsMap.set(msg.phone_e164, existing);
     }
@@ -215,7 +221,8 @@ export async function GET(req: NextRequest) {
     .map((s, idx) => {
       const user = Array.isArray(s.user) ? s.user[0] : s.user;
       const displayName = (user as { display_name: string | null } | null)?.display_name ?? "Unknown";
-      const msgs = recentMsgsMap.get(s.phone_e164 as string) ?? [];
+      // Show messages oldest→newest so the AI follows the conversation flow
+      const msgs = [...(recentMsgsMap.get(s.phone_e164 as string) ?? [])].reverse();
       const msgsText = msgs.length > 0 ? msgs.map((m) => `"${m}"`).join(" → ") : "(no recent messages)";
       return `${idx + 1}. [${s.id}] ${displayName} | Reason: ${s.escalation_reason ?? "N/A"} | Category: ${(s as Record<string, unknown>).escalation_category ?? "N/A"} | Priority: ${(s as Record<string, unknown>).escalation_priority ?? "normal"} | Recent messages: ${msgsText}`;
     })
@@ -241,8 +248,8 @@ export async function GET(req: NextRequest) {
 
   const systemPrompt = `You are a triage assistant for a mosque community coordination system. Analyze ungrouped escalation conversations and suggest:
 
-1. **New clusters**: groups of 2+ escalations about the same underlying issue that should be created as a new issue.
-2. **Existing issue matches**: escalations that should be linked to an already-open issue.
+1. **Existing issue matches**: escalations that should be linked to an already-open issue. PRIORITIZE THIS — most escalations are about problems that already have a tracking issue.
+2. **New clusters**: groups of 2+ escalations about the same underlying issue that should be created as a new issue (only when no existing issue fits).
 
 Each escalation should appear in at most ONE suggestion (new cluster or existing match). Escalations that don't clearly belong anywhere should be left out — don't force-fit.
 
@@ -266,15 +273,34 @@ Return valid JSON with this exact shape:
 }
 
 Rules:
-- Only suggest a new cluster when 2+ escalations share a clear common theme.
-- Only match to existing issues when the escalation is genuinely about that issue.
+- **The "Reason" field is the most important signal** — it summarizes why the user escalated. Use it as the primary basis for matching, with message history as supporting context.
+- Match an escalation to an existing issue when the reason/topic clearly relates to that issue's title or description (e.g., a "TV not working" escalation matches a "TV Issue" issue, a "network" complaint matches a "Network Issue").
+- Only suggest a new cluster when 2+ escalations share a clear common theme AND no existing issue covers that theme.
+- An escalation can match an existing issue even if it's the only one — single matches are valid.
 - Use the department list to assign department_id/name when applicable.
 - Keep reasoning concise (1-2 sentences).
 - If nothing groups well, return empty arrays.`;
 
   const userPrompt = `UNGROUPED ESCALATIONS:\n${escalationLines}\n\nOPEN ISSUES:\n${issueLines}\n\nDEPARTMENTS:\n${deptLines}`;
 
-  // 5. Call AI
+  // 5. Hydrate helper (shared by AI path and keyword fallback)
+  const hydrateEscalation = (sessionId: string): EscalationDetail | null => {
+    const s = sessionMap.get(sessionId);
+    if (!s) return null;
+    return {
+      session_id: s.id,
+      phone_e164: s.phone_e164,
+      display_name: s.display_name,
+      escalation_reason: s.escalation_reason,
+      escalated_at: s.escalated_at,
+      last_message_preview: recentMsgsMap.get(s.phone_e164)?.[0] ?? null,
+    };
+  };
+
+  // 6. Try AI analysis, with keyword fallback
+  let newClusters: NewCluster[] = [];
+  let existingMatches: ExistingIssueMatch[] = [];
+
   try {
     const ai = getAIClient();
     const resp = await ai.chat.completions.create({
@@ -289,21 +315,7 @@ Rules:
     const text = resp.choices[0]?.message?.content ?? "{}";
     const parsed = JSON.parse(text) as AIResult;
 
-    // 6. Hydrate AI response with full escalation details
-    const hydrateEscalation = (sessionId: string): EscalationDetail | null => {
-      const s = sessionMap.get(sessionId);
-      if (!s) return null;
-      return {
-        session_id: s.id,
-        phone_e164: s.phone_e164,
-        display_name: s.display_name,
-        escalation_reason: s.escalation_reason,
-        escalated_at: s.escalated_at,
-        last_message_preview: recentMsgsMap.get(s.phone_e164)?.[0] ?? null,
-      };
-    };
-
-    const newClusters: NewCluster[] = (parsed.new_clusters ?? [])
+    newClusters = (parsed.new_clusters ?? [])
       .map((c) => ({
         suggested_title: c.suggested_title,
         suggested_description: c.suggested_description,
@@ -316,18 +328,15 @@ Rules:
           .map(hydrateEscalation)
           .filter((e): e is EscalationDetail => e !== null),
       }))
-      // A cluster needs at least 2 valid escalations to be meaningful
       .filter((c) => c.escalations.length >= 2);
 
-    const existingMatches: ExistingIssueMatch[] = (parsed.existing_issue_matches ?? [])
+    existingMatches = (parsed.existing_issue_matches ?? [])
       .flatMap((m) => {
         const issue = openIssues.find((i) => i.id === m.issue_id);
-        // Skip if the AI returned an issue_id not in our open issues window
         if (!issue) return [];
         const escalations = (m.escalation_ids ?? [])
           .map(hydrateEscalation)
           .filter((e): e is EscalationDetail => e !== null);
-        // A match needs at least 1 valid escalation to be meaningful
         if (escalations.length < 1) return [];
         return [
           {
@@ -342,6 +351,83 @@ Rules:
         ];
       });
 
+    if (newClusters.length === 0 && existingMatches.length === 0) {
+      console.warn("[issue-suggestions] AI returned 0 suggestions, trying keyword fallback");
+    }
+  } catch (err) {
+    console.error("[issue-suggestions] AI analysis failed:", (err as Error).message, "— falling back to keyword matching");
+  }
+
+  // 7. Keyword fallback: if AI returned nothing, do deterministic matching
+  if (existingMatches.length === 0 && openIssues.length > 0) {
+    const STOP_WORDS = new Set([
+      "a", "an", "the", "is", "are", "was", "were", "be", "to", "of", "in",
+      "for", "on", "with", "at", "by", "from", "and", "but", "or", "not",
+      "no", "this", "that", "it", "i", "my", "me", "we", "you", "they",
+      "hi", "please", "yes", "yeah", "ok", "okay", "thanks", "help",
+      "working", "work", "issue", "problem", "need", "want",
+      // Domain-specific: appear in almost every conversation, cause false matches
+      "masjid", "visitor", "visitors", "mumineen", "ashara", "venue", "team",
+      "reported", "reports", "request", "requests", "requested", "assistance",
+      "urgent", "escalate", "escalation", "escalated", "user", "contact",
+      "information", "check", "details", "support", "follow",
+    ]);
+    const extractWords = (text: string) =>
+      new Set(
+        text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/)
+          .filter((w) => w.length >= 2 && !STOP_WORDS.has(w)),
+      );
+
+    const keywordMatches: ExistingIssueMatch[] = [];
+
+    for (const issue of openIssues) {
+      const titleWords = extractWords(issue.title as string);
+      const descWords = extractWords((issue.description as string) ?? "");
+      if (titleWords.size === 0 && descWords.size === 0) continue;
+
+      // Find escalations whose reason/messages overlap with this issue
+      const matched: EscalationDetail[] = [];
+      for (const s of ungrouped) {
+        const reason = (s.escalation_reason as string) ?? "";
+        const msgs = recentMsgsMap.get(s.phone_e164 as string) ?? [];
+        const contextWords = extractWords(`${reason} ${msgs.join(" ")}`);
+        let score = 0;
+        for (const w of contextWords) {
+          // Title matches are strong signals (worth 2)
+          if (titleWords.has(w)) { score += 2; continue; }
+          // Description exact matches (worth 1)
+          if (descWords.has(w)) { score += 1; continue; }
+          // Partial matches in title (worth 1)
+          for (const tw of titleWords) {
+            if (tw.includes(w) || w.includes(tw)) { score += 1; break; }
+          }
+        }
+        if (score >= 2) {
+          const detail = hydrateEscalation(s.id as string);
+          if (detail) matched.push(detail);
+        }
+      }
+
+      if (matched.length > 0) {
+        const dept = Array.isArray(issue.department) ? issue.department[0] : issue.department;
+        keywordMatches.push({
+          issue_id: issue.id as string,
+          issue_number: issue.issue_number as number,
+          issue_title: issue.title as string,
+          issue_status: issue.status as string,
+          current_escalation_count: linkCountMap.get(issue.id as string) ?? 0,
+          reasoning: `Keyword match: escalation context overlaps with issue "${issue.title}"`,
+          escalations: matched,
+        });
+      }
+    }
+
+    if (keywordMatches.length > 0) {
+      existingMatches = keywordMatches;
+    }
+  }
+
+  {
     const result: SuggestionsResponse = {
       new_clusters: newClusters,
       existing_issue_matches: existingMatches,
@@ -352,16 +438,5 @@ Rules:
     };
 
     return NextResponse.json(result);
-  } catch (err) {
-    console.error("[issue-suggestions] AI analysis failed:", (err as Error).message);
-    // Graceful degradation: return empty suggestions rather than 500
-    return NextResponse.json({
-      new_clusters: [],
-      existing_issue_matches: [],
-      meta: {
-        ungrouped_count: ungrouped.length,
-        analyzed_at: new Date().toISOString(),
-      },
-    });
   }
 }

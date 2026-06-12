@@ -29,8 +29,8 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
   // like an AI escalation (reason left null — an admin can see the thread).
   const updates: Record<string, unknown> =
     status === "pending"
-      ? { escalation_status: "pending", escalated_at: new Date().toISOString(), escalation_source: "manual" }
-      : { escalation_status: status };
+      ? { escalation_status: "pending", escalation_stage: "pending", escalated_at: new Date().toISOString(), escalation_source: "manual" }
+      : { escalation_status: status, escalation_stage: status === "resolved" ? "resolved" : "none" };
 
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
