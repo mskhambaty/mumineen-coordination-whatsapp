@@ -667,11 +667,42 @@ paths:
   /admin/lisan-words:
     get:
       tags: [conversations]
-      summary: Count of Lisan ud Dawat words currently loaded for exact lookup.
+      summary: Count of Lisan ud Dawat words, or export the whole dictionary as CSV.
+      description: "Default returns { count }. With ?format=csv, streams the dictionary as a re-importable CSV (transliteration,lisan,meaning,example) as a file download — a backup / master copy (DB is the source of truth)."
       security: [{ portalSession: [] }, { adminKey: [] }]
+      parameters:
+        - in: query
+          name: format
+          required: false
+          schema: { type: string, enum: [csv] }
+          description: When "csv", download the full dictionary instead of the count.
       responses:
-        "200": { description: "{ count }." }
+        "200": { description: "{ count }, or a text/csv attachment when format=csv." }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    put:
+      tags: [conversations]
+      summary: Add (or update) ONE Lisan word without re-uploading the whole CSV.
+      description: "Day-to-day path for filling a dictionary gap. Computes the match columns (norm/skeleton/forms) like the bulk import and inserts one row; deduped on the normalized word (an existing word is updated in place). Powers get_lisan_word_meaning."
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                transliteration: { type: string }
+                lisan: { type: string }
+                meaning: { type: string }
+                example: { type: string }
+              description: At least one of transliteration or lisan is required.
+      responses:
+        "200": { description: "Existing word updated: { status: 'updated', entry, count }." }
+        "201": { description: "New word added: { status: 'added', entry, count }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { description: Word has no transliteration or lisan text. }
         "500": { $ref: "#/components/responses/ServerError" }
     post:
       tags: [conversations]

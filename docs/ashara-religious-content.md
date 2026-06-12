@@ -64,6 +64,16 @@ from the model's general knowledge. **Short follow-ups** ("Tazyeen", "Al dars", 
 number) inherit the majlis+year (or the offered option) from the previous turn — the agent
 re-calls the tool with the full reference rather than answering from memory.
 
+**Maintaining the dictionary (DB is the source of truth).** On `/admin/knowledge` the Lisan
+uploader supports three operations against `lisan_words` (all `canManageKnowledge`): **Upload &
+Replace** (`POST` CSV, full delete+insert — for a bulk reload), **Add a word** (`PUT` JSON, the
+day-to-day path — `addLisanWord` computes the same `norm`/`norm_skeleton`/`skeleton_forms`/
+`lisan_forms` columns as the bulk import via the shared `prepareLisanRow`, inserts one row, and
+**dedupes on `norm`** so re-adding an existing word updates it in place), and **Export CSV**
+(`GET ?format=csv`, a re-importable `transliteration,lisan,meaning,example` download for backup /
+producing a master copy). A single add is live immediately for `get_lisan_word_meaning`; it
+survives until the next full CSV re-upload, so export before replacing if the master isn't current.
+
 **Year resolution (1447 ↔ 1448).** Before retrieving, the tool calls `resolveAsharaYear(query, today)` (`ashara-config.ts`) to anchor on the *event*, not the Hijri calendar: explicit `1447/1448` → that year; "last year" → `LAST_COMPLETED_ASHARA_YEAR` (1447, the indexed one); "this year / today / this Ashara / upcoming" → `ACTIVE_ASHARA_YEAR` (1448, not yet posted); no cue → most-recent-available. If the resolved year has no content, the tool returns `not_available` **with** `available_year` + last year's content, and the agent says "1448H isn't posted yet — here's last year (1447H): …" — it never relabels one year's content as another's. Every answer states the concrete year.
 
 **Category-disciplined retrieval.** The tool checks a **specific majlis** first, then **overview** intent (`isOverviewQuery` → the curated `overview` block + per-majlis theme list), then a **category-aware vector fallback**: a decoration question searches `tazyeen`; everything else searches the sermon sources (`reflection`+`al_dars`+`overview`) so the decoration article can never answer a sermon-content question. `retrieveReligiousContext(query, topK, categories)` post-filters by the denormalized `category` on `religious_content`.
@@ -77,6 +87,7 @@ This reuses the existing escalation queue (`POST /api/escalations` → `conversa
 
 **Personal rulings (fatwa) → refuse + FLAG, never answer, never escalate.** A personal fiqh / halal-haram / "do I need to fast" question is *not* a Waaz-content question and is *not* something the event team can answer — it belongs with the Aamil Saheb. The model repeatedly issued its own rulings ("dragon fruit is halal", "fasting on Ashura is sunnah not wajib"), so this is now intercepted **deterministically before any model call**:
 - `isPersonalRuling()` (`src/lib/agent/ruling-guard.ts`) — a **keyword fast-path** (ruling-intent tokens: halal/haram, wajib/farz/jaiz, "do I need to", permissibility, "…che ke nai") plus a **cheap classifier** (mirrors `classifyDepartments`, biased to refuse on uncertainty) for paraphrase / Lisan. Keys on *ruling intent*, not topic words, so "what did Maula say about fasting" still answers normally.
+- **Logistics rescue (`looksLogistics`).** The classifier is deliberately cautious (*"not answering is fine, a wrong fatwa is not"* → unsure ⇒ refuse), which mis-refused clear logistics phrased like *"I would want my husband to sit in the last row… I will need to sit with him for his personal needs"* (it trips the "need to" pre-filter). A deterministic allow-list **derived from the live `site_content` FAQ topics** (accommodation/utaro, hotels, transport, parking, arrival/venue, timings, wifi, bathrooms, dress code, registration, mawaid, medical/Sehhat, **seating/accessibility/personal-needs**, etc.) short-circuits these to `{ruling:false, via:"logistics"}`. **Ordering:** keyword fast-path **first** (so "is it halal to eat at the mawaid" still refuses) → logistics allow-list → classifier. It only ever returns `false`, so a false-match can at most let a message reach the normal tools — it can never fabricate a ruling. The classifier prompt and pre-filter are unchanged. Grow `LOGISTICS_RE` as new FAQs are added.
 - The gate at the top of `runAgent` returns a fixed **refusal** (`RULING_REFUSAL_REPLY` — redirects to the Aamil Saheb, gives no ruling) and writes one row to `religious_ruling_flags`.
 - **Flag ≠ escalate.** Flagging is awareness-only: a quiet row, **no on-call ping, no pending status**. Surfaced as a count + recent list on `/admin/escalation` (`GET /api/admin/ruling-flags`). Escalation (loud hand-off) stays reserved for emergencies, frustrated users, and unanswerable Waaz-content (`religious_followup`).
 

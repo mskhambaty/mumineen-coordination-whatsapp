@@ -11,7 +11,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 export const RULING_REFUSAL_REPLY =
   "For a personal ruling like this, please ask your Aamil Saheb — that's the right place for proper guidance. I can only share from the published Ashara Mubaraka reflections, so I'm not able to answer this one myself.";
 
-export type RulingDetection = { ruling: boolean; via: "keyword" | "classifier" | "none" };
+export type RulingDetection = { ruling: boolean; via: "keyword" | "classifier" | "logistics" | "none" };
 
 // Ruling-INTENT patterns — they key on the *ask for a personal normative ruling*
 // (halal/haram, wajib/farz, permissibility, "should I personally do <religious act>"),
@@ -50,6 +50,31 @@ export function maybeRulingShaped(message: string): boolean {
   return MAYBE_RULING_RE.test(` ${message.toLowerCase()} `);
 }
 
+// --- Logistics allow-list (deterministic rescue) ---------------------------------------------
+// Clear event-logistics / accommodation / accessibility questions are NOT fatwas and must never
+// be refused. The classifier is deliberately cautious ("unsure → refuse a possible ruling"), so
+// without this, a logistics message phrased like "I will need to sit with him for his personal
+// needs" trips the obligation pre-filter ("need to") and the cautious classifier refuses it.
+//
+// IMPORTANT: this list is DERIVED FROM the live `site_content` FAQ topics (accommodation, hotels,
+// transport, parking, arrival, venue, timings, wifi, bathrooms, dress code, registration, mawaid,
+// medical/Sehhat, seating, laundry, security, khidmat, contact, etc.) plus the seating/accessibility
+// vocabulary from the reported false-positive. GROW IT as new FAQs are added.
+//
+// It only ever short-circuits to ruling:FALSE, and it runs AFTER the explicit-ruling keyword
+// fast-path (so "is it halal to eat at the mawaid" still refuses). It never forces ruling:true,
+// so a logistics false-match can only ever let a message through to the normal tools — never
+// fabricate a ruling. Bare religious-act tokens (namaz/quran/fajr/waaz) are intentionally NOT
+// here; they're only logistics in a timing context, which the timing phrases below capture.
+const LOGISTICS_RE =
+  /\b(accommodation|accomodation|utaro|utara|mehmaan|mehman|host\s*family|rehvani|rehevani|hotel|hotels|econo\s*lodge|red\s*roof|holiday\s*inn|best\s*western|willowbrook|booking|check[\s-]?in|transport|transportation|shuttle|uber|lyft|car\s*pool|carpool|pick[\s-]?up|drop[\s-]?off|parking|airport|arrival|reception|welcome\s*desk|venue|directions|markaz|wifi|wi[\s-]?fi|internet|bathroom|washroom|restroom|toilet|dress\s*code|libas|what\s+to\s+wear|what\s+to\s+pack|raza|registration|register|mawaid|jaman|thaal|niyaz|medical|doctor|sehhat|medicine|first\s*aid|mahal\s*us\s*shifa|wheelchair|walker|accessibility|accessible|disabled|elderly|mobility|personal\s+need|seat|seating|\bsit\b|chair|bench|sehan|last\s*row|front\s*row|where\s+to\s+sit|laundry|lost\s*(and|&)\s*found|khidmat|volunteer|helpline|nazafat|shuttle)\b|\b(what\s+time|when\s+does|when\s+is|timing|timings|schedule)\b/i;
+
+// True when the message is clearly about event logistics / accommodation / accessibility — i.e.
+// answerable from the FAQ store or the utaro flow, never a personal fatwa.
+export function looksLogistics(message: string): boolean {
+  return LOGISTICS_RE.test(` ${message.toLowerCase()} `);
+}
+
 // Decide whether a message is a personal religious ruling. Keyword fast-path first (free,
 // deterministic); otherwise a cheap classifier catches paraphrase / Lisan the regex misses.
 // Never throws. On classifier error it returns false — the fast-path already guarantees the
@@ -58,6 +83,10 @@ export async function isPersonalRuling(message: string): Promise<RulingDetection
   const trimmed = message.trim();
   if (!trimmed) return { ruling: false, via: "none" };
   if (rulingKeywordHit(trimmed)) return { ruling: true, via: "keyword" };
+  // Deterministic rescue: a clear logistics/accommodation/accessibility question is never a
+  // fatwa. This runs AFTER the keyword fast-path (so explicit halal/haram still refuses) and
+  // BEFORE the cautious classifier (which would otherwise refuse anything it's unsure about).
+  if (looksLogistics(trimmed)) return { ruling: false, via: "logistics" };
   // Don't spend an LLM call unless the message is at least permission/obligation-shaped.
   if (!maybeRulingShaped(trimmed)) return { ruling: false, via: "none" };
 
@@ -101,7 +130,7 @@ export async function isPersonalRuling(message: string): Promise<RulingDetection
 export async function flagRulingQuestion(
   phoneE164: string,
   message: string,
-  via: "keyword" | "classifier" | "none",
+  via: RulingDetection["via"],
 ): Promise<void> {
   try {
     await getSupabaseAdmin()
