@@ -22,7 +22,7 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 | [database.md](./database.md) | Supabase schema: all tables, RLS policies, migrations |
 | [site-scraper.md](./site-scraper.md) | RAG retrieval over curated content (website scraper retired) |
 | [environment.md](./environment.md) | All environment variables, aliases, Vercel setup |
-| [email.md](./email.md) | Postmark password reset and daily task digest email |
+| [email.md](./email.md) | Postmark password reset, welcome, and department digest email |
 | [contributing.md](./contributing.md) | Rules for adding features, updating docs, new files |
 | [task-management.md](./task-management.md) | Task management system: roles, API routes, agent tools |
 | [transcript-parser.md](./transcript-parser.md) | AI-powered WhatsApp transcript parsing service |
@@ -40,7 +40,6 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 
 ```
 src/app/api/whatsapp/webhook/route.ts    — Meta webhook handler (GET + POST)
-src/app/api/cron/daily-digest/route.ts   — Daily task digest email cron endpoint
 src/app/api/ollama/models/route.ts       — Ollama model list proxy
 src/app/api/ollama/chat/route.ts         — Ollama A/B chat completion endpoint
 src/app/api/auth/forgot-password/route.ts — Password reset email endpoint (any non-visitor user, via canAccessPortal)

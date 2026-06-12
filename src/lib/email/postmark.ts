@@ -16,14 +16,6 @@ type PostmarkTemplateResponse = {
   Message: string;
 };
 
-export type TaskNotificationEmailTask = {
-  title: string;
-  status: string;
-  priority: string;
-  department: string;
-  due_date?: string;
-};
-
 async function sendTemplateEmail(payload: PostmarkTemplatePayload): Promise<PostmarkTemplateResponse> {
   const res = await fetch(`${POSTMARK_API}/email/withTemplate`, {
     method: "POST",
@@ -96,24 +88,6 @@ export async function sendWelcomeAdminEmail(
       department_name: departmentName,
       set_password_url: setPasswordUrl,
       login_url: loginUrl,
-    },
-  });
-}
-
-export async function sendTaskNotificationEmail(
-  to: string,
-  name: string,
-  tasks: TaskNotificationEmailTask[],
-  boardUrl: string,
-) {
-  return sendTemplateEmail({
-    To: to,
-    TemplateAlias: requireEnv("POSTMARK_TASK_NOTIFICATION_TEMPLATE"),
-    TemplateModel: {
-      name,
-      tasks,
-      action_url: boardUrl,
-      notifications_url: `${requireEnv("NEXT_PUBLIC_APP_URL")}/admin/tasks`,
     },
   });
 }

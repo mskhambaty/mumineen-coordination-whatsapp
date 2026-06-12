@@ -22,7 +22,6 @@ All env var lookups go through `src/lib/env.ts`, which supports mixed-case alias
 | `POSTMARK_FROM_EMAIL` | `Postmark_from_email` | Verified Postmark sender address |
 | `POSTMARK_PASSWORD_RESET_TEMPLATE` | `Postmark_password_reset_template` | Postmark template alias for password reset (default `password-reset`) |
 | `POSTMARK_WELCOME_ADMIN_TEMPLATE` | `Postmark_welcome_admin_template` | Postmark template alias for new portal user welcome invites (default `welcome-admin-email`) |
-| `POSTMARK_TASK_NOTIFICATION_TEMPLATE` | `Postmark_task_notification_template` | Postmark template alias for task digest |
 | `POSTMARK_ASSIGNMENT_TEMPLATE` | `Postmark_assignment_template` | Postmark template alias for assignment and department issue-contact alerts (default `assignment-notification`) |
 | `POSTMARK_ESCALATION_REQUEST_TEMPLATE` | `Postmark_escalation_request_template` | Postmark template alias for escalation alerts (default `escalation-request`) |
 
@@ -35,6 +34,7 @@ All env var lookups go through `src/lib/env.ts`, which supports mixed-case alias
 | `WHATSAPP_TEMPLATE_LANGUAGE` | `Whatsapp_template_language` | `en_US` | Fallback language code for approved Meta WhatsApp utility templates. Template notifications now resolve the live template (incl. its real language) from Meta, so this is only a fallback. |
 | `WHATSAPP_BUSINESS_ACCOUNT_ID` | `Whatsapp_business_account_id` | (unset) | WhatsApp Business Account ID. **Required for every template notification** (welcome `committee_platform_access_created`, issue `department_ticket_assigned`, escalation `escalation_ticket_assigned`) — `listMessageTemplates()` reads it to resolve the approved template. Without it, template sends fail gracefully and only the email channel goes out. |
 | `WHATSAPP_UTILITY_MSG_COST_USD` | — | `0.0` | Estimated per-message cost (USD) of a paid (out-of-window) utility template send (~$4 per 1000 delivered = `0.004`). Display-only — used by the admin Send Templates console to estimate broadcast cost. Not billed or enforced. |
+| `DIGEST_WHATSAPP_ENABLED` | — | `false` | Set to `true` to enable WhatsApp sends in the nightly department digest. Controls Meta template quota usage. |
 | `DEPARTMENT_SUMMARY_WA_TEMPLATE` | — | `daily_department_issue_confirmation` | Approved Meta template for the nightly department digest WhatsApp message. Two body vars: `{{1}}` department name, `{{2}}` short summary. |
 | `POSTMARK_DEPARTMENT_SUMMARY_TEMPLATE` | — | `daily-department-summary` | Postmark template alias for the nightly department digest email. Model: `department_name`, `feedback_html`, `feedback_text`. |
 | `OPENAI_MODEL` | `OpenAI_model` | `gpt-4o-mini` | Override the centralized chat completion model in `src/lib/ai/model.ts`. Any model id valid for the Chat Completions API works, including GPT-5.x (e.g. `gpt-5.4-mini`) — `chatParams()` adapts the request shape automatically (see note below). |

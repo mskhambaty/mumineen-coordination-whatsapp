@@ -45,7 +45,7 @@ for entering content. Grid = majlis (rows) × category (columns).
   original via the **↗ source** link and paste the **English translation**. Saving re-indexes it
   (`status → indexed`) and auto-generates the theme.
 - **Translation queue:** the dashboard side-panel lists all `pending_translation` items
-  (same-day Jumla/Kalema/Unwaan first); the daily-digest cron also emails them to admins.
+  (same-day Jumla/Kalema/Unwaan first).
 - **Generate missing themes:** button → `POST /api/admin/religious-topics/backfill-themes` →
   fills themes for any block that has content but no theme (needs `OPENAI_API_KEY`). Run once
   after first deploy to backfill older (e.g. 1447) blocks.

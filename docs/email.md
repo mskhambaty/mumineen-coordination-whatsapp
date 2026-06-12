@@ -10,7 +10,6 @@ Postmark sends all portal email through `src/lib/email/postmark.ts`. The module 
 | `POSTMARK_FROM_EMAIL` | Sender address, e.g. `info@cysora.com`. |
 | `POSTMARK_PASSWORD_RESET_TEMPLATE` | Template alias for password reset email. Defaults to `password-reset`. |
 | `POSTMARK_WELCOME_ADMIN_TEMPLATE` | Template alias for new portal user welcome invites. Defaults to `welcome-admin-email`. |
-| `POSTMARK_TASK_NOTIFICATION_TEMPLATE` | Template alias for task digest email. |
 | `NEXT_PUBLIC_APP_URL` | Public base URL for links back to the portal. |
 
 ## Password Reset
@@ -119,90 +118,9 @@ The send is recorded in the inbox as `[template:committee_platform_access_create
 
 **Once per user.** `whatsapp_users.welcomed_at` records the first successful welcome. The automatic add-to-department path welcomes each user only once — adding an already-welcomed user to additional departments returns `already_welcomed: true` and sends nothing. The timestamp is stamped only when at least one channel (email or WhatsApp) actually delivered, so a transient failure doesn't permanently suppress the welcome. The manual "Send welcome" action (`POST /api/admin/users/{id}/welcome`) sets `force: true` to bypass this guard, so an admin can re-send on request (e.g. a member who lost their original link).
 
-## Daily Digest
+## Open Tickets in the Nightly Digest
 
-`GET/POST /api/cron/daily-digest` is protected by `Authorization: Bearer ${CRON_SECRET}` and scheduled in `vercel.json` for `0 7 * * *`. It sends active users with `email_digest = true` a scoped list of open, in-progress, and blocked tasks:
-
-- account `role = 'admin'` or `global_role = 'leadership_admin'`: all incomplete tasks
-- department `pm` / `hod`: incomplete tasks in the user's active PM/HOD departments
-- department `member`: incomplete tasks assigned to that user
-
-Task digest template alias: `tasks-notification`
-
-No template variable change is required for the role/department updates. The digest template model is still:
-
-| Field | Value |
-|-------|-------|
-| `name` | User display name or `there` |
-| `tasks` | Array of scoped incomplete tasks |
-| `tasks[].title` | Task/ticket title |
-| `tasks[].department` | Department name |
-| `tasks[].priority` | `low`, `medium`, or `high` |
-| `tasks[].status` | `open`, `in_progress`, `blocked`, or `complete` |
-| `tasks[].due_date` | Due date when present |
-| `action_url` | Kanban board URL |
-| `notifications_url` | Kanban board URL for now |
-
-The current template still works if it uses the fields above. Use this refreshed version if you want Postmark wording to match ticket/task language:
-
-```html
-<h1>Hi {{name}},</h1>
-<p>Here is your ticket and task summary for today:</p>
-<table width="100%" cellpadding="8" cellspacing="0"
-       style="border-collapse:collapse;font-size:14px;">
-  <thead>
-    <tr style="background:#f3f4f6;">
-      <th align="left" style="border-bottom:1px solid #e5e7eb;">Task</th>
-      <th align="left" style="border-bottom:1px solid #e5e7eb;">Department</th>
-      <th align="left" style="border-bottom:1px solid #e5e7eb;">Priority</th>
-      <th align="left" style="border-bottom:1px solid #e5e7eb;">Status</th>
-      <th align="left" style="border-bottom:1px solid #e5e7eb;">Due</th>
-    </tr>
-  </thead>
-  <tbody>
-    {{#each tasks}}
-    <tr>
-      <td style="border-bottom:1px solid #f3f4f6;">{{title}}</td>
-      <td style="border-bottom:1px solid #f3f4f6;">{{department}}</td>
-      <td style="border-bottom:1px solid #f3f4f6;">{{priority}}</td>
-      <td style="border-bottom:1px solid #f3f4f6;">{{status}}</td>
-      <td style="border-bottom:1px solid #f3f4f6;">{{due_date}}</td>
-    </tr>
-    {{/each}}
-  </tbody>
-</table>
-<br>
-<table align="center" cellpadding="0" cellspacing="0">
-  <tr><td align="center">
-    <a href="{{action_url}}" style="background:#1a56db;color:#fff;padding:12px 24px;
-       border-radius:6px;text-decoration:none;font-weight:600;display:inline-block;">
-      View Open Tickets
-    </a>
-  </td></tr>
-</table>
-<p style="font-size:12px;color:#666;">
-  <a href="{{notifications_url}}">Manage your task notifications</a>
-</p>
-```
-
-Plain text:
-
-```text
-Hi {{name}},
-
-Here is your ticket and task summary for today:
-
-{{#each tasks}}
-- {{title}}
-  Department: {{department}}
-  Priority: {{priority}}
-  Status: {{status}}
-  Due: {{due_date}}
-{{/each}}
-
-View open tickets:
-{{action_url}}
-
-Manage your task notifications:
-{{notifications_url}}
-```
+Open ticket counts and titles are now included in the nightly department digest email
+(see [meal-rsvp-feedback-digest.md](./meal-rsvp-feedback-digest.md) §3). The standalone
+daily-digest cron (`/api/cron/daily-digest`) has been removed. The Postmark
+`tasks-notification` template is no longer sent by the app.

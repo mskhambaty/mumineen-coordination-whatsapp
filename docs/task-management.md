@@ -43,12 +43,12 @@ Both columns coexist on `whatsapp_users` for backward compatibility.
 
 Task list routes accept `priority=low|medium|high|all`. By default archived tasks are excluded.
 
-### Daily Digest
+### Ticket Visibility in Nightly Digest
 
-- `GET/POST /api/cron/daily-digest` sends prioritized task summaries through Postmark.
-- Users receive only tasks scoped to their role.
-- `whatsapp_users.email_digest` defaults to `true` and controls whether a user receives the daily digest.
-- Emails link back to `/admin/kanban`.
+Open ticket counts and top titles are included in the nightly department digest
+(`/api/cron/department-digest`, 10pm Chicago). Each department's AI briefing
+mentions its open tickets, and the all-up summary shows the total across departments.
+See [meal-rsvp-feedback-digest.md](./meal-rsvp-feedback-digest.md) §3 for details.
 
 ### Department Routes
 - `GET /api/departments` — List departments

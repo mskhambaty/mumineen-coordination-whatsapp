@@ -148,15 +148,29 @@ aggregation below then picks them up alongside real-time and admin feedback.
 
 
 `src/lib/digest/aggregate.ts` rolls up a day's feedback / issues (`tasks`) / escalations
-(`conversation_sessions`) per department, plus an all-up view with flagged knowledge gaps and the
-next day's meal RSVP totals. `src/lib/digest/run.ts` generates **two** summaries per active
+(`conversation_sessions`) / **open tickets** per department, plus an all-up view with flagged
+knowledge gaps, the next day's meal RSVP totals, and the total open ticket count. Open tickets
+(non-archived, non-complete tasks) are aggregated across all time, not just the current day — the
+per-department `DeptMetrics` includes `open_tickets` (count) and `open_ticket_titles` (up to 5), and
+`AllUpExtras` includes `total_open_tickets`.
+
+`src/lib/digest/run.ts` generates **two** summaries per active
 department — a short one-liner (WhatsApp) and a longer bullet list (email + dashboard) — stores both
 in `department_daily_summaries` (`ai_briefing` = long, `ai_briefing_short` = short), and distributes:
 
 - **WhatsApp** via the Meta `daily_department_issue_confirmation` template (`{{1}}` department,
-  `{{2}}` short summary) — `DEPARTMENT_SUMMARY_WA_TEMPLATE`.
+  `{{2}}` short summary) — `DEPARTMENT_SUMMARY_WA_TEMPLATE`. Gated by `DIGEST_WHATSAPP_ENABLED=true`
+  (default off) to control Meta template quota. When enabled, a summary `template_broadcasts` row
+  (`audience_key = 'department_digest'`) is logged for visibility on the `/admin/whatsapp-templates`
+  broadcasts page.
 - **Email** via the Postmark `daily-department-summary` template (`department_name`, `feedback_html`
   bullet list, `feedback_text`) — `POSTMARK_DEPARTMENT_SUMMARY_TEMPLATE`.
+
+A department is included in the digest when it has any feedback, new issues, **or open tickets** (was
+previously feedback + new issues only). The all-up summary includes total open tickets.
+
+The standalone daily task-digest cron (`/api/cron/daily-digest`) and the Ashara translation reminder
+email have been removed — open ticket visibility is now part of this nightly digest.
 
 Recipients opt out via `department_members.daily_feedback_digest` (default **ON**). A user in N
 departments gets N messages. The **all-up** summary (one per day, `department_id` null) goes to
@@ -165,7 +179,8 @@ admin/leadership plus **Project Management** and **Leadership** department membe
 Cron: `/api/cron/department-digest` (03:00 UTC (10pm Chicago, CDT), `?date=` override). Portal: `/admin/department-digest`
 + `GET /api/admin/department-digest`, **access-scoped**: a department member sees only their own
 departments' summaries; admin/leadership and Project Management / Leadership members see every
-department plus the all-up. Summaries are stored per day for historical reference.
+department plus the all-up. Summaries are stored per day for historical reference. The dashboard
+renders open ticket counts and titles in each department card.
 
 ## 4. Manual Send Templates console
 

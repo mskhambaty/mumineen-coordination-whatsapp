@@ -1214,32 +1214,6 @@ paths:
         "200": { description: Scrape result. }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
-  /cron/daily-digest:
-    get:
-      tags: [cron, email, tasks]
-      summary: Send daily prioritized task digest emails.
-      description: Sends scoped open task summaries to users with active email digest preferences.
-      security: [{ cronSecret: [] }]
-      responses:
-        "200":
-          description: Digest result.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/DailyDigestResult" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "500": { $ref: "#/components/responses/ServerError" }
-    post:
-      tags: [cron, email, tasks]
-      summary: Send daily prioritized task digest emails.
-      security: [{ cronSecret: [] }]
-      responses:
-        "200":
-          description: Digest result.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/DailyDigestResult" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "500": { $ref: "#/components/responses/ServerError" }
   /whatsapp/webhook:
     get:
       tags: [conversations]
@@ -2383,21 +2357,6 @@ components:
               transcript_aliases:
                 type: array
                 items: { type: string }
-    DailyDigestResult:
-      type: object
-      required: [ok, sent, skipped, errors]
-      properties:
-        ok: { type: boolean }
-        sent: { type: integer }
-        skipped: { type: integer }
-        errors:
-          type: array
-          items:
-            type: object
-            required: [user_id, message]
-            properties:
-              user_id: { type: string, format: uuid }
-              message: { type: string }
     RelayUpdate:
       type: object
       required: [id, date, title, body, category, published]

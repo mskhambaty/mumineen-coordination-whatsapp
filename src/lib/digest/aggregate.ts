@@ -12,12 +12,15 @@ export type DeptMetrics = {
   feedback: { total: number; positive: number; neutral: number; negative: number; samples: string[] };
   issues: number;
   escalations: number;
+  open_tickets: number;
+  open_ticket_titles: string[];
 };
 
 export type AllUpExtras = {
   questions_flagged: number; // knowledge gaps seen today
   untriaged_issues: number; // agent-raised issues with no department assigned
   meals_next_day: { date: string | null; lunch_attending: number; dinner_attending: number };
+  total_open_tickets: number;
 };
 
 // America/Chicago UTC offset (minutes) for a given calendar date — DST-aware.
@@ -49,7 +52,7 @@ export async function aggregateDepartments(date: string): Promise<DeptMetrics[]>
   const supabase = getSupabaseAdmin();
   const { start, end } = dayBounds(date);
 
-  const [{ data: depts }, { data: feedback }, { data: issues }, { data: escal }] = await Promise.all([
+  const [{ data: depts }, { data: feedback }, { data: issues }, { data: escal }, { data: openTickets }] = await Promise.all([
     supabase.from("departments").select("id, name"),
     supabase
       .from("feedback_entries")
@@ -67,6 +70,12 @@ export async function aggregateDepartments(date: string): Promise<DeptMetrics[]>
       .gte("escalated_at", start)
       .lte("escalated_at", end)
       .not("escalation_department_id", "is", null),
+    supabase
+      .from("tasks")
+      .select("department_id, title, priority")
+      .eq("archived", false)
+      .neq("status", "complete")
+      .not("department_id", "is", null),
   ]);
 
   const nameById = new Map<string, string>();
@@ -82,6 +91,8 @@ export async function aggregateDepartments(date: string): Promise<DeptMetrics[]>
         feedback: { total: 0, positive: 0, neutral: 0, negative: 0, samples: [] },
         issues: 0,
         escalations: 0,
+        open_tickets: 0,
+        open_ticket_titles: [],
       };
       metrics.set(id, m);
     }
@@ -106,6 +117,12 @@ export async function aggregateDepartments(date: string): Promise<DeptMetrics[]>
   for (const e of (escal ?? []) as { escalation_department_id: string | null }[]) {
     if (e.escalation_department_id) ensure(e.escalation_department_id).escalations++;
   }
+  for (const t of (openTickets ?? []) as { department_id: string | null; title: string; priority: string | null }[]) {
+    if (!t.department_id) continue;
+    const m = ensure(t.department_id);
+    m.open_tickets++;
+    if (m.open_ticket_titles.length < 5) m.open_ticket_titles.push(t.title);
+  }
 
   return [...metrics.values()].sort((a, b) => b.feedback.total + b.issues + b.escalations - (a.feedback.total + a.issues + a.escalations));
 }
@@ -122,13 +139,20 @@ export async function aggregateAllUpExtras(date: string): Promise<AllUpExtras> {
     .lte("last_seen_at", end);
 
   // Agent-raised issues that landed with no department (untriaged) — surfaced to leadership.
-  const { count: untriagedCount } = await supabase
-    .from("tasks")
-    .select("id", { count: "exact", head: true })
-    .eq("source", "whatsapp_agent")
-    .is("department_id", null)
-    .gte("created_at", start)
-    .lte("created_at", end);
+  const [{ count: untriagedCount }, { count: openTicketCount }] = await Promise.all([
+    supabase
+      .from("tasks")
+      .select("id", { count: "exact", head: true })
+      .eq("source", "whatsapp_agent")
+      .is("department_id", null)
+      .gte("created_at", start)
+      .lte("created_at", end),
+    supabase
+      .from("tasks")
+      .select("id", { count: "exact", head: true })
+      .eq("archived", false)
+      .neq("status", "complete"),
+  ]);
 
   // Next day's meals — per-mumin attending head counts (niyaz_rsvp), split by meal.
   const next = new Date(`${date}T00:00:00.000Z`);
@@ -140,5 +164,6 @@ export async function aggregateAllUpExtras(date: string): Promise<AllUpExtras> {
     questions_flagged: gapsCount ?? 0,
     untriaged_issues: untriagedCount ?? 0,
     meals_next_day: { date: meals.date, lunch_attending: meals.lunch, dinner_attending: meals.dinner },
+    total_open_tickets: openTicketCount ?? 0,
   };
 }

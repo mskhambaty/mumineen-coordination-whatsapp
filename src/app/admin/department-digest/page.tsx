@@ -18,6 +18,23 @@ function fmtDay(d: string): string {
   return new Date(`${d}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
+function getTicketInfo(metrics: unknown): { open_tickets: number; open_ticket_titles: string[] } | null {
+  if (!metrics || typeof metrics !== "object") return null;
+  const m = metrics as Record<string, unknown>;
+  const count = typeof m.open_tickets === "number" ? m.open_tickets : 0;
+  const titles = Array.isArray(m.open_ticket_titles)
+    ? m.open_ticket_titles.filter((t): t is string => typeof t === "string")
+    : [];
+  if (count === 0 && titles.length === 0) return null;
+  return { open_tickets: count, open_ticket_titles: titles };
+}
+
+function getAllUpTicketCount(metrics: unknown): number {
+  if (!metrics || typeof metrics !== "object") return 0;
+  const m = metrics as Record<string, unknown>;
+  return typeof m.total_open_tickets === "number" ? m.total_open_tickets : 0;
+}
+
 export default function DepartmentDigestPage() {
   const [activeDate, setActiveDate] = useState<string>("");
   const [availableDates, setAvailableDates] = useState<string[]>([]);
@@ -87,18 +104,40 @@ export default function DepartmentDigestPage() {
             <h2 className="font-semibold">{allUp.department_name}</h2>
             {allUp.ai_briefing_short && <p className="mt-1 text-sm italic text-gray-600 dark:text-gray-300">{allUp.ai_briefing_short}</p>}
             <pre className="mt-2 whitespace-pre-wrap font-sans text-sm">{allUp.ai_briefing || "(no briefing)"}</pre>
+            {getAllUpTicketCount(allUp.metrics) > 0 && (
+              <p className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-400">
+                {getAllUpTicketCount(allUp.metrics)} open tickets across all departments
+              </p>
+            )}
           </div>
         )}
 
-        {deptCards.map((s) => (
-          <div key={s.department_id} className="rounded-lg border border-gray-200 p-4 dark:border-gray-800">
-            <h2 className="font-semibold">{s.department_name}</h2>
-            {s.ai_briefing_short && (
-              <p className="mt-1 rounded-md bg-gray-50 px-3 py-2 text-sm italic text-gray-600 dark:bg-gray-900 dark:text-gray-300">{s.ai_briefing_short}</p>
-            )}
-            <pre className="mt-2 whitespace-pre-wrap font-sans text-sm">{s.ai_briefing || "(no briefing)"}</pre>
-          </div>
-        ))}
+        {deptCards.map((s) => {
+          const tickets = getTicketInfo(s.metrics);
+          return (
+            <div key={s.department_id} className="rounded-lg border border-gray-200 p-4 dark:border-gray-800">
+              <h2 className="font-semibold">{s.department_name}</h2>
+              {s.ai_briefing_short && (
+                <p className="mt-1 rounded-md bg-gray-50 px-3 py-2 text-sm italic text-gray-600 dark:bg-gray-900 dark:text-gray-300">{s.ai_briefing_short}</p>
+              )}
+              <pre className="mt-2 whitespace-pre-wrap font-sans text-sm">{s.ai_briefing || "(no briefing)"}</pre>
+              {tickets && (
+                <div className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm dark:bg-amber-950/30">
+                  <span className="font-medium text-amber-700 dark:text-amber-400">
+                    {tickets.open_tickets} open ticket{tickets.open_tickets !== 1 ? "s" : ""}
+                  </span>
+                  {tickets.open_ticket_titles.length > 0 && (
+                    <ul className="mt-1 list-disc pl-5 text-gray-600 dark:text-gray-400">
+                      {tickets.open_ticket_titles.map((t, i) => (
+                        <li key={i}>{t}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
 
         {availableDates.length > 0 && noFeedbackDepts.length > 0 && (
           <div className="rounded-lg border border-dashed border-gray-200 p-4 text-sm text-gray-500 dark:border-gray-800">
