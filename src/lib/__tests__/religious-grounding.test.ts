@@ -26,7 +26,7 @@ const m = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/ai/model", async (orig) => ({ ...(await orig()), getAIClient: () => fakeClient }));
-vi.mock("@/lib/agent/prompts", () => ({ SYSTEM_PROMPT: "Test assistant.", loadAgentSystemPrompt: async () => "Test assistant." }));
+vi.mock("@/lib/agent/prompts", () => ({ SYSTEM_PROMPT: "Test assistant.", loadAgentSystemPrompt: async () => "Test assistant.", loadRuleOverrides: async () => ({}) }));
 vi.mock("@/lib/mumineen/sender-profile", () => ({ getSenderProfile: async () => null, formatSenderProfileForPrompt: () => "" }));
 vi.mock("@/lib/api/auth", () => ({ resolveCallerFromPhone: async () => undefined }));
 vi.mock("@/lib/supabase/server", () => ({
@@ -39,6 +39,7 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/scraper/retrieve-site-context", () => ({
   retrieveReligiousContext: (...a: unknown[]) => m.retrieve(...a),
   retrieveSiteContext: async () => "",
+  RELIGIOUS_FALLBACK_MIN_SCORE: 0.4,
 }));
 vi.mock("@/lib/knowledge/religious-topics", async (orig) => ({
   ...(await orig()),

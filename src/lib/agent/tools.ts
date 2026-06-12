@@ -1,8 +1,9 @@
 import type OpenAI from "openai";
 
 import { canUseTool, canUseTaskToolForCaller, publicTools, taskReadTools, taskWriteTools, taskCreateTools, leadershipTools, type AppUser } from "@/lib/permissions";
-import { retrieveReligiousContext, retrieveSiteContext } from "@/lib/scraper/retrieve-site-context";
+import { retrieveReligiousContext, retrieveSiteContext, RELIGIOUS_FALLBACK_MIN_SCORE } from "@/lib/scraper/retrieve-site-context";
 import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
+import { maybeSingleWordQuery } from "@/lib/agent/religious-guard";
 import { ACTIVE_ASHARA_YEAR, LAST_COMPLETED_ASHARA_YEAR, resolveAsharaYear } from "@/lib/knowledge/ashara-config";
 import {
   availableFacets,
@@ -176,7 +177,7 @@ export const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "get_family_meal_rsvps",
       description:
-        "Get the caller's family's current jaman (meal) Niyaz RSVP for Ashara — every event (Pehli Raat, lunch thaals, dinners) with how many of the family are currently down as attending vs. their family size. RSVP is pre-set for everyone from their arrival date, so use this to show what's already on file before changing it. RSVP is tracked for the whole family.",
+        "Get the caller's family's current jaman (meal) Niyaz RSVP for Ashara — every event (Pehli Raat, lunch thaals, dinners) with how many of the family are currently down as attending vs. their family size. Each grid row includes `adults` and `kids` (the attending counts, split by age), `attending` (total) and `total` (family size), plus a `dateLabel` (e.g. \"Mon, Jun 15\") with the weekday already worked out — use the adults/kids breakdown and the dateLabel verbatim when reading the RSVP back to the user. The response also includes `familyMembers` — an array of {name, isAdult, isHead, notAttending} for each roster-active member. Use this to list names when the user claims more people than the family has. RSVP is pre-set for everyone from their arrival date, so use this to show what's already on file before changing it. RSVP is tracked for the whole family. If the caller isn't linked to a registered family, status will be 'unregistered' with any existing unregistered RSVPs in `rsvps`.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
@@ -185,7 +186,7 @@ export const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "set_family_meal_rsvps",
       description:
-        "Update the caller's family's jaman (meal) Niyaz RSVP. Attendance is already pre-set for everyone from their arrival date, so use this mainly to record CHANGES — most often when the family says they will NOT attend on some day(s). Each entry marks the family attending (true) or not (false) for specific dates, or for ALL days (omit dates or set all=true), optionally narrowed to one meal. The change applies to the WHOLE family. Always confirm back to the user. Examples: 'we won't be there on the 16th' -> {attending:false, dates:['2026-06-16']}; 'skip all the dinners' -> {attending:false, meal:'dinner', all:true}; 'actually we ARE coming the 20th' -> {attending:true, dates:['2026-06-20']}.",
+        "Update the caller's family's jaman (meal) Niyaz RSVP. Attendance is already pre-set for everyone from their arrival date, so use this mainly to record CHANGES — most often when the family says they will NOT attend on some day(s). Each entry marks the family attending (true) or not (false) for specific dates, or for ALL days (omit dates or set all=true), optionally narrowed to one meal. The change applies to the WHOLE family. Always confirm back to the user. For PARTIAL attendance (e.g. 'only 1 adult on the 21st'), pass adults and/or kids with the entries — the system keeps the head of family attending first, then other adults, then kids, and marks the rest not-attending for those events. For unregistered callers (status 'unregistered'), adults/kids/its_number record their count. NEVER pass adults/kids higher than the family size — if you do, the system caps the count at the family size and returns a `clamped` object ({requestedAdults, requestedKids, maxAdults, maxKids, message}); when present you MUST tell the user the RSVP was capped at their registered family and the extra people must message this number from their own phones to register separately. Examples: 'we won't be there on the 16th' -> {attending:false, dates:['2026-06-16']}; 'skip all the dinners' -> {attending:false, meal:'dinner', all:true}; 'only 1 adult for dinner on the 21st' -> {entries:[{attending:true, dates:['2026-06-21'], meal:'dinner'}], adults:1, kids:0}.",
       parameters: {
         type: "object",
         properties: {
@@ -196,18 +197,26 @@ export const allToolDefinitions: ToolDefinition[] = [
               type: "object",
               properties: {
                 attending: { type: "boolean", description: "true if the family will attend, false if not." },
+                titles: {
+                  type: "array",
+                  items: { type: "string", description: "An event title copied EXACTLY from the grid/events list, e.g. 'Pehli Raat', '2nd Moharram ul Haram', 'Ashura'." },
+                  description: "PREFERRED way to target a named event. Copy the title verbatim from get_family_meal_rsvps — the server resolves it to the correct date, so you never guess. A title like '2nd Moharram ul Haram' exists as BOTH a lunch and a dinner on different days, so ALWAYS pair titles with `meal`.",
+                },
                 dates: {
                   type: "array",
                   items: { type: "string", description: "A date in YYYY-MM-DD." },
-                  description: "Specific days to apply to. Omit (or set all=true) to apply to every day.",
+                  description: "Specific days to apply to, ONLY when the user gave an explicit calendar date. For named events (Pehli Raat, Nth Moharram, Ashura) use `titles` instead — never translate a name to a date yourself. Omit (or set all=true) to apply to every day.",
                 },
-                meal: { type: "string", enum: ["lunch", "dinner"], description: "Narrow to one meal; omit to apply to every event on the day(s)." },
+                meal: { type: "string", enum: ["lunch", "dinner"], description: "Narrow to one meal; omit to apply to every event on the day(s). Required when using `titles` to disambiguate lunch vs dinner." },
                 all: { type: "boolean", description: "Set true to apply to every day (same as omitting dates)." },
               },
               required: ["attending"],
               additionalProperties: false,
             },
           },
+          adults: { type: "number", description: "Number of adults attending. For registered families, triggers partial attendance (only this many adults attend; head of family kept first). For unregistered callers, records their head count." },
+          kids: { type: "number", description: "Number of kids attending. For registered families, triggers partial attendance (only this many kids attend). For unregistered callers, records their head count." },
+          its_number: { type: "string", description: "ITS number (optional, for unregistered callers to help match to a family later)." },
         },
         required: ["entries"],
         additionalProperties: false,
@@ -594,7 +603,13 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
 
       // Decision contract (consumed deterministically by runAgent — the model only narrates an
       // "answer"): { decision: "answer", year, context, ... } | { decision: "offer_last" } |
-      // { decision: "not_found" }. Only INDEXED + year-correct content qualifies as an answer.
+      // { decision: "word_lookup", word } | { decision: "not_found" }. Only INDEXED + year-correct
+      // content qualifies as an answer.
+
+      // 0. A bare word-meaning ("meaning of X", "what does X mean") must come from the DICTIONARY,
+      // never a loosely-matched sermon. Backstop for when the model routes a word here.
+      const wordAsk = maybeSingleWordQuery(query);
+      if (wordAsk?.forceAnswer) return { decision: "word_lookup", word: wordAsk.word };
 
       // 1. Specific majlis ("Majlis 2", "second waaz", "4th Muharram") → exact indexed block(s).
       const ref = parseMajlisRef(query);
@@ -643,7 +658,7 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       const decoration = /\b(tazyeen|tazeen|tazyin|decorat|sajawat|sajaawat|artwork|calligraph)\b/i.test(query);
       const cats = decoration ? ["tazyeen"] : ["reflection", "al_dars", "overview"];
       const targetYear = yr.year ?? null;
-      const ctx = await retrieveReligiousContext(query, 5, cats, targetYear);
+      const ctx = await retrieveReligiousContext(query, 5, cats, targetYear, RELIGIOUS_FALLBACK_MIN_SCORE);
       if (ctx) {
         return {
           status: "ok", decision: "answer", source: "indexed_religious_content",
@@ -651,7 +666,7 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
         };
       }
       if (targetYear === ACTIVE_ASHARA_YEAR) {
-        const altCtx = await retrieveReligiousContext(query, 5, cats, LAST_COMPLETED_ASHARA_YEAR);
+        const altCtx = await retrieveReligiousContext(query, 5, cats, LAST_COMPLETED_ASHARA_YEAR, RELIGIOUS_FALLBACK_MIN_SCORE);
         if (altCtx) return { decision: "offer_last", year: LAST_COMPLETED_ASHARA_YEAR };
       }
       return { decision: "not_found" };
@@ -678,7 +693,13 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       return callInternalApi("/api/rsvp/meals", {
         method: "POST",
         phone: context.phoneE164,
-        body: { entries: args.entries ?? [] },
+        body: {
+          entries: args.entries ?? [],
+          // Forward head-count + ITS for unregistered callers; the API ignores them for registered families.
+          ...(args.adults !== undefined ? { adults: args.adults } : {}),
+          ...(args.kids !== undefined ? { kids: args.kids } : {}),
+          ...(args.its_number !== undefined ? { its_number: args.its_number } : {}),
+        },
       });
     // --- Task Management Tools ---
     case "get_my_tasks": {

@@ -161,6 +161,14 @@ export async function createHeadCountPrompts(rows: { phone: string; familyId: st
     .insert(rows.map((r) => ({ phone_e164: r.phone, family_id: r.familyId, event_date: date })));
 }
 
+// Create a single prompt for a phone (used after unregistered button taps so the next numeric
+// reply is tied to this date). family_id is null for unregistered callers.
+export async function createPrompt(opts: { phone: string; familyId: string | null; eventDate: string }): Promise<void> {
+  await getSupabaseAdmin()
+    .from("niyaz_rsvp_prompts")
+    .insert({ phone_e164: opts.phone, family_id: opts.familyId, event_date: opts.eventDate });
+}
+
 export type OpenPrompt = { id: string; family_id: string | null; event_date: string };
 
 // The most recent unconsumed head-count prompt for a phone (within ~2 days).

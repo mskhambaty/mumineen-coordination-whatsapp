@@ -169,9 +169,13 @@ export default function PromptPage() {
   const [editText, setEditText] = useState("");
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [expandedTool, setExpandedTool] = useState<string | null>(null);
-  const [alwaysOnRules, setAlwaysOnRules] = useState<Array<{ name: string; label: string; text: string }>>([]);
+  type RuleData = { name: string; label: string; text: string; default_text: string; is_default: boolean; updated_by: string | null; updated_at: string | null };
+  const [alwaysOnRules, setAlwaysOnRules] = useState<RuleData[]>([]);
   const [dynamicContext, setDynamicContext] = useState<string[]>([]);
   const [expandedRule, setExpandedRule] = useState<string | null>(null);
+  const [ruleEdits, setRuleEdits] = useState<Record<string, string>>({});
+  const [ruleSaving, setRuleSaving] = useState<string | null>(null);
+  const [ruleSaved, setRuleSaved] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -206,9 +210,12 @@ export default function PromptPage() {
       }
 
       if (rulesRes.ok) {
-        const data = (await rulesRes.json()) as { rules: typeof alwaysOnRules; dynamic: string[] };
+        const data = (await rulesRes.json()) as { rules: RuleData[]; dynamic: string[] };
         setAlwaysOnRules(data.rules ?? []);
         setDynamicContext(data.dynamic ?? []);
+        const edits: Record<string, string> = {};
+        for (const r of data.rules ?? []) edits[r.name] = r.text;
+        setRuleEdits(edits);
       }
 
       await Promise.all([loadQualityPrompt(), loadCronLogs()]);
@@ -276,6 +283,34 @@ export default function PromptPage() {
 
   function toggleTool(name: string) {
     setExpandedTool((prev) => (prev === name ? null : name));
+  }
+
+  async function saveRule(name: string) {
+    setRuleSaving(name);
+    setRuleSaved(null);
+    try {
+      const res = await apiFetch("/api/admin/prompts/rules", {
+        method: "PUT",
+        body: JSON.stringify({ name, text: ruleEdits[name] ?? "" }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { name: string; text: string; is_default: boolean };
+        setAlwaysOnRules((prev) =>
+          prev.map((r) => (r.name === name ? { ...r, text: data.text, is_default: data.is_default } : r)),
+        );
+        setRuleSaved(name);
+      }
+    } finally {
+      setRuleSaving(null);
+    }
+  }
+
+  function resetRule(name: string) {
+    const rule = alwaysOnRules.find((r) => r.name === name);
+    if (rule) {
+      setRuleEdits((prev) => ({ ...prev, [name]: rule.default_text }));
+      setRuleSaved(null);
+    }
   }
 
   async function saveQualityPrompt() {
@@ -406,11 +441,11 @@ export default function PromptPage() {
             <h2 className="text-lg font-semibold">Always-on Rules</h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">
               These rule blocks are appended to <strong>every</strong> system prompt, after the editable
-              base prompt above. They&apos;re code-managed (changed via deploy), so they can&apos;t be edited here.
+              base prompt above. Click a rule to edit it.
             </p>
           </div>
           <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-400">
-            {alwaysOnRules.length} rules &middot; Read-only
+            {alwaysOnRules.length} rules
           </span>
         </div>
         <div className="divide-y dark:divide-gray-800">
@@ -425,13 +460,53 @@ export default function PromptPage() {
                   <span className="text-xs text-gray-400">{i + 1}</span>
                   <span className="text-sm font-medium">{rule.label}</span>
                   <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400">{rule.name}</code>
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                    rule.is_default
+                      ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
+                      : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                  }`}>
+                    {rule.is_default ? "Default" : "Customized"}
+                  </span>
                 </span>
                 <span aria-label={expandedRule === rule.name ? "Collapse" : "Expand"}>{expandedRule === rule.name ? "▲" : "▼"}</span>
               </button>
               {expandedRule === rule.name && (
-                <pre className="overflow-x-auto whitespace-pre-wrap border-t bg-gray-50 px-6 py-3 text-xs leading-5 text-gray-700 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
-                  {rule.text.trim()}
-                </pre>
+                <div className="border-t bg-gray-50 px-6 py-3 dark:border-gray-800 dark:bg-gray-950">
+                  <textarea
+                    value={ruleEdits[rule.name] ?? rule.text}
+                    onChange={(e) => { setRuleEdits((prev) => ({ ...prev, [rule.name]: e.target.value })); setRuleSaved(null); }}
+                    rows={Math.min(20, Math.max(6, (ruleEdits[rule.name] ?? rule.text).split("\n").length + 2))}
+                    className="w-full rounded-md border px-3 py-2 font-mono text-xs leading-5 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                  />
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {(ruleEdits[rule.name] ?? rule.text).length} chars
+                      {rule.updated_at && !rule.is_default && (
+                        <> &middot; Last updated: {new Date(rule.updated_at).toLocaleString()}</>
+                      )}
+                    </span>
+                    <div className="flex items-center gap-3">
+                      {ruleSaved === rule.name && <span className="text-sm text-green-700 dark:text-green-400">Saved</span>}
+                      {!rule.is_default && (
+                        <button
+                          type="button"
+                          onClick={() => resetRule(rule.name)}
+                          className="rounded-md border px-3 py-1.5 text-xs text-gray-600 hover:text-gray-900 dark:border-gray-700 dark:text-gray-300"
+                        >
+                          Reset to Default
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void saveRule(rule.name)}
+                        disabled={ruleSaving === rule.name || (ruleEdits[rule.name] ?? "").length > 15000}
+                        className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {ruleSaving === rule.name ? "Saving..." : "Save Rule"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           ))}

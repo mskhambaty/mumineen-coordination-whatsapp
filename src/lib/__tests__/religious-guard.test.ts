@@ -19,6 +19,9 @@ describe("maybeSingleWordQuery", () => {
   it("detects explicit word-meaning asks (force answer)", () => {
     expect(maybeSingleWordQuery("What does takht mean?")).toEqual({ word: "takht", forceAnswer: true });
     expect(maybeSingleWordQuery("meaning of farzand")).toEqual({ word: "farzand", forceAnswer: true });
+    expect(maybeSingleWordQuery("what is the meaning of shadi")).toEqual({ word: "shadi", forceAnswer: true });
+    expect(maybeSingleWordQuery("shadi meaning")).toEqual({ word: "shadi", forceAnswer: true });
+    expect(maybeSingleWordQuery("aflaak means?")).toEqual({ word: "aflaak", forceAnswer: true });
     expect(maybeSingleWordQuery("rai ni su maana che")).toEqual({ word: "rai", forceAnswer: true });
     expect(maybeSingleWordQuery("chawal ni maana")).toEqual({ word: "chawal", forceAnswer: true });
   });

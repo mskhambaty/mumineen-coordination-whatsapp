@@ -109,7 +109,7 @@ export async function GET(req: NextRequest) {
   const FAMILY_SELECT =
     "hof_its, registration_status, acc_type, hotel_name, open_to_utaro, transport_mode, transport_detail, submitted_at, utaro_host_name, utaro_host_its, utaro_host_address, utaro_host_whatsapp_e164, utaro_host_email";
 
-  const isFamilySegment = ["hotel", "transport", "acc_type", "registration_status", "host"].includes(segment);
+  const isFamilySegment = ["hotel", "transport", "acc_type", "registration_status", "all_families", "host"].includes(segment);
 
   let rows: DetailRow[] = [];
 
@@ -206,6 +206,48 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ segment, value, count: rows.length, rows });
   }
 
+  if (segment === "registered_member" || segment === "all_member") {
+    // Welcome-team view: every ATTENDING member, with their HOF ITS and the family's utaro Host ITS.
+    // `registered_member` is restricted to registered (submitted/confirmed) families; `all_member`
+    // covers every active family in the roster (the "Total families" drill). Honors local_mehman/gender.
+    const onlyRegistered = segment === "registered_member";
+    const fams = await fetchAll<{ hof_its: string; registration_status: string | null; utaro_host_its: string | null }>((from, to) =>
+      supabase.from("families").select("hof_its, registration_status, utaro_host_its").eq("roster_active", true).range(from, to),
+    );
+    const hostByHof = new Map<string, string | null>();
+    for (const f of fams) {
+      if (!onlyRegistered || isRegisteredStatus(f.registration_status)) hostByHof.set(f.hof_its, f.utaro_host_its);
+    }
+
+    let pool = await fetchAll<MuminDetail>((from, to) =>
+      supabase.from("mumineen").select(MUMIN_SELECT).eq("roster_active", true).range(from, to),
+    );
+    // registered_member is attending-only; all_member includes everyone (attending + not attending).
+    pool = pool.filter((m) => hostByHof.has(m.hof_its) && (!onlyRegistered || !m.not_attending));
+    if (localMehmanFilter) pool = pool.filter((m) => m.local_mehman === localMehmanFilter);
+    if (genderFilter) pool = pool.filter((m) => (m.gender?.trim() ?? "") === genderFilter);
+    pool = pool
+      .slice()
+      .sort((a, b) => a.hof_its.localeCompare(b.hof_its) || (a.full_name ?? "").localeCompare(b.full_name ?? ""));
+
+    rows = pool.map((m) => ({
+      its: m.its,
+      name: m.full_name ?? m.its,
+      gender: m.gender?.trim() ?? "—",
+      age: m.age !== null ? String(m.age) : "—",
+      local_mehman: m.local_mehman ?? "—",
+      whatsapp: m.whatsapp_e164 ?? "",
+      email: m.email ?? "",
+      detail: "",
+      hof_its: m.hof_its,
+      // all_member spans attending + not-attending, so surface the Attending column to tell them apart.
+      attending: onlyRegistered ? undefined : m.not_attending ? "No" : "Yes",
+      utaro_host_its: hostByHof.get(m.hof_its) ?? undefined,
+    }));
+
+    return NextResponse.json({ segment, value, count: rows.length, rows });
+  }
+
   if (isFamilySegment) {
     // Family-level segment — fetch families + their HoF name
     const allFams = await fetchAll<FamilyDetail>((from, to) =>
@@ -290,7 +332,8 @@ export async function GET(req: NextRequest) {
       else if (segment === "acc_type") detail = f.acc_type ?? "—";
       else if (segment === "transport") detail = [f.transport_mode, f.transport_detail].filter(Boolean).join(" — ");
       // Registered families show their submission date; pending families have no status column.
-      else if (segment === "registration_status") detail = isRegisteredStatus(f.registration_status) ? `Submitted ${f.submitted_at?.slice(0, 10) ?? ""}`.trim() : "";
+      // all_families is the "Total families" drill — every active family, same row shape.
+      else if (segment === "registration_status" || segment === "all_families") detail = isRegisteredStatus(f.registration_status) ? `Submitted ${f.submitted_at?.slice(0, 10) ?? ""}`.trim() : "";
       else if (segment === "host")
         detail = [f.utaro_host_name?.trim(), f.utaro_host_its?.trim() ? `ITS ${f.utaro_host_its.trim()}` : null]
           .filter(Boolean)
@@ -309,10 +352,10 @@ export async function GET(req: NextRequest) {
         email: "",
         detail,
         hof_its: f.hof_its,
-        // Per-household count for the registration_status drill: attending count for registered
-        // families, full family size for pending (not-yet-registered) families.
+        // Per-household count for the registration_status / all_families drills: attending count for
+        // registered families, full family size for pending (not-yet-registered) families.
         attending:
-          segment === "registration_status"
+          segment === "registration_status" || segment === "all_families"
             ? String((isRegisteredStatus(f.registration_status) ? attendingByHof : totalByHof).get(f.hof_its) ?? 0)
             : undefined,
         // Pass utaro host fields through for the panel to render separately

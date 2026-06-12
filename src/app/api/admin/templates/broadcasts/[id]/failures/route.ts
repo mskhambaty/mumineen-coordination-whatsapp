@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
+import { normalizePhone, resolveRosterByPhone } from "@/lib/whatsapp/audience";
 import { categorizeFailure } from "@/lib/whatsapp/broadcast";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -34,25 +35,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     .eq("send_status", "failed");
   const rows = (recips ?? []) as { phone_e164: string; error_detail: string | null; was_in_window: boolean | null }[];
 
-  // Best-effort identity resolution by phone (a failed number may not match a roster row).
+  // Best-effort identity resolution by phone (a failed number may not match a roster row). Uses the
+  // shared roster resolver so it picks up names via mumin_phone_links (shared/registration numbers),
+  // not just a direct whatsapp_e164 match — so the Name/ITS columns populate far more often.
   const phones = [...new Set(rows.map((r) => r.phone_e164).filter(Boolean))];
-  const identity = new Map<string, { full_name: string | null; its: string | null }>();
-  if (phones.length > 0) {
-    const { data: people } = await supabase
-      .from("mumineen")
-      .select("whatsapp_e164, full_name, its")
-      .in("whatsapp_e164", phones);
-    for (const p of (people ?? []) as { whatsapp_e164: string; full_name: string | null; its: string | null }[]) {
-      if (p.whatsapp_e164 && !identity.has(p.whatsapp_e164)) identity.set(p.whatsapp_e164, { full_name: p.full_name, its: p.its });
-    }
-  }
+  const rosterByPhone = phones.length > 0 ? await resolveRosterByPhone(phones) : new Map();
 
   const failures = rows.map((r) => {
-    const who = identity.get(r.phone_e164);
+    const who = rosterByPhone.get(normalizePhone(r.phone_e164));
     return {
       phone: r.phone_e164,
-      name: who?.full_name ?? null,
-      its: who?.its ?? null,
+      name: (who?.full_name as string | null) ?? null,
+      its: (who?.its as string | null) ?? null,
       was_in_window: r.was_in_window,
       reason: categorizeFailure(r.error_detail, r.was_in_window),
     };

@@ -109,6 +109,8 @@ type DetailRequest = {
   label: string;
   detailLabel?: string; // column header for the detail field
   countLabel?: string; // column header for the per-row count field (DetailRow.attending)
+  showHofIts?: boolean; // show a HOF ITS column (+ in CSV)
+  showHostIts?: boolean; // show a utaro Host ITS column (+ in CSV)
 };
 
 // Page sections, in order — each maps to the team(s) it serves.
@@ -206,7 +208,7 @@ function DetailPanel({
   const showAttending = rows.some((r) => r.attending !== undefined);
   // Columns spanned by the utaro host sub-row (kept in sync with the header below).
   const colCount =
-    2 + (showGender ? 1 : 0) + (showAge ? 1 : 0) + 2 + (hasDetail ? 1 : 0) + (showHead ? 1 : 0) + (showAttending ? 1 : 0);
+    2 + (showGender ? 1 : 0) + (showAge ? 1 : 0) + (req.showHofIts ? 1 : 0) + (req.showHostIts ? 1 : 0) + 2 + (hasDetail ? 1 : 0) + (showHead ? 1 : 0) + (showAttending ? 1 : 0);
 
   function exportCsv() {
     const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
@@ -217,12 +219,14 @@ function DetailPanel({
     if (withAttending) header.push(req.countLabel ?? "Attending");
     if (withDetail) header.push(req.detailLabel ?? "Details");
     header.push("HOF ITS");
+    if (req.showHostIts) header.push("Host ITS");
     if (withHead) header.push("Head");
     const lines = filtered.map((r) => {
       const cells = [r.name, r.its, r.gender, r.age, r.local_mehman, r.whatsapp, r.email];
       if (withAttending) cells.push(r.attending ?? "");
       if (withDetail) cells.push(r.detail);
       cells.push(r.hof_its);
+      if (req.showHostIts) cells.push(r.utaro_host_its ?? "");
       if (withHead) cells.push(r.head ?? "");
       return cells.map(esc).join(",");
     });
@@ -296,7 +300,9 @@ function DetailPanel({
                   <th className="px-2 py-2">ITS</th>
                   {showGender && <th className="px-2 py-2">G</th>}
                   {showAge && <th className="px-2 py-2">Age</th>}
+                  {req.showHofIts && <th className="px-2 py-2">HOF ITS</th>}
                   <th className="px-2 py-2">Type</th>
+                  {req.showHostIts && <th className="px-2 py-2">Host ITS</th>}
                   <th className="px-2 py-2">Phone</th>
                   {showAttending && <th className="px-2 py-2">{req.countLabel ?? "Attending"}</th>}
                   {hasDetail && <th className="px-2 py-2">{req.detailLabel ?? "Details"}</th>}
@@ -313,6 +319,7 @@ function DetailPanel({
                       <td className="px-2 py-2 font-mono text-xs text-gray-500">{r.its}</td>
                       {showGender && <td className="px-2 py-2 text-gray-500">{r.gender}</td>}
                       {showAge && <td className="px-2 py-2 text-gray-500">{r.age}</td>}
+                      {req.showHofIts && <td className="px-2 py-2 font-mono text-xs text-gray-500">{r.hof_its}</td>}
                       <td className="px-2 py-2">
                         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                           r.local_mehman === "Mehman" ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300"
@@ -322,6 +329,7 @@ function DetailPanel({
                           {r.local_mehman}
                         </span>
                       </td>
+                      {req.showHostIts && <td className="px-2 py-2 font-mono text-xs text-gray-500">{r.utaro_host_its || "—"}</td>}
                       <td className="px-2 py-2">
                         {r.whatsapp ? (
                           <a href={`https://wa.me/${r.whatsapp.replace("+", "")}`} target="_blank" rel="noreferrer" className="text-green-600 hover:underline dark:text-green-400">
@@ -741,6 +749,7 @@ export default function RegistrationAnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [estimates, setEstimates] = useState<Estimates | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const [filters, setFilters] = useState<Filters>({ local_mehman: "", status: "", attending: "", gender: "" });
   const [detail, setDetail] = useState<DetailRequest | null>(null);
@@ -817,6 +826,31 @@ export default function RegistrationAnalyticsPage() {
     return () => obs.disconnect();
   }, [data]);
 
+  async function exportPendingCsv() {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams({ segment: "registration_status", value: "pending" });
+      if (filters.local_mehman) params.set("local_mehman", filters.local_mehman);
+      if (filters.attending) params.set("attending", filters.attending);
+      if (filters.gender) params.set("gender", filters.gender);
+      const res = await apiFetch(`/api/admin/registration-analytics/detail?${params}`);
+      const json = await res.json().catch(() => ({ rows: [] }));
+      const rows: DetailRow[] = json.rows ?? [];
+      const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+      const header = ["Full Name", "ITS", "WhatsApp", "Email", "Type"];
+      const lines = rows.map((r) => [r.name, r.its, r.whatsapp, r.email, r.local_mehman].map(esc).join(","));
+      const blob = new Blob(["﻿" + [header.join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "pending-registration.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   if (error)
     return (
       <main className="mx-auto max-w-7xl px-4 py-10">
@@ -887,14 +921,26 @@ export default function RegistrationAnalyticsPage() {
               {data?.generated_at && <span className="ml-2 text-gray-400">Updated {fmtDate(data.generated_at)}</span>}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => void load(filters)}
-            disabled={loading}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-          >
-            {loading ? "Loading…" : "Refresh"}
-          </button>
+          <div className="flex items-center gap-2">
+            {canDrill && (
+              <button
+                type="button"
+                onClick={() => void exportPendingCsv()}
+                disabled={exporting || loading}
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                {exporting ? "Exporting…" : "Export Pending CSV"}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => void load(filters)}
+              disabled={loading}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+            >
+              {loading ? "Loading…" : "Refresh"}
+            </button>
+          </div>
         </div>
 
         {/* ── Sticky toolbar: filters + section nav stick together on scroll ── */}
@@ -983,6 +1029,7 @@ export default function RegistrationAnalyticsPage() {
                   <Kpi
                     value={summary.total_families}
                     label={activeFilterCount ? `${summary.filtered_families.toLocaleString()} in filter` : "total in roster"}
+                    onClick={() => drill({ segment: "all_families", label: "All Families", detailLabel: "Submitted", countLabel: "People" })}
                   />
                   <Kpi
                     value={summary.submitted_families}
@@ -998,12 +1045,17 @@ export default function RegistrationAnalyticsPage() {
                   />
                 </KpiCluster>
                 <KpiCluster label="Mumineen · Registration Funnel">
-                  <Kpi value={summary.total_mumineen} label="total in roster" />
+                  <Kpi
+                    value={summary.total_mumineen}
+                    label="total in roster"
+                    onClick={() => drill({ segment: "all_member", label: "All Individuals", showHofIts: true, showHostIts: true })}
+                  />
                   <Kpi
                     value={summary.submitted_mumineen}
                     suffix={`${submittedMuminPct}%`}
                     label="from registered families"
                     tone="highlight"
+                    onClick={() => drill({ segment: "registered_member", label: "Registered Individuals", showHofIts: true, showHostIts: true })}
                   />
                   <Kpi
                     value={summary.pending_mumineen}

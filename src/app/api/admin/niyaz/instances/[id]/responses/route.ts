@@ -28,21 +28,28 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const supabase = getSupabaseAdmin();
 
-  const { data, error } = await supabase
-    .from("niyaz_rsvp")
-    .select(
-      "id, mumin_id, family_id, attending, source, responded_by_phone, recorded_by, updated_at, " +
-        "mumin:mumineen!niyaz_rsvp_mumin_id_fkey(full_name, its, is_adult), " +
-        "family:families!niyaz_rsvp_family_id_fkey(hof_its)",
-    )
-    .eq("registration_instance_id", id)
-    .order("updated_at", { ascending: false });
+  const [regResult, unregResult] = await Promise.all([
+    supabase
+      .from("niyaz_rsvp")
+      .select(
+        "id, mumin_id, family_id, attending, source, responded_by_phone, recorded_by, updated_at, " +
+          "mumin:mumineen!niyaz_rsvp_mumin_id_fkey(full_name, its, is_adult), " +
+          "family:families!niyaz_rsvp_family_id_fkey(hof_its)",
+      )
+      .eq("registration_instance_id", id)
+      .order("updated_at", { ascending: false }),
+    supabase
+      .from("unregistered_rsvps")
+      .select("id, phone_e164, attending, adults, kids, its_number, source, created_at")
+      .eq("registration_instance_id", id)
+      .order("created_at", { ascending: false }),
+  ]);
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (regResult.error) {
+    return NextResponse.json({ error: regResult.error.message }, { status: 500 });
   }
 
-  const rows = (data ?? []) as unknown as ResponseRow[];
+  const rows = (regResult.data ?? []) as unknown as ResponseRow[];
   const isAdult = (r: ResponseRow) => r.mumin?.is_adult !== false; // null counts as adult
   const attending = rows.filter((r) => r.attending);
   const notAttending = rows.filter((r) => !r.attending);
@@ -53,6 +60,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   return NextResponse.json({
     responses: rows,
+    unregistered: (unregResult.data ?? []).map((u) => ({
+      id: u.id,
+      phone_e164: u.phone_e164,
+      attending: u.attending,
+      adults: u.adults,
+      kids: u.kids,
+      its_number: u.its_number,
+      source: u.source,
+      created_at: u.created_at,
+    })),
     headcounts,
     summary: {
       responded: rows.length,

@@ -138,4 +138,53 @@ describe("GET /api/admin/registration-analytics/detail — registration_status d
     expect(json.rows[0].attending).toBe("1");
     expect(json.rows[0].detail).toMatch(/^Submitted/);
   });
+
+  it("all_families returns one row per active family (registered + pending) at the family level", async () => {
+    const json = await (await GET(req("segment=all_families"))).json();
+    // Both families, one row each — family-level (head/acting-head), not per-member.
+    expect(json.rows.map((r: { hof_its: string }) => r.hof_its).sort()).toEqual(["900", "901"]);
+    expect(json.count).toBe(2);
+    const pending = json.rows.find((r: { hof_its: string }) => r.hof_its === "900");
+    const reg = json.rows.find((r: { hof_its: string }) => r.hof_its === "901");
+    // Pending: full family size, no status detail. Registered: attending count + submitted date.
+    expect(pending).toMatchObject({ name: "Pending Head", attending: "2", detail: "" });
+    expect(reg.attending).toBe("1");
+    expect(reg.detail).toMatch(/^Submitted/);
+  });
+});
+
+describe("GET /api/admin/registration-analytics/detail — registered_member (welcome team)", () => {
+  const RM_FAMILIES = [
+    { hof_its: "100", registration_status: "submitted", utaro_host_its: "HOST1" },
+    { hof_its: "200", registration_status: "not_started", utaro_host_its: null }, // unregistered
+  ];
+  const RM_MUMINEEN = [
+    { its: "100", hof_its: "100", full_name: "Reg Head", gender: "M", local_mehman: "Mehman", not_attending: false, whatsapp_e164: null, email: null, age: 40 },
+    { its: "101", hof_its: "100", full_name: "Reg Kid", gender: "F", local_mehman: "Mehman", not_attending: true, whatsapp_e164: null, email: null, age: 8 }, // not attending
+    { its: "201", hof_its: "200", full_name: "Pending", gender: "M", local_mehman: "Local", not_attending: false, whatsapp_e164: null, email: null, age: 50 }, // unregistered family
+  ];
+
+  beforeEach(() => {
+    getSupabaseAdmin.mockReturnValue(stubSupabase({ families: RM_FAMILIES, mumineen: RM_MUMINEEN }));
+  });
+
+  it("lists only attending members of registered families, with HOF ITS, Host ITS and Age", async () => {
+    const json = await (await GET(req("segment=registered_member"))).json();
+    expect(json.rows.map((r: { its: string }) => r.its)).toEqual(["100"]);
+    expect(json.rows[0]).toMatchObject({ hof_its: "100", utaro_host_its: "HOST1", local_mehman: "Mehman", gender: "M", age: "40" });
+  });
+
+  it("all_member lists EVERY member of EVERY active family (attending + not), with Age and an Attending flag", async () => {
+    const json = await (await GET(req("segment=all_member"))).json();
+    // 100 (registered, attending), 101 (not attending — now INCLUDED), 201 (unregistered family, attending).
+    expect(json.rows.map((r: { its: string }) => r.its).sort()).toEqual(["100", "101", "201"]);
+    const reg = json.rows.find((r: { its: string }) => r.its === "100");
+    const notAttending = json.rows.find((r: { its: string }) => r.its === "101");
+    const pending = json.rows.find((r: { its: string }) => r.its === "201");
+    expect(reg).toMatchObject({ hof_its: "100", utaro_host_its: "HOST1", age: "40", attending: "Yes" });
+    expect(notAttending).toMatchObject({ hof_its: "100", age: "8", attending: "No" });
+    // Unregistered family has no host; its drilled row still appears with age + attending populated.
+    expect(pending).toMatchObject({ hof_its: "200", age: "50", attending: "Yes" });
+    expect(pending.utaro_host_its).toBeUndefined();
+  });
 });

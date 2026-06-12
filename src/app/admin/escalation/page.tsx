@@ -20,19 +20,31 @@ type Member = {
 
 type Department = { id: string; name: string };
 
+// A contact is either a freestanding reference row or a portal user flagged as a department
+// issue contact (member). The list and the API mix both; `kind` discriminates them.
 type Contact = {
+  kind: "reference" | "member";
   id: string;
+  membership_id?: string;
+  user_id?: string;
+  dept_role?: string;
   department_id: string;
   department: { name: string } | null;
-  name: string;
+  name: string | null;
   role: string | null;
   phone_e164: string | null;
   email: string | null;
   notes: string | null;
 };
 
+type ContactSource = "existing_user" | "new_contact";
+
 type ContactDraft = {
   department_id: string;
+  source: ContactSource;
+  user_id: string;     // existing_user
+  dept_role: string;   // existing_user / also-create-as-user
+  also_user: boolean;  // new_contact → also provision a department user
   name: string;
   role: string;
   phone_e164: string;
@@ -40,7 +52,18 @@ type ContactDraft = {
   notes: string;
 };
 
-const EMPTY_DRAFT: ContactDraft = { department_id: "", name: "", role: "", phone_e164: "", email: "", notes: "" };
+const EMPTY_DRAFT: ContactDraft = {
+  department_id: "",
+  source: "existing_user",
+  user_id: "",
+  dept_role: "member",
+  also_user: false,
+  name: "",
+  role: "",
+  phone_e164: "",
+  email: "",
+  notes: "",
+};
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -63,6 +86,9 @@ export default function EscalationPage() {
   const [editDraft, setEditDraft] = useState<ContactDraft>(EMPTY_DRAFT);
   const [savingContact, setSavingContact] = useState(false);
   const [removingContactId, setRemovingContactId] = useState<string | null>(null);
+  // Members of the department selected in the add-contact form (for the "existing user" picker).
+  const [deptUsers, setDeptUsers] = useState<{ id: string; display_name: string | null; email: string | null; phone_e164: string | null; contact_for_issues: boolean }[]>([]);
+  const [deptUsersLoading, setDeptUsersLoading] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -156,23 +182,61 @@ export default function EscalationPage() {
 
   // ─── Department contacts ──────────────────────────────────────────────────
 
+  // Load the selected department's members for the "existing user" picker. We only ever flag an
+  // existing member as a contact here, so the picker must be scoped to that department.
+  async function loadDeptUsers(departmentId: string) {
+    if (!departmentId) {
+      setDeptUsers([]);
+      return;
+    }
+    setDeptUsersLoading(true);
+    try {
+      const res = await apiFetch(`/api/admin/users?department_id=${departmentId}`);
+      setDeptUsers(res.ok ? await res.json() : []);
+    } catch {
+      setDeptUsers([]);
+    } finally {
+      setDeptUsersLoading(false);
+    }
+  }
+
   async function addContact(e: React.FormEvent) {
     e.preventDefault();
-    if (!contactDraft.department_id || !contactDraft.name.trim()) return;
+    if (!contactDraft.department_id) return;
+
+    // Build the payload for the chosen source: pick an existing user, create a new user, or a
+    // plain reference contact (the default when "New contact" is left without the user checkbox).
+    let payload: Record<string, unknown>;
+    if (contactDraft.source === "existing_user") {
+      if (!contactDraft.user_id) return;
+      payload = { mode: "existing_user", department_id: contactDraft.department_id, user_id: contactDraft.user_id };
+    } else if (contactDraft.also_user) {
+      if (!contactDraft.name.trim() || !contactDraft.phone_e164.trim()) return;
+      payload = {
+        mode: "new_user",
+        department_id: contactDraft.department_id,
+        name: contactDraft.name.trim(),
+        phone_e164: contactDraft.phone_e164.trim(),
+        email: contactDraft.email.trim() || null,
+        dept_role: contactDraft.dept_role,
+      };
+    } else {
+      if (!contactDraft.name.trim()) return;
+      payload = {
+        mode: "reference",
+        department_id: contactDraft.department_id,
+        name: contactDraft.name.trim(),
+        role: contactDraft.role.trim() || null,
+        phone_e164: contactDraft.phone_e164.trim() || null,
+        email: contactDraft.email.trim() || null,
+        notes: contactDraft.notes.trim() || null,
+      };
+    }
+
     setSavingContact(true);
     setError(null);
     try {
-      const res = await apiFetch("/api/admin/department-contacts", {
-        method: "POST",
-        body: JSON.stringify({
-          department_id: contactDraft.department_id,
-          name: contactDraft.name.trim(),
-          role: contactDraft.role.trim() || null,
-          phone_e164: contactDraft.phone_e164.trim() || null,
-          email: contactDraft.email.trim() || null,
-          notes: contactDraft.notes.trim() || null,
-        }),
-      });
+      const res = await apiFetch("/api/admin/department-contacts", { method: "POST", body: JSON.stringify(payload) });
       const data = await res.json() as { contact?: Contact; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Failed to add contact");
       setContacts((prev) => [...prev, data.contact!]);
@@ -185,11 +249,14 @@ export default function EscalationPage() {
     }
   }
 
+  // Edit applies only to reference contacts (member contacts are managed on the Departments page).
   function openEditContact(contact: Contact) {
     setEditingContact(contact);
     setEditDraft({
+      ...EMPTY_DRAFT,
+      source: "new_contact",
       department_id: contact.department_id,
-      name: contact.name,
+      name: contact.name ?? "",
       role: contact.role ?? "",
       phone_e164: contact.phone_e164 ?? "",
       email: contact.email ?? "",
@@ -225,11 +292,21 @@ export default function EscalationPage() {
   }
 
   async function removeContact(contact: Contact) {
-    if (!window.confirm(`Remove ${contact.name} from department contacts?`)) return;
+    const label = contact.name ?? "this contact";
+    const confirmMsg = contact.kind === "member"
+      ? `Remove ${label} as an issue contact for this department? They stay a department user.`
+      : `Remove ${label} from department contacts?`;
+    if (!window.confirm(confirmMsg)) return;
     setRemovingContactId(contact.id);
     setError(null);
     try {
-      const res = await apiFetch(`/api/admin/department-contacts/${contact.id}`, { method: "DELETE" });
+      // Member contacts: clear contact_for_issues (keep the user/membership). Reference: delete the row.
+      const res = contact.kind === "member"
+        ? await apiFetch(`/api/admin/users/${contact.user_id}/departments/${contact.membership_id}`, {
+            method: "PUT",
+            body: JSON.stringify({ contact_for_issues: false }),
+          })
+        : await apiFetch(`/api/admin/department-contacts/${contact.id}`, { method: "DELETE" });
       if (!res.ok) {
         const data = await res.json() as { error?: string };
         throw new Error(data.error ?? "Failed to remove contact");
@@ -248,6 +325,10 @@ export default function EscalationPage() {
     acc[key].contacts.push(c);
     return acc;
   }, {});
+
+  // Users selectable in the "existing user" picker: members of the chosen department who aren't
+  // already an issue contact.
+  const pickableUsers = deptUsers.filter((u) => !u.contact_for_issues);
 
   if (loading) {
     return <div className="flex items-center justify-center py-20"><p className="text-gray-500 dark:text-gray-400">Loading…</p></div>;
@@ -362,49 +443,108 @@ export default function EscalationPage() {
           <div className="mb-4 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 p-4">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">New Contact</h3>
             <form onSubmit={addContact} className="space-y-3">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Department *</label>
+                <select
+                  required
+                  value={contactDraft.department_id}
+                  onChange={(e) => {
+                    const department_id = e.target.value;
+                    setContactDraft({ ...contactDraft, department_id, user_id: "" });
+                    if (contactDraft.source === "existing_user") void loadDeptUsers(department_id);
+                  }}
+                  className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm"
+                >
+                  <option value="">Select department…</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Source: link an existing department member, or enter a new contact (optionally a new user). */}
+              <div className="flex gap-2 text-sm">
+                {([["existing_user", "Existing user"], ["new_contact", "New contact"]] as const).map(([val, label]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => {
+                      setContactDraft({ ...contactDraft, source: val, user_id: "" });
+                      if (val === "existing_user") void loadDeptUsers(contactDraft.department_id);
+                    }}
+                    className={`rounded-md px-3 py-1.5 ${contactDraft.source === val ? "bg-blue-600 text-white" : "border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {contactDraft.source === "existing_user" ? (
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Department *</label>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Department member *</label>
                   <select
                     required
-                    value={contactDraft.department_id}
-                    onChange={(e) => setContactDraft({ ...contactDraft, department_id: e.target.value })}
-                    className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm"
+                    value={contactDraft.user_id}
+                    disabled={!contactDraft.department_id || deptUsersLoading}
+                    onChange={(e) => setContactDraft({ ...contactDraft, user_id: e.target.value })}
+                    className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm disabled:opacity-50"
                   >
-                    <option value="">Select department…</option>
-                    {departments.map((d) => (
-                      <option key={d.id} value={d.id}>{d.name}</option>
+                    <option value="">
+                      {!contactDraft.department_id ? "Select a department first…" : deptUsersLoading ? "Loading…" : "Select a department member…"}
+                    </option>
+                    {pickableUsers.map((u) => (
+                      <option key={u.id} value={u.id}>{u.display_name ?? u.email ?? u.phone_e164}</option>
                     ))}
                   </select>
+                  {contactDraft.department_id && !deptUsersLoading && pickableUsers.length === 0 && (
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {deptUsers.length === 0
+                        ? "No members in this department yet — add them on the Departments page."
+                        : "All members of this department are already contacts."}
+                    </p>
+                  )}
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
-                  <input
-                    required
-                    type="text"
-                    value={contactDraft.name}
-                    onChange={(e) => setContactDraft({ ...contactDraft, name: e.target.value })}
-                    placeholder="Full name"
-                    className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Role / Title</label>
-                  <input type="text" value={contactDraft.role} onChange={(e) => setContactDraft({ ...contactDraft, role: e.target.value })} placeholder="e.g. Transport HOD" className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Phone</label>
-                  <input type="text" value={contactDraft.phone_e164} onChange={(e) => setContactDraft({ ...contactDraft, phone_e164: e.target.value })} placeholder="+1234567890" className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
-                  <input type="email" value={contactDraft.email} onChange={(e) => setContactDraft({ ...contactDraft, email: e.target.value })} className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Notes</label>
-                  <input type="text" value={contactDraft.notes} onChange={(e) => setContactDraft({ ...contactDraft, notes: e.target.value })} placeholder="Optional notes" className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm" />
-                </div>
-              </div>
+              ) : (
+                <>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
+                      <input required type="text" value={contactDraft.name} onChange={(e) => setContactDraft({ ...contactDraft, name: e.target.value })} placeholder="Full name" className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{contactDraft.also_user ? "Department role" : "Role / Title"}</label>
+                      {contactDraft.also_user ? (
+                        <select value={contactDraft.dept_role} onChange={(e) => setContactDraft({ ...contactDraft, dept_role: e.target.value })} className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm">
+                          <option value="member">Member</option>
+                          <option value="pm">PM</option>
+                          <option value="hod">HOD</option>
+                        </select>
+                      ) : (
+                        <input type="text" value={contactDraft.role} onChange={(e) => setContactDraft({ ...contactDraft, role: e.target.value })} placeholder="e.g. Transport HOD" className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm" />
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Phone {contactDraft.also_user ? "*" : ""}</label>
+                      <input required={contactDraft.also_user} type="text" value={contactDraft.phone_e164} onChange={(e) => setContactDraft({ ...contactDraft, phone_e164: e.target.value })} placeholder="+1234567890" className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
+                      <input type="email" value={contactDraft.email} onChange={(e) => setContactDraft({ ...contactDraft, email: e.target.value })} className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm" />
+                    </div>
+                    {!contactDraft.also_user && (
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Notes</label>
+                        <input type="text" value={contactDraft.notes} onChange={(e) => setContactDraft({ ...contactDraft, notes: e.target.value })} placeholder="Optional notes" className="w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-sm" />
+                      </div>
+                    )}
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                    <input type="checkbox" checked={contactDraft.also_user} onChange={(e) => setContactDraft({ ...contactDraft, also_user: e.target.checked })} />
+                    Also add as a department user (creates a portal user + department membership)
+                  </label>
+                </>
+              )}
+
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setShowAddContact(false)} className="px-3 py-2 text-sm text-gray-600 dark:text-gray-300">Cancel</button>
                 <button type="submit" disabled={savingContact} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-300">
@@ -469,7 +609,12 @@ export default function EscalationPage() {
                       {group.contacts.map((contact) => (
                         <tr key={contact.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                           <td className="px-4 py-3">
-                            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{contact.name}</p>
+                            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                              {contact.name ?? "—"}
+                              {contact.kind === "member" && (
+                                <span className="ml-2 rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-green-700 dark:bg-green-900/40 dark:text-green-300">User</span>
+                              )}
+                            </p>
                             {contact.role && <p className="text-xs text-gray-500 dark:text-gray-400">{contact.role}</p>}
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
@@ -482,13 +627,15 @@ export default function EscalationPage() {
                             {contact.notes ?? ""}
                           </td>
                           <td className="px-4 py-3 text-right whitespace-nowrap">
-                            <button
-                              type="button"
-                              onClick={() => openEditContact(contact)}
-                              className="mr-3 text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400"
-                            >
-                              Edit
-                            </button>
+                            {contact.kind === "reference" && (
+                              <button
+                                type="button"
+                                onClick={() => openEditContact(contact)}
+                                className="mr-3 text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400"
+                              >
+                                Edit
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => void removeContact(contact)}

@@ -218,6 +218,24 @@ All notification sends are fire-and-forget (failures never block the agent reply
    Meta utility template `department_ticket_assigned` when an issue is created for, or moved
    to, their department.
 
+   **Managing department contacts (Escalation & On-call page).** The "Department Contacts"
+   section lists two kinds of contact, merged: `reference` rows (freestanding
+   `department_contacts` — external people with no portal account) and `member` rows (portal
+   users flagged `contact_for_issues`, shown with a **User** badge). "+ Add contact" supports:
+   - **Existing user** — pick a **member of the selected department** (the picker is scoped to
+     that department's members) → sets `contact_for_issues=true` on their existing
+     `department_members` row. It does **not** add the user to the department or change their
+     role — that's managed on the Departments page (400 if the user isn't already a member).
+   - **New contact** — free-text name/role/phone/email/notes → a `reference` row by default.
+     Tick **"Also add as a department user"** to instead create a portal user (role `committee`
+     / global `member`, reusing any existing user with the same phone) and a `contact_for_issues`
+     membership.
+
+   All three go through `POST /api/admin/department-contacts` (`mode` = `reference` |
+   `existing_user` | `new_user`); `GET` returns the merged list. Removing a `member` contact
+   clears `contact_for_issues` (the user/membership is kept); removing a `reference` deletes the
+   row.
+
 ## AI Suggestions
 
 When a support member views an escalation in the admin portal, an **AI Suggestions** panel

@@ -12,30 +12,81 @@ responses come in.
 
 - **Events** live in `rsvp_registration_instance` (`title`, `event_date`, `hijri_date`, `meal`
   `lunch`|`dinner`, `serving_type` `thaal`|`packet`, `description`, unique `(event_date, meal)`).
-  Ashara 1448H = **19 events**: **Pehli Raat (Jun 14, dinner)**, **1st Moharram (Jun 15, dinner
-  only)**, **2nd–9th Moharram (Jun 16–23, lunch + dinner)**, **10th Moharram (Jun 24, dinner only)**.
-  (Finalized in `supabase/migrations/20260609130000_niyaz_events_hijri_and_recreate`.)
+  Ashara 1448H = **20 events**: **Pehli Raat (Jun 14, dinner thaal)**, **1st Moharram lunch +
+  2nd Moharram dinner (Jun 15)**, **2nd–9th lunch + 3rd–10th dinner (Jun 16–23)**, **Ashura (Jun 24,
+  dinner thaal)**. Hijri night-first ordering: lunch = Nth Day, dinner = (N+1)th Night on each
+  Gregorian day. (Corrected in `20260610110000_fix_moharram_dates_and_titles` and
+  `20260610140000_fix_moharram_dinner_titles`.)
 - **`niyaz_rsvp`** (`20260608131000_*`): one row per `(registration_instance_id, mumin_id)` with
   `attending boolean`, `family_id`, and `source` (`default`|`registration`|`whatsapp`|`admin`). RLS
   on, service-role access only. `rsvp_responses` is retired (left empty) for the meal flow.
 - **Default rule** (America/Chicago calendar date): `not_attending` ⇒ No; no `arrival_at` ⇒ Yes
   (present all of Ashara, e.g. locals); else Yes when `event_date ≥ arrival date`. Seeded by the
-  backfill (`20260609140000_*`, all registered active mumineen × the 19 events) and by the
+  backfill (`20260609140000_*`, all registered active mumineen × the 20 events) and by the
   `seed_family_niyaz_rsvp(family)` SQL function, which the registration submit/edit calls
   (`src/app/api/register/route.ts`). The function recomputes only `default`/`registration` rows, never
   clobbering a `whatsapp`/`admin` override — so button/head-count responses refine the baseline.
 - **Adult/kid/family + thaal counts** come from the **`niyaz_event_tallies`** view
   (`20260608133000_*`): per event, yes/no split by `mumineen.is_adult` (null = adult) and by family,
-  plus `thaal_count = ceil(attending heads / 8)`.
+  plus `thaal_count = ceil(attending heads / 8)`. A **min-mode** function
+  `niyaz_event_tallies_min()` (`20260610130000_*`) counts only `whatsapp`/`admin`-sourced RSVPs.
+- **Unregistered RSVPs** (`unregistered_rsvps`, `20260610120000_*`): one row per
+  (phone, event), `adults`/`kids` counts, optional `its_number`/`family_name`. Recorded when an
+  unlinked phone taps a button or the agent records their RSVP. Tallied alongside registered counts.
+  Unlike registered families there is **no pre-seeded baseline**. The agent ALWAYS defaults
+  unregistered callers to all days attending — even if the caller only mentions one event (because
+  in the Ashara context, that almost certainly means all days). So every `set_family_meal_rsvps`
+  call starts with a `{attending:true, all:true}` baseline plus any `{attending:false, …}`
+  exceptions. After recording, the agent shows the full grid and asks the caller to confirm. `recordUnregisteredRsvp` resolves the entries through the shared
+  `decideEvents` (last entry wins per event), so a meal-scoped "not attending" is stored as
+  `attending=false` and `adults`/`kids`/`its_number` are written on every resolved row (and omitted
+  from the upsert when not supplied, so a later partial update can't clobber them).
+  **Auto-merge on registration:** when a family registers (or edits) via `/api/register`, any
+  `unregistered_rsvps` matching the family's phone numbers are converted into confirmed `niyaz_rsvp`
+  rows (`source='whatsapp'`) and the unregistered records are deleted (`mergeUnregisteredRsvps`).
+
+**Phone → family resolution** (`src/lib/rsvp/family.ts` `resolveFamilyForPhone`, and the inbox
+profile's `getSenderProfile`): checks `mumin_phone_links` first, then **falls back to the roster
+member's own `mumineen.whatsapp_e164`**. Registration creates the links, but roster-seeded numbers
+(or HOF-only registrations) left ~800 submitted members with a WhatsApp number but no link — so they
+were wrongly treated as "unregistered" when messaging the bot. A one-time backfill
+(`20260610150000_backfill_mumin_phone_links`) created `source='inferred'` links for every active
+roster member with a usable number, and the runtime fallback covers any future gap.
 
 Code: `src/lib/rsvp/family.ts` (phone → roster family), `src/lib/rsvp/meal-rsvp.ts`
-(`getFamilyNiyazGrid`, `setFamilyNiyazRsvp` whole-family cascade, `getEventTallies`,
-`getMealAttendanceTotals`). API: `GET/POST /api/rsvp/meals` (self-scoped via `x-whatsapp-from`,
-Zod-validated; POST entries are `{attending, dates?, meal?, all?}` — a change cascades to the whole
-family). Agent tools: `get_family_meal_rsvps`, `set_family_meal_rsvps` (public; the agent mainly
-records *changes* — guidance in `MEAL_RSVP_FEEDBACK_RULE`). Admin: `/admin/niyaz` shows the events
-sorted by date with the eight count columns + thaal count, backed by
-`GET /api/admin/niyaz/instances` (reads the tallies view).
+(`getFamilyNiyazGrid` — per event, family attending split into **adults/kids** via
+`mumineen.is_adult` (null = adult) so the agent reads back "2 adults, 2 kids" not "4 adults";
+`getFamilyMembers` — roster-active member list with name/isAdult/isHead/notAttending for the agent
+to list when the user's count exceeds the family size;
+`setFamilyNiyazRsvp` whole-family cascade, `getEventTallies(mode)`,
+`recordUnregisteredRsvp`, `getUnregisteredRsvps`, `recordUnregisteredHeadCount`,
+`mergeUnregisteredRsvps`, `getMealAttendanceTotals`). API: `GET/POST /api/rsvp/meals` (self-scoped via `x-whatsapp-from`,
+Zod-validated; POST entries are `{attending, titles?, dates?, meal?, all?}` with optional `adults`, `kids`,
+`its_number`. **Event targeting:** the agent selects named jaman by `titles` (exact title copied from
+the grid, e.g. "Pehli Raat") + `meal` rather than translating a name into a date — `decideEvents`
+resolves title→date server-side, eliminating hijri night-shift date-guessing (a dinner's date isn't
+the Gregorian day you'd guess; a shared title like "2nd Moharram ul Haram" is disambiguated by meal).
+`dates` is reserved for explicit calendar dates. For registered families, `adults`/`kids` enable **partial attendance**: only that many
+members are marked attending (head of family kept first, then other adults, then kids), and the rest
+are marked not-attending for those events; for unregistered callers they record the head count.
+Changes go to `unregistered_rsvps` for unlinked phones). Agent tools: `get_family_meal_rsvps`, `set_family_meal_rsvps`
+(public; the agent mainly records *changes* — guidance in `MEAL_RSVP_FEEDBACK_RULE`). That rule
+also routes intent: "register / sign up for Pehli Raat / a Moharram day / Ashura / a jaman" is a
+**meal RSVP**, not in-person event registration — the agent must not answer it from the registration
+FAQ, and must never tell an already-registered caller (Sender Context: `Registration: submitted`) to
+come to the masjid to register again. Admin:
+`/admin/niyaz` shows the events sorted by date with **Max/Min tabs** (max = arrival-date defaults,
+min = confirmed only — an inline legend on the page spells out each definition + the thaal formula),
+registered + unregistered count columns, backed by
+`GET /api/admin/niyaz/instances?mode=max|min` (reads the tallies view / function). Clicking an event
+opens the **per-mumin responses** view: searchable by name / ITS / phone, with columns for Name,
+RSVP, **Source** (a labelled badge — `default`=Seeded from arrival, `registration`, `whatsapp`,
+`admin` — so staff can tell a real confirmation from a seeded default) and **Responded by** (the
+WhatsApp phone or admin that set it). ITS is searchable but no longer shown as its own column. Below
+the registered rows, an **Unregistered guests** table lists `unregistered_rsvps` for that event
+(phone, RSVP, adults, kids, ITS) so a guest who RSVP'd before registering is still visible. Both
+tables come from `GET /api/admin/niyaz/instances/{id}/responses` (which now returns `responses` +
+`unregistered`).
 
 ### 1a. Daily button RSVP (individual + family)
 
@@ -53,7 +104,10 @@ Each button's payload is stamped at send time as **`niyaz|<level>|<scope>|<date>
 (`src/app/api/whatsapp/webhook/route.ts`) reads `buttonPayload` (`src/lib/whatsapp/parser.ts`),
 resolves the **family/mumin from the sender's phone** (`resolveFamilyForPhone`), records via
 `recordNiyazButtonResponse` (`ind` → that mumin; `fam` → whole family, both into `niyaz_rsvp` with
-`source='whatsapp'`), sends a **confirmation**, and skips the agent. The per-event detail panel lists
+`source='whatsapp'`), sends a **confirmation**, and skips the agent. If the phone is **not linked to
+a registered family**, the tap is recorded in `unregistered_rsvps` via `recordUnregisteredRsvp`, a
+head-count prompt is created (so the caller can reply with their family size), and a friendlier
+confirmation is sent encouraging them to register. The per-event detail panel lists
 the recorded responses (`GET /api/admin/niyaz/instances/[id]/responses`, reads `niyaz_rsvp`).
 Outbound quick-reply payloads are emitted by `buildSendComponents` (`src/lib/whatsapp/templates.ts`).
 
@@ -119,24 +173,103 @@ department plus the all-up. Summaries are stored per day for historical referenc
 `requireAdminLeadership`). Pick an approved template, pick an audience, preview free/paid counts +
 cost, send. No auto-scheduling — every send is a button press.
 
+**Why the page is shaped this way:** Meta caps us at ~250 template messages/day, so the console
+helps staff spend that quota deliberately. People who **messaged us in the last 24h** sit inside the
+free customer-service window and can be answered without a template (don't count against the cap);
+everyone else needs a template. So both the header segments and the per-audience preview split
+recipients into *messaged ≤24h (free)* vs *needs a template (paid)*.
+
+**Reach segments** (header summary + sendable audiences). `segmentCounts()` (`audience.ts`) sizes
+three segments, each split free/paid, exposed by `GET /api/admin/templates/segments` and shown as
+cards atop the page; the same keys are selectable in the Audience dropdown. **All three are scoped to
+people we expect to attend** — members of **registered (submitted) families** plus unregistered
+callers who told us they're coming for Niyaz. Registration is our attendance signal (arrival date,
+hotel, …), so the imported-but-never-registered roster is intentionally excluded (same principle as
+the `/admin/niyaz` min/max tallies):
+- `segment_all_users` — every attending member of a **registered** family
+  (`registeredMemberRecipients()`) **∪** every distinct `unregistered_rsvps` phone, deduped.
+- `segment_hof` — one head-of-family per **registered** family (`registered_hof`) **∪** every distinct
+  `unregistered_rsvps` phone (each unregistered phone assumed to be one HOF), deduped. One reachable
+  number per family, preferring the `is_head` member, else any member.
+- `segment_hof_unresponded` — registered HOF whose family has **no RSVP response on record** (no
+  `niyaz_rsvp` row sourced `whatsapp`/`admin` and no `niyaz_family_headcount`, via
+  `respondedFamilyIds()`) **and** whom we **haven't already sent a template** (`templatedPhones()`).
+  Unregistered phones are excluded — they're in `unregistered_rsvps` *because* they responded. This
+  is the "fresh contacts" chase list: people we still need to reach for the first time, so it's the
+  natural target when rationing the daily template cap.
+
+`submittedFamilyIds()` is the shared registration gate (`registration_status='submitted'`).
+`templatedPhones()` is the set of numbers we've already sent any approved template to — every send
+routes through `sendTemplateNotification` → `recordOutboundMessage`, which logs an outbound
+`messages` row with body prefixed `[template:…]`, so that prefix is the marker (covers registration
+reminders, daily Niyaz RSVP, and notifications alike).
+
+**Head-of-family identity.** The import marks `mumineen.is_head` where a member's own ITS equals the
+family's `hof_its` (~933). Families whose head ITS isn't present as a member row had no head, so a
+one-time backfill (`20260611111345_backfill_family_heads`) designates a primary person per such
+family (preferring a member with a number, then an adult, then earliest), giving every family exactly
+one head — so a registered family is never missed for lack of a head flag.
+
+**Scale note.** PostgREST caps a response at 1000 rows, which had silently truncated the roster
+scans (3k+ members read as ~900). `audience.ts` now pages through those reads (`fetchAllRows`), and
+the per-family audiences filter a single paginated member scan in-app instead of a giant
+`family_id IN (...)` query that failed at scale — so the counts are now complete.
+
+**Template hygiene.** A **Manage templates** popup lets admins give each Meta template a
+`friendly_name` and an `is_active` flag (`whatsapp_template_settings`, via
+`PUT /api/admin/templates/settings`). `GET /api/admin/templates` returns the full catalog with these
+merged in; the console shows the friendly name and **hides inactive templates from both the Broadcast
+and Single-recipient dropdowns** (the popup still lists them so they can be reactivated). The
+`/admin/niyaz` composer and cron/notification flows are unaffected.
+
 - Audiences (`src/lib/whatsapp/audience.ts`), always **deduped by phone**: `selected_users`,
-  `chicago_committee`, `arrived_hof`, `registered_hof`, `all_members`. Split into in-window (free)
-  vs out-window (paid) using `conversation_sessions.last_message_at`; cost via
-  `WHATSAPP_UTILITY_MSG_COST_USD`.
+  `chicago_committee`, `arrived_hof`, `registered_hof`, `all_members`, the three `segment_*` keys
+  above, `custom` (rule-tree filter), and `csv_upload`. Split into in-window (free) vs out-window
+  (paid) using `conversation_sessions.last_message_at`; cost via `WHATSAPP_UTILITY_MSG_COST_USD`.
+- `csv_upload` (`src/lib/whatsapp/audience-csv.ts`): audience taken from an uploaded CSV in the **same
+  format as the app's CSV downloads** (the audience export, or a broadcast's failures export). Columns
+  matched by header (case-insensitive, order-free); a `WhatsApp` column is required; the roster columns
+  (`Name`, `ITS`, `Jamaat`, …) are carried as per-recipient `fields` for personalization; `Window`,
+  `Reason`, and unknown columns are ignored; rows deduped by number. Parsed server-side via the shared
+  `parseCsv` util and passed as raw `csv` text to `POST /preview` and `POST /send`. Missing fields are
+  **enriched from the roster by phone** (`enrichFieldsByPhone` → `resolveRosterByPhone`: direct
+  `whatsapp_e164` match + `mumin_phone_links` fallback), so a name-mapped template variable resolves for
+  any recipient on the roster even when their uploaded row left Name blank — CSV-provided values still
+  win; numbers not on the roster stay blank and are skipped by field-mapped templates. **Excel guard:**
+  phone cells serialized as scientific notation (`9.17869E+11`) are unrecoverable, so they're flagged
+  as `corrupted` and skipped (never messaged) — the preview reports the count. Not DB-resolved — it
+  flows through the explicit-`recipients` path in `createBroadcast` (`resolveAudience` throws for this
+  key as a guard). `audience-export` accepts `csv_upload` too: it returns the **resolved** audience
+  (deduped, roster-enriched, free/paid-labelled) — the rows that will actually be messaged, not the raw
+  uploaded file — using the same parse + `enrichFieldsByPhone` + `previewExplicitRecipients` pipeline.
 - Engine (`src/lib/whatsapp/broadcast.ts`): a broadcast enqueues recipients; the send route then drains
   **inline until the queue is empty** (`drainUntilEmpty`, a bounded loop) so small/medium sends complete
   in-request. `/api/cron/broadcast-drain` (every minute) is a backstop for large sends, and
   `POST /api/admin/templates/drain` ("Send pending" in the console) lets an admin push pending recipients
   manually — so a broadcast never silently hangs in `running` when the cron isn't firing. Throttled
   batches go through the shared `sendTemplateNotification` pipeline; logged in `template_broadcasts` /
-  `template_broadcast_recipients`.
+  `template_broadcast_recipients`. A broadcast is finalized to `completed` only once it has at least one
+  recipient row and none are still `queued`/`sending` — a broadcast with zero recipient rows is treated
+  as not-yet-populated (the row is inserted a moment before its recipients), so a concurrent drain can't
+  finalize it empty and strand its recipients as `queued`.
 - Delivery status: the WhatsApp webhook applies Meta `delivered`/`read`/`failed` callbacks by
   `wa_message_id` and marks `replied` when a target messages back (`src/lib/whatsapp/broadcast-status.ts`).
+  When a `failed` callback carries a Meta `errors[]` entry, its `code: title` (plus a plain-language
+  hint for common codes, e.g. `131049` engagement/frequency cap, `131026` undeliverable) is stored in
+  the recipient's `error_detail` — never any PII. Most large-broadcast failures are Meta *delivery*
+  decisions reported async (not send-time rejections), so this is the only place the real reason exists.
 - Failure visibility: send-time and delivery-status failures are surfaced per broadcast in the console —
   expand a Broadcast-log row for the status rollup + a grouped failure-reason breakdown
   (`failure_reasons` on `GET .../broadcasts/[id]`), with a per-recipient list / CSV from
   `GET .../broadcasts/[id]/failures` (admin/leadership only; PII to authorized staff, never to visitors).
-- API: `GET /api/admin/templates`, `POST /api/admin/templates/preview`, `POST .../send`,
+  The reason shown is `error_detail` when present (the captured Meta code/title); the free/paid
+  24h-window label is only a fallback for failures Meta reports with no error detail (`categorizeFailure`).
+  The per-recipient Name/ITS are resolved via the shared `resolveRosterByPhone` (direct + the
+  `mumin_phone_links` fallback), so they populate for any failed number that maps to a roster member.
+- API: `GET /api/admin/templates` (catalog + friendly-name/active annotations),
+  `PUT /api/admin/templates/settings` (friendly name / active flag),
+  `GET /api/admin/templates/segments` (reach-segment sizes),
+  `POST /api/admin/templates/preview`, `POST .../send`,
   `POST .../drain`, `GET .../broadcasts(/[id])`, `GET .../broadcasts/[id]/failures`.
 
 The console handles **no-variable** templates to audiences; the older single-recipient composer

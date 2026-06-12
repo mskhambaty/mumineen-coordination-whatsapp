@@ -73,6 +73,26 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+/**
+ * Preferred family contact person for accommodations views.
+ * If roster HOF exists, use that member; otherwise treat the eldest member as acting head.
+ * Prefer attending members for acting-head selection when possible.
+ */
+function resolveHeadOrActingHead<T extends { is_head: boolean; age: number | null; not_attending: boolean | null }>(members: T[]): T | undefined {
+  const head = members.find((m) => m.is_head);
+  if (head) return head;
+
+  const attending = members.filter((m) => !m.not_attending);
+  const pool = attending.length > 0 ? attending : members;
+  if (pool.length === 0) return undefined;
+
+  return pool.reduce((best, current) => {
+    const bestAge = best.age ?? -1;
+    const currentAge = current.age ?? -1;
+    return currentAge > bestAge ? current : best;
+  }, pool[0]);
+}
+
 async function fetchAll<T>(
   buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null }>,
 ): Promise<T[]> {
@@ -181,8 +201,8 @@ export async function buildGuestRollups(): Promise<GuestRow[]> {
     const members = membersByHof.get(f.hof_its) ?? [];
     const attending = members.filter((m) => !m.not_attending);
     const ages = attending.map((m) => m.age).filter((a): a is number => a != null);
-    const head = members.find((m) => m.is_head);
-    const resolvedName = head?.full_name ?? members[0]?.full_name ?? f.hof_its;
+    const actingHead = resolveHeadOrActingHead(members);
+    const resolvedName = actingHead?.full_name ?? f.hof_its;
 
     return {
       family_id: f.id,
@@ -201,9 +221,9 @@ export async function buildGuestRollups(): Promise<GuestRow[]> {
       hotel_name: f.hotel_name,
       hotel_lat: f.hotel_lat ?? null,
       hotel_lon: f.hotel_lon ?? null,
-      phone: head?.whatsapp_e164 ?? members.find((m) => m.whatsapp_e164)?.whatsapp_e164 ?? null,
-      email: head?.email ?? members.find((m) => m.email)?.email ?? null,
-      arrival_at: head?.arrival_at ?? members.find((m) => m.arrival_at)?.arrival_at ?? null,
+      phone: actingHead?.whatsapp_e164 ?? members.find((m) => m.whatsapp_e164)?.whatsapp_e164 ?? null,
+      email: actingHead?.email ?? members.find((m) => m.email)?.email ?? null,
+      arrival_at: actingHead?.arrival_at ?? members.find((m) => m.arrival_at)?.arrival_at ?? null,
       current_match_status: matchByFamily.get(f.id) ?? null,
     };
   });
@@ -475,15 +495,14 @@ export async function buildMatchRollups(): Promise<MatchRollup[]> {
     const guestHof = familyMap.get(match.guest_family_id) ?? "";
     const members = guestByHof.get(guestHof) ?? [];
     const attending = members.filter((m) => !m.not_attending);
-    const head = members.find((m) => m.is_head);
+    const actingHead = resolveHeadOrActingHead(members);
     const ages = attending.map((m) => m.age).filter((a): a is number => a != null);
 
     const host = hostMap.get(match.host_id);
     const hostName = host ? [host.first_name, host.last_name].filter(Boolean).join(" ") || host.hof_its : "";
 
-    const guestPhone = head?.whatsapp_e164 ?? members.find((m) => m.whatsapp_e164)?.whatsapp_e164 ?? null;
-    const guestEmail = head?.email ?? members.find((m) => m.email)?.email ?? null;
-    const arrivalMember = head ?? members[0];
+    const guestPhone = actingHead?.whatsapp_e164 ?? members.find((m) => m.whatsapp_e164)?.whatsapp_e164 ?? null;
+    const guestEmail = actingHead?.email ?? members.find((m) => m.email)?.email ?? null;
 
     return {
       id: match.id,
@@ -494,7 +513,7 @@ export async function buildMatchRollups(): Promise<MatchRollup[]> {
       notes: match.notes,
       confirmed_at: match.confirmed_at,
       created_at: match.created_at,
-      guest_name: head?.full_name ?? members[0]?.full_name ?? null,
+      guest_name: actingHead?.full_name ?? null,
       guest_its: guestHof,
       guest_adult_count: attending.filter((m) => m.age != null && m.age >= 18).length,
       guest_child_count: attending.filter((m) => m.age != null && m.age < 18).length,
@@ -503,10 +522,10 @@ export async function buildMatchRollups(): Promise<MatchRollup[]> {
       guest_ages: ages.sort((a, b) => a - b).join(", "),
       guest_phone: guestPhone,
       guest_email: guestEmail,
-      guest_arrival_at: arrivalMember?.arrival_at ?? null,
-      guest_arrival_flight: arrivalMember?.arrival_flight_no ?? null,
-      guest_departure_at: arrivalMember?.departure_at ?? null,
-      guest_departure_flight: arrivalMember?.departure_flight_no ?? null,
+      guest_arrival_at: actingHead?.arrival_at ?? null,
+      guest_arrival_flight: actingHead?.arrival_flight_no ?? null,
+      guest_departure_at: actingHead?.departure_at ?? null,
+      guest_departure_flight: actingHead?.departure_flight_no ?? null,
       host_name: hostName,
       host_its: host?.hof_its ?? "",
       host_phone: host?.mobile ?? null,

@@ -30,6 +30,7 @@ type NavAccess = {
   isIt: boolean;
   isInternal: boolean;
   isTransport: boolean;
+  isAccommodations: boolean;
 };
 
 // Groups are organized by domain (the job a user shows up to do), not by whether a
@@ -92,12 +93,12 @@ const trailingLinks: NavLink[] = [
 ];
 
 function readNavAccess(): NavAccess {
-  const empty = { isAdmin: false, isHelpdesk: false, isSupport: false, isManager: false, isIt: false, isInternal: false, isTransport: false };
+  const empty = { isAdmin: false, isHelpdesk: false, isSupport: false, isManager: false, isIt: false, isInternal: false, isTransport: false, isAccommodations: false };
   if (typeof window === "undefined") return empty;
 
   try {
     const user = JSON.parse(window.localStorage.getItem("admin_user") ?? "null") as
-      | { role?: string; global_role?: string; is_support?: boolean; is_manager?: boolean; is_it?: boolean; is_internal?: boolean; is_transport?: boolean }
+      | { role?: string; global_role?: string; is_support?: boolean; is_manager?: boolean; is_it?: boolean; is_internal?: boolean; is_transport?: boolean; is_accommodations?: boolean }
       | null;
     return {
       isAdmin: user?.role === "admin" || user?.global_role === "leadership_admin",
@@ -107,6 +108,7 @@ function readNavAccess(): NavAccess {
       isIt: user?.is_it === true,
       isInternal: user?.is_internal === true,
       isTransport: user?.is_transport === true,
+      isAccommodations: user?.is_accommodations === true,
     };
   } catch {
     return empty;

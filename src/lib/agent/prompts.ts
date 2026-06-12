@@ -158,3 +158,32 @@ export async function loadAgentSystemPrompt(): Promise<string> {
     return SYSTEM_PROMPT;
   }
 }
+
+let cachedRuleOverrides: { overrides: Record<string, string>; fetchedAt: number } | null = null;
+
+export async function loadRuleOverrides(ruleNames: string[]): Promise<Record<string, string>> {
+  if (cachedRuleOverrides && Date.now() - cachedRuleOverrides.fetchedAt < CACHE_TTL_MS) {
+    return cachedRuleOverrides.overrides;
+  }
+
+  const keys = ruleNames.map((n) => `rule_${n}`);
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data } = await supabase
+      .from("system_prompts")
+      .select("prompt_key, prompt_text")
+      .in("prompt_key", keys);
+
+    const overrides: Record<string, string> = {};
+    for (const row of data ?? []) {
+      if (row.prompt_text) {
+        const name = row.prompt_key.replace(/^rule_/, "");
+        overrides[name] = row.prompt_text;
+      }
+    }
+    cachedRuleOverrides = { overrides, fetchedAt: Date.now() };
+    return overrides;
+  } catch {
+    return {};
+  }
+}

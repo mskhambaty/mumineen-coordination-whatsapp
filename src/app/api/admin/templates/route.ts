@@ -4,19 +4,28 @@ import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { listMessageTemplates } from "@/lib/meta/whatsapp";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { getTemplateSettings } from "@/lib/whatsapp/template-settings";
 import { describeTemplate } from "@/lib/whatsapp/templates";
 
 export const runtime = "nodejs";
 
 // GET /api/admin/templates — data for the manual send console: the approved Meta templates
-// (described) plus the committee/admin users selectable as a test audience. Admin/leadership only.
-// No PII (phone numbers) in the response; selectable users are id + name only.
+// (described, with our friendly-name + active annotations merged in) plus the committee/admin users
+// selectable as a test audience. Returns the FULL catalog (active + inactive) so the page can both
+// filter its dropdowns and drive the cleanup popup. Admin/leadership only. No PII (phone numbers) in
+// the response; selectable users are id + name only.
 export async function GET(req: NextRequest) {
   const auth = await requirePortalCaller(req, isAdminOrLeadership);
   if (auth instanceof NextResponse) return auth;
 
-  const all = await listMessageTemplates().catch(() => []);
-  const templates = all.filter((t) => t.status?.toUpperCase() === "APPROVED").map(describeTemplate);
+  const [all, settings] = await Promise.all([listMessageTemplates().catch(() => []), getTemplateSettings()]);
+  const templates = all
+    .filter((t) => t.status?.toUpperCase() === "APPROVED")
+    .map((t) => {
+      const desc = describeTemplate(t);
+      const s = settings.get(desc.name);
+      return { ...desc, friendlyName: s?.friendlyName ?? null, isActive: s?.isActive ?? true };
+    });
 
   const { data: users } = await getSupabaseAdmin()
     .from("whatsapp_users")

@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 
 import { canManageParking, canViewParking, isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
+import { proximityConflict } from "@/lib/parking/proximity";
 import {
   LOT_PURPOSES,
   PURPOSE_LABELS,
@@ -71,6 +72,7 @@ const COLOR_SWATCH: Record<string, string> = {
   pink: "#ec4899",
   cream: "#fffdd0",
   white: "#ffffff",
+  red: "#ef4444",
 };
 
 function swatch(color: string | null): string {
@@ -183,20 +185,34 @@ function LotCard({
           ))}
         </div>
       )}
-      {canManage && !editing && (
-        <button
-          type="button"
-          onClick={() => {
-            setName(lot.name);
-            setCapacity(String(lot.capacity));
-            setColor(lot.color ?? "");
-            setPurposes(lot.purposes);
-            setEditing(true);
-          }}
-          className="mt-2 text-[11px] text-blue-600 hover:underline dark:text-blue-400"
-        >
-          Edit
-        </button>
+      {!editing && (
+        <div className="mt-2 flex items-center gap-3">
+          {canManage && (
+            <button
+              type="button"
+              onClick={() => {
+                setName(lot.name);
+                setCapacity(String(lot.capacity));
+                setColor(lot.color ?? "");
+                setPurposes(lot.purposes);
+                setEditing(true);
+              }}
+              className="text-[11px] text-blue-600 hover:underline dark:text-blue-400"
+            >
+              Edit
+            </button>
+          )}
+          {lot.assigned > 0 && (
+            <a
+              href={`/admin/parking/print?lot_id=${lot.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] text-purple-600 hover:underline dark:text-purple-400"
+            >
+              Print Passes ({lot.assigned})
+            </a>
+          )}
+        </div>
       )}
       {editing && (
         <div className="mt-2 space-y-2 border-t border-gray-100 pt-2 dark:border-gray-700">
@@ -363,6 +379,26 @@ function AssignMenu({
   );
 }
 
+// ─── Proximity audit types ─────────────────────────────────────────────────────
+
+type ProximityAuditIssue = {
+  family_id: string;
+  hof_its: string;
+  head_name: string;
+  anchor_color: string;
+  anchor_lot_name: string;
+  passes_to_revoke: { id: string; lot_name: string; lot_color: string | null }[];
+  overflow_lot: { id: string; name: string; color: string | null } | null;
+  using_fallback: boolean;
+  over_capacity: boolean;
+};
+
+type ProximityAuditResult = {
+  issues: ProximityAuditIssue[];
+  total_families: number;
+  total_to_revoke: number;
+};
+
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ParkingPage() {
@@ -379,17 +415,30 @@ export default function ParkingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null); // bulk-assign result message
-  const [assignFor, setAssignFor] = useState<{ familyId: string; rect: DOMRect } | null>(null);
+  const [assignFor, setAssignFor] = useState<{ familyId: string; rect: DOMRect; extra?: boolean } | null>(null);
   const [assignCount, setAssignCount] = useState<Record<string, number>>({});
   const [page, setPage] = useState(1);
   // Bulk "fill lot" flow: selection spans pages and survives search narrowing; it clears
   // on server-filter changes (the set it was built against changed) and after an assign.
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [lotFilter, setLotFilter] = useState(""); // client-side: show only rows with a pass in this lot
+  const [multiPassFilter, setMultiPassFilter] = useState(false); // client-side: suggested_passes > 1
+  const [exhaustedFilter, setExhaustedFilter] = useState(false); // client-side: passes >= suggested_passes > 0
+  const [notFilledFilter, setNotFilledFilter] = useState(false); // client-side: suggested_passes > 0 && passes < suggested_passes
+  const [overAllocatedFilter, setOverAllocatedFilter] = useState(false); // client-side: passes.length > suggested_passes
   const [bulkLotId, setBulkLotId] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [selectN, setSelectN] = useState(""); // "select N rows" input
+  const [unassignBusy, setUnassignBusy] = useState(false);
   // Auto-narrow the list to households fitting the target lot's purposes. Turned on
   // when a narrowable lot is picked; the chip stays toggleable for deliberate overrides.
   const [purposeFit, setPurposeFit] = useState(false);
+
+  const [proximityOpen, setProximityOpen] = useState(false);
+  const [proximityAudit, setProximityAudit] = useState<ProximityAuditResult | null>(null);
+  const [proximityLoading, setProximityLoading] = useState(false);
+  const [proximityFixing, setProximityFixing] = useState(false);
+  const [proximityNotice, setProximityNotice] = useState<string | null>(null);
 
   // Gate: signed-in portal user with parking view access (see canViewParking).
   useEffect(() => {
@@ -556,6 +605,21 @@ export default function ParkingPage() {
   if (purposeFit && bulkLot && bulkLot.purposes.length > 0) {
     visible = visible.filter((r) => matchesLotPurposes(r, bulkLot.purposes));
   }
+  if (lotFilter) {
+    visible = visible.filter((r) => r.passes.some((p) => p.lot_id === lotFilter));
+  }
+  if (multiPassFilter) {
+    visible = visible.filter((r) => r.suggested_passes > 1);
+  }
+  if (exhaustedFilter) {
+    visible = visible.filter((r) => r.suggested_passes > 0 && r.passes.length >= r.suggested_passes);
+  }
+  if (notFilledFilter) {
+    visible = visible.filter((r) => r.suggested_passes > 0 && r.passes.length < r.suggested_passes);
+  }
+  if (overAllocatedFilter) {
+    visible = visible.filter((r) => r.passes.length > r.suggested_passes);
+  }
   if (search) {
     const q = search.toLowerCase();
     visible = visible.filter((r) => r.head_name.toLowerCase().includes(q) || r.hof_its.includes(q));
@@ -582,15 +646,18 @@ export default function ParkingPage() {
     }
   }
 
-  // Bulk flow derived state. effectiveNew counts only selections that would consume a
-  // space in the chosen lot (already-in-lot households get skipped server-side too).
+  // Bulk flow derived state. effectiveNew = total passes that would be inserted:
+  // sum of (suggested_passes - existing_in_lot) per selected family, clamped ≥ 0.
   const rowByFamily = useMemo(() => new Map(rows.map((r) => [r.family_id, r])), [rows]);
   const effectiveNew = useMemo(() => {
     if (!bulkLot) return 0;
     let n = 0;
     for (const id of selected) {
       const row = rowByFamily.get(id);
-      if (row && !row.passes.some((p) => p.lot_id === bulkLot.id)) n++;
+      if (row) {
+        const have = row.passes.filter((p) => p.lot_id === bulkLot.id).length;
+        n += Math.max(0, row.suggested_passes - have);
+      }
     }
     return n;
   }, [selected, rowByFamily, bulkLot]);
@@ -604,6 +671,20 @@ export default function ParkingPage() {
     for (const id of selected) {
       const row = rowByFamily.get(id);
       if (row && !matchesLotPurposes(row, bulkLot.purposes)) n++;
+    }
+    return n;
+  }, [selected, rowByFamily, bulkLot]);
+
+  // Selected households whose existing anchor pass conflicts with the target lot —
+  // surfaced as a proximity warning in the bulk bar, never a block.
+  const proximityViolations = useMemo(() => {
+    if (!bulkLot || selected.size === 0) return 0;
+    let n = 0;
+    for (const id of selected) {
+      const row = rowByFamily.get(id);
+      if (row && row.passes.length > 0) {
+        if (proximityConflict(row.passes.map((p) => p.lot_color), bulkLot.color)) n++;
+      }
     }
     return n;
   }, [selected, rowByFamily, bulkLot]);
@@ -624,7 +705,11 @@ export default function ParkingPage() {
     try {
       const res = await apiFetch("/api/admin/parking/passes/bulk", {
         method: "POST",
-        body: JSON.stringify({ lot_id: bulkLot.id, family_ids: [...selected] }),
+        body: JSON.stringify({
+          lot_id: bulkLot.id,
+          family_ids: [...selected],
+          quotas: Object.fromEntries([...selected].map((id) => [id, rowByFamily.get(id)?.suggested_passes ?? 1])),
+        }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -639,6 +724,79 @@ export default function ParkingPage() {
       await loadAll(filters);
     } finally {
       setBulkBusy(false);
+    }
+  }
+
+  async function bulkUnassign() {
+    if (selected.size === 0) return;
+    if (!window.confirm(`Remove ALL passes from ${selected.size} household${selected.size === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    setUnassignBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await apiFetch("/api/admin/parking/passes/bulk", {
+        method: "DELETE",
+        body: JSON.stringify({ family_ids: [...selected] }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? "Bulk unassign failed");
+        return;
+      }
+      setNotice(`Removed ${json.deleted} pass${json.deleted === 1 ? "" : "es"} from ${selected.size} household${selected.size === 1 ? "" : "s"}.`);
+      setSelected(new Set());
+      await loadAll(filters);
+    } finally {
+      setUnassignBusy(false);
+    }
+  }
+
+  const loadProximityAudit = useCallback(async () => {
+    setProximityLoading(true);
+    setProximityNotice(null);
+    try {
+      const res = await apiFetch("/api/admin/parking/proximity");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setProximityNotice((json as { error?: string }).error ?? "Failed to load audit");
+        setProximityOpen(true);
+        return;
+      }
+      setProximityAudit(json as ProximityAuditResult);
+      setProximityOpen(true);
+    } finally {
+      setProximityLoading(false);
+    }
+  }, []);
+
+  async function fixProximity() {
+    if (!proximityAudit || proximityAudit.total_families === 0) return;
+    if (
+      !window.confirm(
+        `Move ${proximityAudit.total_to_revoke} misallocated pass${proximityAudit.total_to_revoke === 1 ? "" : "es"} across ${proximityAudit.total_families} famil${proximityAudit.total_families === 1 ? "y" : "ies"} to their correct overflow lots?`,
+      )
+    ) return;
+    setProximityFixing(true);
+    try {
+      const res = await apiFetch("/api/admin/parking/proximity", { method: "POST" });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean; revoked?: number; assigned?: number; skipped?: number; fallbacks_used?: number; error?: string;
+      };
+      if (!res.ok) {
+        setProximityNotice(json.error ?? "Fix failed");
+        return;
+      }
+      const parts = [
+        `${json.revoked ?? 0} revoked`,
+        `${json.assigned ?? 0} reassigned`,
+        ...(json.skipped ? [`${json.skipped} skipped`] : []),
+        ...(json.fallbacks_used ? [`${json.fallbacks_used} used fallback lot`] : []),
+      ];
+      setProximityNotice(`Done — ${parts.join(", ")}.`);
+      setProximityAudit(null);
+      await loadAll(filters);
+    } finally {
+      setProximityFixing(false);
     }
   }
 
@@ -661,6 +819,7 @@ export default function ParkingPage() {
   if (!ready) return null;
 
   const passCount = visible.reduce((n, r) => n + r.passes.length, 0);
+  const suggestedCount = visible.reduce((n, r) => n + r.suggested_passes, 0);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
@@ -677,17 +836,40 @@ export default function ParkingPage() {
             {canManage ? "Assign lot passes to households and export for printing." : "Read-only view."}
           </p>
         </div>
-        {canManage && (
-          <button
-            type="button"
-            onClick={exportCsv}
-            disabled={loading || passCount === 0}
-            title="Exports one row per pass for the households currently shown"
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+        <div className="flex items-center gap-2">
+          {canManage && (
+            <button
+              type="button"
+              onClick={() => {
+                if (proximityOpen) { setProximityOpen(false); return; }
+                void loadProximityAudit();
+              }}
+              disabled={proximityLoading}
+              className="rounded-md border border-orange-300 px-3 py-1.5 text-xs font-medium text-orange-700 hover:bg-orange-50 disabled:opacity-50 dark:border-orange-700 dark:text-orange-300 dark:hover:bg-orange-900/20"
+            >
+              {proximityLoading ? "Loading…" : proximityOpen ? "Hide Proximity" : "Proximity Audit"}
+            </button>
+          )}
+          <a
+            href="/admin/parking/print"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-md border border-purple-300 px-3 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-300 dark:hover:bg-purple-900/20"
           >
-            Export CSV ({passCount} passes)
-          </button>
-        )}
+            Print All (by ITS)
+          </a>
+          {canManage && (
+            <button
+              type="button"
+              onClick={exportCsv}
+              disabled={loading || passCount === 0}
+              title="Exports one row per pass for the households currently shown"
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              Export CSV ({passCount} passes)
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -698,6 +880,118 @@ export default function ParkingPage() {
       {notice && (
         <div className="mb-4 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700 dark:border-green-900 dark:bg-green-900/20 dark:text-green-300">
           {notice}
+        </div>
+      )}
+
+      {/* Proximity audit panel */}
+      {canManage && proximityOpen && (
+        <div className="mb-4 rounded-xl border border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-900/10">
+          <div className="flex items-center justify-between border-b border-orange-200 px-3 py-2.5 dark:border-orange-800">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-orange-800 dark:text-orange-300">Proximity Audit</span>
+              {proximityAudit && !proximityLoading && (
+                <span className="text-xs text-orange-600 dark:text-orange-400">
+                  {proximityAudit.total_families === 0
+                    ? "No issues found"
+                    : `${proximityAudit.total_families} famil${proximityAudit.total_families === 1 ? "y" : "ies"} · ${proximityAudit.total_to_revoke} pass${proximityAudit.total_to_revoke === 1 ? "" : "es"} to move`}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setProximityOpen(false)}
+              className="text-xs text-orange-400 hover:text-orange-600 dark:hover:text-orange-200"
+            >
+              Close ×
+            </button>
+          </div>
+
+          {proximityLoading && (
+            <div className="px-3 py-5 text-center text-xs text-orange-500">Loading audit…</div>
+          )}
+
+          {!proximityLoading && proximityNotice && (
+            <div className="px-3 py-2.5 text-xs text-orange-700 dark:text-orange-300">{proximityNotice}</div>
+          )}
+
+          {!proximityLoading && proximityAudit && (
+            <>
+              {proximityAudit.total_families === 0 ? (
+                <div className="px-3 py-5 text-center text-xs text-orange-500">
+                  All passes are correctly allocated.
+                </div>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-orange-100 text-left text-[10px] uppercase tracking-wide text-orange-500 dark:border-orange-800 dark:text-orange-400">
+                          <th className="px-3 py-2">Household</th>
+                          <th className="px-3 py-2">Anchor lot</th>
+                          <th className="px-3 py-2">Passes to move</th>
+                          <th className="px-3 py-2">Target lot</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-orange-100 dark:divide-orange-900">
+                        {proximityAudit.issues.map((issue) => (
+                          <tr key={issue.family_id}>
+                            <td className="px-3 py-2 text-gray-700 dark:text-gray-300">
+                              <div className="font-medium">{issue.head_name}</div>
+                              <div className="text-[10px] text-gray-400">{issue.hof_its}</div>
+                            </td>
+                            <td className="px-3 py-2 text-gray-600 dark:text-gray-300">
+                              <div className="flex items-center gap-1.5">
+                                <ColorDot color={issue.anchor_color} />
+                                {issue.anchor_lot_name}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex flex-wrap gap-1">
+                                {issue.passes_to_revoke.map((p) => (
+                                  <span
+                                    key={p.id}
+                                    className="inline-flex items-center gap-1 rounded border border-gray-200 px-1.5 py-0.5 text-gray-600 dark:border-gray-600 dark:text-gray-300"
+                                  >
+                                    <ColorDot color={p.lot_color} />
+                                    {p.lot_name}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2">
+                              {issue.overflow_lot ? (
+                                <div className={`flex items-center gap-1.5 ${issue.using_fallback ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"}`}>
+                                  <ColorDot color={issue.overflow_lot.color} />
+                                  {issue.overflow_lot.name}
+                                  {issue.using_fallback && <span className="text-[10px]">(fallback)</span>}
+                                  {issue.over_capacity && <span title="Over capacity — will soft-exceed">⚠</span>}
+                                </div>
+                              ) : (
+                                <span className="text-red-500">No lot available</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-orange-200 px-3 py-2.5 dark:border-orange-800">
+                    <span className="text-xs text-orange-600 dark:text-orange-400">
+                      {proximityAudit.total_to_revoke} pass{proximityAudit.total_to_revoke === 1 ? "" : "es"} will be moved
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void fixProximity()}
+                      disabled={proximityFixing}
+                      className="rounded-md bg-orange-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-700 disabled:opacity-50"
+                    >
+                      {proximityFixing ? "Fixing…" : `Fix All (${proximityAudit.total_to_revoke} move${proximityAudit.total_to_revoke === 1 ? "" : "s"})`}
+                    </button>
+                  </div>
+                </>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -741,6 +1035,27 @@ export default function ParkingPage() {
           label="Not eligible"
           negative
           onClick={() => applyFilter({ eligible: filters.eligible === false ? null : false })}
+        />
+        <FilterChip
+          active={multiPassFilter}
+          label="2+ passes"
+          onClick={() => { setMultiPassFilter(!multiPassFilter); setPage(1); }}
+        />
+        <FilterChip
+          active={exhaustedFilter}
+          label="All passes filled"
+          onClick={() => { setExhaustedFilter(!exhaustedFilter); setPage(1); }}
+        />
+        <FilterChip
+          active={notFilledFilter}
+          label="Passes not filled"
+          onClick={() => { setNotFilledFilter(!notFilledFilter); setPage(1); }}
+        />
+        <FilterChip
+          active={overAllocatedFilter}
+          label="Over-allocated"
+          negative
+          onClick={() => { setOverAllocatedFilter(!overAllocatedFilter); setPage(1); }}
         />
         <select
           value={filters.local_mehman}
@@ -848,6 +1163,16 @@ export default function ParkingPage() {
           <option value="assigned">Assigned</option>
           <option value="unassigned">Unassigned</option>
         </select>
+        <select
+          value={lotFilter}
+          onChange={(e) => { setLotFilter(e.target.value); setPage(1); }}
+          className="rounded-md border border-gray-300 bg-white px-2 py-1 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+        >
+          <option value="">All lots</option>
+          {lots.map((l) => (
+            <option key={l.id} value={l.id}>{l.name}</option>
+          ))}
+        </select>
         <input
           type="search"
           value={search}
@@ -863,51 +1188,39 @@ export default function ParkingPage() {
         </span>
       </div>
 
-      {/* Bulk "fill lot" bar */}
+      {/* Bulk action bar */}
       {canManage && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800/50">
-          <span className="font-semibold text-gray-700 dark:text-gray-200">Bulk assign</span>
-          <select
-            value={bulkLotId}
-            onChange={(e) => chooseBulkLot(e.target.value)}
-            className="rounded-md border border-gray-300 bg-white px-2 py-1 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
-          >
-            <option value="">Choose lot…</option>
-            {lots.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name} — {Math.max(0, l.capacity - l.assigned)} of {l.capacity} remaining
-              </option>
-            ))}
-          </select>
-          {bulkLotNarrows && bulkLot && (
-            <FilterChip
-              active={purposeFit}
-              label={`Fits lot purposes (${bulkLot.purposes.map((p) => PURPOSE_LABELS[p] ?? p).join(", ")})`}
-              onClick={() => setPurposeFit(!purposeFit)}
-            />
-          )}
-          {bulkLot && (
-            <>
+        <div className="mb-3 space-y-2">
+          {/* Selection controls */}
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800/50">
+            <span className="font-semibold text-gray-700 dark:text-gray-200">Select</span>
+            <form
+              className="flex items-center gap-1"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const n = Math.max(1, Math.min(visible.length, parseInt(selectN) || 0));
+                if (n > 0) setSelected(new Set(visible.slice(0, n).map((r) => r.family_id)));
+              }}
+            >
+              <input
+                type="number"
+                min={1}
+                max={visible.length}
+                value={selectN}
+                onChange={(e) => setSelectN(e.target.value)}
+                placeholder="N rows"
+                className="w-20 rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+              />
               <button
-                type="button"
-                onClick={() => setSelected(new Set(pickAssignable(visible, bulkLot.id, bulkRemaining)))}
-                className="rounded-md border border-blue-400 px-2.5 py-1 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+                type="submit"
+                className="rounded-md border border-gray-300 px-2.5 py-1 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
               >
-                Select up to remaining ({bulkRemaining})
+                Select
               </button>
-              <span
-                className={
-                  overBy > 0
-                    ? "font-semibold text-red-600 dark:text-red-400"
-                    : effectiveNew > 0 && effectiveNew === bulkRemaining
-                      ? "font-semibold text-amber-600 dark:text-amber-400"
-                      : "text-gray-500 dark:text-gray-400"
-                }
-              >
-                {effectiveNew} new / {bulkRemaining} remaining
-                {overBy > 0 ? ` — ${overBy} over` : ""}
-              </span>
-              {selected.size > 0 && (
+            </form>
+            {selected.size > 0 && (
+              <>
+                <span className="text-gray-500 dark:text-gray-400">{selected.size} selected</span>
                 <button
                   type="button"
                   onClick={() => setSelected(new Set())}
@@ -915,28 +1228,99 @@ export default function ParkingPage() {
                 >
                   Clear
                 </button>
-              )}
-              {unqualified > 0 && (
-                <span className="font-medium text-amber-600 dark:text-amber-400">
-                  {`⚠ ${unqualified} of ${selected.size} selected ${
-                    unqualified === 1 ? "doesn't" : "don't"
-                  } match this lot's purposes (${bulkLot.purposes.map((p) => PURPOSE_LABELS[p] ?? p).join(", ")})`}
+                <button
+                  type="button"
+                  onClick={() => void bulkUnassign()}
+                  disabled={unassignBusy}
+                  className="rounded-md bg-red-600 px-3 py-1.5 font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  {unassignBusy ? "Unassigning…" : `Unassign all passes (${selected.size})`}
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Assign to lot */}
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800/50">
+            <span className="font-semibold text-gray-700 dark:text-gray-200">Bulk assign</span>
+            <select
+              value={bulkLotId}
+              onChange={(e) => chooseBulkLot(e.target.value)}
+              className="rounded-md border border-gray-300 bg-white px-2 py-1 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+            >
+              <option value="">Choose lot…</option>
+              {lots.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name} — {Math.max(0, l.capacity - l.assigned)} of {l.capacity} remaining
+                </option>
+              ))}
+            </select>
+            {bulkLotNarrows && bulkLot && (
+              <FilterChip
+                active={purposeFit}
+                label={`Fits lot purposes (${bulkLot.purposes.map((p) => PURPOSE_LABELS[p] ?? p).join(", ")})`}
+                onClick={() => setPurposeFit(!purposeFit)}
+              />
+            )}
+            {bulkLot && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setSelected(new Set(pickAssignable(visible, bulkLot.id, bulkRemaining)))}
+                  className="rounded-md border border-blue-400 px-2.5 py-1 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+                >
+                  Select up to remaining ({bulkRemaining})
+                </button>
+                <span
+                  className={
+                    overBy > 0
+                      ? "font-semibold text-red-600 dark:text-red-400"
+                      : effectiveNew > 0 && effectiveNew === bulkRemaining
+                        ? "font-semibold text-amber-600 dark:text-amber-400"
+                        : "text-gray-500 dark:text-gray-400"
+                  }
+                >
+                  {effectiveNew} new / {bulkRemaining} remaining
+                  {overBy > 0 ? ` — ${overBy} over` : ""}
                 </span>
-              )}
-              <button
-                type="button"
-                onClick={() => void bulkAssign()}
-                disabled={bulkBusy || selected.size === 0}
-                className={`ml-auto rounded-md px-3 py-1.5 font-medium text-white disabled:opacity-50 ${
-                  overBy > 0 ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"
-                }`}
-              >
-                {bulkBusy
-                  ? "Assigning…"
-                  : `Assign ${selected.size} → ${bulkLot.name}${overBy > 0 ? ` (${overBy} over capacity)` : ""}`}
-              </button>
-            </>
-          )}
+                {selected.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelected(new Set())}
+                    className="text-gray-400 hover:underline"
+                  >
+                    Clear
+                  </button>
+                )}
+                {unqualified > 0 && (
+                  <span className="font-medium text-amber-600 dark:text-amber-400">
+                    {`⚠ ${unqualified} of ${selected.size} selected ${
+                      unqualified === 1 ? "doesn't" : "don't"
+                    } match this lot's purposes (${bulkLot.purposes.map((p) => PURPOSE_LABELS[p] ?? p).join(", ")})`}
+                  </span>
+                )}
+                {proximityViolations > 0 && (
+                  <span className="font-medium text-orange-600 dark:text-orange-400">
+                    {`⚠ ${proximityViolations} of ${selected.size} selected ${
+                      proximityViolations === 1 ? "has" : "have"
+                    } an anchor pass that conflicts with this lot's proximity rules`}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void bulkAssign()}
+                  disabled={bulkBusy || selected.size === 0}
+                  className={`ml-auto rounded-md px-3 py-1.5 font-medium text-white disabled:opacity-50 ${
+                    overBy > 0 ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"
+                  }`}
+                >
+                  {bulkBusy
+                    ? "Assigning…"
+                    : `Assign ${selected.size} → ${bulkLot.name}${overBy > 0 ? ` (${overBy} over capacity)` : ""}`}
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -965,6 +1349,7 @@ export default function ParkingPage() {
               <th className="px-3 py-2">Criteria</th>
               <th className="px-3 py-2">Guests</th>
               <th className="px-3 py-2">Passes</th>
+              {canManage && <th className="px-3 py-2">Additional</th>}
               {canManage && <th className="px-3 py-2" />}
             </tr>
           </thead>
@@ -1053,16 +1438,22 @@ export default function ParkingPage() {
                   </div>
                 </td>
                 {canManage && (
+                  <td className="px-3 py-2 text-center">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setAssignFor(assignFor?.familyId === r.family_id && assignFor.extra ? null : { familyId: r.family_id, rect, extra: true });
+                      }}
+                      className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-500 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-800"
+                    >
+                      + Pass
+                    </button>
+                  </td>
+                )}
+                {canManage && (
                   <td className="px-3 py-2 text-right">
-                    {r.suggested_passes > 0 && r.passes.length >= r.suggested_passes ? (
-                      <button
-                        type="button"
-                        onClick={() => Promise.all(r.passes.map((p) => revokePass(p.id)))}
-                        className="rounded-md border border-red-200 px-2 py-1 text-xs text-red-500 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950"
-                      >
-                        Unassign
-                      </button>
-                    ) : (
+                    {r.suggested_passes > 0 && r.passes.length >= r.suggested_passes ? null : (
                       <div className="flex items-center justify-end gap-1.5">
                         {r.suggested_passes > 0 && (() => {
                           const remaining = Math.max(0, r.suggested_passes - r.passes.length);
@@ -1085,7 +1476,7 @@ export default function ParkingPage() {
                           type="button"
                           onClick={(e) => {
                             const rect = e.currentTarget.getBoundingClientRect();
-                            setAssignFor(assignFor?.familyId === r.family_id ? null : { familyId: r.family_id, rect });
+                            setAssignFor(assignFor?.familyId === r.family_id && !assignFor.extra ? null : { familyId: r.family_id, rect });
                           }}
                           className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                         >
@@ -1098,6 +1489,7 @@ export default function ParkingPage() {
                         lots={lots}
                         anchorRect={assignFor.rect}
                         onAssign={(lotId, notes) => {
+                          if (assignFor.extra) return assignPass(r.family_id, lotId, notes, 1);
                           const remaining = Math.max(0, r.suggested_passes - r.passes.length);
                           const count = r.suggested_passes > 0
                             ? Math.min(remaining, assignCount[r.family_id] ?? remaining)
@@ -1113,12 +1505,32 @@ export default function ParkingPage() {
             ))}
             {!loading && visible.length === 0 && (
               <tr>
-                <td colSpan={canManage ? 8 : 6} className="px-3 py-8 text-center text-sm text-gray-400">
+                <td colSpan={canManage ? 9 : 6} className="px-3 py-8 text-center text-sm text-gray-400">
                   No households match the current filters.
                 </td>
               </tr>
             )}
           </tbody>
+          <tfoot className="border-t border-gray-200 bg-gray-50 text-xs font-medium dark:border-gray-700 dark:bg-gray-800">
+            <tr>
+              {canManage && <td />}
+              <td className="px-3 py-2 text-gray-500 dark:text-gray-400">
+                {visible.length} household{visible.length !== 1 ? "s" : ""}
+              </td>
+              <td colSpan={4} />
+              <td className="px-3 py-2">
+                <span className="text-gray-500 dark:text-gray-400">
+                  {passCount} assigned
+                </span>
+                {suggestedCount > 0 && (
+                  <span className="ml-2 text-gray-400 dark:text-gray-500">
+                    / {suggestedCount} suggested
+                  </span>
+                )}
+              </td>
+              {canManage && <td colSpan={2} />}
+            </tr>
+          </tfoot>
         </table>
       </div>
 

@@ -226,16 +226,29 @@ async function bumpCounter(broadcastId: string, field: "count_sent" | "count_fai
 
 // Mark broadcasts with no remaining pending recipients as completed. 'sending' counts as pending —
 // a broadcast isn't done until every claimed recipient has settled (sent/failed).
+//
+// createBroadcast inserts the broadcast row ('running') and its recipient rows in two separate
+// writes. In the gap between them the broadcast has zero recipient rows, so a concurrent drain
+// (the minute cron, or another send's inline drain) calling this would see "no pending recipients"
+// and wrongly mark it completed — after which claim_broadcast_recipients (running-only) can never
+// claim the rows, stranding every recipient as 'queued'. Guard against it: a broadcast with zero
+// recipient rows isn't done, it's not populated yet, so skip it until its recipients exist.
 async function finalizeCompletedBroadcasts() {
   const supabase = getSupabaseAdmin();
   const { data: running } = await supabase.from("template_broadcasts").select("id").eq("status", "running");
   for (const b of (running ?? []) as { id: string }[]) {
-    const { count } = await supabase
+    const { count: total } = await supabase
+      .from("template_broadcast_recipients")
+      .select("id", { count: "exact", head: true })
+      .eq("broadcast_id", b.id);
+    if ((total ?? 0) === 0) continue; // recipients not enqueued yet — not finished, just unpopulated
+
+    const { count: pending } = await supabase
       .from("template_broadcast_recipients")
       .select("id", { count: "exact", head: true })
       .eq("broadcast_id", b.id)
       .in("send_status", ["queued", "sending"]);
-    if ((count ?? 0) === 0) {
+    if ((pending ?? 0) === 0) {
       await supabase.from("template_broadcasts").update({ status: "completed", finished_at: new Date().toISOString() }).eq("id", b.id);
     }
   }

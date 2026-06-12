@@ -57,6 +57,9 @@ src/lib/supabase/server.ts               — All Supabase operations
 src/lib/meta/whatsapp.ts                 — Meta Graph API calls + signature verification
 src/lib/whatsapp/send-template.ts        — Standardized template-send pipeline (resolve→validate→send→log) for all notifications
 src/lib/whatsapp/templates.ts            — Template descriptor + components builder + body preview
+src/lib/whatsapp/template-settings.ts    — Per-template friendly-name + active flag (get/upsert) for the send console
+src/app/api/admin/templates/settings/route.ts — PUT template friendly-name / active flag (admin/leadership)
+src/app/api/admin/templates/segments/route.ts — GET Niyaz reach-segment sizes (free/paid split) for the console header
 src/lib/escalation/notify.ts             — On-call escalation email + WhatsApp template notifications
 src/lib/escalation/activity.ts           — Escalation activity log (fire-and-forget)
 src/lib/escalation/sla.ts               — SLA config cache + deadline computation
@@ -83,10 +86,11 @@ src/lib/env.ts                           — Env var lookup with alias support
 public/templates/mumineen-roster-template.xlsx — Downloadable Mumineen roster import template
 supabase/migrations/                     — All database migrations
 src/app/api/relay-updates/route.ts       — Public relay updates JSON feed
-src/lib/rsvp/meal-rsvp.ts                — Per-mumin Niyaz RSVP (niyaz_rsvp): grids, family/individual set-cascade, tallies, daily-button recording
-src/lib/rsvp/niyaz-prompt.ts             — Daily RSVP-template audiences (ITS/mumineen/HOF/adults) + button payloads for the admin send
+src/lib/rsvp/meal-rsvp.ts                — Per-mumin Niyaz RSVP (niyaz_rsvp): grids, family/individual set-cascade, tallies (max/min), unregistered RSVP helpers, daily-button recording
+src/lib/rsvp/niyaz-prompt.ts             — Daily RSVP-template audiences (ITS/mumineen/HOF/adults) + button payloads + single-prompt creation for unregistered callers
 src/lib/feedback/record.ts               — Append-only feedback capture (area→department tagged)
-src/lib/whatsapp/audience.ts             — Send-console audience resolution + free/paid window split
+src/lib/whatsapp/audience.ts             — Send-console audience resolution + free/paid window split + roster-by-phone enrichment (resolveRosterByPhone) + Niyaz reach segments (segmentCounts, segment_* audiences)
+src/lib/whatsapp/audience-csv.ts         — Parse an uploaded audience CSV (export/failures format) into broadcast recipients (csv_upload)
 src/lib/whatsapp/broadcast.ts            — Throttled template broadcast engine (queue + drain; drainUntilEmpty + failure categorization)
 src/app/api/admin/templates/drain/route.ts  — Manual "Send pending" — bounded drain trigger (admin/leadership)
 src/app/api/admin/templates/broadcasts/[id]/failures/route.ts — Per-recipient broadcast failure list (JSON/CSV, admin/leadership)

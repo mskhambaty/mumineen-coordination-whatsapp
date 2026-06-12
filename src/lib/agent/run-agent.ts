@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 
 import { executeTool, toolDefinitionsFor } from "@/lib/agent/tools";
-import { SYSTEM_PROMPT, loadAgentSystemPrompt } from "@/lib/agent/prompts";
+import { SYSTEM_PROMPT, loadAgentSystemPrompt, loadRuleOverrides } from "@/lib/agent/prompts";
 import { AGENT_TEMPERATURE, AI_MODEL, AI_MODEL_HIGH, chatParams, getAIClient, MAX_AGENT_TOKENS, MAX_FINAL_TOKENS } from "@/lib/ai/model";
 import { isPersonalRuling, flagRulingQuestion, RULING_REFUSAL_REPLY } from "@/lib/agent/ruling-guard";
 import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
@@ -65,7 +65,8 @@ Before answering, route the question to the correct tool. Never answer event spe
 - get_site_content_faq → ANY event/logistics question: schedule, venue/directions, parking, hotels/accommodation/utaro, registration/ITS/raza, WiFi, bathrooms, medical/help desk, mawaid/food, dress code, what to bring, lost & found. ALWAYS call it before saying you don't know.
 - answer_religious_questions → anything about the Waaz/Vaaz, a specific majlis, the reflection, al-Dars, Iqtibasaat, or a majlis's Tazyeen/decoration.
 - get_lisan_word_meaning → the meaning of ONE Lisan ud Dawat word or short phrase ("what does X mean", "X ni maana", or a bare word).
-- move_to_escalation → a real active emergency, a frustrated user, a human hand-off, or a Waaz/deen question the reflections can't answer (category 'religious_followup').
+- create_issue → an operational/facility PROBLEM REPORT to fix: broken or missing shuttle, AC/heating not working, restroom/cleanliness issues, crowding, equipment failures. Log it with create_issue and reassure the user — do NOT use move_to_escalation for these (escalation is for emergencies, frustrated users, and human hand-offs, not facility fixes).
+- move_to_escalation → a real active emergency, a frustrated user, an EXPLICIT and specific request for a person (not a vague first-touch "can I talk to someone?" — for that, first ask what they need and try to help), or a Waaz/deen question the reflections can't answer (category 'religious_followup').
 - flag_knowledge_gap → silently log any informational question you could NOT answer (in addition to telling the user it's not available yet).
 - get_family_meal_rsvps / set_family_meal_rsvps → read or record a registered family's jaman (meal) RSVP.
 The detailed rules for each tool follow below.`;
@@ -192,7 +193,9 @@ Examples of ITS-level requests (not exhaustive):
 - Raza approval issues or raza status queries
 - Any request that requires changes in the central ITS system
 
-When a user asks about any of these, tell them warmly that this is something the local jamaat is unable to change, and direct them to contact the ITS Helpline directly: +91 98198 78653. Always include the number in your reply. Do NOT escalate to the local team for these — the local team cannot action ITS-level changes.`;
+When a user asks about any of these, tell them warmly that this is something the local jamaat is unable to change, and direct them to contact the ITS Helpline directly: +91 98198 78653. Always include the number in your reply. Do NOT escalate to the local team for these — the local team cannot action ITS-level changes.
+
+Special case — the person is NOT registered in ITS at all (no ITS number, or their ITS is not found/active) and needs help to get registered or resolved: do NOT simply send them away. Warmly acknowledge, capture their name and ITS number if they have one, and use move_to_escalation with category 'registration' and department 'ITS' — reason: a short neutral note that this is an unregistered-in-ITS case for the ITS team (Shabbir Bhai Mala) to assist with. Then reassure the user that the ITS team will follow up to help them. Do NOT share any individual's personal contact details in your reply.`;
 
 // Always-on: capture topics we couldn't answer so the team can publish FAQs.
 const KNOWLEDGE_GAP_RULE = `\n\n## Flag Knowledge Gaps
@@ -204,8 +207,31 @@ const KNOWLEDGE_GAP_RULE = `\n\n## Flag Knowledge Gaps
 // Always-on: jaman (meal) RSVP + experience feedback for the days of Ashara.
 const MEAL_RSVP_FEEDBACK_RULE = `\n\n## Jaman (Meal) RSVP & Feedback
 - We serve jaman each day of Ashara (Pehli Raat thaal, daily lunch thaals, and dinners) and track a Niyaz RSVP per person so the kitchen can prepare accurate counts. IMPORTANT: every registered family is ALREADY defaulted to attending, based on each person's arrival date — so you do NOT need to ask families to RSVP. Your job is only to record CHANGES.
-- When a registered user tells you they will NOT attend on some day(s) — e.g. "we won't be there on the 16th", "skip the dinners", "we're leaving on the 22nd" — record it with set_family_meal_rsvps using attending:false for those dates (optionally a meal). If they later say they WILL attend a day they'd cancelled, set attending:true for it. Changes apply to the WHOLE family. To show what's on file, use get_family_meal_rsvps. Always read back the change ("Got it — I've marked your family as not attending on the 16th. Correct?") before relying on it.
-- Parse natural phrasing into entries: "we won't be there the 16th and 17th" = {attending:false, dates:['2026-06-16','2026-06-17']}; "no dinners for us" = {attending:false, meal:'dinner', all:true}. Do not invent days outside the event range. If get_family_meal_rsvps returns no_family (the number isn't a registered family), do not discuss RSVP.
+- CRITICAL — "register / sign up for a jaman" is a MEAL RSVP, never event registration. "Pehli Raat", "1st/2nd/…/10th Moharram", "Ashura", "the lunches/dinners", "jaman", "niyaz", or a specific day/meal are all MEAL events. When a user says "register me for Pehli Raat", "sign up for the 1st Moharram jaman", "I'd like to register for Ashura", etc., treat it as a meal RSVP — call get_family_meal_rsvps (and set_family_meal_rsvps if they want a change). Do NOT route these to get_site_content_faq and do NOT give in-person event-registration instructions (come to the masjid, bring your ITS card, confirm accommodation). Those in-person instructions are ONLY for the one-time Ashara registration, never for a meal.
+- EXCEPTION — PIRSA (home niyaz / niyaz taken home, e.g. for health reasons) is NOT a meal RSVP and NOT an accommodation/utaro request. You cannot register anyone for pirsa and must never promise that you have. When a user asks for pirsa or to take niyaz home: warmly acknowledge, capture their ITS number and reason if offered, then use move_to_escalation (assign department 'Mawaid') so the Mawaid team can follow up based on availability. Do not send them to the utaro/accommodation form for pirsa.
+- CRITICAL — never tell an already-registered user to register again. If the Sender Context shows "Registration: submitted" (or "family of N"), the caller is already registered for Ashara. NEVER tell them to come to the masjid to register, bring their ITS card, or confirm accommodation to register — they are done. If they mention "registering" for a day/meal, go straight to their meal RSVP; if they ask about something else, help with that. The in-person registration FAQ is only for users who are NOT yet registered.
+- CRITICAL — ALWAYS call get_family_meal_rsvps BEFORE any set_family_meal_rsvps. You need the current grid (with each event's exact \`title\`, \`eventDate\`, and \`meal\`) to target the right event. NEVER call set on the strength of your own memory of which date an event falls on.
+- CRITICAL — NEVER translate a named jaman (e.g. "Pehli Raat", "2nd Moharram", "Ashura") into a date yourself. The hijri night runs ahead of the Gregorian day, so a dinner's date is usually NOT the day you'd guess (e.g. Pehli Raat dinner is Jun 14, "2nd Moharram" dinner is Jun 15). Instead, target the event by its \`titles\` — copy the title string EXACTLY from the grid and pass it in the entry's \`titles\` array along with \`meal\`; the server resolves it to the correct date. Only use \`dates\` when the user gave an explicit calendar date (e.g. "the 16th").
+- When a registered user tells you they will NOT attend on some event(s) — e.g. "we won't be there for Pehli Raat", "skip the dinners", "we're leaving after the 22nd" — record it with set_family_meal_rsvps using attending:false, targeting the event by \`titles\`+\`meal\` (for named jaman) or \`dates\` (for explicit calendar dates). If they later say they WILL attend an event they'd cancelled, set attending:true for it. Changes apply to the WHOLE family. To show what's on file, use get_family_meal_rsvps. Always read back the change ("Got it — I've marked your family as not attending Pehli Raat dinner. Correct?") before relying on it.
+- PARTIAL attendance: when only SOME family members will attend an event (e.g. "only 2 of us for Pehli Raat", "only 1 adult for the 8th Moharram dinner", "just the adults, no kids"), pass adults AND kids counts on the set_family_meal_rsvps call along with attending:true entries for those events. The system keeps the head of family first, then other adults, then kids, and marks the rest not-attending. CRITICAL — ALWAYS pass BOTH adults and kids explicitly: an unspecified category is treated as 0, so passing only adults:2 means "2 adults, 0 kids" (which is usually right) — but if the user actually means some kids too, you must include the kids count or the kids will be dropped. Example: "only me for the 8th Moharram dinner" from a 2-adult 1-kid family → {entries:[{attending:true, titles:['8th Moharram ul Haram'], meal:'dinner'}], adults:1, kids:0}.
+- When a user gives a BARE total with no adult/kid split (e.g. "only 2 of us will eat", "2 from my family for Pehli Raat"), you do NOT know the breakdown. Use \`familyMembers\` to see how many adults vs kids exist, then either (a) ask the user how many of the N are adults vs kids, or (b) if it's natural (e.g. the total equals the family's adult count), assume adults first and set kids accordingly — but state your assumption in the read-back ("I've marked 2 adults attending Pehli Raat — let me know if any of those should be children"). Never leave a category unspecified hoping it defaults correctly.
+- CRITICAL — FAMILY SIZE CAP (registered families): the response from get_family_meal_rsvps includes \`familyMembers\` (name, isAdult, isHead, notAttending for each roster member) and each grid row has \`total\` (family size). If the user says MORE people are attending than their family has (e.g. "6 of us" but the family has 2 members), you MUST refuse and NEVER call set_family_meal_rsvps with the inflated number. Instead: (1) tell them their family is registered with N members, (2) list the family member names from \`familyMembers\` so they can see who is covered, (3) note any members with notAttending=true as "not traveling", (4) explain that you can ONLY RSVP for the registered members — the additional people must message this number from their own phones to register and RSVP separately. Do NOT offer to "update to 6" or accept any count higher than the family size.
+- BACKSTOP — if you ever do call set_family_meal_rsvps with a count higher than the family, the system caps it and returns a \`clamped\` object on the response ({requestedAdults, requestedKids, maxAdults, maxKids, message}). When you see \`clamped\`, you MUST tell the user their RSVP was capped at their registered family size (maxAdults adults, maxKids kids) and that the extra people need to message this number from their own phones to register and RSVP separately — never report the inflated count back as if it was accepted.
+- Parse natural phrasing into entries: "no Pehli Raat for us" = {attending:false, titles:['Pehli Raat'], meal:'dinner'}; "we won't be there the 16th and 17th" (explicit calendar dates) = {attending:false, dates:['2026-06-16','2026-06-17']}; "no dinners for us" = {attending:false, meal:'dinner', all:true}. Do not invent days outside the event range.
+- AFTER confirming any RSVP change (or when an unregistered user's RSVP is recorded), ALWAYS call get_family_meal_rsvps and include a compact summary table of ALL upcoming events showing their current RSVP status. For registered families each grid row carries \`adults\` and \`kids\` (the attending counts) — show BOTH, never collapse kids into adults. Each row ALSO carries a \`dateLabel\` (e.g. "Mon, Jun 15") that already includes the weekday — start every row with it verbatim; do NOT compute the weekday yourself. Format it like:
+  📋 *Your RSVP summary:*
+  Day, Date | Meal | Status
+  Sun, Jun 14 dinner (Pehli Raat) | ✅ 2 adults, 2 kids
+  Mon, Jun 15 lunch | ✅ 2 adults, 2 kids
+  Mon, Jun 15 dinner | ✅ 2 adults, 2 kids
+  Tue, Jun 16 lunch | ❌ Not attending
+  …(all remaining dates)…
+  Use the row's \`dateLabel\` for the weekday+date, then the meal; "✅ {adults} adults, {kids} kids" from the grid row (drop the kids part only when kids is 0, e.g. "✅ 2 adults"); use "❌ Not attending" when the row's attending count is 0. For an unregistered caller there is no adult/kid split on the grid — use the adults/kids THEY told you, and take the weekday+date from each event's \`label\` field. This lets the user spot any inaccuracies and correct them in the same conversation. Keep it compact — one line per event, no extra commentary between rows.
+- If get_family_meal_rsvps returns status "unregistered", the caller's number is NOT linked to a registered family — but they can still RSVP. Their previous RSVPs (if any) are in the \`rsvps\` array, and the canonical event list (date, meal, title) is in the \`events\` array. Ask how many adults and kids will be attending, and optionally their ITS number so the committee can match them to a family later.
+- CRITICAL for unregistered callers — ALWAYS register them for ALL Ashara jaman, not just the event they mentioned. There are 20 jaman events across Ashara (Pehli Raat, daily lunches, daily dinners, Ashura) and the caller may not know about all of them. Even if they only say "Pehli Raat" or mention one day, opt them into EVERY event. Once you have their adults/kids count, call set_family_meal_rsvps with entries: [{attending:true, all:true}] (plus any specific exceptions they stated). In the confirmation say: "Shukran! I've registered you for Pehli Raat and all upcoming Ashara jaman (lunches and dinners through Ashura)." Then show the FULL grid of all 20 events so they can see what's coming up and tell you if any days need to change. Always include adults (and kids) and its_number on that call so every event row carries their head count.
+- For unregistered callers the canonical event list is in the \`events\` array (each with date, meal, title). Target named events by \`titles\`+\`meal\` exactly as for registered families — never compute dates yourself.
+- Example: caller says "2 adults, all days except no 2nd Moharram dinner and no 1st Moharram lunch" → entries: [{attending:true, all:true}, {attending:false, titles:['2nd Moharram ul Haram'], meal:'dinner'}, {attending:false, titles:['1st Moharram ul Haram'], meal:'lunch'}], adults:2. The server resolves each title to the correct date.
+- Let them know the committee may follow up, and encourage them to register their family at https://www.chicagorelaycenter.com/register — once registered their RSVP records will automatically be linked to their family.
 - When a user shares a complaint, compliment, or observation about the experience — jaman/mawaid, flow/crowd management, parking/transport, audio-video, accommodation, or seating/rahat — acknowledge it warmly. You do NOT need to log it: the team reviews the day's feedback automatically from the conversations. If it's an actionable problem or emergency, or if the user wants to talk to a person, use move_to_escalation so the support team can follow up.
 
 ### Inviting feedback naturally (do this lightly — never naggingly)
@@ -213,10 +239,9 @@ const MEAL_RSVP_FEEDBACK_RULE = `\n\n## Jaman (Meal) RSVP & Feedback
 - This opportunistic invite is allowed AT MOST ONCE per conversation. If you have already asked, or they already shared their experience, do NOT ask again — that is exactly the robotic repetition the Conversation Flow rule forbids. If the user then replies with only a content-free closing ("thanks", "all good", "nothing"), send ${NO_REPLY_TOKEN}.
 - If they respond with any feedback, acknowledge it warmly (no need to log it — it's reviewed automatically). Do NOT proactively quiz them about meal attendance — RSVP is already on file; only act when they themselves mention a change to their attendance.`;
 
-// Single source of truth for the always-on rule blocks appended to every system prompt.
-// runAgent() loops over this, and the admin Prompt page reads it (read-only) so the UI can
-// never drift from what's actually applied. These are code-managed (edited via deploy),
-// unlike the editable base prompt stored in `system_prompts`.
+// Default always-on rule blocks appended to every system prompt. Admins can override
+// individual rules via the Prompt page (stored in `system_prompts` as `rule_<NAME>`).
+// `loadResolvedRules()` merges DB overrides with these defaults at runtime.
 export type AlwaysOnRule = { name: string; label: string; text: string };
 export const ALWAYS_ON_RULES: AlwaysOnRule[] = [
   { name: "ESCALATION_POLICY", label: "Escalation Policy (last resort)", text: ESCALATION_POLICY },
@@ -234,6 +259,12 @@ export const ALWAYS_ON_RULES: AlwaysOnRule[] = [
   { name: "KNOWLEDGE_GAP_RULE", label: "Flag Knowledge Gaps", text: KNOWLEDGE_GAP_RULE },
   { name: "MEAL_RSVP_FEEDBACK_RULE", label: "Jaman (Meal) RSVP & Feedback", text: MEAL_RSVP_FEEDBACK_RULE },
 ];
+
+export async function loadResolvedRules(): Promise<AlwaysOnRule[]> {
+  const names = ALWAYS_ON_RULES.map((r) => r.name);
+  const overrides = await loadRuleOverrides(names);
+  return ALWAYS_ON_RULES.map((r) => (overrides[r.name] ? { ...r, text: overrides[r.name] } : r));
+}
 
 const DEPT_CACHE_TTL_MS = 5 * 60_000;
 let cachedDepartments: { list: Array<{ name: string; description: string | null }>; fetchedAt: number } | null = null;
@@ -319,20 +350,18 @@ export function buildSystemPrompt(params: {
   phoneE164: string;
   role: AppUser["role"];
   senderProfile?: SenderProfile | null;
+  resolvedRules?: AlwaysOnRule[];
 }): string {
   const { basePrompt, departmentSection, callerContext, phoneE164, role, senderProfile } = params;
 
   let systemContent = basePrompt;
 
-  // Global departments list (same for every user, 5-min cached). Lives in the
-  // static prefix and is needed at the first completion so move_to_escalation /
-  // create_task can route to a valid department.
   if (departmentSection) {
     systemContent += departmentSection;
   }
 
-  // Code-managed always-on rule blocks — identical for every user.
-  for (const rule of ALWAYS_ON_RULES) {
+  const rules = params.resolvedRules ?? ALWAYS_ON_RULES;
+  for (const rule of rules) {
     systemContent += rule.text;
   }
 
@@ -407,11 +436,12 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     ? Promise.resolve(input.callerContext)
     : resolveCallerFromPhone(input.phoneE164).catch(() => undefined);
 
-  const [callerContext, systemPromptText, departmentSection, senderProfile] = await Promise.all([
+  const [callerContext, systemPromptText, departmentSection, senderProfile, resolvedRules] = await Promise.all([
     callerPromise,
     loadAgentSystemPrompt(),
     loadDepartmentsForPrompt(),
     getSenderProfile(input.phoneE164).catch(() => null),
+    loadResolvedRules(),
   ]);
 
   const systemContent = buildSystemPrompt({
@@ -421,6 +451,7 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     phoneE164: input.phoneE164,
     role: input.user.role,
     senderProfile,
+    resolvedRules,
   });
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -479,6 +510,7 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   let escalationAck: string | null = null;
   let religiousDecision: string | null = null;
   let groundedYear: string | null = null;
+  let religiousWord: string | null = null;
   const sources = newSourceCollector();
 
   for (const toolCall of firstMessage.tool_calls) {
@@ -507,9 +539,10 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     }
 
     if (toolCall.function.name === "answer_religious_questions") {
-      const r = toolResult as { decision?: string; year?: string | null };
+      const r = toolResult as { decision?: string; year?: string | null; word?: string };
       religiousDecision = r.decision ?? null;
       groundedYear = r.year ?? null;
+      religiousWord = r.word ?? null;
     }
 
     collectSources(sources, toolCall.function.name, toolResult);
@@ -532,6 +565,8 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   // no improvisation). Only a grounded "answer" proceeds to the (constrained) final completion.
   if (religiousDecision === "not_found") return NOT_FOUND_REPLY;
   if (religiousDecision === "offer_last") return THIS_YEAR_OFFER_LAST;
+  // Word-meaning that was routed to the waaz tool → answer from the dictionary, deterministically.
+  if (religiousDecision === "word_lookup" && religiousWord) return renderLisanReply(await lookupLisanWord(religiousWord));
   if (religiousDecision === "answer") {
     messages.push({
       role: "system",

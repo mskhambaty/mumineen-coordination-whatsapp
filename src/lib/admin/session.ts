@@ -1,4 +1,5 @@
 import {
+  isAccommodationsMember,
   isDepartmentManager,
   isDepartmentMember,
   isEscalationSupportMember,
@@ -24,6 +25,7 @@ export type PortalSessionUser = {
   is_manager: boolean;
   is_it: boolean;
   is_transport: boolean;
+  is_accommodations: boolean;
   is_internal: boolean;
 };
 
@@ -33,8 +35,9 @@ export async function buildPortalSessionUser(user: PortalSessionSourceUser): Pro
     user.global_role === "pm" || user.global_role === "hod" || (await isDepartmentManager(user.id));
   const isIt = await isItMember(user.id);
   const isTransport = await isTransportMember(user.id);
+  const isAccommodations = await isAccommodationsMember(user.id);
   // Internal = assigned to any department (managers/IT are internal by definition).
-  const isInternal = isManager || isIt || isTransport || (await isDepartmentMember(user.id));
+  const isInternal = isManager || isIt || isTransport || isAccommodations || (await isDepartmentMember(user.id));
 
   return {
     id: user.id,
@@ -46,6 +49,7 @@ export async function buildPortalSessionUser(user: PortalSessionSourceUser): Pro
     is_manager: isManager,
     is_it: isIt,
     is_transport: isTransport,
+    is_accommodations: isAccommodations,
     is_internal: isInternal,
   };
 }

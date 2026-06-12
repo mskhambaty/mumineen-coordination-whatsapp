@@ -19,11 +19,16 @@ const Body = z.object({
   whatsapp_e164: z.string().max(20).nullable().optional(),
   email: z.string().max(200).nullable().optional(),
   jamaat: z.string().max(200).nullable().optional(),
+  // For a non-head add whose family doesn't exist yet: create the family (confirmed in the UI).
+  create_family: z.boolean().optional(),
 });
 
 // POST /api/admin/mumineen/create — manually add a single mumin to the roster.
-// If is_head=true, creates a new families row as well.
-// If is_head=false, hof_its is required and the family must already exist.
+// If is_head=true, attaches to the existing family for that ITS or creates one.
+// If is_head=false, hof_its is required. If no family row exists for that HoF yet
+// (e.g. the HoF isn't attending), the route returns 404 `family_missing` so the UI can
+// confirm, then re-POST with `create_family: true` to create the family (this member
+// becomes the computed acting head until the head — or an older member — is added).
 export async function POST(req: NextRequest) {
   const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
@@ -52,6 +57,7 @@ export async function POST(req: NextRequest) {
   }
 
   let familyId: string;
+  let createdFamily = false;
 
   if (body.is_head) {
     const { data: existingFam } = await supabase
@@ -60,32 +66,51 @@ export async function POST(req: NextRequest) {
       .eq("hof_its", body.its)
       .maybeSingle();
     if (existingFam) {
-      return NextResponse.json({ error: `A family row already exists for HoF ITS ${body.its}.` }, { status: 409 });
+      // The family already exists but its HoF wasn't in the roster (an acting head stood in).
+      // Attach the now-arriving HoF mumin to that existing family instead of rejecting.
+      familyId = existingFam.id;
+    } else {
+      const { data: newFam, error: famErr } = await supabase
+        .from("families")
+        .insert({ hof_its: body.its, roster_active: true, registration_status: "not_started" })
+        .select("id")
+        .single();
+      if (famErr || !newFam) {
+        return NextResponse.json({ error: famErr?.message ?? "Failed to create family row" }, { status: 500 });
+      }
+      familyId = newFam.id;
+      createdFamily = true;
     }
-
-    const { data: newFam, error: famErr } = await supabase
-      .from("families")
-      .insert({ hof_its: body.its, roster_active: true, registration_status: "not_started" })
-      .select("id")
-      .single();
-    if (famErr || !newFam) {
-      return NextResponse.json({ error: famErr?.message ?? "Failed to create family row" }, { status: 500 });
-    }
-    familyId = newFam.id;
   } else {
+    // Look for an existing family regardless of roster_active — an inactive HOF
+    // can still anchor an attending member.
     const { data: fam } = await supabase
       .from("families")
       .select("id")
       .eq("hof_its", hofIts)
-      .eq("roster_active", true)
       .maybeSingle();
-    if (!fam) {
+    if (fam) {
+      familyId = fam.id;
+    } else if (body.create_family) {
+      // No family yet for this HoF ITS (the head isn't in the roster). Create it — this member is
+      // the computed acting head until the head, or an older member, is added.
+      const { data: newFam, error: famErr } = await supabase
+        .from("families")
+        .insert({ hof_its: hofIts, roster_active: true, registration_status: "not_started" })
+        .select("id")
+        .single();
+      if (famErr || !newFam) {
+        return NextResponse.json({ error: famErr?.message ?? "Failed to create family row" }, { status: 500 });
+      }
+      familyId = newFam.id;
+      createdFamily = true;
+    } else {
+      // Signal the UI so it can offer to create the family (confirm-on-submit).
       return NextResponse.json(
-        { error: `No family found for HoF ITS ${hofIts}. Add the head of family first.` },
+        { error: `No family found for HoF ITS ${hofIts}.`, code: "family_missing" },
         { status: 404 },
       );
     }
-    familyId = fam.id;
   }
 
   const { data: newMumin, error: muminErr } = await supabase
@@ -110,8 +135,10 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (muminErr || !newMumin) {
-    if (body.is_head) {
-      await supabase.from("families").delete().eq("hof_its", body.its);
+    // Only roll back a family row we created here — never an existing one we attached to.
+    // Key on hofIts: that's the created family's hof_its for both the head and non-head paths.
+    if (createdFamily) {
+      await supabase.from("families").delete().eq("hof_its", hofIts);
     }
     return NextResponse.json({ error: muminErr?.message ?? "Failed to create mumin record" }, { status: 500 });
   }

@@ -3,7 +3,8 @@ import { z } from "zod";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
-import { AUDIENCE_KEYS, previewAudience } from "@/lib/whatsapp/audience";
+import { AUDIENCE_KEYS, enrichFieldsByPhone, previewAudience, previewExplicitRecipients, type AudiencePreview } from "@/lib/whatsapp/audience";
+import { parseAudienceCsv } from "@/lib/whatsapp/audience-csv";
 import { validateRules, type RuleGroup } from "@/lib/whatsapp/audience-filter";
 
 export const runtime = "nodejs";
@@ -12,12 +13,17 @@ const schema = z.object({
   audience_key: z.enum(AUDIENCE_KEYS),
   selected_user_ids: z.array(z.string().uuid()).optional(),
   rules: z.any().optional(),
+  csv: z.string().optional(), // raw CSV text for the "csv_upload" audience (audience-export format)
 });
 
 const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
 
 // POST /api/admin/templates/audience-export — full audience as a CSV download (the preview list is
 // capped, so this gives every matched recipient with basic details). Admin/leadership only.
+//
+// For csv_upload we export the *resolved* audience — the uploaded rows deduped by number, enriched
+// from the roster by phone (Name/ITS/… filled where blank), and labelled free/paid — which is what
+// will actually be messaged, not the raw file the user already has.
 export async function POST(req: NextRequest) {
   const auth = await requirePortalCaller(req, isAdminOrLeadership);
   if (auth instanceof NextResponse) return auth;
@@ -34,7 +40,18 @@ export async function POST(req: NextRequest) {
     if (err) return NextResponse.json({ error: err }, { status: 400 });
   }
 
-  const preview = await previewAudience(parsed.data.audience_key, parsed.data.selected_user_ids ?? [], rules);
+  let preview: AudiencePreview;
+  if (parsed.data.audience_key === "csv_upload") {
+    if (!parsed.data.csv) return NextResponse.json({ error: "Upload a CSV file first." }, { status: 400 });
+    const csv = parseAudienceCsv(parsed.data.csv);
+    if (csv.error) return NextResponse.json({ error: csv.error }, { status: 400 });
+    // Same enrichment the preview/send paths apply, so the export carries roster Name/ITS for rows
+    // that left them blank (CSV-provided values still win).
+    await enrichFieldsByPhone(csv.recipients);
+    preview = await previewExplicitRecipients(csv.recipients);
+  } else {
+    preview = await previewAudience(parsed.data.audience_key, parsed.data.selected_user_ids ?? [], rules);
+  }
 
   const header = ["Name", "ITS", "HOF ITS", "Jamaat", "City", "Gender", "Local/Mehman", "WhatsApp", "Window"];
   const lines = [header.map(esc).join(",")];

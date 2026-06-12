@@ -22,7 +22,7 @@ export const PURPOSE_LABELS: Record<string, string> = {
 
 // Known pass colors offered as suggestions in the lot editor. Plain text by design —
 // duplicates across lots are fine (passes also print lot name) and a 9th color may appear.
-export const SUGGESTED_COLORS = ["Blue", "Yellow", "Gold", "Green", "Orchid", "Pink", "Cream", "White"];
+export const SUGGESTED_COLORS = ["Blue", "Yellow", "Gold", "Green", "Orchid", "Pink", "Cream", "White", "Red"];
 
 export type RollupFamily = {
   id: string;

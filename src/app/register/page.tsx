@@ -563,12 +563,12 @@ export default function RegisterPage() {
                         {m.is_head ? "Head · " : ""}{m.gender ?? ""}{m.age != null ? ` · ${m.age}y` : ""}{m.is_adult ? " · adult" : ""}
                       </span>
                     </p>
-                    {!isLocal && (
-                      <label className="mt-2 flex items-center gap-2.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">
-                        <input type="checkbox" className="h-4 w-4 accent-rose-500" checked={m.not_attending} onChange={(e) => { setMember(m.its, { not_attending: e.target.checked }); if (e.target.checked) setErrorField(null); }} />
-                        Will not be attending
-                      </label>
-                    )}
+                    {/* Available to every family (local and mehman): a member may be on the roster
+                        but not attending. Their per-member details are skipped when this is checked. */}
+                    <label className="mt-2 flex items-center gap-2.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">
+                      <input type="checkbox" className="h-4 w-4 accent-rose-500" checked={m.not_attending} onChange={(e) => { setMember(m.its, { not_attending: e.target.checked }); if (e.target.checked) setErrorField(null); }} />
+                      Will not be attending
+                    </label>
                     {!m.not_attending && (
                       <>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
