@@ -196,7 +196,7 @@ export default function AnalyticsPage() {
                       <div key={day.date} className="flex min-w-0 flex-1 flex-col items-center gap-1">
                         <div className="flex h-44 w-full items-end rounded-sm bg-gray-100 dark:bg-gray-700">
                           <div
-                            className="w-full rounded-sm bg-green-500"
+                            className="w-full rounded-sm bg-blue-500"
                             title={`${day.date}: ${total} messages`}
                             style={{ height: `${Math.max(total === 0 ? 0 : 5, (total / maxDailyMessages) * 100)}%` }}
                           />
