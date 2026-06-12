@@ -89,7 +89,7 @@ export default function MatchCard({
   // ── Done state ─────────────────────────────────────────────────────────────
   if (state === "done") {
     return (
-      <div className="flex items-center gap-3 rounded-xl border border-green-800/60 bg-green-950/40 px-4 py-3 text-sm text-green-300">
+      <div className="flex items-center gap-3 rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800/60 dark:bg-green-950/40 dark:text-green-300">
         <span className="text-base">✓</span>
         <span>
           Linked{" "}
@@ -109,15 +109,15 @@ export default function MatchCard({
       <button
         type="button"
         onClick={() => setState("expanded")}
-        className="flex w-full items-center gap-3 rounded-xl border border-gray-700 bg-gray-900 px-4 py-3 text-left transition-colors hover:border-gray-600 hover:bg-gray-800/60"
+        className="flex w-full items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-left transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:hover:border-gray-600 dark:hover:bg-gray-800/60"
       >
         {/* ISS-N badge */}
-        <span className="shrink-0 rounded-md bg-blue-900/60 px-2 py-0.5 text-xs font-semibold text-blue-300 ring-1 ring-blue-700/50">
+        <span className="shrink-0 rounded-md bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700 ring-1 ring-blue-300 dark:bg-blue-900/60 dark:text-blue-300 dark:ring-blue-700/50">
           {issueBadge}
         </span>
 
         {/* Title */}
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-100">
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-900 dark:text-gray-100">
           {issueTitle}
         </span>
 
@@ -128,7 +128,7 @@ export default function MatchCard({
         </span>
 
         {/* Chevron */}
-        <span className="shrink-0 text-gray-500" aria-hidden>
+        <span className="shrink-0 text-gray-400 dark:text-gray-500" aria-hidden>
           ▸
         </span>
       </button>
@@ -137,28 +137,28 @@ export default function MatchCard({
 
   // ── Expanded state ─────────────────────────────────────────────────────────
   return (
-    <div className="rounded-xl border border-gray-700 bg-gray-900 shadow-sm">
+    <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
       {/* Header */}
       <button
         type="button"
         onClick={() => setState("collapsed")}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-800/40"
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/40"
       >
-        <span className="shrink-0 rounded-md bg-blue-900/60 px-2 py-0.5 text-xs font-semibold text-blue-300 ring-1 ring-blue-700/50">
+        <span className="shrink-0 rounded-md bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700 ring-1 ring-blue-300 dark:bg-blue-900/60 dark:text-blue-300 dark:ring-blue-700/50">
           {issueBadge}
         </span>
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-100">
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-900 dark:text-gray-100">
           {issueTitle}
         </span>
         <span className="shrink-0 text-xs text-gray-500">
           Already has {currentEscalationCount} linked · {selectedCount} new selected
         </span>
-        <span className="shrink-0 text-gray-500" aria-hidden>
+        <span className="shrink-0 text-gray-400 dark:text-gray-500" aria-hidden>
           ▾
         </span>
       </button>
 
-      <div className="border-t border-gray-700/60 px-4 pb-4 pt-3 space-y-3">
+      <div className="border-t border-gray-200 px-4 pb-4 pt-3 space-y-3 dark:border-gray-700/60">
         {/* Escalation list */}
         <ul className="space-y-2">
           {escalations.map((esc) => {
@@ -168,8 +168,8 @@ export default function MatchCard({
                 <label
                   className={`flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors ${
                     isChecked
-                      ? "border-gray-600 bg-gray-800/50"
-                      : "border-gray-700/50 bg-transparent opacity-40"
+                      ? "border-gray-300 bg-gray-50 dark:border-gray-600 dark:bg-gray-800/50"
+                      : "border-gray-200 bg-transparent opacity-40 dark:border-gray-700/50"
                   }`}
                 >
                   <input
@@ -181,7 +181,7 @@ export default function MatchCard({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-2">
                       <span
-                        className={`text-sm font-medium text-gray-100 ${
+                        className={`text-sm font-medium text-gray-900 dark:text-gray-100 ${
                           !isChecked ? "line-through" : ""
                         }`}
                       >
@@ -193,7 +193,7 @@ export default function MatchCard({
                     </div>
                     {esc.last_message_preview && (
                       <p
-                        className={`mt-0.5 truncate text-xs text-gray-400 ${
+                        className={`mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400 ${
                           !isChecked ? "line-through" : ""
                         }`}
                       >
@@ -208,8 +208,8 @@ export default function MatchCard({
         </ul>
 
         {/* AI reasoning box — blue-tinted */}
-        <div className="rounded-lg border border-blue-800/60 bg-blue-950/40 px-3 py-2.5">
-          <p className="text-xs text-blue-300">
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 dark:border-blue-800/60 dark:bg-blue-950/40">
+          <p className="text-xs text-blue-700 dark:text-blue-300">
             <span className="mr-1.5">🔗</span>
             {reasoning}
           </p>
@@ -217,7 +217,7 @@ export default function MatchCard({
 
         {/* Error */}
         {error && (
-          <p className="rounded-md border border-red-800/60 bg-red-950/40 px-3 py-2 text-xs text-red-300">
+          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800/60 dark:bg-red-950/40 dark:text-red-300">
             {error}
           </p>
         )}
@@ -228,7 +228,7 @@ export default function MatchCard({
             type="button"
             onClick={onDismiss}
             disabled={saving}
-            className="rounded-lg border border-gray-600 px-4 py-2 text-sm font-medium text-gray-300 transition-colors hover:border-gray-400 hover:text-gray-100 disabled:opacity-50"
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-500 transition-colors hover:border-gray-400 hover:text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:border-gray-400 dark:hover:text-gray-100"
           >
             Dismiss
           </button>

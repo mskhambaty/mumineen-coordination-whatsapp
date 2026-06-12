@@ -195,10 +195,10 @@ export default function AIGroupingModal({ onClose }: AIGroupingModalProps) {
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-gray-700 bg-gray-950 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-md dark:bg-black/60" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900">
       {/* Header */}
-      <header className="flex shrink-0 items-center gap-4 border-b border-gray-700 bg-gray-950 px-6 py-4">
+      <header className="flex shrink-0 items-center gap-4 border-b border-gray-200 bg-white px-6 py-4 dark:border-gray-700 dark:bg-gray-900">
         {/* Purple sparkle icon */}
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-purple-600 to-indigo-500">
           <svg
@@ -218,14 +218,14 @@ export default function AIGroupingModal({ onClose }: AIGroupingModalProps) {
         </div>
 
         <div className="min-w-0 flex-1">
-          <h2 className="text-base font-semibold text-gray-100">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
             AI Grouping Suggestions
           </h2>
-          <p className="text-xs text-gray-400">{getSubtitle()}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{getSubtitle()}</p>
         </div>
 
         {loadState === "loaded" && (
-          <span className="shrink-0 rounded-full border border-purple-700/50 bg-purple-900/40 px-2.5 py-0.5 text-[11px] font-medium text-purple-300">
+          <span className="shrink-0 rounded-full border border-purple-300 bg-purple-100 px-2.5 py-0.5 text-[11px] font-medium text-purple-700 dark:border-purple-700/50 dark:bg-purple-900/40 dark:text-purple-300">
             Analyzed just now
           </span>
         )}
@@ -233,7 +233,7 @@ export default function AIGroupingModal({ onClose }: AIGroupingModalProps) {
         <button
           type="button"
           onClick={onClose}
-          className="shrink-0 rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+          className="shrink-0 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
           aria-label="Close"
         >
           <svg
@@ -262,11 +262,11 @@ export default function AIGroupingModal({ onClose }: AIGroupingModalProps) {
             {[0, 1].map((i) => (
               <div
                 key={i}
-                className="animate-pulse rounded-xl border border-gray-800 bg-gray-900 px-4 py-4"
+                className="animate-pulse rounded-xl border border-gray-200 bg-gray-50 px-4 py-4 dark:border-gray-800 dark:bg-gray-900"
               >
-                <div className="mb-3 h-4 w-3/5 rounded bg-gray-800" />
-                <div className="mb-2 h-3 w-2/5 rounded bg-gray-800" />
-                <div className="h-3 w-4/5 rounded bg-gray-800" />
+                <div className="mb-3 h-4 w-3/5 rounded bg-gray-200 dark:bg-gray-800" />
+                <div className="mb-2 h-3 w-2/5 rounded bg-gray-200 dark:bg-gray-800" />
+                <div className="h-3 w-4/5 rounded bg-gray-200 dark:bg-gray-800" />
               </div>
             ))}
             {/* Spinner with text */}
@@ -291,7 +291,7 @@ export default function AIGroupingModal({ onClose }: AIGroupingModalProps) {
                   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                 />
               </svg>
-              <p className="text-sm text-gray-400">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 AI is analyzing escalation patterns and matching to existing issues...
               </p>
             </div>
@@ -301,7 +301,7 @@ export default function AIGroupingModal({ onClose }: AIGroupingModalProps) {
         {/* Empty state */}
         {loadState === "empty" && (
           <div className="flex flex-col items-center justify-center py-20">
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-900/40 ring-1 ring-emerald-700/50">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 ring-1 ring-emerald-300 dark:bg-emerald-900/40 dark:ring-emerald-700/50">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 20 20"
@@ -315,8 +315,8 @@ export default function AIGroupingModal({ onClose }: AIGroupingModalProps) {
                 />
               </svg>
             </div>
-            <h3 className="text-base font-semibold text-gray-200">All clear</h3>
-            <p className="mt-1 max-w-sm text-center text-sm text-gray-400">
+            <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200">All clear</h3>
+            <p className="mt-1 max-w-sm text-center text-sm text-gray-500 dark:text-gray-400">
               {data?.meta.ungrouped_count === 0
                 ? "There are no ungrouped escalations right now. New escalations will appear here as they come in."
                 : "AI could not identify any grouping patterns among the current ungrouped escalations. Try again later as more come in."}
@@ -327,7 +327,7 @@ export default function AIGroupingModal({ onClose }: AIGroupingModalProps) {
         {/* Error state */}
         {loadState === "error" && (
           <div className="flex flex-col items-center justify-center py-20">
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-900/40 ring-1 ring-red-700/50">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100 ring-1 ring-red-300 dark:bg-red-900/40 dark:ring-red-700/50">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 20 20"
@@ -341,16 +341,16 @@ export default function AIGroupingModal({ onClose }: AIGroupingModalProps) {
                 />
               </svg>
             </div>
-            <h3 className="text-base font-semibold text-gray-200">
+            <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200">
               Failed to load suggestions
             </h3>
-            <p className="mt-1 max-w-sm text-center text-sm text-red-400">
+            <p className="mt-1 max-w-sm text-center text-sm text-red-600 dark:text-red-400">
               {errorMsg}
             </p>
             <button
               type="button"
               onClick={() => void fetchSuggestions()}
-              className="mt-4 rounded-lg border border-gray-600 px-4 py-2 text-sm font-medium text-gray-300 transition-colors hover:border-gray-400 hover:text-gray-100"
+              className="mt-4 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:border-gray-400 dark:hover:text-gray-100"
             >
               Try Again
             </button>
@@ -364,10 +364,10 @@ export default function AIGroupingModal({ onClose }: AIGroupingModalProps) {
             {visibleClusters.length > 0 && (
               <section>
                 <div className="mb-3 flex items-center gap-2">
-                  <h3 className="text-sm font-semibold text-gray-200">
+                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
                     New Clusters
                   </h3>
-                  <span className="rounded-full bg-purple-900/60 px-2 py-0.5 text-[11px] font-medium text-purple-300 ring-1 ring-purple-700/50">
+                  <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-medium text-purple-700 ring-1 ring-purple-300 dark:bg-purple-900/60 dark:text-purple-300 dark:ring-purple-700/50">
                     {visibleClusters.length}
                   </span>
                 </div>
@@ -402,17 +402,17 @@ export default function AIGroupingModal({ onClose }: AIGroupingModalProps) {
 
             {/* Divider between sections */}
             {visibleClusters.length > 0 && visibleMatches.length > 0 && (
-              <hr className="border-gray-800" />
+              <hr className="border-gray-200 dark:border-gray-800" />
             )}
 
             {/* Link to Existing Issues section */}
             {visibleMatches.length > 0 && (
               <section>
                 <div className="mb-3 flex items-center gap-2">
-                  <h3 className="text-sm font-semibold text-gray-200">
+                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
                     Link to Existing Issues
                   </h3>
-                  <span className="rounded-full bg-blue-900/60 px-2 py-0.5 text-[11px] font-medium text-blue-300 ring-1 ring-blue-700/50">
+                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700 ring-1 ring-blue-300 dark:bg-blue-900/60 dark:text-blue-300 dark:ring-blue-700/50">
                     {visibleMatches.length}
                   </span>
                 </div>
@@ -445,7 +445,7 @@ export default function AIGroupingModal({ onClose }: AIGroupingModalProps) {
             {/* All dismissed state */}
             {totalSuggestions === 0 && (
               <div className="flex flex-col items-center justify-center py-12">
-                <p className="text-sm text-gray-400">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
                   All suggestions have been handled or dismissed.
                 </p>
               </div>
@@ -455,14 +455,14 @@ export default function AIGroupingModal({ onClose }: AIGroupingModalProps) {
       </div>
 
       {/* Footer */}
-      <footer className="flex shrink-0 items-center justify-between border-t border-gray-700 bg-gray-950 px-6 py-3">
+      <footer className="flex shrink-0 items-center justify-between border-t border-gray-200 bg-white px-6 py-3 dark:border-gray-700 dark:bg-gray-900">
         <p className="text-xs text-gray-500">
           Only showing ungrouped escalations with pending/picked_up status
         </p>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg border border-gray-600 px-4 py-2 text-sm font-medium text-gray-300 transition-colors hover:border-gray-400 hover:text-gray-100"
+          className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:border-gray-400 dark:hover:text-gray-100"
         >
           Close
         </button>
