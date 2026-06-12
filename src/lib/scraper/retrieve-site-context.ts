@@ -35,6 +35,7 @@ async function retrieveContext(
   topK: number,
   allowedCategories?: string[],
   allowedYear?: string | null,
+  minScore?: number,
 ): Promise<string> {
   const openai = getAIClient();
   const supabase = getSupabaseAdmin();
@@ -56,7 +57,10 @@ async function retrieveContext(
   const runMatch = (embedding: number[]) =>
     supabase.rpc(rpc, {
       query_embedding: JSON.stringify(embedding),
-      match_threshold: MATCH_THRESHOLD,
+      // A higher floor (minScore) is passed for the free-text RELIGIOUS fallback so a weak,
+      // tangential match (e.g. "Who is Shimar" → the sun majlis) returns nothing → "couldn't find
+      // it in the reflections", instead of a forced answer. Logistics stays at the base floor.
+      match_threshold: minScore ?? MATCH_THRESHOLD,
       match_count: matchCount,
     });
   const [rawRes, ctxRes] = await Promise.all([runMatch(rawEmb.data[0].embedding), runMatch(ctxEmb.data[0].embedding)]);
@@ -109,6 +113,11 @@ export async function retrieveReligiousContext(
   topK = 5,
   categories?: string[],
   year?: string | null,
+  minScore?: number,
 ): Promise<string> {
-  return retrieveContext("match_religious_content", RELIGIOUS_CONTEXT, query, topK, categories, year);
+  return retrieveContext("match_religious_content", RELIGIOUS_CONTEXT, query, topK, categories, year, minScore);
 }
+
+// Relevance floor for the free-text religious vector fallback (higher than the logistics base 0.3):
+// a weak/tangential match returns nothing rather than a forced answer from the nearest sermon.
+export const RELIGIOUS_FALLBACK_MIN_SCORE = 0.4;

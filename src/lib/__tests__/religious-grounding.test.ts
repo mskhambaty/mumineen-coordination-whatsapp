@@ -39,6 +39,7 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/scraper/retrieve-site-context", () => ({
   retrieveReligiousContext: (...a: unknown[]) => m.retrieve(...a),
   retrieveSiteContext: async () => "",
+  RELIGIOUS_FALLBACK_MIN_SCORE: 0.4,
 }));
 vi.mock("@/lib/knowledge/religious-topics", async (orig) => ({
   ...(await orig()),
