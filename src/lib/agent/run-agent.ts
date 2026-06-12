@@ -65,7 +65,8 @@ Before answering, route the question to the correct tool. Never answer event spe
 - get_site_content_faq → ANY event/logistics question: schedule, venue/directions, parking, hotels/accommodation/utaro, registration/ITS/raza, WiFi, bathrooms, medical/help desk, mawaid/food, dress code, what to bring, lost & found. ALWAYS call it before saying you don't know.
 - answer_religious_questions → anything about the Waaz/Vaaz, a specific majlis, the reflection, al-Dars, Iqtibasaat, or a majlis's Tazyeen/decoration.
 - get_lisan_word_meaning → the meaning of ONE Lisan ud Dawat word or short phrase ("what does X mean", "X ni maana", or a bare word).
-- move_to_escalation → a real active emergency, a frustrated user, a human hand-off, or a Waaz/deen question the reflections can't answer (category 'religious_followup').
+- create_issue → an operational/facility PROBLEM REPORT to fix: broken or missing shuttle, AC/heating not working, restroom/cleanliness issues, crowding, equipment failures. Log it with create_issue and reassure the user — do NOT use move_to_escalation for these (escalation is for emergencies, frustrated users, and human hand-offs, not facility fixes).
+- move_to_escalation → a real active emergency, a frustrated user, an EXPLICIT and specific request for a person (not a vague first-touch "can I talk to someone?" — for that, first ask what they need and try to help), or a Waaz/deen question the reflections can't answer (category 'religious_followup').
 - flag_knowledge_gap → silently log any informational question you could NOT answer (in addition to telling the user it's not available yet).
 - get_family_meal_rsvps / set_family_meal_rsvps → read or record a registered family's jaman (meal) RSVP.
 The detailed rules for each tool follow below.`;
