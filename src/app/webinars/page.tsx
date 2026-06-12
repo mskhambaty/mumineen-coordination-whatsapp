@@ -1,9 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
+import {
+  extractYouTubeId,
+  youtubeEmbedUrl,
+  youtubeThumbnailUrl,
+} from "@/lib/webinars/youtube";
 
 type Webinar = {
   id: string;
@@ -14,13 +19,6 @@ type Webinar = {
 };
 
 const SESSION_KEY = "webinars_verified";
-
-function extractYouTubeId(url: string): string | null {
-  const m = url.match(
-    /(?:youtube\.com\/watch\?(?:.*&)?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
-  );
-  return m ? m[1] : null;
-}
 
 // ─── ITS Gate ──────────────────────────────────────────────────────────────────
 
@@ -198,6 +196,111 @@ function AddModal({
   );
 }
 
+// ─── Video Card ──────────────────────────────────────────────────────────────
+
+function VideoCard({ webinar, onPlay }: { webinar: Webinar; onPlay: () => void }) {
+  const videoId = extractYouTubeId(webinar.youtube_url);
+  const [thumbError, setThumbError] = useState(false);
+
+  return (
+    <button
+      type="button"
+      onClick={onPlay}
+      className="group flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5 text-left transition hover:border-white/20 hover:bg-white/[0.07]"
+    >
+      <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-teal-950 to-gray-950">
+        {videoId && !thumbError ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={youtubeThumbnailUrl(videoId)}
+            alt=""
+            onError={() => setThumbError(true)}
+            className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <svg viewBox="0 0 24 24" fill="currentColor" className="h-10 w-10 text-white/20">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          </div>
+        )}
+        {/* Play badge */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="flex h-12 w-16 items-center justify-center rounded-xl bg-red-600 shadow-lg shadow-black/40 transition group-hover:scale-105">
+            <svg viewBox="0 0 24 24" fill="currentColor" className="h-6 w-6 text-white">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          </span>
+        </div>
+      </div>
+      <div className="flex flex-col gap-1 p-4">
+        <h3 className="text-sm font-semibold text-white">{webinar.title}</h3>
+        {webinar.description && (
+          <p className="line-clamp-2 text-xs leading-relaxed text-gray-400">
+            {webinar.description}
+          </p>
+        )}
+      </div>
+    </button>
+  );
+}
+
+// ─── Player Modal ──────────────────────────────────────────────────────────────
+
+function PlayerModal({ webinar, onClose }: { webinar: Webinar; onClose: () => void }) {
+  const videoId = extractYouTubeId(webinar.youtube_url);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-4xl overflow-hidden rounded-2xl border border-white/10 bg-gray-900 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-lg text-white/80 backdrop-blur transition hover:bg-black/80 hover:text-white"
+        >
+          ✕
+        </button>
+        <div className="aspect-video w-full bg-black">
+          {videoId ? (
+            <iframe
+              src={youtubeEmbedUrl(videoId)}
+              title={webinar.title}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+              allowFullScreen
+              className="h-full w-full"
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              <p className="text-sm text-gray-500">Invalid video URL</p>
+            </div>
+          )}
+        </div>
+        <div className="border-t border-white/5 px-5 py-3.5">
+          <p className="text-sm font-semibold text-white">{webinar.title}</p>
+          {webinar.description && (
+            <p className="mt-0.5 text-xs leading-relaxed text-gray-400">{webinar.description}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 type GateState = "checking" | "gate" | "open";
@@ -209,21 +312,11 @@ export default function WebinarsPage() {
 
   const [webinars, setWebinars] = useState<Webinar[]>([]);
   const [loadingWebinars, setLoadingWebinars] = useState(true);
-  const [activeIdx, setActiveIdx] = useState(0);
+  const [playing, setPlaying] = useState<Webinar | null>(null);
 
   const [showAdd, setShowAdd] = useState(false);
   const [showManage, setShowManage] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  // Refs so the postMessage handler can access latest values without stale closure
-  const activeIdxRef = useRef(0);
-  const webinarsRef = useRef<Webinar[]>([]);
-  useEffect(() => {
-    activeIdxRef.current = activeIdx;
-  }, [activeIdx]);
-  useEffect(() => {
-    webinarsRef.current = webinars;
-  }, [webinars]);
 
   // ── Session / admin check ────────────────────────────────────────────────────
   useEffect(() => {
@@ -250,32 +343,10 @@ export default function WebinarsPage() {
     if (gateState !== "open") return;
     apiFetch("/api/webinars")
       .then((r) => r.json())
-      .then((d) => {
-        setWebinars(d.webinars ?? []);
-        setActiveIdx(0);
-      })
+      .then((d) => setWebinars(d.webinars ?? []))
       .catch(() => null)
       .finally(() => setLoadingWebinars(false));
   }, [gateState]);
-
-  // ── Auto-advance on video end via YouTube postMessage ────────────────────────
-  // YouTube embeds with ?enablejsapi=1 fire onStateChange messages.
-  // State 0 = video ended; advance to next chip if one exists.
-  useEffect(() => {
-    function handler(e: MessageEvent) {
-      if (typeof e.data !== "string") return;
-      try {
-        const msg = JSON.parse(e.data) as { event?: string; info?: unknown };
-        if (msg.event === "onStateChange" && msg.info === 0) {
-          const cur = activeIdxRef.current;
-          const wbs = webinarsRef.current;
-          if (cur < wbs.length - 1) setActiveIdx(cur + 1);
-        }
-      } catch { /* ignore non-YT messages */ }
-    }
-    window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, []);
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
   function handleVerified(name: string | null) {
@@ -287,20 +358,13 @@ export default function WebinarsPage() {
     if (!confirm("Remove this webinar? It will no longer be accessible.")) return;
     setDeletingId(id);
     await apiFetch(`/api/webinars/${id}`, { method: "DELETE" });
-    setWebinars((prev) => {
-      const next = prev.filter((w) => w.id !== id);
-      setActiveIdx((i) => Math.min(i, Math.max(0, next.length - 1)));
-      return next;
-    });
+    setWebinars((prev) => prev.filter((w) => w.id !== id));
     setDeletingId(null);
   }
 
   // ── Render ────────────────────────────────────────────────────────────────────
   if (gateState === "checking") return null;
   if (gateState === "gate") return <ItsGate onVerified={handleVerified} />;
-
-  const activeWebinar = webinars[activeIdx] ?? null;
-  const activeVideoId = activeWebinar ? extractYouTubeId(activeWebinar.youtube_url) : null;
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-950 text-white">
@@ -392,33 +456,8 @@ export default function WebinarsPage() {
         </div>
       )}
 
-      {/* ── Chip row ── */}
-      {!loadingWebinars && webinars.length > 0 && (
-        <div className="flex-shrink-0 border-b border-white/5 bg-black/30 px-4 py-3">
-          <div
-            className="flex gap-2 overflow-x-auto pb-0.5"
-            style={{ scrollbarWidth: "none" }}
-          >
-            {webinars.map((w, i) => (
-              <button
-                key={w.id}
-                type="button"
-                onClick={() => setActiveIdx(i)}
-                className={`flex-shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-all ${
-                  i === activeIdx
-                    ? "bg-blue-600 text-white shadow-lg shadow-blue-950/60 ring-1 ring-blue-500/50"
-                    : "bg-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-200"
-                }`}
-              >
-                {w.title}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Video area ── */}
-      <div className="relative min-h-0 flex-1 bg-black">
+      {/* ── Grid ── */}
+      <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
         {loadingWebinars ? (
           <div className="flex h-full items-center justify-center">
             <div className="h-7 w-7 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
@@ -443,43 +482,23 @@ export default function WebinarsPage() {
               )}
             </div>
           </div>
-        ) : activeVideoId ? (
-          <iframe
-            key={activeVideoId}
-            src={`https://www.youtube.com/embed/${activeVideoId}?enablejsapi=1&rel=0&modestbranding=1&playsinline=1`}
-            title={activeWebinar?.title ?? "Webinar"}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-            allowFullScreen
-            className="absolute inset-0 h-full w-full"
-          />
         ) : (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-gray-500">Invalid video URL</p>
+          <div className="mx-auto grid max-w-6xl grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {webinars.map((w) => (
+              <VideoCard key={w.id} webinar={w} onPlay={() => setPlaying(w)} />
+            ))}
           </div>
         )}
-      </div>
+      </main>
 
-      {/* ── Description bar ── */}
-      {!loadingWebinars && activeWebinar?.description && (
-        <div className="flex-shrink-0 border-t border-white/5 bg-black/50 px-5 py-2.5">
-          <p className="text-xs text-gray-400">
-            <span className="mr-2 font-medium text-gray-300">{activeWebinar.title}</span>
-            {activeWebinar.description}
-          </p>
-        </div>
-      )}
+      {/* ── Player modal ── */}
+      {playing && <PlayerModal webinar={playing} onClose={() => setPlaying(null)} />}
 
       {/* ── Add modal ── */}
       {showAdd && (
         <AddModal
           onClose={() => setShowAdd(false)}
-          onAdded={(w) => {
-            setWebinars((prev) => {
-              const next = [...prev, w];
-              setActiveIdx(next.length - 1);
-              return next;
-            });
-          }}
+          onAdded={(w) => setWebinars((prev) => [...prev, w])}
         />
       )}
     </div>
