@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { AI_MODEL, AI_MODEL_HIGH } from "@/lib/ai/model";
 import { requireAdminKey } from "@/lib/api/auth";
 import { runAgent } from "@/lib/agent/run-agent";
 import type { AppUser } from "@/lib/permissions";
@@ -50,7 +51,11 @@ export async function POST(req: NextRequest) {
       { user, phoneE164: phone, message },
       { toolCalls, toolResults, stubSideEffects: true },
     );
-    return NextResponse.json({ reply, tool_calls: toolCalls, ...(debug ? { tool_results: toolResults } : {}) });
+    return NextResponse.json({
+      reply,
+      tool_calls: toolCalls,
+      ...(debug ? { tool_results: toolResults, model: AI_MODEL, model_high: AI_MODEL_HIGH } : {}),
+    });
   } catch (err) {
     const messageText = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: messageText, tool_calls: toolCalls }, { status: 500 });
