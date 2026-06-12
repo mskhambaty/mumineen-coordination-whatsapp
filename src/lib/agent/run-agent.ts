@@ -417,8 +417,9 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     const sw = maybeSingleWordQuery(input.message);
     if (sw) {
       const lookup = await lookupLisanWord(sw.word);
-      // Latin bare token that isn't in the dictionary (e.g. a logistics term) falls through.
-      if (lookup.status !== "not_found" || sw.forceAnswer) return renderLisanReply(lookup);
+      // Latin bare token: only an EXACT dictionary hit replies. did_you_mean suggestions for a
+      // non-dictionary word (e.g. "No..", "flask") confused real users — fall through instead.
+      if (lookup.status === "ok" || sw.forceAnswer) return renderLisanReply(lookup);
     }
   }
 
