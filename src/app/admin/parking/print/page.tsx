@@ -10,10 +10,10 @@ type Pass = { id: string; hof_its: string; head_name: string; phone: string | nu
 type Lot = { id: string; name: string; color: string | null };
 
 const ENTRY_ZONES: Record<string, { label: string; direction: string; textColor: string; bannerBg: string; bannerText: string; bannerBorder?: string }> = {
-  red:   { label: "RED",   direction: "Enter from Hillside Ln.",         textColor: "#cc0000", bannerBg: "#dc2626", bannerText: "#fff" },
-  blue:  { label: "BLUE",  direction: "Enter from 91st St.",             textColor: "#1d4ed8", bannerBg: "#2563eb", bannerText: "#fff" },
-  white: { label: "WHITE", direction: "Enter from Kingery Hwy (Rt. 83)", textColor: "#374151", bannerBg: "#d1d5db", bannerText: "#111", bannerBorder: "2px solid #9ca3af" },
-  gold:  { label: "GOLD",  direction: "Enter from Kingery Hwy (Rt. 83)", textColor: "#92400e", bannerBg: "#d4a017", bannerText: "#111" },
+  red:   { label: "RED",   direction: "Enter from Hillside Ln.",         textColor: "#111", bannerBg: "#fff", bannerText: "#111", bannerBorder: "2px solid #222" },
+  blue:  { label: "BLUE",  direction: "Enter from 91st St.",             textColor: "#111", bannerBg: "#fff", bannerText: "#111", bannerBorder: "2px solid #222" },
+  white: { label: "WHITE", direction: "Enter from Kingery Hwy (Rt. 83)", textColor: "#111", bannerBg: "#fff", bannerText: "#111", bannerBorder: "2px solid #222" },
+  gold:  { label: "GOLD",  direction: "Enter from Kingery Hwy (Rt. 83)", textColor: "#111", bannerBg: "#fff", bannerText: "#111", bannerBorder: "2px solid #222" },
 };
 
 function zoneInfo(color: string | null) {
