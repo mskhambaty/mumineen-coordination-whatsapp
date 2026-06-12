@@ -157,8 +157,9 @@ export async function GET(req: NextRequest) {
       .select("phone_e164, body, created_at")
       .in("phone_e164", phones)
       .eq("direction", "inbound")
+      .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
       .order("created_at", { ascending: false })
-      .limit(phones.length * 5),
+      .limit(phones.length * 10),
   ]);
 
   if (linksResult.error) {
@@ -177,11 +178,14 @@ export async function GET(req: NextRequest) {
     linkCountMap.set(link.issue_id, (linkCountMap.get(link.issue_id) ?? 0) + 1);
   }
 
-  // Build last-inbound-message map per phone
-  const lastMsgMap = new Map<string, string>();
+  // Build recent-inbound-messages map per phone (up to 3 most recent, within 24h)
+  const recentMsgsMap = new Map<string, string[]>();
   for (const msg of lastMessages as Array<{ phone_e164: string; body: string | null }>) {
-    if (!lastMsgMap.has(msg.phone_e164) && msg.body) {
-      lastMsgMap.set(msg.phone_e164, msg.body.slice(0, 200));
+    if (!msg.body) continue;
+    const existing = recentMsgsMap.get(msg.phone_e164) ?? [];
+    if (existing.length < 3) {
+      existing.push(msg.body.slice(0, 150));
+      recentMsgsMap.set(msg.phone_e164, existing);
     }
   }
 
@@ -211,8 +215,9 @@ export async function GET(req: NextRequest) {
     .map((s, idx) => {
       const user = Array.isArray(s.user) ? s.user[0] : s.user;
       const displayName = (user as { display_name: string | null } | null)?.display_name ?? "Unknown";
-      const preview = lastMsgMap.get(s.phone_e164 as string) ?? "(no message)";
-      return `${idx + 1}. [${s.id}] ${displayName} | Reason: ${s.escalation_reason ?? "N/A"} | Category: ${(s as Record<string, unknown>).escalation_category ?? "N/A"} | Priority: ${(s as Record<string, unknown>).escalation_priority ?? "normal"} | Last msg: ${preview.slice(0, 120)}`;
+      const msgs = recentMsgsMap.get(s.phone_e164 as string) ?? [];
+      const msgsText = msgs.length > 0 ? msgs.map((m) => `"${m}"`).join(" → ") : "(no recent messages)";
+      return `${idx + 1}. [${s.id}] ${displayName} | Reason: ${s.escalation_reason ?? "N/A"} | Category: ${(s as Record<string, unknown>).escalation_category ?? "N/A"} | Priority: ${(s as Record<string, unknown>).escalation_priority ?? "normal"} | Recent messages: ${msgsText}`;
     })
     .join("\n");
 
@@ -294,7 +299,7 @@ Rules:
         display_name: s.display_name,
         escalation_reason: s.escalation_reason,
         escalated_at: s.escalated_at,
-        last_message_preview: lastMsgMap.get(s.phone_e164) ?? null,
+        last_message_preview: recentMsgsMap.get(s.phone_e164)?.[0] ?? null,
       };
     };
 
