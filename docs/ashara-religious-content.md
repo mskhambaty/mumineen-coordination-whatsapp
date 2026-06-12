@@ -129,9 +129,19 @@ This reuses the existing escalation queue (`POST /api/escalations` → `conversa
   "thanks" still yields the no-reply token.
 - **Formatting:** WhatsApp markup (single-asterisk bold, underscore italics for transliterations,
   bullet/numbered lists), reverent tone, honorifics (SA/AS/TUS/RA), no emojis.
-- **Citations:** every answer ends with a plain `Source: <title> — <url>` line, enforced
-  server-side by `collectSources` / `ensureSourcesCited`. blogs.jameasaifiyah.edu reflection /
-  tazyeen links are a permitted exception to the "official site only" URL rule.
+- **Citations (at most ONE source line):** finalized server-side by `collectSources` →
+  `finalizeSources` (`run-agent.ts`), from the tool-result provenance, never the model's free text.
+  Rules: a **single-majlis** answer keeps its precise `Source: <title> — <url>` line; an answer
+  spanning **≥ `SOURCE_COLLAPSE_THRESHOLD` (2)** distinct majalis collapses to **one** year-archive
+  link — `Source: Ashara <year>H reflections — <reflectionsArchiveUrl(year)>`
+  (`https://blogs.jameasaifiyah.edu/reflection-category/{year}h/`); the archive URL is resolved via
+  `resolveArchiveUrl(year)` (overview row's `source_url` → derived per-year index → `/ashara-mubaraka/`),
+  falling back to the single best per-majlis link if unresolved — never a stack. Grouping is by
+  **majlis** (`distinctSourceGroups`), so two facets of the same majlis (reflection + al-Dars) stay
+  one precise link. Any model-emitted `Source:` lines are stripped first (no double-cite). **No
+  source line at all** on a hand-off / "can't find it" reply (`looksLikeHandoff`) or a terminal
+  non-answer decision. blogs.jameasaifiyah.edu links are a permitted exception to the
+  "official site only" URL rule.
 
 Prompt changes here must be validated on the Ollama A/B page before shipping
 (see [ollama-ab-testing.md](./ollama-ab-testing.md) and AGENTS.md §6).

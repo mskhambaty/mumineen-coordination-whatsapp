@@ -137,6 +137,35 @@ describe("runAgent — religious grounding guard", () => {
     expect(reply).not.toMatch(/Saturn|Jupiter|Majlis \d/); // no placeholder theme content leaked
   });
 
+  it("T13: a cross-majlis answer collapses multiple sources to ONE archive link", async () => {
+    const ctx =
+      "[Reflections — Ashara 1447H, Majlis 8 (9th Muharram) — Source: https://x/m8]\nMarriage was urged.\n\n---\n\n" +
+      "[Reflections — Ashara 1447H, Majlis 7 (8th Muharram) — Source: https://x/m7]\nConnection with Wali Allah.\n\n---\n\n" +
+      "[Reflections — Ashara 1447H, Majlis 4 (5th Muharram) — Source: https://x/m4]\nSaʿaadat.";
+    m.history = [{ direction: "inbound", body: "what do the reflections say about marriage" }];
+    m.retrieve.mockResolvedValue(ctx);
+    createQueue = [
+      toolCall("marriage reflections"),
+      content("In *Ashara 1447H*, marriage was discussed across Majlis 4, 7 and 8."),
+    ];
+    const reply = await run("what do the reflections say about marriage");
+    expect((reply.match(/Source:/g) ?? []).length).toBe(1); // collapsed, not 3 lines
+    expect(reply).toContain("reflection-category/1447h"); // the year archive link
+    expect(reply).not.toContain("https://x/m8");
+  });
+
+  it("T14: model improvises a hand-off on the answer path → no sources stapled", async () => {
+    const ctx = "[Reflections — Ashara 1447H, Majlis 6 (7th Muharram) — Source: https://x/m6]\nGuard against intoxicants.";
+    m.history = [{ direction: "inbound", body: "ek roza ni kaffaarat kitni che" }];
+    m.retrieve.mockResolvedValue(ctx);
+    createQueue = [
+      toolCall("roza kaffaarat"),
+      content("To help with that properly, I need to pass it to the team for religious follow-up."),
+    ];
+    const reply = await run("ek roza ni kaffaarat kitni che");
+    expect(reply).not.toContain("Source:");
+  });
+
   it("T8: a greeting still gets a normal (non-refusal) reply", async () => {
     m.history = [{ direction: "inbound", body: "Salaam un Jameel" }];
     createQueue = [content("Salaam un Jameel! How can I help with Ashara Mubaraka?")];

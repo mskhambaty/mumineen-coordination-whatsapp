@@ -1,5 +1,5 @@
 import { AI_MODEL, chatParams, getAIClient } from "@/lib/ai/model";
-import { DEFAULT_ACTIVE_YEAR, majlisLabel } from "@/lib/knowledge/ashara-config";
+import { ASHARA_CATEGORY_PAGE, DEFAULT_ACTIVE_YEAR, majlisLabel, reflectionsArchiveUrl } from "@/lib/knowledge/ashara-config";
 import { deleteReligiousContent, indexReligiousTopic, type ReligiousMeta } from "@/lib/knowledge/index-content";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -302,6 +302,21 @@ export async function getOverviewBlock(year: string): Promise<MajlisHit | null> 
   const t = data as (MajlisHit & { year_hijri: string | null }) | null;
   if (!t || !(t.content ?? "").trim()) return null;
   return { title: t.title, content: t.content, source_url: t.source_url ?? null, theme: t.theme ?? null, year_hijri: t.year_hijri ?? null };
+}
+
+// Resolve the single archive link for a year, used when a multi-majlis answer collapses its
+// citations. Order: the overview row's curated source_url (so the team can pin an exact URL
+// without a code change) → the derived per-year reflections index → the Ashara landing page.
+// Never throws — a DB hiccup falls back to the derived link.
+export async function resolveArchiveUrl(year: string | null): Promise<string> {
+  if (!year) return ASHARA_CATEGORY_PAGE;
+  try {
+    const block = await getOverviewBlock(year);
+    if (block?.source_url?.trim()) return block.source_url.trim();
+  } catch {
+    // fall through to the derived link
+  }
+  return reflectionsArchiveUrl(year);
 }
 
 // "Deep" intent: the user explicitly wants more than the headline.

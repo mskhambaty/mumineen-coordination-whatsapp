@@ -119,6 +119,20 @@ export function topicTitle(categoryLabel: string, year: string, majlisNumber: nu
   return `${categoryLabel} — Ashara ${year}H, ${majlisLabel(majlisNumber, isAshura)}`;
 }
 
+// --- Source-citation collapse ---------------------------------------------------------------
+// When one religious answer draws on this many DISTINCT majlis/articles, the per-majlis links
+// are collapsed into a single year-archive link instead of stacking 3–5 "Source:" lines.
+export const SOURCE_COLLAPSE_THRESHOLD = 2;
+
+// The blog's per-year reflections index (verified live, e.g. 1447H lists every majlis). `year`
+// is the 4-digit Hijri year. This is the link a collapsed multi-majlis citation points to.
+export function reflectionsArchiveUrl(year: string): string {
+  return `https://blogs.jameasaifiyah.edu/reflection-category/${year}h/`;
+}
+
+// Stable Ashara Mubaraka landing page — the no-year fallback when the year is unknown.
+export const ASHARA_CATEGORY_PAGE = "https://blogs.jameasaifiyah.edu/ashara-mubaraka/";
+
 // New English slots await content; Lisan slots await a human translation.
 export function defaultStatus(language: ReligiousLanguage): ReligiousStatus {
   return language === "lisan" ? "pending_translation" : "placeholder";
