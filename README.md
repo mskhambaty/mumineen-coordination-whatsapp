@@ -1,4 +1,4 @@
-# Anjuman e Saifee WhatsApp Assistant
+# Anjuman e Saifee WhatsApp Assistant for Ashara Mubaraka 1448H Chciago Relay
 
 WhatsApp-only Next.js backend for Anjuman e Saifee Chicago Ashara Mubarak 1447H coordination.
 
