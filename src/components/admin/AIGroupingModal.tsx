@@ -196,9 +196,10 @@ export default function AIGroupingModal({ onClose }: AIGroupingModalProps) {
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-gray-950/95 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-gray-700 bg-gray-950 shadow-2xl">
       {/* Header */}
-      <header className="sticky top-0 z-10 flex shrink-0 items-center gap-4 border-b border-gray-800 bg-gray-950/80 px-6 py-4 backdrop-blur">
+      <header className="flex shrink-0 items-center gap-4 border-b border-gray-700 bg-gray-950 px-6 py-4">
         {/* Purple sparkle icon */}
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-purple-600 to-indigo-500">
           <svg
@@ -455,7 +456,7 @@ export default function AIGroupingModal({ onClose }: AIGroupingModalProps) {
       </div>
 
       {/* Footer */}
-      <footer className="flex shrink-0 items-center justify-between border-t border-gray-800 bg-gray-950/80 px-6 py-3 backdrop-blur">
+      <footer className="flex shrink-0 items-center justify-between border-t border-gray-700 bg-gray-950 px-6 py-3">
         <p className="text-xs text-gray-500">
           Only showing ungrouped escalations with pending/picked_up status
         </p>
@@ -467,6 +468,7 @@ export default function AIGroupingModal({ onClose }: AIGroupingModalProps) {
           Close
         </button>
       </footer>
+      </div>
     </div>
   );
 }
