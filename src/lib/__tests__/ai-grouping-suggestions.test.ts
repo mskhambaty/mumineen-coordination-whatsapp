@@ -20,7 +20,7 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/ai/model", () => ({
   AI_MODEL: "test-model",
   PARSE_TEMPERATURE: 0.1,
-  MAX_AGENT_TOKENS: 1024,
+  MAX_PARSE_TOKENS: 4096,
   getAIClient: () => ({ chat: { completions: { create: aiCreate } } }),
   chatParams: (model: string, opts: Record<string, unknown>) => ({
     model,

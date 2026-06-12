@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { canAccessInbox } from "@/lib/admin/access";
 import {
   AI_MODEL,
-  MAX_AGENT_TOKENS,
+  MAX_PARSE_TOKENS,
   PARSE_TEMPERATURE,
   chatParams,
   getAIClient,
@@ -119,10 +119,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(empty);
   }
 
-  // 2. Fetch open issues, departments, escalation link counts, and last messages — in parallel
+  // 2. Round 1 — fetch sessions' context + open issues + departments in parallel
   const phones = ungrouped.map((s) => s.phone_e164 as string);
 
-  const [issuesResult, deptsResult, linksResult, msgsResult] = await Promise.all([
+  const [issuesResult, deptsResult] = await Promise.all([
     supabase
       .from("issues")
       .select("id, issue_number, title, description, status, priority, department:departments(name)")
@@ -130,7 +130,28 @@ export async function GET(req: NextRequest) {
       .order("created_at", { ascending: false })
       .limit(MAX_OPEN_ISSUES),
     supabase.from("departments").select("id, name"),
-    supabase.from("issue_escalation_links").select("issue_id"),
+  ]);
+
+  if (issuesResult.error) {
+    console.error("[issue-suggestions] issues fetch failed:", issuesResult.error.message);
+  }
+  if (deptsResult.error) {
+    console.error("[issue-suggestions] departments fetch failed:", deptsResult.error.message);
+  }
+
+  const openIssues = issuesResult.data ?? [];
+  const departments = deptsResult.data ?? [];
+
+  // 2b. Round 2 — fetch links scoped to open issue IDs + last messages scoped to session phones
+  const openIssueIds = openIssues.map((i) => i.id as string);
+
+  const [linksResult, msgsResult] = await Promise.all([
+    openIssueIds.length > 0
+      ? supabase
+          .from("issue_escalation_links")
+          .select("issue_id")
+          .in("issue_id", openIssueIds)
+      : Promise.resolve({ data: [] as { issue_id: string }[], error: null }),
     supabase
       .from("messages")
       .select("phone_e164, body, created_at")
@@ -140,8 +161,13 @@ export async function GET(req: NextRequest) {
       .limit(phones.length * 5),
   ]);
 
-  const openIssues = issuesResult.data ?? [];
-  const departments = deptsResult.data ?? [];
+  if (linksResult.error) {
+    console.error("[issue-suggestions] links fetch failed:", linksResult.error.message);
+  }
+  if (msgsResult.error) {
+    console.error("[issue-suggestions] messages fetch failed:", msgsResult.error.message);
+  }
+
   const links = linksResult.data ?? [];
   const lastMessages = msgsResult.data ?? [];
 
@@ -247,7 +273,7 @@ Rules:
   try {
     const ai = getAIClient();
     const resp = await ai.chat.completions.create({
-      ...chatParams(AI_MODEL, { maxTokens: MAX_AGENT_TOKENS, temperature: PARSE_TEMPERATURE }),
+      ...chatParams(AI_MODEL, { maxTokens: MAX_PARSE_TOKENS, temperature: PARSE_TEMPERATURE }),
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt },
@@ -289,23 +315,27 @@ Rules:
       .filter((c) => c.escalations.length >= 2);
 
     const existingMatches: ExistingIssueMatch[] = (parsed.existing_issue_matches ?? [])
-      .map((m) => {
+      .flatMap((m) => {
         const issue = openIssues.find((i) => i.id === m.issue_id);
-        const dept = issue ? (Array.isArray(issue.department) ? issue.department[0] : issue.department) : null;
-        return {
-          issue_id: m.issue_id,
-          issue_number: (issue?.issue_number as number) ?? 0,
-          issue_title: (issue?.title as string) ?? "Unknown",
-          issue_status: (issue?.status as string) ?? "open",
-          current_escalation_count: linkCountMap.get(m.issue_id) ?? 0,
-          reasoning: m.reasoning,
-          escalations: (m.escalation_ids ?? [])
-            .map(hydrateEscalation)
-            .filter((e): e is EscalationDetail => e !== null),
-        };
-      })
-      // A match needs at least 1 valid escalation to be meaningful
-      .filter((m) => m.escalations.length >= 1);
+        // Skip if the AI returned an issue_id not in our open issues window
+        if (!issue) return [];
+        const escalations = (m.escalation_ids ?? [])
+          .map(hydrateEscalation)
+          .filter((e): e is EscalationDetail => e !== null);
+        // A match needs at least 1 valid escalation to be meaningful
+        if (escalations.length < 1) return [];
+        return [
+          {
+            issue_id: m.issue_id,
+            issue_number: issue.issue_number as number,
+            issue_title: issue.title as string,
+            issue_status: issue.status as string,
+            current_escalation_count: linkCountMap.get(m.issue_id) ?? 0,
+            reasoning: m.reasoning,
+            escalations,
+          },
+        ];
+      });
 
     const result: SuggestionsResponse = {
       new_clusters: newClusters,
