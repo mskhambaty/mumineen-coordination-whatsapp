@@ -7,6 +7,17 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 export const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 const PRODUCTION_APP_URL = "https://www.chicagorelaycenter.com";
 
+// Base URL for links we put in front of members (e.g. the welcome / password
+// setup link). Unlike getAppUrl(), this never degrades to a per-deploy Vercel
+// preview host: those links are sent over WhatsApp/email to real people and
+// must always point at the official portal. Honour an explicitly configured
+// app URL (so a staging deploy can override), otherwise the production portal.
+export function getMemberFacingAppUrl(): string {
+  const configuredUrl = optionalEnv("NEXT_PUBLIC_APP_URL");
+  if (configuredUrl) return configuredUrl.replace(/\/+$/, "");
+  return PRODUCTION_APP_URL;
+}
+
 export function getAppUrl(req?: NextRequest): string {
   const configuredUrl = optionalEnv("NEXT_PUBLIC_APP_URL");
   if (configuredUrl) return configuredUrl.replace(/\/+$/, "");

@@ -93,13 +93,15 @@ The {{product_name}} Team
 
 When the admin Users page creates a new user and department membership, it calls `POST /api/admin/users/{id}/departments` with `send_welcome: true`. The welcome logic lives in [`src/lib/admin/onboarding.ts`](../src/lib/admin/onboarding.ts) (`sendAdminWelcomeNotification`): it creates a password setup link using the same reset-token flow, sends the `welcome-admin-email` Postmark template when the user has an email address, and sends a WhatsApp welcome when the user has a phone number.
 
+The password-setup link is built from `getMemberFacingAppUrl()` (in [`src/lib/admin/password-reset.ts`](../src/lib/admin/password-reset.ts)), **not** `getAppUrl()`. This welcome is delivered to real members over WhatsApp/email, so the link must always use a stable public host: it honours `NEXT_PUBLIC_APP_URL` when configured and otherwise falls back to the production portal (`https://www.chicagorelaycenter.com`) — it never degrades to a per-deploy Vercel preview URL the way the request-derived `getAppUrl()` can.
+
 Template model for `welcome-admin-email`:
 
 | Field | Value |
 |-------|-------|
 | `member_name` | User display name or `there` |
 | `department_name` | Department name |
-| `set_password_url` | `${NEXT_PUBLIC_APP_URL}/admin/reset-password?token=...` |
+| `set_password_url` | `<member-facing app URL>/admin/reset-password?token=...` (`NEXT_PUBLIC_APP_URL` if set, else `https://www.chicagorelaycenter.com` — never a Vercel preview URL) |
 | `login_url` | `https://www.chicagorelaycenter.com/admin/login` when `NEXT_PUBLIC_APP_URL=https://www.chicagorelaycenter.com` |
 
 **WhatsApp welcome — approved template.** The WhatsApp welcome is sent as the approved utility template `committee_platform_access_created`, not free-form text. A template delivers whether or not the recipient has an open 24h customer-service window, and Meta does not charge for utility templates sent inside an open window — so it is sent unconditionally. The template language is resolved live from Meta (via `listMessageTemplates()`), so it works regardless of how the template's locale is registered. Its body mirrors the email and carries four variables:
@@ -108,7 +110,7 @@ Template model for `welcome-admin-email`:
 |-----|-------|
 | `{{1}}` | Member display name (or `there`) |
 | `{{2}}` | Committee(s) the user is active in — see "Committee variable" below |
-| `{{3}}` | Password-setup link (`${NEXT_PUBLIC_APP_URL}/admin/reset-password?token=...`), same flow as the email |
+| `{{3}}` | Password-setup link (`<member-facing app URL>/admin/reset-password?token=...`, `NEXT_PUBLIC_APP_URL` if set else `https://www.chicagorelaycenter.com`), same flow as the email |
 | `{{4}}` | Admin portal login — hard-coded to `https://www.chicagorelaycenter.com/admin/login` |
 
 The send is recorded in the inbox as `[template:committee_platform_access_created] …` (with `{{n}}` substituted) and `source: "admin_welcome"`.

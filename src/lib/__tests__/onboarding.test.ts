@@ -12,7 +12,7 @@ const userUpdates: Array<Record<string, unknown>> = [];
 
 vi.mock("@/lib/admin/password-reset", () => ({
   issuePasswordResetLink: (...args: unknown[]) => issuePasswordResetLink(...args),
-  getAppUrl: () => "https://app.test",
+  getMemberFacingAppUrl: () => "https://app.test",
 }));
 vi.mock("@/lib/email/postmark", () => ({
   sendWelcomeAdminEmail: (...args: unknown[]) => sendWelcomeAdminEmail(...args),

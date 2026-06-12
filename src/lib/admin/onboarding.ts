@@ -1,4 +1,4 @@
-import { issuePasswordResetLink, getAppUrl } from "@/lib/admin/password-reset";
+import { issuePasswordResetLink, getMemberFacingAppUrl } from "@/lib/admin/password-reset";
 import { sendWelcomeAdminEmail } from "@/lib/email/postmark";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { sendTemplateNotification } from "@/lib/whatsapp/send-template";
@@ -103,7 +103,9 @@ export async function sendAdminWelcomeNotification(input: SendWelcomeInput): Pro
     return result;
   }
 
-  const appUrl = input.appUrl ?? getAppUrl();
+  // The password-setup link goes to a real member over WhatsApp/email, so it
+  // must use the stable member-facing host — never a Vercel preview URL.
+  const appUrl = input.appUrl ?? getMemberFacingAppUrl();
   const memberName = typedUser.display_name || "there";
   const fallbackDepartment = typedDepartment.name || "your committee";
   const resetLink = await issuePasswordResetLink(typedUser.id, appUrl);
