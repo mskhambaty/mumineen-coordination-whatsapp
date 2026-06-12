@@ -29,6 +29,7 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 | [admin-dashboard.md](./admin-dashboard.md) | Admin web dashboard: pages, auth, features |
 | [escalation.md](./escalation.md) | Escalation & site support: triggers, roles, on-call, notifications (design spec) |
 | [triage-desk-design.md](./superpowers/specs/2026-06-09-triage-desk-design.md) | Triage Desk UI: Kanban board, SLA dashboard, ticket detail view |
+| [ai-grouping-assistant.md](./superpowers/specs/2026-06-11-ai-grouping-assistant-design.md) | AI-powered escalation grouping: FAB, modal, batch issue creation |
 | [relay-updates.md](./relay-updates.md) | Public relay-page updates feed: endpoint, authoring UI, agent indexing |
 | [accommodations-matching.md](./plans/accommodations-matching.md) | Accommodations host-guest utaro matching module: import, rollups, matching |
 | [meal-rsvp-feedback-digest.md](./meal-rsvp-feedback-digest.md) | Jaman meal RSVP, feedback capture, nightly department digest, and the manual template send console |
@@ -63,6 +64,10 @@ src/app/api/admin/issues/route.ts        — Issues CRUD (list + create)
 src/app/api/admin/issues/[issueId]/route.ts — Issue detail (GET/PUT/DELETE)
 src/app/api/admin/issues/[issueId]/link/route.ts — Link/unlink escalations to issues
 src/app/api/admin/issues/[issueId]/resolve/route.ts — Resolve issue + all linked escalations
+src/app/api/admin/issues/suggestions/route.ts       — AI grouping analysis endpoint
+src/app/api/admin/issues/suggestions/apply/route.ts  — Create issue + bulk-link from suggestion
+src/app/api/admin/issues/[issueId]/link-bulk/route.ts — Bulk-link escalations to existing issue
+src/components/admin/AIGroupingModal.tsx              — Full-screen AI grouping modal
 src/app/api/admin/escalations/stats/route.ts — KPI stats for inbox header
 src/app/api/admin/escalations/[phoneE164]/suggestions/route.ts — AI suggestions (matching issues + resolution history)
 src/lib/escalation/suggestions-cache.ts    — In-memory TTL cache for AI suggestions

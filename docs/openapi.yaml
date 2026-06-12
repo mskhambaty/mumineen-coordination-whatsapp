@@ -2397,6 +2397,109 @@ components:
         409:
           description: Issue is already resolved.
 
+  /admin/issues/suggestions:
+    get:
+      tags: [issues]
+      summary: AI grouping suggestions — analyze ungrouped escalations for clusters + matches.
+      description: >-
+        On-demand endpoint that fetches ungrouped escalations and open issues, sends them
+        to the AI model for cluster detection, and returns suggested groupings. No caching.
+      responses:
+        200:
+          description: Grouping suggestions.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  new_clusters:
+                    type: array
+                    description: Clusters of 2+ escalations that should be grouped into new issues.
+                  existing_issue_matches:
+                    type: array
+                    description: Ungrouped escalations matching existing open issues.
+                  meta:
+                    type: object
+                    properties:
+                      ungrouped_count: { type: integer }
+                      analyzed_at: { type: string, format: date-time }
+        500:
+          description: AI analysis failed.
+
+  /admin/issues/suggestions/apply:
+    post:
+      tags: [issues]
+      summary: Create issue from AI suggestion and bulk-link escalations.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, session_ids]
+              properties:
+                title: { type: string, minLength: 1, maxLength: 500 }
+                description: { type: string, maxLength: 5000 }
+                priority: { type: string, enum: [low, medium, high] }
+                department_id: { type: string, format: uuid }
+                assigned_to: { type: string, format: uuid }
+                session_ids:
+                  type: array
+                  items: { type: string }
+                  minItems: 1
+      responses:
+        201:
+          description: Issue created and escalations linked.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  issue:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      issue_number: { type: integer }
+                      title: { type: string }
+                      status: { type: string }
+                  linked_count: { type: integer }
+        400:
+          description: Invalid request body.
+
+  /admin/issues/{issueId}/link-bulk:
+    post:
+      tags: [issues]
+      summary: Bulk-link multiple escalations to an existing issue.
+      parameters:
+        - name: issueId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [session_ids]
+              properties:
+                session_ids:
+                  type: array
+                  items: { type: string }
+                  minItems: 1
+      responses:
+        200:
+          description: Escalations linked.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  linked_count: { type: integer }
+                  skipped_count: { type: integer }
+        404:
+          description: Issue not found.
+
   /admin/escalations/stats:
     get:
       tags: [escalations]
