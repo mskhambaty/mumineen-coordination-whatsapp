@@ -30,6 +30,7 @@ export async function GET(req: NextRequest) {
     .single();
 
   if (famErr || !family) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const familyId = (family as unknown as { id: string }).id;
 
   const [membersRes, passesRes, lotsRes, guestFamiliesRes] = await Promise.all([
     supabase
@@ -46,7 +47,7 @@ export async function GET(req: NextRequest) {
     supabase
       .from("parking_passes")
       .select("id, lot_id, notes, printed_at")
-      .eq("family_id", family.id)
+      .eq("family_id", familyId)
       .order("created_at"),
     supabase.from("parking_lots").select("id, name, color"),
     supabase
