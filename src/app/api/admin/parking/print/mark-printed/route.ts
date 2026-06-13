@@ -30,10 +30,9 @@ export async function POST(req: NextRequest) {
 
   const { error, count } = await supabase
     .from("parking_passes")
-    .update({ printed_at: new Date().toISOString() })
+    .update({ printed_at: new Date().toISOString() }, { count: "exact" })
     .in("id", pass_ids)
-    .is("printed_at", null)
-    .select("id", { count: "exact", head: true });
+    .is("printed_at", null);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
