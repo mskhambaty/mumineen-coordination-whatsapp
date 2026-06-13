@@ -131,8 +131,12 @@ export function buildHouseholdRow(
     transport_mode: family.transport_mode,
     member_count: attendingCount,
     // Default pass rule: local household with ≥1 attending member; mehman only if they rented a car.
-    // North Chicago households are excluded — they use a separate lot not managed here.
-    eligible: !isNorthChicago && attendingCount > 0 && (localMehman === "Local" || (localMehman === "Mehman" && family.transport_mode === "rental")),
+    // North Chicago exclusion applies only to Local families — visiting Mehman who rented a car
+    // need a pass regardless of their home city.
+    eligible: attendingCount > 0 && (
+      (localMehman === "Local" && !isNorthChicago) ||
+      (localMehman === "Mehman" && family.transport_mode === "rental")
+    ),
     suggested_passes,
     utaro_guest_count: guestFamilies.reduce((sum, g) => sum + g.attendingCount, 0),
     utaro_guest_commute_count: guestFamilies
