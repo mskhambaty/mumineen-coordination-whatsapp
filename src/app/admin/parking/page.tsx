@@ -436,6 +436,10 @@ export default function ParkingPage() {
   // when a narrowable lot is picked; the chip stays toggleable for deliberate overrides.
   const [purposeFit, setPurposeFit] = useState(false);
 
+  const [itsLookup, setItsLookup] = useState("");
+  const [itsResult, setItsResult] = useState<{ head_name: string; passes: { lot_name: string; lot_color: string | null; printed_at: string | null }[] } | null | "not_found">(null);
+  const [itsLooking, setItsLooking] = useState(false);
+
   const [proximityOpen, setProximityOpen] = useState(false);
   const [proximityAudit, setProximityAudit] = useState<ProximityAuditResult | null>(null);
   const [proximityLoading, setProximityLoading] = useState(false);
@@ -754,6 +758,25 @@ export default function ParkingPage() {
     }
   }
 
+  async function lookupIts(its: string) {
+    const q = its.trim();
+    if (!q) return;
+    setItsLooking(true);
+    setItsResult(null);
+    try {
+      const res = await apiFetch(`/api/admin/parking/households?q=${encodeURIComponent(q)}`);
+      const json = await res.json().catch(() => ({}));
+      const match = (json.rows ?? []).find((r: { hof_its: string }) => r.hof_its === q);
+      if (!match) {
+        setItsResult("not_found");
+      } else {
+        setItsResult({ head_name: match.head_name, passes: match.passes });
+      }
+    } finally {
+      setItsLooking(false);
+    }
+  }
+
   async function markPassPrinted(passId: string) {
     setError(null);
     const res = await apiFetch("/api/admin/parking/print/mark-printed", {
@@ -887,6 +910,49 @@ export default function ParkingPage() {
             </button>
           )}
         </div>
+      </div>
+
+      {/* ITS lookup */}
+      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800/50">
+        <span className="font-semibold text-gray-700 dark:text-gray-200">ITS lookup</span>
+        <form
+          className="flex items-center gap-1.5"
+          onSubmit={(e) => { e.preventDefault(); void lookupIts(itsLookup); }}
+        >
+          <input
+            type="text"
+            value={itsLookup}
+            onChange={(e) => { setItsLookup(e.target.value); setItsResult(null); }}
+            placeholder="Enter HOF ITS…"
+            className="w-36 rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+          />
+          <button
+            type="submit"
+            disabled={itsLooking || !itsLookup.trim()}
+            className="rounded-md border border-gray-300 px-2.5 py-1 text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+          >
+            {itsLooking ? "Looking…" : "Look up"}
+          </button>
+        </form>
+        {itsResult === "not_found" && (
+          <span className="text-gray-400">No household found for that ITS.</span>
+        )}
+        {itsResult && itsResult !== "not_found" && (
+          <span className="text-gray-700 dark:text-gray-200">
+            <span className="font-medium">{itsResult.head_name}</span>
+            {itsResult.passes.length === 0 ? (
+              <span className="ml-2 text-gray-400">— no passes assigned</span>
+            ) : (
+              itsResult.passes.map((p, i) => (
+                <span key={i} className={`ml-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${p.printed_at ? "border-gray-200 text-gray-600 dark:border-gray-600 dark:text-gray-300" : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-600 dark:text-amber-300"}`}>
+                  <ColorDot color={p.lot_color} />
+                  {p.lot_name}
+                  {p.printed_at ? <span className="text-green-600 dark:text-green-400" title={`Printed ${new Date(p.printed_at).toLocaleString()}`}>✓</span> : <span className="text-amber-500">● not printed</span>}
+                </span>
+              ))
+            )}
+          </span>
+        )}
       </div>
 
       {error && (

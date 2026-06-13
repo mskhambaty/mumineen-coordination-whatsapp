@@ -228,7 +228,10 @@ export function matchesFilters(row: HouseholdRow, f: HouseholdFilters): boolean 
   if (f.local_mehman && row.local_mehman !== f.local_mehman) return false;
   if (f.assigned === "assigned"   && row.passes.length === 0) return false;
   if (f.assigned === "unassigned" && row.passes.length > 0)  return false;
-  if (f.q && !row.head_name.toLowerCase().includes(f.q.toLowerCase())) return false;
+  if (f.q) {
+    const q = f.q.toLowerCase();
+    if (!row.head_name.toLowerCase().includes(q) && !row.hof_its.includes(q)) return false;
+  }
 
   // Criteria chips — collect active ones then apply AND / OR.
   const checks: Array<() => boolean> = [];
