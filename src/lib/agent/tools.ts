@@ -113,13 +113,21 @@ export const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "move_to_escalation",
       description:
-        "Hand the conversation to the human team. TWO uses: (1) LAST RESORT for logistics — only after you genuinely tried get_site_content_faq and still cannot, or the user is clearly frustrated after you tried, or an emergency (lost child, lost passport, medical, security); never escalate just because someone asks for a person early on. (2) RELIGIOUS FOLLOW-UP — a genuine Waaz/deen question the reflections can't answer, or a personal fiqh/fatwa question: call with category 'religious_followup' so the team can follow up (the system sends a fixed reply; do not add your own).",
+        "Hand the conversation to the human team and create an issue for tracking. TWO uses: (1) LAST RESORT for logistics — only after you genuinely tried get_site_content_faq and still cannot, or the user is clearly frustrated after you tried, or an emergency (lost child, lost passport, medical, security); never escalate just because someone asks for a person early on. (2) RELIGIOUS FOLLOW-UP — a genuine Waaz/deen question the reflections can't answer, or a personal fiqh/fatwa question: call with category 'religious_followup' so the team can follow up (the system sends a fixed reply; do not add your own). This also creates an issue, workspace task, and notifies the department team.",
       parameters: {
         type: "object",
         properties: {
           reason: {
             type: "string",
             description: "Concise reason for escalating, including what you already tried.",
+          },
+          title: {
+            type: "string",
+            description: "Short issue title summarizing the problem (e.g. 'Water bottles on Madressa 2nd floor'). Auto-generated from the user's message.",
+          },
+          description: {
+            type: "string",
+            description: "Detailed description of the issue for the department team. Include specifics from the user's message (location, what's wrong, urgency).",
           },
           priority: {
             type: "string",
@@ -145,10 +153,10 @@ export const allToolDefinitions: ToolDefinition[] = [
           department: {
             type: "string",
             description:
-              "Name of the department that should handle this escalation. Pick the best match from the Available Departments list in your system prompt.",
+              "Name of the department that should handle this. ALWAYS pick the best match from the Available Departments list. Required for issue routing and notifications.",
           },
         },
-        required: ["reason", "priority", "category"],
+        required: ["reason", "priority", "category", "title", "department"],
         additionalProperties: false,
       },
     },
@@ -295,19 +303,24 @@ export const allToolDefinitions: ToolDefinition[] = [
     type: "function",
     function: {
       name: "create_task",
-      description: "Create a ticket/task. Department members can create self-assigned tickets; PM/HOD/Leadership can assign tickets.",
+      description: "Create an issue or task. Any user can report a problem as an issue (item_type 'issue') which notifies the department team. Committee members can also create tasks.",
       parameters: {
         type: "object",
         properties: {
-          title: { type: "string", description: "Task title." },
-          department_name: { type: "string", description: "Department name." },
-          description: { type: "string", description: "Task description." },
-          assigned_to_alias: { type: "string", description: "Name of person to assign." },
+          title: { type: "string", description: "Short title describing the issue or task." },
+          department_name: { type: "string", description: "Department name to route this to." },
+          description: { type: "string", description: "Detailed description of the problem or task." },
+          item_type: {
+            type: "string",
+            enum: ["issue", "task"],
+            description: "Use 'issue' for problems/complaints to report (default for external users). Use 'task' for internal work items.",
+          },
+          assigned_to_alias: { type: "string", description: "Name of person to assign (committee only)." },
           due_date: { type: "string", description: "Due date in YYYY-MM-DD format." },
           priority: {
             type: "string",
             enum: ["low", "medium", "high"],
-            description: "Task priority. Defaults to medium.",
+            description: "Priority. Defaults to medium.",
           },
         },
         required: ["title", "department_name"],
@@ -742,6 +755,8 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
         phone: context.phoneE164,
         body: {
           reason: args.reason,
+          title: args.title,
+          description: args.description,
           priority: args.priority,
           category: args.category,
           department: args.department,
@@ -821,6 +836,7 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
           assigned_to_alias: args.assigned_to_alias,
           due_date: args.due_date,
           priority: args.priority,
+          item_type: args.item_type ?? "task",
           source: "whatsapp_agent",
         },
       });

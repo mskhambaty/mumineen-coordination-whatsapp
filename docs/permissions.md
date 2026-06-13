@@ -44,10 +44,13 @@ Public tools (the `publicTools` set in `src/lib/permissions.ts`) are available t
 | `answer_religious_questions` | ✅ | ✅ | ✅ |
 | `get_lisan_word_meaning` | ✅ | ✅ | ✅ |
 | `move_to_escalation` | ✅ | ✅ | ✅ |
-| `create_issue` | ✅ | ✅ | ✅ |
 | `flag_knowledge_gap` | ✅ | ✅ | ✅ |
 | `get_family_meal_rsvps` | ✅ | ✅ | ✅ |
 | `set_family_meal_rsvps` | ✅ | ✅ | ✅ |
+
+`move_to_escalation` is available to all users. It creates an escalation, an issue (Inbox Issues
+tab), and a workspace task in one call, then notifies both the escalation team and the
+department's issue contacts via email + WhatsApp template.
 
 There are no committee-only agent tools (the unimplemented volunteer/committee/note stubs were
 removed in June 2026). Internal capability for committee/admin is the task tools below, which
@@ -66,7 +69,7 @@ first require `committee` or `admin` in the WhatsApp tool layer, then apply depa
 ```
 if user.status !== 'active'  → deny
 if tool in publicTools       → allow
-if tool in committeeTools && role in ['committee', 'admin'] → allow
+if tool in taskTools && role in ['committee', 'admin'] → allow
 else → deny
 ```
 

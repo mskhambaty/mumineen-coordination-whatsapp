@@ -105,7 +105,7 @@ New task management tools added to the agent:
 - `list_department_members` — List active members eligible for assignment, without phone/email PII
 
 ### Write Tools
-- `create_task` — Create a new task with optional priority and assignee
+- `create_task` — Create a new task or issue with optional priority, assignee, and item_type
 - `update_tasks` — Resolve one or many tickets internally and update status, priority, title,
   description, department, assignee, due date, type, or archive state
 

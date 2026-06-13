@@ -477,6 +477,10 @@ paths:
         Emergencies and the `religious_followup` category bypass that gate
         (a deen/Waaz question the reflections can't answer is often the first
         message); the agent then replies with a fixed Waaz-scoped acknowledgment.
+        Before creating a new issue, an AI + keyword dedup check runs against
+        open issues. If a match is found the escalation is linked to the existing
+        issue (response includes `deduplicated: true`); otherwise a new issue +
+        workspace task is created.
       security: [{ whatsappPhone: [] }]
       requestBody:
         required: true
@@ -487,13 +491,28 @@ paths:
               required: [reason, priority, category]
               properties:
                 reason: { type: string }
+                title: { type: string, description: "AI-generated issue title" }
+                description: { type: string, description: "AI-generated issue description" }
                 priority: { type: string, enum: [normal, urgent] }
                 category:
                   type: string
                   enum: [emergency, accommodation, transport, registration, schedule, facilities, complaint, religious_followup, other]
+                department: { type: string, description: "Department name to assign the issue to" }
                 source: { type: string, enum: [ai, rule, manual] }
       responses:
-        "200": { description: "Escalated, or declined by the last-resort guardrail." }
+        "200":
+          description: "Escalated (with new or deduplicated issue), or declined by the last-resort guardrail."
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [escalated, declined] }
+                  priority: { type: string }
+                  category: { type: string }
+                  issue_id: { type: string, nullable: true }
+                  deduplicated: { type: boolean, description: "True if linked to an existing issue instead of creating a new one." }
+                  message: { type: string }
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/ServerError" }

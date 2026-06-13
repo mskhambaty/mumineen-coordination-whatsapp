@@ -52,7 +52,7 @@ export function canUseTool(user: Pick<AppUser, "role" | "status">, toolName: str
     return true;
   }
 
-  // Task tools are handled separately via canUseTaskTool
+  // Task tools require committee/admin
   if (taskReadTools.has(toolName) || taskCreateTools.has(toolName) || taskWriteTools.has(toolName) || leadershipTools.has(toolName)) {
     return user.role === "committee" || user.role === "admin";
   }
@@ -76,7 +76,7 @@ export function canUseTaskTool(globalRole: GlobalRole, toolName: string): boolea
     return globalRole === "leadership_admin" || globalRole === "pm" || globalRole === "hod";
   }
   if (taskCreateTools.has(toolName)) {
-    return globalRole !== "member";
+    return true;
   }
   if (leadershipTools.has(toolName)) {
     return globalRole === "leadership_admin";

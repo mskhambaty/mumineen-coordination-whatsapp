@@ -74,6 +74,7 @@ src/app/api/admin/issues/[issueId]/link-bulk/route.ts — Bulk-link escalations 
 src/components/admin/AIGroupingModal.tsx              — Full-screen AI grouping modal
 src/app/api/admin/escalations/stats/route.ts — KPI stats for inbox header
 src/app/api/admin/escalations/[phoneE164]/suggestions/route.ts — AI suggestions (matching issues + resolution history)
+src/lib/escalation/issue-match.ts         — AI + keyword issue matching (shared by dedupe + suggestions)
 src/lib/escalation/suggestions-cache.ts    — In-memory TTL cache for AI suggestions
 src/lib/accommodations/import.ts         — Host spreadsheet XLSX import (upsert by ITS)
 src/lib/accommodations/rollups.ts        — Guest/host demographic rollups + capacity math

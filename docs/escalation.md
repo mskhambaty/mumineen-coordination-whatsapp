@@ -75,11 +75,14 @@ Escalate **only** when one of these holds:
 **Add two API-first tools** (call internal API routes like the task tools do, via
 `callInternalApi`):
 
-- **`move_to_escalation`** — last resort. Params: `reason`, `priority`, `category`.
-  POSTs to an escalation route that tags the conversation, sets `escalation_status='pending'`,
-  notifies on-call support, and returns the guest acknowledgment.
-- **`create_issue`** — creates an **external** issue in the tasks system (see Issues below).
-  A guest can ask the AI to log an issue for anything they observe during the event.
+- **`move_to_escalation`** — unified escalation + issue creation. Params: `reason`, `title`,
+  `description`, `priority`, `category`, `department`. In one call it:
+  1. Tags the conversation as pending escalation and notifies on-call support.
+  2. Creates an issue in the `issues` table (appears in the Inbox Issues tab).
+  3. Links the escalation conversation to the issue via `issue_escalation_links`.
+  4. Creates a workspace task (`item_type='issue'`) in the `tasks` table.
+  5. Notifies department issue contacts (email + WhatsApp `department_ticket_assigned` template).
+  6. Notifies escalation team (email + WhatsApp escalation template).
 
 ## Data model
 
@@ -236,6 +239,24 @@ All notification sends are fire-and-forget (failures never block the agent reply
    clears `contact_for_issues` (the user/membership is kept); removing a `reference` deletes the
    row.
 
+## Issue Deduplication
+
+When `POST /api/escalations` creates an escalation, it checks for matching open issues
+**before** creating a new one. The flow:
+
+1. Fetch the user's last 8 inbound messages (24h window) for context.
+2. Call `matchIssuesToEscalation()` (AI matching with keyword fallback) against all
+   open/in-progress issues.
+3. **Match found** → link the escalation to the existing issue via `issue_escalation_links`
+   and `linked_issue_id`. No new issue or workspace task is created. The activity log
+   records `linked_to_issue` with `deduplicated: true` and the matched issue number.
+4. **No match** → create a new issue + workspace task + link + notify (original flow).
+
+The response includes `deduplicated: true/false` so callers know which path was taken.
+
+The matching logic lives in `src/lib/escalation/issue-match.ts` and is shared with the
+portal AI Suggestions endpoint.
+
 ## AI Suggestions
 
 When a support member views an escalation in the admin portal, an **AI Suggestions** panel
@@ -258,6 +279,7 @@ Returns `{ matching_issues, resolution_history }`. Results are cached in-memory 
 
 | File | Purpose |
 |------|---------|
+| `src/lib/escalation/issue-match.ts` | AI + keyword issue matching (shared) |
 | `src/app/api/admin/escalations/[phoneE164]/suggestions/route.ts` | Suggestions endpoint |
 | `src/lib/escalation/suggestions-cache.ts` | In-memory TTL cache |
 | `src/app/admin/conversations/page.tsx` | UI panel (AI Suggestions section in aside) |
