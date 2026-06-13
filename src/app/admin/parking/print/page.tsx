@@ -6,8 +6,9 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { canViewParking } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
-type Pass = { id: string; hof_its: string; head_name: string; phone: string | null; lot_name: string; lot_color: string | null };
+type Pass = { id: string; hof_its: string; head_name: string; phone: string | null; lot_name: string; lot_color: string | null; printed_at: string | null };
 type Lot = { id: string; name: string; color: string | null };
+type PrintApiResponse = { lot?: Lot; passes?: Pass[]; total_passes?: number; unprinted_count?: number; error?: string };
 
 // How many passes to print per lot color (assigned + blank write-in templates).
 const LOT_PRINT_TARGETS: Record<string, number> = {
@@ -155,15 +156,22 @@ function PrintContent() {
 
   const [lot, setLot] = useState<Lot | null>(null);
   const [passes, setPasses] = useState<Pass[]>([]);
+  const [totalPasses, setTotalPasses] = useState(0);
+  const [unprintedCount, setUnprintedCount] = useState(0);
+  const [unprintedOnly, setUnprintedOnly] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pendingMark, setPendingMark] = useState<string[]>([]); // pass IDs to mark after print
+  const [marking, setMarking] = useState(false);
+  const [markedCount, setMarkedCount] = useState<number | null>(null);
 
-  const load = useCallback(async () => {
-    const url = lotId
-      ? `/api/admin/parking/print?lot_id=${encodeURIComponent(lotId)}`
-      : `/api/admin/parking/print`;
-    const res = await apiFetch(url);
-    const json = (await res.json().catch(() => ({}))) as { lot?: Lot; passes?: Pass[]; error?: string };
+  const load = useCallback(async (unprinted: boolean) => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (lotId) params.set("lot_id", lotId);
+    params.set("unprinted_only", unprinted ? "1" : "0");
+    const res = await apiFetch(`/api/admin/parking/print?${params.toString()}`);
+    const json = (await res.json().catch(() => ({}))) as PrintApiResponse;
     if (!res.ok) {
       setError(json.error ?? "Failed to load passes.");
       setLoading(false);
@@ -171,15 +179,28 @@ function PrintContent() {
     }
     setLot(json.lot ?? null);
     setPasses(json.passes ?? []);
+    setTotalPasses(json.total_passes ?? 0);
+    setUnprintedCount(json.unprinted_count ?? 0);
     setLoading(false);
   }, [lotId]);
+
+  // When the browser print dialog closes, prompt to mark passes as printed.
+  useEffect(() => {
+    const handler = () => {
+      if (pendingMark.length > 0) {
+        // handled by the confirm button — nothing automatic
+      }
+    };
+    window.addEventListener("afterprint", handler);
+    return () => window.removeEventListener("afterprint", handler);
+  }, [pendingMark]);
 
   useEffect(() => {
     const user = readAdminUser();
     if (!user) { router.push("/admin/login"); return; }
     if (!canViewParking(user)) { router.push("/admin/conversations"); return; }
-    void load();
-  }, [router, load]);
+    void load(unprintedOnly);
+  }, [router, load, unprintedOnly]);
 
   // Pad to the lot's print target so the remainder are blank write-in templates.
   const lotColor = lot?.color?.toLowerCase() ?? null;
@@ -196,6 +217,27 @@ function PrintContent() {
   }
 
   const blankCount = paddedPasses.filter((p) => p === null).length;
+
+  const assignedPassIds = passes.map((p) => p.id);
+
+  async function markPrinted() {
+    if (assignedPassIds.length === 0) return;
+    setMarking(true);
+    try {
+      const res = await apiFetch("/api/admin/parking/print/mark-printed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pass_ids: assignedPassIds }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { marked?: number };
+      setMarkedCount(json.marked ?? assignedPassIds.length);
+      setPendingMark([]);
+      // Reload so the toolbar counts update.
+      void load(unprintedOnly);
+    } finally {
+      setMarking(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -256,32 +298,80 @@ function PrintContent() {
       {/* Screen toolbar */}
       <div
         className="no-print"
-        style={{ position: "sticky", top: 0, zIndex: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", padding: "10px 20px", background: "#fff", borderBottom: "1px solid #e5e7eb", fontFamily: "Arial, sans-serif" }}
+        style={{ position: "sticky", top: 0, zIndex: 10, background: "#fff", borderBottom: "1px solid #e5e7eb", fontFamily: "Arial, sans-serif" }}
       >
-        <div>
-          <span style={{ fontWeight: "700", fontSize: "15px", color: "#111" }}>
-            {lot ? `${lot.name} — Parking Passes` : "All Parking Passes (by ITS)"}
-          </span>
-          <span style={{ marginLeft: "10px", fontSize: "13px", color: "#6b7280" }}>
-            {passes.length} assigned · {blankCount} blank · {pairs.length} page{pairs.length === 1 ? "" : "s"}
-          </span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", padding: "10px 20px" }}>
+          <div>
+            <span style={{ fontWeight: "700", fontSize: "15px", color: "#111" }}>
+              {lot ? `${lot.name} — Parking Passes` : "All Parking Passes (by ITS)"}
+            </span>
+            <span style={{ marginLeft: "10px", fontSize: "13px", color: "#6b7280" }}>
+              {unprintedOnly
+                ? `${passes.length} new · ${totalPasses - unprintedCount} already printed · ${blankCount} blank · ${pairs.length} page${pairs.length === 1 ? "" : "s"}`
+                : `${passes.length} total · ${unprintedCount} unprinted · ${blankCount} blank · ${pairs.length} page${pairs.length === 1 ? "" : "s"}`
+              }
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+            {/* Unprinted toggle */}
+            <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", color: "#374151", cursor: "pointer", userSelect: "none" }}>
+              <input
+                type="checkbox"
+                checked={unprintedOnly}
+                onChange={(e) => setUnprintedOnly(e.target.checked)}
+                style={{ cursor: "pointer" }}
+              />
+              New only
+            </label>
+            <button
+              type="button"
+              onClick={() => window.close()}
+              style={{ padding: "6px 14px", border: "1px solid #d1d5db", borderRadius: "6px", background: "#fff", cursor: "pointer", fontSize: "13px", color: "#374151" }}
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              style={{ padding: "6px 16px", border: "none", borderRadius: "6px", background: "#2563eb", color: "#fff", cursor: "pointer", fontSize: "13px", fontWeight: "600" }}
+            >
+              Print
+            </button>
+          </div>
         </div>
-        <div style={{ display: "flex", gap: "10px" }}>
-          <button
-            type="button"
-            onClick={() => window.close()}
-            style={{ padding: "6px 14px", border: "1px solid #d1d5db", borderRadius: "6px", background: "#fff", cursor: "pointer", fontSize: "13px", color: "#374151" }}
-          >
-            Close
-          </button>
-          <button
-            type="button"
-            onClick={() => window.print()}
-            style={{ padding: "6px 16px", border: "none", borderRadius: "6px", background: "#2563eb", color: "#fff", cursor: "pointer", fontSize: "13px", fontWeight: "600" }}
-          >
-            Print
-          </button>
-        </div>
+
+        {/* Mark-as-printed bar — shown after a print run */}
+        {assignedPassIds.length > 0 && markedCount === null && (
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "8px 20px", background: "#fffbeb", borderTop: "1px solid #fde68a" }}>
+            <span style={{ fontSize: "13px", color: "#92400e" }}>
+              After printing, mark {assignedPassIds.length} pass{assignedPassIds.length === 1 ? "" : "es"} as printed so they won&apos;t appear in the next run.
+            </span>
+            <button
+              type="button"
+              onClick={markPrinted}
+              disabled={marking}
+              style={{ padding: "5px 14px", border: "none", borderRadius: "6px", background: "#d97706", color: "#fff", cursor: marking ? "not-allowed" : "pointer", fontSize: "13px", fontWeight: "600", opacity: marking ? 0.7 : 1 }}
+            >
+              {marking ? "Marking…" : "Mark as printed"}
+            </button>
+          </div>
+        )}
+
+        {/* Success banner */}
+        {markedCount !== null && (
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "8px 20px", background: "#f0fdf4", borderTop: "1px solid #bbf7d0" }}>
+            <span style={{ fontSize: "13px", color: "#166534" }}>
+              ✓ {markedCount} pass{markedCount === 1 ? "" : "es"} marked as printed.
+            </span>
+            <button
+              type="button"
+              onClick={() => setMarkedCount(null)}
+              style={{ fontSize: "12px", color: "#6b7280", background: "none", border: "none", cursor: "pointer" }}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
       </div>
 
       {paddedPasses.length === 0 ? (

@@ -11,40 +11,46 @@ type MemberRow = { hof_its: string; full_name: string | null; whatsapp_e164: str
 type LotRow = { id: string; name: string; color: string | null };
 
 // GET /api/admin/parking/print
-// ?lot_id=<id>   — passes for one lot, sorted alphabetically by name.
-// (no lot_id)    — ALL passes across every lot, sorted by ITS number.
-// Each pass includes lot_name and lot_color so the print page can determine the entry zone.
+// ?lot_id=<id>        — passes for one lot, sorted alphabetically by name.
+// (no lot_id)         — ALL passes across every lot, sorted by ITS number.
+// ?unprinted_only=1   — only passes where printed_at IS NULL (default: 1).
+// ?unprinted_only=0   — all passes regardless of print status.
+// Response includes total_passes (pre-filter) and unprinted_count for the toolbar.
 export async function GET(req: NextRequest) {
   const auth = await requirePortalCaller(req, canViewParking);
   if (auth instanceof NextResponse) return auth;
 
   const { searchParams } = new URL(req.url);
   const lotId = searchParams.get("lot_id");
+  const unprintedOnly = searchParams.get("unprinted_only") !== "0"; // default true
 
   const supabase = getSupabaseAdmin();
 
-  // Fetch lots and passes in parallel; scope by lot when provided.
-  const [lotsResult, passesResult] = await Promise.all([
+  const [lotsResult, allPassesResult] = await Promise.all([
     lotId
       ? supabase.from("parking_lots").select("id, name, color").eq("id", lotId)
       : supabase.from("parking_lots").select("id, name, color"),
     lotId
-      ? supabase.from("parking_passes").select("id, family_id, lot_id").eq("lot_id", lotId).order("created_at")
-      : supabase.from("parking_passes").select("id, family_id, lot_id").order("created_at"),
+      ? supabase.from("parking_passes").select("id, family_id, lot_id, printed_at").eq("lot_id", lotId).order("created_at")
+      : supabase.from("parking_passes").select("id, family_id, lot_id, printed_at").order("created_at"),
   ]);
 
   if (lotsResult.error) return NextResponse.json({ error: lotsResult.error.message }, { status: 500 });
-  if (passesResult.error) return NextResponse.json({ error: passesResult.error.message }, { status: 500 });
+  if (allPassesResult.error) return NextResponse.json({ error: allPassesResult.error.message }, { status: 500 });
 
   const lots = (lotsResult.data ?? []) as LotRow[];
   const lot = lotId ? (lots[0] ?? null) : null;
   if (lotId && !lot) return NextResponse.json({ error: "Lot not found." }, { status: 404 });
 
   const lotById = new Map(lots.map((l) => [l.id, l]));
-  const rawPasses = passesResult.data ?? [];
+  const allPasses = allPassesResult.data ?? [];
+  const totalPasses = allPasses.length;
+  const unprintedCount = allPasses.filter((p) => !p.printed_at).length;
+
+  const rawPasses = unprintedOnly ? allPasses.filter((p) => !p.printed_at) : allPasses;
 
   if (rawPasses.length === 0) {
-    return NextResponse.json({ lot, passes: [] });
+    return NextResponse.json({ lot, passes: [], total_passes: totalPasses, unprinted_count: unprintedCount });
   }
 
   const familyIds = [...new Set(rawPasses.map((p) => p.family_id))];
@@ -84,13 +90,13 @@ export async function GET(req: NextRequest) {
         phone: head?.whatsapp_e164 ?? mems.find((m) => m.whatsapp_e164)?.whatsapp_e164 ?? null,
         lot_name: passLot?.name ?? "",
         lot_color: passLot?.color ?? null,
+        printed_at: p.printed_at ?? null,
       };
     })
-    // All-lots mode: sort by ITS number. Single-lot mode: sort alphabetically by name.
     .sort(lotId
       ? (a, b) => a.head_name.localeCompare(b.head_name)
       : (a, b) => a.hof_its.localeCompare(b.hof_its),
     );
 
-  return NextResponse.json({ lot, passes: result });
+  return NextResponse.json({ lot, passes: result, total_passes: totalPasses, unprinted_count: unprintedCount });
 }
