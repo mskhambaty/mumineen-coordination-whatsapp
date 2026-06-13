@@ -182,7 +182,7 @@ export async function GET(req: NextRequest) {
       const hostMissing =
         f.transport_mode === "commute_with_utaro" &&
         (!hostIts || !knownFamilyIts.has(hostIts));
-      if (hostMissing && !row.eligible && row.member_count > 0) {
+      if (hostMissing && !row.eligible && row.member_count > 0 && !northChicagoHofs.has(f.hof_its)) {
         return { ...row, eligible: true, suggested_passes: Math.max(row.suggested_passes, 1) };
       }
 
