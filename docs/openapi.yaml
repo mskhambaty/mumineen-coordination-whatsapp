@@ -1393,6 +1393,62 @@ paths:
           description: Family not found.
         "409":
           description: Family already registered (action=not_attending).
+  /admin/mumineen/roster-status:
+    post:
+      summary: Activate or deactivate a family (and all its members) on the roster
+      description: >
+        Flip a whole family's `roster_active` flag on or off. Activating re-adds the family and
+        every member sharing its `hof_its` to the active roster; deactivating removes them (they
+        stop appearing in normal roster reads, searches, and counts). This is the UI counterpart to
+        the bulk roster import's soft-deactivation, so it is gated to the same tier:
+        admin/leadership plus IT (`canImportMumineen`). Looks the family up regardless of its current
+        `roster_active` state (so deactivated families can be found and re-activated). Only
+        `roster_active` is touched — the schema has no family head-linkage columns, and
+        `mumineen.is_head` is independent of roster membership.
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hof_its, active]
+              properties:
+                hof_its:
+                  type: string
+                  description: Head-of-family ITS identifying the family.
+                active:
+                  type: boolean
+                  description: Target roster membership state for the family and all its members.
+      responses:
+        "200":
+          description: Updated. Returns the family's members with their refreshed roster_active.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, hof_its, active, members]
+                properties:
+                  ok: { type: boolean }
+                  hof_its: { type: string }
+                  active: { type: boolean }
+                  members:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        its: { type: string }
+                        full_name: { type: string, nullable: true }
+                        is_head: { type: boolean }
+                        roster_active: { type: boolean }
+        "400":
+          description: Missing/invalid hof_its or active.
+        "401":
+          description: Caller not authenticated.
+        "403":
+          description: Caller lacks roster-management access (canImportMumineen).
+        "404":
+          description: Family not found.
   /register:
     get:
       tags: [registration]

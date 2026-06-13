@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import React, { useEffect, useRef, useState } from "react";
 
-import { canAccessMumineen, isAdminOrLeadership } from "@/lib/admin/access";
+import { canAccessMumineen, canImportMumineen, isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type Stats = { mumineen: number; adults: number; families: number; registered_families: number; mehmaan: number; local: number };
@@ -36,6 +36,7 @@ type SearchResult = {
   hof_its: string | null;
   is_head: boolean;
   is_acting_head: boolean;
+  roster_active: boolean;
   whatsapp_e164: string | null;
   email: string | null;
   idara: string | null;
@@ -280,6 +281,9 @@ export default function MumineenPage() {
   const utaroTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isAdminUser, setIsAdminUser] = useState(false);
+  // Admin/leadership + IT may toggle a whole family's roster membership (and see inactive families).
+  const [canManageRoster, setCanManageRoster] = useState(false);
+  const [includeInactive, setIncludeInactive] = useState(false);
 
   useEffect(() => {
     const user = readAdminUser();
@@ -289,6 +293,7 @@ export default function MumineenPage() {
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsAdminUser(isAdminOrLeadership(user));
+    setCanManageRoster(canImportMumineen(user));
     if (!canAccessMumineen(user)) {
       router.push("/admin/conversations");
       return;
@@ -477,10 +482,14 @@ export default function MumineenPage() {
     }
   }
 
-  async function runSearch(term: string) {
+  async function runSearch(term: string, withInactive = includeInactive) {
     setSearching(true);
     try {
-      const res = await apiFetch(`/api/admin/mumineen/search?q=${encodeURIComponent(term)}`);
+      const params = new URLSearchParams({ q: term });
+      if (withInactive && canManageRoster) {
+        params.set("include_inactive", "1");
+      }
+      const res = await apiFetch(`/api/admin/mumineen/search?${params.toString()}`);
       const data = await res.json().catch(() => ({}));
       setResults(res.ok ? ((data.results as SearchResult[]) ?? []) : []);
       setTruncated(res.ok ? Boolean(data.truncated) : false);
@@ -568,6 +577,28 @@ export default function MumineenPage() {
       await Promise.all([runSearch(query.trim()), loadStats()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to mark family not attending");
+    }
+  }
+
+  // Activate/deactivate a whole family (and all its members) on the roster. Mirrors the bulk
+  // import's soft-deactivation; restricted to canManageRoster users.
+  async function setFamilyRosterActive(hofIts: string, active: boolean) {
+    const verb = active ? "Activate" : "Deactivate";
+    const detail = active
+      ? "This re-adds the family and every member to the active roster."
+      : "This removes the family and every member from the active roster (they won't appear in normal searches or counts).";
+    if (!window.confirm(`${verb} family ${hofIts}? ${detail}`)) return;
+    setError(null);
+    try {
+      const res = await apiFetch("/api/admin/mumineen/roster-status", {
+        method: "POST",
+        body: JSON.stringify({ hof_its: hofIts, active }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? `Failed to ${verb.toLowerCase()} family`);
+      await Promise.all([runSearch(query.trim()), loadStats()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to ${verb.toLowerCase()} family`);
     }
   }
 
@@ -690,6 +721,22 @@ export default function MumineenPage() {
           placeholder="Start typing a name or ITS…"
           className="mt-3 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-950"
         />
+        {canManageRoster && (
+          <label className="mt-2 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+            <input
+              type="checkbox"
+              checked={includeInactive}
+              onChange={(e) => {
+                const next = e.target.checked;
+                setIncludeInactive(next);
+                const term = query.trim();
+                if (term.length >= 2) void runSearch(term, next);
+              }}
+              className="h-4 w-4"
+            />
+            Include deactivated families
+          </label>
+        )}
         {searching && <p className="mt-2 text-xs text-gray-400">Searching…</p>}
         {results && !searching && (
           results.length === 0 ? (
@@ -716,7 +763,7 @@ export default function MumineenPage() {
                     <tr
                       key={r.its}
                       onClick={() => setSelected(r)}
-                      className="cursor-pointer border-t border-gray-100 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
+                      className={`cursor-pointer border-t border-gray-100 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800${r.roster_active === false ? " opacity-60" : ""}`}
                     >
                       <td className="px-2 py-1.5 font-medium">
                         {r.full_name ?? "—"}
@@ -725,6 +772,9 @@ export default function MumineenPage() {
                         ) : r.is_acting_head ? (
                           <span className="ml-1.5 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-400" title="Roster HOF not in registration data — acting head is the eldest member">Acting head</span>
                         ) : null}
+                        {r.roster_active === false && (
+                          <span className="ml-1.5 rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300" title="Deactivated — not on the active roster">Inactive</span>
+                        )}
                       </td>
                       <td className="px-2 py-1.5 font-mono text-xs">{r.its}</td>
                       <td className="px-2 py-1.5 font-mono text-xs text-gray-500">{r.hof_its ?? "—"}</td>
@@ -741,13 +791,27 @@ export default function MumineenPage() {
                         )}
                       </td>
                       <td className="px-2 py-1.5">
-                        {r.is_acting_head && r.hof_its && r.family?.registration_status === "submitted" ? (
-                          <button type="button" onClick={(e) => { e.stopPropagation(); unregisterFamily(r.hof_its!); }} className="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950">Unregister</button>
-                        ) : r.is_acting_head && r.hof_its && r.family && (r.family.registration_status === "not_started" || r.family.registration_status == null) ? (
-                          <button type="button" onClick={(e) => { e.stopPropagation(); markFamilyNotAttending(r.hof_its!); }} className="rounded border border-amber-300 px-2 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-50 dark:border-amber-900 dark:text-amber-300 dark:hover:bg-amber-950">Family not attending</button>
-                        ) : (
-                          <span className="text-gray-300 dark:text-gray-600">—</span>
-                        )}
+                        {(() => {
+                          const headActionable = Boolean(r.is_acting_head && r.hof_its);
+                          // Registration actions only make sense for active families.
+                          const regButton = headActionable && r.roster_active !== false && r.family?.registration_status === "submitted" ? (
+                            <button type="button" onClick={(e) => { e.stopPropagation(); unregisterFamily(r.hof_its!); }} className="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950">Unregister</button>
+                          ) : headActionable && r.roster_active !== false && r.family && (r.family.registration_status === "not_started" || r.family.registration_status == null) ? (
+                            <button type="button" onClick={(e) => { e.stopPropagation(); markFamilyNotAttending(r.hof_its!); }} className="rounded border border-amber-300 px-2 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-50 dark:border-amber-900 dark:text-amber-300 dark:hover:bg-amber-950">Family not attending</button>
+                          ) : null;
+                          const rosterButton = canManageRoster && headActionable ? (
+                            r.roster_active === false ? (
+                              <button type="button" onClick={(e) => { e.stopPropagation(); void setFamilyRosterActive(r.hof_its!, true); }} className="rounded border border-green-300 px-2 py-0.5 text-xs font-medium text-green-700 hover:bg-green-50 dark:border-green-900 dark:text-green-300 dark:hover:bg-green-950">Activate family</button>
+                            ) : (
+                              <button type="button" onClick={(e) => { e.stopPropagation(); void setFamilyRosterActive(r.hof_its!, false); }} className="rounded border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800">Deactivate</button>
+                            )
+                          ) : null;
+                          return regButton || rosterButton ? (
+                            <div className="flex flex-col items-start gap-1">{regButton}{rosterButton}</div>
+                          ) : (
+                            <span className="text-gray-300 dark:text-gray-600">—</span>
+                          );
+                        })()}
                       </td>
                     </tr>
                   ))}

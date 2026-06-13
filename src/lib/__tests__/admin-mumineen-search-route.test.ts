@@ -81,3 +81,57 @@ describe("GET /api/admin/mumineen/search", () => {
     expect(res.status).toBe(403);
   });
 });
+
+// Records every .eq(col, val) so we can assert whether the roster_active=true filter was applied
+// (i.e. whether deactivated rows were excluded). Privileged callers may opt into inactive rows.
+let eqCalls: Array<[string, unknown]> = [];
+function eqRecordingSupabase() {
+  function chain() {
+    const c = {
+      select: () => c,
+      eq: (col: string, val: unknown) => { eqCalls.push([col, val]); return c; },
+      or: () => c,
+      in: () => c,
+      order: () => c,
+      limit: () => Promise.resolve({ data: [{ hof_its: "30461285", is_head: true }], error: null }),
+      then: (resolve: (v: { data: unknown[]; error: null }) => unknown) =>
+        Promise.resolve({ data: [{ its: "30461285", hof_its: "30461285", roster_active: false }], error: null }).then(resolve),
+    };
+    return c;
+  }
+  return { from: () => chain() };
+}
+const rosterActiveFilterApplied = () => eqCalls.some(([c, v]) => c === "roster_active" && v === true);
+
+describe("GET /api/admin/mumineen/search — include_inactive gating", () => {
+  beforeEach(() => {
+    eqCalls = [];
+    getSupabaseAdmin.mockReturnValue(eqRecordingSupabase());
+  });
+
+  it("honors include_inactive for an admin caller (drops the roster_active filter)", async () => {
+    requirePortalCaller.mockResolvedValue({ caller: { portal: { role: "admin" } } });
+
+    const res = await GET(new NextRequest("http://localhost/api/admin/mumineen/search?q=3046&include_inactive=1"));
+
+    expect(res.status).toBe(200);
+    expect(rosterActiveFilterApplied()).toBe(false);
+  });
+
+  it("ignores include_inactive for an unprivileged committee caller (keeps the filter)", async () => {
+    requirePortalCaller.mockResolvedValue({ caller: { portal: { role: "committee" } } });
+
+    const res = await GET(new NextRequest("http://localhost/api/admin/mumineen/search?q=3046&include_inactive=1"));
+
+    expect(res.status).toBe(200);
+    expect(rosterActiveFilterApplied()).toBe(true);
+  });
+
+  it("applies the roster_active filter by default (no param) for an admin caller", async () => {
+    requirePortalCaller.mockResolvedValue({ caller: { portal: { role: "admin" } } });
+
+    await GET(new NextRequest("http://localhost/api/admin/mumineen/search?q=3046"));
+
+    expect(rosterActiveFilterApplied()).toBe(true);
+  });
+});

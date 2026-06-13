@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { canAccessMumineen } from "@/lib/admin/access";
+import { canAccessMumineen, canImportMumineen } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
 const MEMBER_SELECT =
-  "its, full_name, gender, age, jamaat, city, hof_its, is_head, whatsapp_e164, email, " +
+  "its, full_name, gender, age, jamaat, city, hof_its, is_head, roster_active, whatsapp_e164, email, " +
   "idara, category, prefix, title, venue, local_mehman, is_adult, " +
   "arrival_at, arrival_flight_no, departure_at, departure_flight_no, airport, daily_trans, roster_arrival_raw, roster_flight_code, " +
   "rahat_seating, wheelchair, special_needs, wants_khidmat, not_attending, khidmat_department_ids, whatsapp_link_clicked, updated_at, " +
@@ -31,6 +31,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ results: [] });
   }
 
+  // Deactivated families are normally invisible to every read. Privileged callers (the same tier
+  // that can bulk-import/deactivate) may opt into seeing them with ?include_inactive=1, so they can
+  // find and re-activate a family from the UI. The param is silently ignored for everyone else.
+  const includeInactive =
+    req.nextUrl.searchParams.get("include_inactive") === "1" && canImportMumineen(auth.caller.portal);
+
   const supabase = getSupabaseAdmin();
   let hofsToFetch: string[] = [];
   let truncated = false;
@@ -52,10 +58,11 @@ export async function GET(req: NextRequest) {
     const safe = q.replace(/[%,()]/g, " ");
 
     // Step 1 — find which families match the term (by any member field or the family's HOF ITS).
-    const { data: matches, error: matchError } = await supabase
-      .from("mumineen")
-      .select("hof_its, is_head, full_name")
-      .eq("roster_active", true)
+    let matchQuery = supabase.from("mumineen").select("hof_its, is_head, full_name");
+    if (!includeInactive) {
+      matchQuery = matchQuery.eq("roster_active", true);
+    }
+    const { data: matches, error: matchError } = await matchQuery
       .or(`its.ilike.%${safe}%,full_name.ilike.%${safe}%,whatsapp_e164.ilike.%${safe}%,hof_its.ilike.%${safe}%,jamaat.ilike.%${safe}%,category.ilike.%${safe}%`)
       .order("is_head", { ascending: false })
       .order("full_name", { ascending: true })
@@ -82,10 +89,11 @@ export async function GET(req: NextRequest) {
 
   // Step 2 — fetch every active member of the matched families, grouped by family with the
   // roster head (or, lacking one, the eldest) first.
-  const { data, error } = await supabase
-    .from("mumineen")
-    .select(MEMBER_SELECT)
-    .eq("roster_active", true)
+  let fetchQuery = supabase.from("mumineen").select(MEMBER_SELECT);
+  if (!includeInactive) {
+    fetchQuery = fetchQuery.eq("roster_active", true);
+  }
+  const { data, error } = await fetchQuery
     .in("hof_its", hofsToFetch)
     .order("hof_its", { ascending: true })
     .order("is_head", { ascending: false })
