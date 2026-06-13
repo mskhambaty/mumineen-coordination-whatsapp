@@ -8,6 +8,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 
 type MemberPatch = {
+  local_mehman?: unknown;
   whatsapp_e164?: unknown;
   email?: unknown;
   arrival_at?: unknown;
@@ -81,9 +82,13 @@ export async function POST(req: NextRequest) {
   const rahat = bool(m.rahat_seating);
   const whatsapp = str(m.whatsapp_e164);
 
+  // Only overwrite local_mehman when a valid value was provided — never null it out.
+  const localMehman = oneOf(m.local_mehman, ["Local", "Mehman"]);
+
   const { error: memberError } = await supabase
     .from("mumineen")
     .update({
+      ...(localMehman ? { local_mehman: localMehman } : {}),
       whatsapp_e164: whatsapp,
       email: str(m.email),
       arrival_at: ts(m.arrival_at),

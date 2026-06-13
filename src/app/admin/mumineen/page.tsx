@@ -68,6 +68,7 @@ type Department = { id: string; name: string };
 // Draft state for the modal's edit mode. Dates are held as datetime-local strings; everything
 // else mirrors the editable member + family columns. Converted back to ISO/null on save.
 type EditForm = {
+  local_mehman: string;
   whatsapp_e164: string;
   email: string;
   arrival_at: string;
@@ -270,7 +271,12 @@ export default function MumineenPage() {
   const [addForm, setAddForm] = useState(emptyAddForm);
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [utaroQuery, setUtaroQuery] = useState("");
+  const [utaroResults, setUtaroResults] = useState<SearchResult[] | null>(null);
+  const [utaroTruncated, setUtaroTruncated] = useState(false);
+  const [utaroSearching, setUtaroSearching] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const utaroTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isAdminUser, setIsAdminUser] = useState(false);
 
@@ -309,6 +315,7 @@ export default function MumineenPage() {
 
   function startEdit(s: SearchResult) {
     setForm({
+      local_mehman: s.local_mehman ?? "",
       whatsapp_e164: s.whatsapp_e164 ?? "",
       email: s.email ?? "",
       arrival_at: toLocalInput(s.arrival_at),
@@ -347,6 +354,7 @@ export default function MumineenPage() {
     setError(null);
     try {
       const member = {
+        local_mehman: form.local_mehman,
         whatsapp_e164: form.whatsapp_e164,
         email: form.email,
         arrival_at: localInputToIso(form.arrival_at),
@@ -494,6 +502,34 @@ export default function MumineenPage() {
     }
     setSearching(true);
     searchTimer.current = setTimeout(() => runSearch(term), 300);
+  }
+
+  async function runUtaroSearch(term: string) {
+    setUtaroSearching(true);
+    try {
+      const res = await apiFetch(`/api/admin/mumineen/search?utaro_host=${encodeURIComponent(term)}`);
+      const data = await res.json().catch(() => ({}));
+      setUtaroResults(res.ok ? ((data.results as SearchResult[]) ?? []) : []);
+      setUtaroTruncated(res.ok ? Boolean(data.truncated) : false);
+    } catch {
+      setUtaroResults([]);
+      setUtaroTruncated(false);
+    } finally {
+      setUtaroSearching(false);
+    }
+  }
+
+  function onUtaroQueryChange(value: string) {
+    setUtaroQuery(value);
+    if (utaroTimer.current) clearTimeout(utaroTimer.current);
+    const term = value.trim();
+    if (term.length < 2) {
+      setUtaroResults(null);
+      setUtaroSearching(false);
+      return;
+    }
+    setUtaroSearching(true);
+    utaroTimer.current = setTimeout(() => runUtaroSearch(term), 300);
   }
 
   async function unregisterFamily(hofIts: string) {
@@ -717,6 +753,69 @@ export default function MumineenPage() {
                 </tbody>
               </table>
               {truncated && <p className="mt-2 text-xs text-gray-400">Showing the first 50 matching families — refine your search.</p>}
+            </div>
+          )
+        )}
+      </div>
+
+      {/* ── Utaro host lookup ── */}
+      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <h2 className="text-lg font-semibold">Utaro host lookup</h2>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Enter a host&apos;s name or ITS number to see which mehman families listed them as their utaro host.</p>
+        <input
+          value={utaroQuery}
+          onChange={(e) => onUtaroQueryChange(e.target.value)}
+          placeholder="Host name or ITS…"
+          className="mt-3 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-950"
+        />
+        {utaroSearching && <p className="mt-2 text-xs text-gray-400">Searching…</p>}
+        {utaroResults && !utaroSearching && (
+          utaroResults.length === 0 ? (
+            <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">No families found with that utaro host.</p>
+          ) : (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="text-xs uppercase text-gray-400">
+                  <tr>
+                    <th className="px-2 py-1.5">Name</th>
+                    <th className="px-2 py-1.5">ITS</th>
+                    <th className="px-2 py-1.5">HOF</th>
+                    <th className="px-2 py-1.5">Jamaat</th>
+                    <th className="px-2 py-1.5">Utaro host</th>
+                    <th className="px-2 py-1.5">Host ITS</th>
+                    <th className="px-2 py-1.5">Reg.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {utaroResults.map((r) => (
+                    <tr
+                      key={r.its}
+                      onClick={() => setSelected(r)}
+                      className="cursor-pointer border-t border-gray-100 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
+                    >
+                      <td className="px-2 py-1.5 font-medium">
+                        {r.full_name ?? "—"}
+                        {r.is_head && (
+                          <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">Head</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5 font-mono text-xs">{r.its}</td>
+                      <td className="px-2 py-1.5 font-mono text-xs text-gray-500">{r.hof_its ?? "—"}</td>
+                      <td className="px-2 py-1.5">{r.jamaat ?? "—"}</td>
+                      <td className="px-2 py-1.5">{r.family?.utaro_host_name ?? "—"}</td>
+                      <td className="px-2 py-1.5 font-mono text-xs">{r.family?.utaro_host_its ?? "—"}</td>
+                      <td className="px-2 py-1.5">
+                        {r.family?.registration_status === "submitted" ? (
+                          <span className="text-green-600 dark:text-green-400">submitted</span>
+                        ) : (
+                          <span className="text-gray-400">{r.family?.registration_status ?? "—"}</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {utaroTruncated && <p className="mt-2 text-xs text-gray-400">Showing the first 50 matching families — refine your search.</p>}
             </div>
           )
         )}
@@ -956,12 +1055,22 @@ export default function MumineenPage() {
 
               {editing && form ? (
                 <>
+                  <Section title="Personal">
+                    <EditRow label="Local / Mehman">
+                      <select value={form.local_mehman} onChange={(e) => updateForm({ local_mehman: e.target.value })} className={inputCls}>
+                        <option value="">—</option>
+                        <option value="Local">Local</option>
+                        <option value="Mehman">Mehman</option>
+                      </select>
+                    </EditRow>
+                  </Section>
+
                   <Section title="Contact">
                     <EditRow label="WhatsApp"><input value={form.whatsapp_e164} onChange={(e) => updateForm({ whatsapp_e164: e.target.value })} placeholder="+1…" className={inputCls} /></EditRow>
                     <EditRow label="Email"><input value={form.email} onChange={(e) => updateForm({ email: e.target.value })} type="email" className={inputCls} /></EditRow>
                   </Section>
 
-                  {selected.local_mehman === "Mehman" && (
+                  {form.local_mehman === "Mehman" && (
                     <Section title="Travel">
                       <EditRow label="Arrival"><input value={form.arrival_at} onChange={(e) => updateForm({ arrival_at: e.target.value })} type="datetime-local" className={inputCls} /></EditRow>
                       <EditRow label="Arrival flight"><input value={form.arrival_flight_no} onChange={(e) => updateForm({ arrival_flight_no: e.target.value })} className={inputCls} /></EditRow>
@@ -984,17 +1093,17 @@ export default function MumineenPage() {
                       <EditRow label="Wheelchair"><input type="checkbox" checked={form.wheelchair} onChange={(e) => updateForm({ wheelchair: e.target.checked })} className="h-4 w-4 accent-blue-600" /></EditRow>
                     )}
                     <EditRow label="Special needs"><input value={form.special_needs} onChange={(e) => updateForm({ special_needs: e.target.value })} className={inputCls} /></EditRow>
-                    {selected.local_mehman === "Mehman" && (
+                    {form.local_mehman === "Mehman" && (
                       <EditRow label="Wants khidmat"><input type="checkbox" checked={form.wants_khidmat} onChange={(e) => updateForm({ wants_khidmat: e.target.checked, khidmat_department_ids: e.target.checked ? form.khidmat_department_ids : [] })} className="h-4 w-4 accent-blue-600" /></EditRow>
                     )}
-                    {selected.local_mehman === "Mehman" && form.wants_khidmat && (
+                    {form.local_mehman === "Mehman" && form.wants_khidmat && (
                       <EditRow label="Departments">
                         <KhidmatPicker departments={departments} selected={form.khidmat_department_ids} onChange={(ids) => updateForm({ khidmat_department_ids: ids })} />
                       </EditRow>
                     )}
                   </Section>
 
-                  {selected.family && selected.local_mehman === "Mehman" && (
+                  {selected.family && form.local_mehman === "Mehman" && (
                     <Section title="Family registration">
                       <EditRow label="Accommodation">
                         <select value={form.acc_type} onChange={(e) => updateForm({ acc_type: e.target.value })} className={inputCls}>

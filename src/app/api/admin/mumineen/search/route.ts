@@ -20,41 +20,62 @@ const MAX_FAMILIES = 50;
 // jamaat, or category. Matches are expanded to the WHOLE family: looking up ANY member (not just
 // the HOF) surfaces their entire household, since a non-HOF member often reaches out and the
 // committee needs to find the full family.
+// GET /api/admin/mumineen/search?utaro_host=<term> — find all mehman families whose utaro host
+// ITS or utaro host name matches the term. Returns their members like a normal search.
 export async function GET(req: NextRequest) {
   const auth = await requirePortalCaller(req, canAccessMumineen);
   if (auth instanceof NextResponse) return auth;
   const q = (req.nextUrl.searchParams.get("q") ?? "").trim();
-  if (q.length < 2) {
+  const utaroHost = (req.nextUrl.searchParams.get("utaro_host") ?? "").trim();
+  if (q.length < 2 && utaroHost.length < 2) {
     return NextResponse.json({ results: [] });
   }
 
-  // Escape PostgREST or-filter metacharacters in the user term.
-  const safe = q.replace(/[%,()]/g, " ");
   const supabase = getSupabaseAdmin();
+  let hofsToFetch: string[] = [];
+  let truncated = false;
 
-  // Step 1 — find which families match the term (by any member field or the family's HOF ITS).
-  const { data: matches, error: matchError } = await supabase
-    .from("mumineen")
-    .select("hof_its, is_head, full_name")
-    .eq("roster_active", true)
-    .or(`its.ilike.%${safe}%,full_name.ilike.%${safe}%,whatsapp_e164.ilike.%${safe}%,hof_its.ilike.%${safe}%,jamaat.ilike.%${safe}%,category.ilike.%${safe}%`)
-    .order("is_head", { ascending: false })
-    .order("full_name", { ascending: true })
-    .limit(200);
-  if (matchError) {
-    return NextResponse.json({ error: matchError.message }, { status: 500 });
-  }
+  if (utaroHost.length >= 2) {
+    // Search families by utaro_host_its or utaro_host_name.
+    const safeHost = utaroHost.replace(/[%,()]/g, " ");
+    const { data: fams, error: famErr } = await supabase
+      .from("families")
+      .select("hof_its")
+      .or(`utaro_host_its.ilike.%${safeHost}%,utaro_host_name.ilike.%${safeHost}%`)
+      .limit(MAX_FAMILIES + 1);
+    if (famErr) return NextResponse.json({ error: famErr.message }, { status: 500 });
+    const all = (fams ?? []).map((f: { hof_its: string }) => f.hof_its).filter(Boolean);
+    truncated = all.length > MAX_FAMILIES;
+    hofsToFetch = all.slice(0, MAX_FAMILIES);
+  } else {
+    // Escape PostgREST or-filter metacharacters in the user term.
+    const safe = q.replace(/[%,()]/g, " ");
 
-  const familyHofs: string[] = [];
-  const seen = new Set<string>();
-  for (const m of (matches ?? []) as { hof_its: string | null }[]) {
-    if (m.hof_its && !seen.has(m.hof_its)) {
-      seen.add(m.hof_its);
-      familyHofs.push(m.hof_its);
+    // Step 1 — find which families match the term (by any member field or the family's HOF ITS).
+    const { data: matches, error: matchError } = await supabase
+      .from("mumineen")
+      .select("hof_its, is_head, full_name")
+      .eq("roster_active", true)
+      .or(`its.ilike.%${safe}%,full_name.ilike.%${safe}%,whatsapp_e164.ilike.%${safe}%,hof_its.ilike.%${safe}%,jamaat.ilike.%${safe}%,category.ilike.%${safe}%`)
+      .order("is_head", { ascending: false })
+      .order("full_name", { ascending: true })
+      .limit(200);
+    if (matchError) {
+      return NextResponse.json({ error: matchError.message }, { status: 500 });
     }
+
+    const familyHofs: string[] = [];
+    const seen = new Set<string>();
+    for (const m of (matches ?? []) as { hof_its: string | null }[]) {
+      if (m.hof_its && !seen.has(m.hof_its)) {
+        seen.add(m.hof_its);
+        familyHofs.push(m.hof_its);
+      }
+    }
+    truncated = familyHofs.length > MAX_FAMILIES;
+    hofsToFetch = familyHofs.slice(0, MAX_FAMILIES);
   }
-  const truncated = familyHofs.length > MAX_FAMILIES;
-  const hofsToFetch = familyHofs.slice(0, MAX_FAMILIES);
+
   if (hofsToFetch.length === 0) {
     return NextResponse.json({ results: [], truncated: false });
   }

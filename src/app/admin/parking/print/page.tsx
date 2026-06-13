@@ -203,10 +203,13 @@ function PrintContent() {
   }, [router, load, unprintedOnly]);
 
   // Pad to the lot's print target so the remainder are blank write-in templates.
+  // Only pad when showing all passes — in "New only" mode we just show the unprinted
+  // assigned passes without adding blank templates, so the user isn't confused by
+  // a sea of blank pages after marking everything as printed.
   const lotColor = lot?.color?.toLowerCase() ?? null;
   const target = lotColor ? (LOT_PRINT_TARGETS[lotColor] ?? null) : null;
   const paddedPasses: (Pass | null)[] = [...passes];
-  if (target !== null && paddedPasses.length < target) {
+  if (!unprintedOnly && target !== null && paddedPasses.length < target) {
     const needed = target - paddedPasses.length;
     for (let i = 0; i < needed; i++) paddedPasses.push(null);
   }
