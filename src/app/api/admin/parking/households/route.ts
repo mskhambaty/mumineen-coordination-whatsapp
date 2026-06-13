@@ -214,9 +214,12 @@ export async function GET(req: NextRequest) {
       const resolvedHostHof = knownFamilyIts.has(hostIts)
         ? hostIts
         : (nonHofHostToFamilyHof.get(hostIts) ?? "");
+      // Only rescue a guest when they named a host but that host isn't active —
+      // a blank utaro_host_its means no host was ever entered (data gap), not an orphan.
       const hostMissing =
         f.transport_mode === "commute_with_utaro" &&
-        (!hostIts || !knownFamilyIts.has(resolvedHostHof));
+        Boolean(hostIts) &&
+        !knownFamilyIts.has(resolvedHostHof);
       if (hostMissing && !row.eligible && row.member_count > 0
           && !northChicagoHofs.has(f.hof_its)
           && !hostIsNorthChicago) {
