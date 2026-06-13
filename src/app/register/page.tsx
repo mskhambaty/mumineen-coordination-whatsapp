@@ -741,9 +741,9 @@ export default function RegisterPage() {
                   <label className="flex items-start gap-3 rounded-lg bg-amber-50 p-4 text-base font-medium text-emerald-950/90">
                     <input type="checkbox" className="mt-1 h-5 w-5 accent-amber-500" checked={Boolean(acc.open_to_utaro)} onChange={(e) => setAcc((a) => ({ ...a, open_to_utaro: e.target.checked }))} />
                     <span>
-                      I have a hotel booked, but I am open to Utaro if a host family can offer it.
+                      I have a hotel booked and would consider Utaro if reached out to.
                       <span className="mt-1.5 block text-sm font-normal text-amber-800">
-                        Utaro is subject to availability. Mehmaan are advised to book a refundable hotel and not depend on Utaro completely.
+                        Utaro capacity is extremely limited this year. Please ensure you have a confirmed hotel booking — we strongly recommend not relying on Utaro as your primary accommodation.
                       </span>
                     </span>
                   </label>
