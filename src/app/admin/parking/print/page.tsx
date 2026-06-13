@@ -326,6 +326,21 @@ function PrintContent() {
               />
               New only
             </label>
+            {assignedPassIds.length > 0 && markedCount === null && (
+              <button
+                type="button"
+                onClick={markPrinted}
+                disabled={marking}
+                style={{ padding: "6px 14px", border: "1px solid #d97706", borderRadius: "6px", background: "#fff", color: "#b45309", cursor: marking ? "not-allowed" : "pointer", fontSize: "13px", fontWeight: "600", opacity: marking ? 0.7 : 1 }}
+              >
+                {marking ? "Marking…" : `Mark ${assignedPassIds.length} as printed`}
+              </button>
+            )}
+            {markedCount !== null && (
+              <span style={{ fontSize: "13px", color: "#16a34a", fontWeight: "600" }}>
+                ✓ {markedCount} marked as printed
+              </span>
+            )}
             <button
               type="button"
               onClick={() => window.close()}
@@ -342,39 +357,6 @@ function PrintContent() {
             </button>
           </div>
         </div>
-
-        {/* Mark-as-printed bar — shown after a print run */}
-        {assignedPassIds.length > 0 && markedCount === null && (
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "8px 20px", background: "#fffbeb", borderTop: "1px solid #fde68a" }}>
-            <span style={{ fontSize: "13px", color: "#92400e" }}>
-              After printing, mark {assignedPassIds.length} pass{assignedPassIds.length === 1 ? "" : "es"} as printed so they won&apos;t appear in the next run.
-            </span>
-            <button
-              type="button"
-              onClick={markPrinted}
-              disabled={marking}
-              style={{ padding: "5px 14px", border: "none", borderRadius: "6px", background: "#d97706", color: "#fff", cursor: marking ? "not-allowed" : "pointer", fontSize: "13px", fontWeight: "600", opacity: marking ? 0.7 : 1 }}
-            >
-              {marking ? "Marking…" : "Mark as printed"}
-            </button>
-          </div>
-        )}
-
-        {/* Success banner */}
-        {markedCount !== null && (
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "8px 20px", background: "#f0fdf4", borderTop: "1px solid #bbf7d0" }}>
-            <span style={{ fontSize: "13px", color: "#166534" }}>
-              ✓ {markedCount} pass{markedCount === 1 ? "" : "es"} marked as printed.
-            </span>
-            <button
-              type="button"
-              onClick={() => setMarkedCount(null)}
-              style={{ fontSize: "12px", color: "#6b7280", background: "none", border: "none", cursor: "pointer" }}
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
       </div>
 
       {paddedPasses.length === 0 ? (
