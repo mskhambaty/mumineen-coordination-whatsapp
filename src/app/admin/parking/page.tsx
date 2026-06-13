@@ -1775,6 +1775,9 @@ export default function ParkingPage() {
                   {!detailRow.eligible && <Badge label="Not eligible" tone="amber" />}
                 </div>
                 <div className="mt-0.5 text-xs text-gray-400">{detailRow.hof_its} · {detailRow.member_count} member{detailRow.member_count !== 1 ? "s" : ""}</div>
+                {detailRow.phone && (
+                  <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{detailRow.phone}</div>
+                )}
               </div>
               <button type="button" onClick={() => { setDetailRow(null); setDetail(null); }} className="ml-4 text-xl text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕</button>
             </div>
@@ -1901,8 +1904,12 @@ export default function ParkingPage() {
                         {detail.members.map((m) => (
                           <tr key={m.its} className={m.not_attending ? "opacity-40" : ""}>
                             <td className="py-1.5 pr-4">
-                              <span className="font-medium text-gray-800 dark:text-gray-100">{m.full_name ?? "—"}</span>
-                              {m.is_head && <span className="ml-1 text-[10px] text-gray-400">(HOF)</span>}
+                              <div className="font-medium text-gray-800 dark:text-gray-100">
+                                {m.full_name ?? "—"}
+                                {m.is_head && <span className="ml-1 text-[10px] text-gray-400">(HOF)</span>}
+                              </div>
+                              {m.whatsapp_e164 && <div className="text-[11px] text-gray-400">{m.whatsapp_e164}</div>}
+                              {m.email && <div className="text-[11px] text-gray-400">{m.email}</div>}
                             </td>
                             <td className="py-1.5 pr-4 text-gray-500">{m.its}</td>
                             <td className="py-1.5 pr-4 text-gray-600 dark:text-gray-300">{m.age ?? "—"}</td>
