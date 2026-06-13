@@ -28,13 +28,21 @@ export async function POST(req: NextRequest) {
   const { pass_ids } = parsed.data;
   const supabase = getSupabaseAdmin();
 
-  const { error, count } = await supabase
-    .from("parking_passes")
-    .update({ printed_at: new Date().toISOString() }, { count: "exact" })
-    .in("id", pass_ids)
-    .is("printed_at", null);
+  // PostgREST sends the .in() filter as a URL query string — batching to stay
+  // well under the ~8 KB URL limit (100 UUIDs ≈ 3.7 KB).
+  const BATCH = 100;
+  const now = new Date().toISOString();
+  let total = 0;
+  for (let i = 0; i < pass_ids.length; i += BATCH) {
+    const chunk = pass_ids.slice(i, i + BATCH);
+    const { error, count } = await supabase
+      .from("parking_passes")
+      .update({ printed_at: now }, { count: "exact" })
+      .in("id", chunk)
+      .is("printed_at", null);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    total += count ?? 0;
+  }
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  return NextResponse.json({ ok: true, marked: count ?? 0 });
+  return NextResponse.json({ ok: true, marked: total });
 }
