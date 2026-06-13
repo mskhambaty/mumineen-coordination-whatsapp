@@ -52,10 +52,10 @@ export function canAccessInbox(user: PortalUser | null | undefined) {
 }
 
 // AI-agent knowledge tools (Knowledge Base, Knowledge Gaps, Ashara Daily
-// Content) + FAQ/religious content editors: admins/leadership plus department
-// PM/HOD. Intentionally kept at PM/HOD (not opened to all portal users).
+// Content, Prompts) + FAQ/religious content editors: admins/leadership,
+// department PM/HOD, and escalation/on-call support members.
 export function canManageKnowledge(user: PortalUser | null | undefined) {
-  return isAdminOrLeadership(user) || user?.is_manager === true;
+  return isAdminOrLeadership(user) || user?.is_manager === true || user?.is_support === true;
 }
 
 // Workspace pages (Tasks, Milestones, Upload Transcripts, Daily Digest): open to

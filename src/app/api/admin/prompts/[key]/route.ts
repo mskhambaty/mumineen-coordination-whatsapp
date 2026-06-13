@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { canManageKnowledge } from "@/lib/admin/access";
 import { ForbiddenError, resolveCallerFromRequest } from "@/lib/api/auth";
 import { getDefaultPromptText } from "@/lib/agent/prompts";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -10,7 +11,7 @@ export async function GET(
 ) {
   try {
     const caller = await resolveCallerFromRequest(req);
-    if (!caller.can_read_all) {
+    if (!caller.can_read_all && !canManageKnowledge(caller.portal)) {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 });
     }
 
@@ -46,7 +47,7 @@ export async function PUT(
 ) {
   try {
     const caller = await resolveCallerFromRequest(req);
-    if (!caller.can_write_all) {
+    if (!caller.can_write_all && !canManageKnowledge(caller.portal)) {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 });
     }
 

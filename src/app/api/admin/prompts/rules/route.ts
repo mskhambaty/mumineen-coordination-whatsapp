@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { canManageKnowledge } from "@/lib/admin/access";
 import { ForbiddenError, resolveCallerFromRequest } from "@/lib/api/auth";
 import { ALWAYS_ON_RULES, SYSTEM_PROMPT } from "@/lib/agent/run-agent";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   try {
     const caller = await resolveCallerFromRequest(req);
-    if (!caller.can_read_all) {
+    if (!caller.can_read_all && !canManageKnowledge(caller.portal)) {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 });
     }
 
@@ -58,7 +59,7 @@ export async function GET(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const caller = await resolveCallerFromRequest(req);
-    if (!caller.can_write_all) {
+    if (!caller.can_write_all && !canManageKnowledge(caller.portal)) {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 });
     }
 

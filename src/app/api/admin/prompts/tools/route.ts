@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { canManageKnowledge } from "@/lib/admin/access";
 import { ForbiddenError, resolveCallerFromRequest } from "@/lib/api/auth";
 import { allToolDefinitions } from "@/lib/agent/tools";
 import { getToolMetadata } from "@/lib/agent/tool-metadata";
@@ -7,7 +8,7 @@ import { getToolMetadata } from "@/lib/agent/tool-metadata";
 export async function GET(req: NextRequest) {
   try {
     const caller = await resolveCallerFromRequest(req);
-    if (!caller.can_read_all) {
+    if (!caller.can_read_all && !canManageKnowledge(caller.portal)) {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 });
     }
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { canManageKnowledge } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { listFaqBuckets, migrateLearnedFaqs } from "@/lib/knowledge/faq-buckets";
 
@@ -9,7 +9,7 @@ export const maxDuration = 120;
 
 // GET: all departments with their FAQ bucket content + entry/chunk counts.
 export async function GET(req: NextRequest) {
-  const auth = await requirePortalCaller(req, canManageKnowledge);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
   try {
     return NextResponse.json({ buckets: await listFaqBuckets() });
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 
 // POST { action: "migrate" }: one-time sort of loose "Learned from chat" FAQs into buckets.
 export async function POST(req: NextRequest) {
-  const auth = await requirePortalCaller(req, canManageKnowledge);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
   const body = (await req.json().catch(() => ({}))) as { action?: unknown };
   if (body.action !== "migrate") {

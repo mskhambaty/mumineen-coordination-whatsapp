@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canManageKnowledge } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type PromptData = {
@@ -248,7 +248,7 @@ export default function PromptPage() {
       return;
     }
 
-    if (!isAdminOrLeadership(user)) {
+    if (!canManageKnowledge(user)) {
       router.push("/admin/tasks");
       return;
     }

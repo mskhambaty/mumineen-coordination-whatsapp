@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
-import { canManageKnowledge } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 import ContentBucketEditor from "@/components/admin/ContentBucketEditor";
 import FaqBucketEditor from "@/components/admin/FaqBucketEditor";
@@ -105,7 +105,7 @@ export default function KnowledgePage() {
       router.push("/admin/login");
       return;
     }
-    if (!canManageKnowledge(user)) {
+    if (!canAccessPortal(user)) {
       router.push("/admin/conversations");
       return;
     }

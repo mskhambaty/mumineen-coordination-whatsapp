@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { canManageKnowledge } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import {
   addLisanWord,
@@ -26,7 +26,7 @@ function csvCell(value: string | null): string {
 // GET: how many words are currently loaded (default), or `?format=csv` to download the whole
 // dictionary as a re-importable CSV (backup / master). DB is the source of truth.
 export async function GET(req: NextRequest) {
-  const auth = await requirePortalCaller(req, canManageKnowledge);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
   try {
     if (req.nextUrl.searchParams.get("format") === "csv") {
@@ -58,7 +58,7 @@ const addWordSchema = z.object({
 });
 
 export async function PUT(req: NextRequest) {
-  const auth = await requirePortalCaller(req, canManageKnowledge);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
 
   const json = await req.json().catch(() => null);
@@ -98,7 +98,7 @@ function findCol(headers: string[], ...candidates: string[]): number {
 // POST: upload the dictionary CSV (full replace). Expected columns (by header):
 // transliteration/word, lisan, meaning, example.
 export async function POST(req: NextRequest) {
-  const auth = await requirePortalCaller(req, canManageKnowledge);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
 
   const form = await req.formData().catch(() => null);

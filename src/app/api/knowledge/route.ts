@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { canManageKnowledge } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { chunkText, indexKnowledgeChunks, indexReligiousDocument } from "@/lib/knowledge/index-content";
 import { detectFileType, extractText } from "@/lib/knowledge/parse";
@@ -14,7 +14,7 @@ const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15 MB
 
 // GET: list uploaded knowledge documents (newest first).
 export async function GET(req: NextRequest) {
-  const auth = await requirePortalCaller(req, canManageKnowledge);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
 
   // Optional ?store=logistics|religious filter (defaults to all for backward compatibility).
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
 
 // POST: upload a CSV/Excel/Word/PDF file; extract text, chunk, embed into site_content.
 export async function POST(req: NextRequest) {
-  const auth = await requirePortalCaller(req, canManageKnowledge);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
 
   const form = await req.formData().catch(() => null);

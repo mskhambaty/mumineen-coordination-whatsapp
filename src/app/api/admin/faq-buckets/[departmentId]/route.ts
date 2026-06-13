@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { canManageKnowledge } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { saveFaqBucket } from "@/lib/knowledge/faq-buckets";
 
@@ -11,7 +11,7 @@ type Ctx = { params: Promise<{ departmentId: string }> };
 
 // PUT { content, updated_by }: save a department's FAQ bucket and re-index it.
 export async function PUT(req: NextRequest, { params }: Ctx) {
-  const auth = await requirePortalCaller(req, canManageKnowledge);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
   const { departmentId } = await params;
   const body = (await req.json().catch(() => ({}))) as { content?: unknown; updated_by?: unknown };

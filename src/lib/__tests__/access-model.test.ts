@@ -47,10 +47,11 @@ describe("registration drill-down detail stays PM/HOD", () => {
   });
 });
 
-describe("AI-agent knowledge tools stay PM/HOD", () => {
-  it("allows admins/leadership and managers, denies plain members", () => {
+describe("AI-agent knowledge tools allow PM/HOD and escalation/on-call", () => {
+  it("allows admins/leadership, managers, and support; denies plain members", () => {
     expect(canManageKnowledge(admin)).toBe(true);
     expect(canManageKnowledge(committeePm)).toBe(true);
+    expect(canManageKnowledge({ role: "committee", is_support: true })).toBe(true);
     expect(canManageKnowledge(committeeMember)).toBe(false);
   });
 });

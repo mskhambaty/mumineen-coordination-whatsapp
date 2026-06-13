@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { canManageKnowledge } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { deleteKnowledgeChunks, deleteReligiousContent, knowledgePageUrl, religiousPageUrl } from "@/lib/knowledge/index-content";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -11,7 +11,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 // embedded (and judge whether it's still relevant) without re-uploading. Logistics docs live
 // in site_content (knowledge://<id>); religious uploads in religious_content (religious://doc/<id>).
 export async function GET(req: NextRequest, { params }: RouteContext) {
-  const auth = await requirePortalCaller(req, canManageKnowledge);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
@@ -53,7 +53,7 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
 // DELETE: remove a document and its vectorized chunks from the store it was indexed into
 // (site_content for logistics, religious_content for religious uploads).
 export async function DELETE(req: NextRequest, { params }: RouteContext) {
-  const auth = await requirePortalCaller(req, canManageKnowledge);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { canManageKnowledge } from "@/lib/admin/access";
+import { canAccessPortal } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { deleteReligiousTopic, saveReligiousTopic } from "@/lib/knowledge/religious-topics";
 
@@ -11,7 +11,7 @@ type Ctx = { params: Promise<{ id: string }> };
 
 // PUT { content, updated_by }: save a religious topic block and re-index it.
 export async function PUT(req: NextRequest, { params }: Ctx) {
-  const auth = await requirePortalCaller(req, canManageKnowledge);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as {
@@ -39,7 +39,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
 
 // DELETE: remove a religious topic block and its vectorized chunks.
 export async function DELETE(req: NextRequest, { params }: Ctx) {
-  const auth = await requirePortalCaller(req, canManageKnowledge);
+  const auth = await requirePortalCaller(req, canAccessPortal);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   try {

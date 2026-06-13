@@ -35,7 +35,7 @@ independent: a person's department role does not change their account role and v
 |---|---|---|
 | **portal** | `canAccessPortal` | Any portal login (committee or admin). The baseline internal-staff tier. |
 | **inbox** | `canAccessInbox` | Admin/leadership **or** on-call/escalation members (`is_support`). |
-| **manage** | `canManageKnowledge` | Admin/leadership **or** department PM/HOD (`is_manager`). |
+| **manage** | `canManageKnowledge` | Admin/leadership **or** department PM/HOD (`is_manager`) **or** escalation/on-call (`is_support`). |
 | **admin** | `isAdminOrLeadership` | Admin/leadership only. |
 | **import** | `canImportMumineen` | Admin/leadership **or** IT (`is_it`). Bulk roster import only. |
 | **parking-write** | `canManageParking` | Admin/leadership, IT, or Transport. Parking assign/revoke/export only. |
@@ -55,8 +55,8 @@ independent: a person's department role does not change their account role and v
 | **Mumineen → Niyaz** | ✅ | ✅ | ✅ | ✅ | |
 | **Messaging → Relay Updates** | ✅ | ❌ | ❌ | ❌ | Admin/leadership only (view + edit). |
 | **Messaging → WhatsApp Templates** | ✅ | ❌ | ❌ | ❌ | Admin/leadership only (view + edit). |
-| **AI Agent → Prompts** | ✅ | ❌ | ❌ | ❌ | Admin/leadership only. |
-| **AI Agent → Knowledge Base** | ✅ | ❌ | ❌ | ✅ | manage tier (admin/leadership or PM/HOD). |
+| **AI Agent → Prompts** | ✅ | ❌ | ❌ | ✅ | manage tier (includes escalation/on-call). |
+| **AI Agent → Knowledge Base** | ✅ | ✅ | ✅ | ✅ | portal tier (any signed-in user). |
 | **AI Agent → Knowledge Gaps** | ✅ | ❌ | ❌ | ✅ | manage tier. |
 | **AI Agent → Ashara Daily Content** | ✅ | ❌ | ❌ | ✅ | manage tier. |
 | **AI Agent → Model Testing** | ✅ | ❌ | ❌ | ❌ | Admin/leadership only. |

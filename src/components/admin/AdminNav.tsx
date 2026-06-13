@@ -56,8 +56,8 @@ const dropdownGroups: DropdownGroup[] = [
   {
     label: "AI Agent",
     links: [
-      { href: "/admin/prompt", label: "Prompts", access: "admin" },
-      { href: "/admin/knowledge", label: "Knowledge Base", access: "manage" },
+      { href: "/admin/prompt", label: "Prompts", access: "manage" },
+      { href: "/admin/knowledge", label: "Knowledge Base", access: "portal" },
       { href: "/admin/knowledge-gaps", label: "Knowledge Gaps", access: "manage" },
       { href: "/admin/ashara", label: "Ashara Daily Content", access: "manage" },
       { href: "/admin/ollama-test", label: "Model Testing", access: "admin" },
@@ -139,7 +139,7 @@ export default function AdminNav() {
     if (itemAccess === "any" || itemAccess === "portal") return true;
     if (itemAccess === "admin") return access.isAdmin;
     if (itemAccess === "inbox") return access.isAdmin || access.isSupport;
-    return access.isAdmin || access.isManager; // manage
+    return access.isAdmin || access.isManager || access.isSupport; // manage
   }
 
   useEffect(() => {
