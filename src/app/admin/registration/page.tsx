@@ -51,7 +51,7 @@ type Analytics = {
   departures_by_date: { date: string; count: number }[];
   gender: { label: string; count: number }[];
   countries: { label: string; count: number }[];
-  categories: { label: string; count: number }[];
+  vip_groups: { label: string; count: number }[];
   age_groups: {
     age_0_5: number;
     age_6_11: number;
@@ -833,7 +833,7 @@ export default function RegistrationAnalyticsPage() {
   async function exportVipCsv() {
     setVipExporting(true);
     try {
-      const params = new URLSearchParams({ segment: "category" }); // no value → all categories
+      const params = new URLSearchParams({ segment: "vip" }); // no value → all VIP groups
       if (filters.local_mehman) params.set("local_mehman", filters.local_mehman);
       if (filters.status) params.set("status", filters.status);
       if (filters.attending) params.set("attending", filters.attending);
@@ -843,7 +843,7 @@ export default function RegistrationAnalyticsPage() {
       const rows: DetailRow[] = json.rows ?? [];
       rows.sort((a, b) => a.detail.localeCompare(b.detail) || a.name.localeCompare(b.name));
       const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
-      const header = ["Category", "Full Name", "ITS", "Type", "Age", "Gender", "WhatsApp", "Email", "HOF ITS"];
+      const header = ["VIP Group", "Full Name", "ITS", "Type", "Age", "Gender", "WhatsApp", "Email", "HOF ITS"];
       const lines = rows.map((r) =>
         [r.detail, r.name, r.its, r.local_mehman, r.age, r.gender, r.whatsapp, r.email, r.hof_its].map(esc).join(","),
       );
@@ -1159,8 +1159,8 @@ export default function RegistrationAnalyticsPage() {
                   <Pill value={summary.attending} label="attending" />
                   <Pill value={data.accessibility.rahat_seating} label="rahat" />
                   <Pill value={data.accessibility.wheelchair} label="wheelchair" />
-                  {data.categories.length > 0 && (
-                    <Pill value={data.categories.reduce((s, c) => s + c.count, 0)} label="VIP" />
+                  {data.vip_groups.length > 0 && (
+                    <Pill value={data.vip_groups.reduce((s, c) => s + c.count, 0)} label="VIP" />
                   )}
                 </>
               }
@@ -1187,9 +1187,9 @@ export default function RegistrationAnalyticsPage() {
                   </SectionCard>
                 )}
 
-                {data.categories.length > 0 && (
+                {data.vip_groups.length > 0 && (
                   <SectionCard
-                    title="VIP · Category"
+                    title="VIP · Category / Idara"
                     filterSlot={
                       canDrill ? (
                         <button
@@ -1203,9 +1203,9 @@ export default function RegistrationAnalyticsPage() {
                       ) : undefined
                     }
                   >
-                    {data.categories.map((c) => (
-                      <HBar key={c.label} label={c.label} value={c.count} total={data.categories.reduce((s, x) => s + x.count, 0)} color="bg-violet-500"
-                        onClick={() => drill({ segment: "category", value: c.label, label: `VIP: ${c.label}`, detailLabel: "Category" })}
+                    {data.vip_groups.map((c) => (
+                      <HBar key={c.label} label={c.label} value={c.count} total={data.vip_groups.reduce((s, x) => s + x.count, 0)} color="bg-violet-500"
+                        onClick={() => drill({ segment: "vip", value: c.label, label: `VIP: ${c.label}`, detailLabel: "VIP Group" })}
                       />
                     ))}
                   </SectionCard>

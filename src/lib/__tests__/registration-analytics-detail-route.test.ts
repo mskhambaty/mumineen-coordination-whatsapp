@@ -189,26 +189,32 @@ describe("GET /api/admin/registration-analytics/detail — registered_member (we
   });
 });
 
-describe("GET /api/admin/registration-analytics/detail — category (VIP)", () => {
+describe("GET /api/admin/registration-analytics/detail — vip (VIP groups)", () => {
   const VIP_MUMINEEN = [
-    { its: "1", hof_its: "1", is_head: true, full_name: "Zee", gender: "M", age: 40, local_mehman: "Mehman", not_attending: false, whatsapp_e164: null, email: null, category: "Baite Zainy" },
-    { its: "2", hof_its: "2", is_head: true, full_name: "Aar", gender: "F", age: 35, local_mehman: "Local", not_attending: true, whatsapp_e164: null, email: null, category: "Baite Zainy" },
-    { its: "3", hof_its: "3", is_head: true, full_name: "Qee", gender: "M", age: 50, local_mehman: "Mehman", not_attending: false, whatsapp_e164: null, email: null, category: "Qasre Aali" },
-    { its: "4", hof_its: "4", is_head: true, full_name: "Nope", gender: "M", age: 20, local_mehman: "Mehman", not_attending: false, whatsapp_e164: null, email: null, category: null },
+    { its: "1", hof_its: "1", is_head: true, full_name: "Zee", gender: "M", age: 40, local_mehman: "Mehman", not_attending: false, whatsapp_e164: null, email: null, category: "Baite Zainy", idara: null },
+    { its: "2", hof_its: "2", is_head: true, full_name: "Aar", gender: "F", age: 35, local_mehman: "Local", not_attending: true, whatsapp_e164: null, email: null, category: "Baite Zainy", idara: null },
+    { its: "3", hof_its: "3", is_head: true, full_name: "Qee", gender: "M", age: 50, local_mehman: "Mehman", not_attending: false, whatsapp_e164: null, email: null, category: null, idara: "Attalimiyah" }, // VIP via idara
+    { its: "4", hof_its: "4", is_head: true, full_name: "Nope", gender: "M", age: 20, local_mehman: "Mehman", not_attending: false, whatsapp_e164: null, email: null, category: null, idara: "Muntasebeen" }, // not a VIP
   ];
 
   beforeEach(() => {
     getSupabaseAdmin.mockReturnValue(stubSupabase({ families: [], mumineen: VIP_MUMINEEN }));
   });
 
-  it("lists members of one category (including not-attending), with the category in detail", async () => {
-    const json = await (await GET(req("segment=category&value=Baite%20Zainy"))).json();
+  it("lists members of one VIP group (category value), incl. not-attending, with the group in detail", async () => {
+    const json = await (await GET(req("segment=vip&value=Baite%20Zainy"))).json();
     expect(json.rows.map((r: { its: string }) => r.its).sort()).toEqual(["1", "2"]);
     expect(json.rows.every((r: { detail: string }) => r.detail === "Baite Zainy")).toBe(true);
   });
 
-  it("with no value, lists ALL VIPs across categories (members without a category excluded)", async () => {
-    const json = await (await GET(req("segment=category"))).json();
+  it("matches an idara-based VIP group", async () => {
+    const json = await (await GET(req("segment=vip&value=Attalimiyah"))).json();
+    expect(json.rows.map((r: { its: string }) => r.its)).toEqual(["3"]);
+    expect(json.rows[0].detail).toBe("Attalimiyah");
+  });
+
+  it("with no value, lists ALL VIPs (category or qualifying idara), excluding non-VIPs", async () => {
+    const json = await (await GET(req("segment=vip"))).json();
     expect(json.rows.map((r: { its: string }) => r.its).sort()).toEqual(["1", "2", "3"]);
   });
 });

@@ -185,20 +185,24 @@ describe("GET /api/admin/registration-analytics — funnel counts", () => {
     expect(summary.total_mumineen).toBe(1);
   });
 
-  it("groups VIP mumin by category (all VIPs incl. not-attending), sorted by headcount", async () => {
+  it("groups VIP mumin by category or qualifying idara (category wins), all VIPs incl. not-attending", async () => {
     const mems = [
       { ...member("a", "A"), category: "Baite Zainy" },
       { ...member("b", "B"), category: "Baite Zainy", not_attending: true }, // not-attending VIP still counts
       { ...member("c", "C"), category: "Qasre Aali" },
-      { ...member("d", "D"), category: null }, // no category → not a VIP
-      { ...member("e", "E"), category: "  " }, // blank → not a VIP
+      { ...member("d", "D"), category: null, idara: "Attalimiyah" }, // VIP via idara
+      { ...member("e", "E"), category: null, idara: "Attalimiyah" }, // VIP via idara
+      { ...member("f", "F"), category: "Baite Zainy", idara: "Ummal Kiram" }, // both → category wins
+      { ...member("g", "G"), category: null, idara: "Muntasebeen" }, // non-VIP idara
+      { ...member("h", "H"), category: "  ", idara: null }, // blank category, no idara → not a VIP
     ];
     getSupabaseAdmin.mockReturnValue(stubSupabase({ families: [family("A", "submitted")], mumineen: mems, departments: [] }));
 
-    const { categories } = await (await GET(req())).json();
-    expect(categories).toEqual([
-      { label: "Baite Zainy", count: 2 },
-      { label: "Qasre Aali", count: 1 },
+    const { vip_groups } = await (await GET(req())).json();
+    expect(vip_groups).toEqual([
+      { label: "Baite Zainy", count: 3 }, // a, b, f
+      { label: "Attalimiyah", count: 2 }, // d, e
+      { label: "Qasre Aali", count: 1 }, // c
     ]);
   });
 });
