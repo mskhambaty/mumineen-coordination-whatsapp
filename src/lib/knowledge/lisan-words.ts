@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { markWordRequestAdded } from "@/lib/knowledge/lisan-word-requests";
 
 export type LisanEntry = {
   transliteration: string | null;
@@ -250,11 +251,13 @@ export async function addLisanWord(row: LisanImportRow): Promise<AddLisanResult>
   if (existingId != null) {
     const { error } = await supabase.from("lisan_words").update(prepared).eq("id", existingId);
     if (error) throw error;
+    await markWordRequestAdded(prepared.norm); // word now exists → close any open request for it
     return { status: "updated", entry: pick(prepared), count: await countLisanWords() };
   }
 
   const { error } = await supabase.from("lisan_words").insert(prepared);
   if (error) throw error;
+  await markWordRequestAdded(prepared.norm); // word now exists → close any open request for it
   return { status: "added", entry: pick(prepared), count: await countLisanWords() };
 }
 

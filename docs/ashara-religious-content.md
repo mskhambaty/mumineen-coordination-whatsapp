@@ -74,6 +74,16 @@ day-to-day path — `addLisanWord` computes the same `norm`/`norm_skeleton`/`ske
 producing a master copy). A single add is live immediately for `get_lisan_word_meaning`; it
 survives until the next full CSV re-upload, so export before replacing if the master isn't current.
 
+**Missing-word loop.** When `get_lisan_word_meaning` returns `not_found` (a genuine gap — not a
+trivial reply and not a "did you mean"), the agent fire-and-forget calls `recordMissingLisanWord`
+([src/lib/knowledge/lisan-word-requests.ts](../src/lib/knowledge/lisan-word-requests.ts)), which
+queues the word in `lisan_word_requests` (one open row per `normalized_word`, repeat asks bump
+`times_seen`) and — only on the **first** sighting — emails the single `LISAN_ALERT_EMAIL`
+recipient (Postmark `sendRawEmail`) with the word + asker so they can add it and reply. Adding the
+word via `addLisanWord` calls `markWordRequestAdded`, which flips the matching open row to `added`
+so it leaves the queue automatically. If `LISAN_ALERT_EMAIL` is unset the word is still queued, just
+no email. Never throws into the agent.
+
 **Year resolution (1447 ↔ 1448).** Before retrieving, the tool calls `resolveAsharaYear(query, today)` (`ashara-config.ts`) to anchor on the *event*, not the Hijri calendar: explicit `1447/1448` → that year; "last year" → `LAST_COMPLETED_ASHARA_YEAR` (1447, the indexed one); "this year / today / this Ashara / upcoming" → `ACTIVE_ASHARA_YEAR` (1448, not yet posted); no cue → most-recent-available. If the resolved year has no content, the tool returns `not_available` **with** `available_year` + last year's content, and the agent says "1448H isn't posted yet — here's last year (1447H): …" — it never relabels one year's content as another's. Every answer states the concrete year.
 
 **Category-disciplined retrieval.** The tool checks a **specific majlis** first, then **overview** intent (`isOverviewQuery` → the curated `overview` block + per-majlis theme list), then a **category-aware vector fallback**: a decoration question searches `tazyeen`; everything else searches the sermon sources (`reflection`+`al_dars`+`overview`) so the decoration article can never answer a sermon-content question. `retrieveReligiousContext(query, topK, categories)` post-filters by the denormalized `category` on `religious_content`.
