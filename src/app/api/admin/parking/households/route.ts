@@ -167,7 +167,8 @@ export async function GET(req: NextRequest) {
     ...new Set(
       families
         .map((f) => f.utaro_host_its?.trim())
-        .filter((h): h is string => Boolean(h) && !knownFamilyIts.has(h)),
+        .filter((h): h is string => Boolean(h))
+        .filter((h) => !knownFamilyIts.has(h)),
     ),
   ];
   const northChicagoNonHofHosts = new Set<string>();
