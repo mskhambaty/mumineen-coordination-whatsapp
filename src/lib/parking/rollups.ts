@@ -93,7 +93,7 @@ export function buildHouseholdRow(
 ): HouseholdRow {
   const head = members.find((m) => m.is_head) ?? members[0] ?? null;
   const localMehman = head?.local_mehman ?? null;
-  const isNorthChicago = head?.city?.trim().toLowerCase() === "north chicago";
+  const isNorthChicago = head?.city?.trim().toLowerCase().includes("north chicago") ?? false;
   // All rollups are scoped to attending members only — non-attending members
   // take no parking spot and should not influence eligibility or criteria flags.
   const attending = members.filter((m) => !m.not_attending);

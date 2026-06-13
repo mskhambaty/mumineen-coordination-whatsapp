@@ -150,6 +150,16 @@ export async function GET(req: NextRequest) {
   // Used to detect "orphaned" utaro guests whose host is not in the system.
   const knownFamilyIts = new Set(families.map((f) => f.hof_its));
 
+  // hof_its values whose HOF lives in North Chicago — used to also exclude
+  // mehman families whose utaro host is a North Chicago household.
+  const northChicagoHofs = new Set<string>();
+  for (const [hofIts, mems] of membersByHof) {
+    const head = mems.find((m) => m.is_head) ?? mems[0];
+    if (head?.city?.trim().toLowerCase().includes("north chicago")) {
+      northChicagoHofs.add(hofIts);
+    }
+  }
+
   const rows = families
     .map((f) => {
       const row = buildHouseholdRow(
@@ -159,10 +169,16 @@ export async function GET(req: NextRequest) {
         hostGuests.get(f.hof_its) ?? [],
       );
 
+      const hostIts = f.utaro_host_its?.trim() ?? "";
+
+      // Mehman staying with a North Chicago utaro host → not eligible.
+      if (row.eligible && hostIts && northChicagoHofs.has(hostIts)) {
+        return { ...row, eligible: false, suggested_passes: 0 };
+      }
+
       // If this family is commuting with a utaro host that is either blank or
       // doesn't exist as an active family, they can't roll up into a host row.
       // Treat them as eligible for their own pass so they aren't hidden.
-      const hostIts = f.utaro_host_its?.trim() ?? "";
       const hostMissing =
         f.transport_mode === "commute_with_utaro" &&
         (!hostIts || !knownFamilyIts.has(hostIts));
