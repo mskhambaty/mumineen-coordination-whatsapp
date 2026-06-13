@@ -157,11 +157,13 @@ export async function GET(req: NextRequest) {
         hostGuests.get(f.hof_its) ?? [],
       );
 
-      // If this family is commuting with a utaro host that doesn't exist in the
-      // system, they can't roll up into the host's row. Treat them as eligible
-      // for their own pass so they aren't hidden from the default view.
+      // If this family is commuting with a utaro host that is either blank or
+      // doesn't exist as an active family, they can't roll up into a host row.
+      // Treat them as eligible for their own pass so they aren't hidden.
+      const hostIts = f.utaro_host_its?.trim() ?? "";
       const hostMissing =
-        f.utaro_host_its?.trim() && !knownFamilyIts.has(f.utaro_host_its.trim());
+        f.transport_mode === "commute_with_utaro" &&
+        (!hostIts || !knownFamilyIts.has(hostIts));
       if (hostMissing && !row.eligible && row.member_count > 0) {
         return { ...row, eligible: true, suggested_passes: Math.max(row.suggested_passes, 1) };
       }
