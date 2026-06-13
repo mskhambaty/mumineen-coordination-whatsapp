@@ -51,6 +51,7 @@ type Analytics = {
   departures_by_date: { date: string; count: number }[];
   gender: { label: string; count: number }[];
   countries: { label: string; count: number }[];
+  categories: { label: string; count: number }[];
   age_groups: {
     age_0_5: number;
     age_6_11: number;
@@ -750,6 +751,7 @@ export default function RegistrationAnalyticsPage() {
   const [error, setError] = useState<string | null>(null);
   const [estimates, setEstimates] = useState<Estimates | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [vipExporting, setVipExporting] = useState(false);
 
   const [filters, setFilters] = useState<Filters>({ local_mehman: "", status: "", attending: "", gender: "" });
   const [detail, setDetail] = useState<DetailRequest | null>(null);
@@ -825,6 +827,37 @@ export default function RegistrationAnalyticsPage() {
     });
     return () => obs.disconnect();
   }, [data]);
+
+  // Card-level export: ALL VIP mumin across every category in one CSV (Category column first so it
+  // reads category-by-category). Honors the page's active filters, same as the drill-downs.
+  async function exportVipCsv() {
+    setVipExporting(true);
+    try {
+      const params = new URLSearchParams({ segment: "category" }); // no value → all categories
+      if (filters.local_mehman) params.set("local_mehman", filters.local_mehman);
+      if (filters.status) params.set("status", filters.status);
+      if (filters.attending) params.set("attending", filters.attending);
+      if (filters.gender) params.set("gender", filters.gender);
+      const res = await apiFetch(`/api/admin/registration-analytics/detail?${params}`);
+      const json = await res.json().catch(() => ({ rows: [] }));
+      const rows: DetailRow[] = json.rows ?? [];
+      rows.sort((a, b) => a.detail.localeCompare(b.detail) || a.name.localeCompare(b.name));
+      const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+      const header = ["Category", "Full Name", "ITS", "Type", "Age", "Gender", "WhatsApp", "Email", "HOF ITS"];
+      const lines = rows.map((r) =>
+        [r.detail, r.name, r.its, r.local_mehman, r.age, r.gender, r.whatsapp, r.email, r.hof_its].map(esc).join(","),
+      );
+      const blob = new Blob(["﻿" + [header.join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "vip-mumineen.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setVipExporting(false);
+    }
+  }
 
   async function exportPendingCsv() {
     setExporting(true);
@@ -1126,6 +1159,9 @@ export default function RegistrationAnalyticsPage() {
                   <Pill value={summary.attending} label="attending" />
                   <Pill value={data.accessibility.rahat_seating} label="rahat" />
                   <Pill value={data.accessibility.wheelchair} label="wheelchair" />
+                  {data.categories.length > 0 && (
+                    <Pill value={data.categories.reduce((s, c) => s + c.count, 0)} label="VIP" />
+                  )}
                 </>
               }
             >
@@ -1146,6 +1182,30 @@ export default function RegistrationAnalyticsPage() {
                     {data.countries.map((c) => (
                       <HBar key={c.label} label={c.label} value={c.count} total={summary.attending} color="bg-sky-500"
                         onClick={() => drill({ segment: "country", value: c.label, label: `Country: ${c.label}` })}
+                      />
+                    ))}
+                  </SectionCard>
+                )}
+
+                {data.categories.length > 0 && (
+                  <SectionCard
+                    title="VIP · Category"
+                    filterSlot={
+                      canDrill ? (
+                        <button
+                          type="button"
+                          onClick={() => void exportVipCsv()}
+                          disabled={vipExporting}
+                          className="rounded px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-300 hover:bg-emerald-50 disabled:opacity-50 dark:text-emerald-400 dark:ring-emerald-700 dark:hover:bg-emerald-950/40"
+                        >
+                          {vipExporting ? "Exporting…" : "Export all VIPs"}
+                        </button>
+                      ) : undefined
+                    }
+                  >
+                    {data.categories.map((c) => (
+                      <HBar key={c.label} label={c.label} value={c.count} total={data.categories.reduce((s, x) => s + x.count, 0)} color="bg-violet-500"
+                        onClick={() => drill({ segment: "category", value: c.label, label: `VIP: ${c.label}`, detailLabel: "Category" })}
                       />
                     ))}
                   </SectionCard>

@@ -17,6 +17,7 @@ type MuminRow = {
   age: number | null;
   is_adult: boolean | null;
   is_head: boolean;
+  category: string | null;
   local_mehman: string | null;
   arrival_at: string | null;
   departure_at: string | null;
@@ -81,7 +82,7 @@ export async function GET(req: NextRequest) {
       supabase
         .from("mumineen")
         .select(
-          "its, full_name, hof_its, gender, jamaat, age, is_adult, is_head, local_mehman, arrival_at, departure_at, arrival_flight_no, airport, not_attending, rahat_seating, wheelchair, special_needs, wants_khidmat, khidmat_department_ids, whatsapp_e164, email",
+          "its, full_name, hof_its, gender, jamaat, age, is_adult, is_head, category, local_mehman, arrival_at, departure_at, arrival_flight_no, airport, not_attending, rahat_seating, wheelchair, special_needs, wants_khidmat, khidmat_department_ids, whatsapp_e164, email",
         )
         .eq("roster_active", true)
         .range(from, to),
@@ -345,6 +346,19 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([label, count]) => ({ label, count }));
 
+  // ── VIP categories ────────────────────────────────────────────────────────────
+  // A "VIP" is any roster member with a non-blank `category` (e.g. Baite Zainy, Qasre Aali).
+  // Counted across the filtered member set regardless of attendance — VIP/protocol status is a
+  // roster attribute, so a VIP marked not-attending is still surfaced. Sorted by headcount.
+  const categoryMap = new Map<string, number>();
+  for (const m of members) {
+    const c = m.category?.trim();
+    if (c) categoryMap.set(c, (categoryMap.get(c) ?? 0) + 1);
+  }
+  const categories = Array.from(categoryMap.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([label, count]) => ({ label, count }));
+
   // ── Age groups ───────────────────────────────────────────────────────────────
 
   // Non-overlapping brackets partitioning all known ages.
@@ -444,6 +458,7 @@ export async function GET(req: NextRequest) {
     departures_by_date: departuresByDate,
     gender,
     countries,
+    categories,
     age_groups: ageGroups,
     khidmat: {
       wants: wantsKhidmat,

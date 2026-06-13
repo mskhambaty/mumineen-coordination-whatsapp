@@ -184,4 +184,21 @@ describe("GET /api/admin/registration-analytics — funnel counts", () => {
     expect(countries).toEqual([{ label: "UAE", count: 1 }]); // only the submitted family's member
     expect(summary.total_mumineen).toBe(1);
   });
+
+  it("groups VIP mumin by category (all VIPs incl. not-attending), sorted by headcount", async () => {
+    const mems = [
+      { ...member("a", "A"), category: "Baite Zainy" },
+      { ...member("b", "B"), category: "Baite Zainy", not_attending: true }, // not-attending VIP still counts
+      { ...member("c", "C"), category: "Qasre Aali" },
+      { ...member("d", "D"), category: null }, // no category → not a VIP
+      { ...member("e", "E"), category: "  " }, // blank → not a VIP
+    ];
+    getSupabaseAdmin.mockReturnValue(stubSupabase({ families: [family("A", "submitted")], mumineen: mems, departments: [] }));
+
+    const { categories } = await (await GET(req())).json();
+    expect(categories).toEqual([
+      { label: "Baite Zainy", count: 2 },
+      { label: "Qasre Aali", count: 1 },
+    ]);
+  });
 });
