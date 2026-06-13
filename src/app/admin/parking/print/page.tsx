@@ -164,6 +164,7 @@ function PrintContent() {
   const [pendingMark, setPendingMark] = useState<string[]>([]); // pass IDs to mark after print
   const [marking, setMarking] = useState(false);
   const [markedCount, setMarkedCount] = useState<number | null>(null);
+  const [markError, setMarkError] = useState<string | null>(null);
 
   const load = useCallback(async (unprinted: boolean) => {
     setLoading(true);
@@ -226,17 +227,22 @@ function PrintContent() {
   async function markPrinted() {
     if (assignedPassIds.length === 0) return;
     setMarking(true);
+    setMarkError(null);
     try {
       const res = await apiFetch("/api/admin/parking/print/mark-printed", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pass_ids: assignedPassIds }),
       });
-      const json = (await res.json().catch(() => ({}))) as { marked?: number };
-      setMarkedCount(json.marked ?? assignedPassIds.length);
+      const json = (await res.json().catch(() => ({}))) as { marked?: number; error?: string };
+      if (!res.ok) {
+        setMarkError(`Failed (${res.status}): ${json.error ?? "Unknown error"}`);
+        return;
+      }
+      setMarkedCount(json.marked ?? 0);
       setPendingMark([]);
-      // Reload so the toolbar counts update.
       void load(unprintedOnly);
+    } catch (err) {
+      setMarkError(err instanceof Error ? err.message : "Mark as printed failed");
     } finally {
       setMarking(false);
     }
@@ -335,6 +341,11 @@ function PrintContent() {
               >
                 {marking ? "Marking…" : `Mark ${assignedPassIds.length} as printed`}
               </button>
+            )}
+            {markError && (
+              <span style={{ fontSize: "12px", color: "#dc2626", maxWidth: "260px" }} title={markError}>
+                ⚠ {markError}
+              </span>
             )}
             {markedCount !== null && (
               <span style={{ fontSize: "13px", color: "#16a34a", fontWeight: "600" }}>
