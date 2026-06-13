@@ -160,6 +160,29 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Some utaro hosts are individual members (not family HOFs) so they don't appear
+  // in knownFamilyIts or northChicagoHofs. Look up their cities so the orphan fix
+  // doesn't accidentally make a guest eligible when the host is North Chicago.
+  const nonHofHostIts = [
+    ...new Set(
+      families
+        .map((f) => f.utaro_host_its?.trim())
+        .filter((h): h is string => Boolean(h) && !knownFamilyIts.has(h)),
+    ),
+  ];
+  const northChicagoNonHofHosts = new Set<string>();
+  if (nonHofHostIts.length > 0) {
+    const { data: hostRows } = await supabase
+      .from("mumineen")
+      .select("its, city")
+      .in("its", nonHofHostIts);
+    for (const h of hostRows ?? []) {
+      if (h.city?.trim().toLowerCase().includes("north chicago")) {
+        northChicagoNonHofHosts.add(h.its);
+      }
+    }
+  }
+
   const rows = families
     .map((f) => {
       const row = buildHouseholdRow(
@@ -172,17 +195,21 @@ export async function GET(req: NextRequest) {
       const hostIts = f.utaro_host_its?.trim() ?? "";
 
       // Mehman staying with a North Chicago utaro host → not eligible.
-      if (row.eligible && hostIts && northChicagoHofs.has(hostIts)) {
+      const hostIsNorthChicago = northChicagoHofs.has(hostIts) || northChicagoNonHofHosts.has(hostIts);
+      if (row.eligible && hostIts && hostIsNorthChicago) {
         return { ...row, eligible: false, suggested_passes: 0 };
       }
 
       // If this family is commuting with a utaro host that is either blank or
       // doesn't exist as an active family, they can't roll up into a host row.
       // Treat them as eligible for their own pass so they aren't hidden.
+      // Never apply this to North Chicago families or guests whose host is North Chicago.
       const hostMissing =
         f.transport_mode === "commute_with_utaro" &&
         (!hostIts || !knownFamilyIts.has(hostIts));
-      if (hostMissing && !row.eligible && row.member_count > 0 && !northChicagoHofs.has(f.hof_its)) {
+      if (hostMissing && !row.eligible && row.member_count > 0
+          && !northChicagoHofs.has(f.hof_its)
+          && !hostIsNorthChicago) {
         return { ...row, eligible: true, suggested_passes: Math.max(row.suggested_passes, 1) };
       }
 
