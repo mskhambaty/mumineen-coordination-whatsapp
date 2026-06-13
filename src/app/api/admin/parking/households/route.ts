@@ -172,15 +172,19 @@ export async function GET(req: NextRequest) {
     ),
   ];
   const northChicagoNonHofHosts = new Set<string>();
+  // Maps a non-HOF host ITS → their family's HOF ITS, so we can check if they
+  // belong to an active family even though their own ITS isn't a family HOF.
+  const nonHofHostToFamilyHof = new Map<string, string>();
   if (nonHofHostIts.length > 0) {
     const { data: hostRows } = await supabase
       .from("mumineen")
-      .select("its, city")
+      .select("its, city, hof_its")
       .in("its", nonHofHostIts);
     for (const h of hostRows ?? []) {
       if (h.city?.trim().toLowerCase().includes("north chicago")) {
         northChicagoNonHofHosts.add(h.its);
       }
+      if (h.hof_its) nonHofHostToFamilyHof.set(h.its, h.hof_its);
     }
   }
 
@@ -205,9 +209,14 @@ export async function GET(req: NextRequest) {
       // doesn't exist as an active family, they can't roll up into a host row.
       // Treat them as eligible for their own pass so they aren't hidden.
       // Never apply this to North Chicago families or guests whose host is North Chicago.
+      // Resolve host ITS to a family HOF — handles cases where utaro_host_its
+      // points to a non-HOF member rather than the family's own HOF ITS.
+      const resolvedHostHof = knownFamilyIts.has(hostIts)
+        ? hostIts
+        : (nonHofHostToFamilyHof.get(hostIts) ?? "");
       const hostMissing =
         f.transport_mode === "commute_with_utaro" &&
-        (!hostIts || !knownFamilyIts.has(hostIts));
+        (!hostIts || !knownFamilyIts.has(resolvedHostHof));
       if (hostMissing && !row.eligible && row.member_count > 0
           && !northChicagoHofs.has(f.hof_its)
           && !hostIsNorthChicago) {
