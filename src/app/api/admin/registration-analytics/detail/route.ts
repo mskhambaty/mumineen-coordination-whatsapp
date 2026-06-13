@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { canViewRegistrationDetail } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { jamaatCountry } from "@/lib/registration/jamaat-country";
+import { vipGroup } from "@/lib/registration/vip";
 import { isRegisteredStatus, matchesStatusFilter } from "@/lib/registration/status";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -35,6 +36,7 @@ type MuminDetail = {
   is_head: boolean;
   hof_its: string;
   category: string | null;
+  idara: string | null;
   local_mehman: string | null;
   whatsapp_e164: string | null;
   email: string | null;
@@ -105,7 +107,7 @@ export async function GET(req: NextRequest) {
   const supabase = getSupabaseAdmin();
 
   const MUMIN_SELECT =
-    "its, full_name, gender, jamaat, age, is_adult, is_head, hof_its, category, local_mehman, whatsapp_e164, email, not_attending, arrival_at, departure_at, arrival_flight_no, airport, rahat_seating, wheelchair, special_needs, wants_khidmat, khidmat_department_ids";
+    "its, full_name, gender, jamaat, age, is_adult, is_head, hof_its, category, idara, local_mehman, whatsapp_e164, email, not_attending, arrival_at, departure_at, arrival_flight_no, airport, rahat_seating, wheelchair, special_needs, wants_khidmat, khidmat_department_ids";
 
   const FAMILY_SELECT =
     "hof_its, registration_status, acc_type, hotel_name, open_to_utaro, transport_mode, transport_detail, submitted_at, utaro_host_name, utaro_host_its, utaro_host_address, utaro_host_whatsapp_e164, utaro_host_email";
@@ -468,13 +470,13 @@ export async function GET(req: NextRequest) {
       case "country":
         filtered = allMembers.filter((m) => !m.not_attending && jamaatCountry(m.jamaat) === value);
         break;
-      case "category":
-        // VIP drill-down. A specific value narrows to that category; an empty value returns ALL
-        // VIPs (any non-blank category) for the card-level "export all" path. Includes
-        // not-attending members — VIP status is independent of attendance.
+      case "vip":
+        // VIP drill-down. A specific value narrows to that VIP group (a category tier OR a
+        // qualifying idara); an empty value returns ALL VIPs for the card-level "export all" path.
+        // Includes not-attending members — VIP status is independent of attendance.
         filtered = value
-          ? allMembers.filter((m) => (m.category?.trim() ?? "") === value)
-          : allMembers.filter((m) => Boolean(m.category?.trim()));
+          ? allMembers.filter((m) => vipGroup(m) === value)
+          : allMembers.filter((m) => vipGroup(m) !== null);
         break;
       case "age_group":
         filtered = allMembers.filter((m) => {
@@ -542,8 +544,8 @@ export async function GET(req: NextRequest) {
         case "special_needs":
           detail = m.special_needs?.trim() ?? "";
           break;
-        case "category":
-          detail = m.category?.trim() ?? "";
+        case "vip":
+          detail = vipGroup(m) ?? "";
           break;
         case "airport":
         case "missing_airport":
