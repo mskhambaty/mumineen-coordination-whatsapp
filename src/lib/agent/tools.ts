@@ -17,6 +17,12 @@ import {
 import { recordToolAudit } from "@/lib/supabase/server";
 import { recordKnowledgeGap } from "@/lib/knowledge/knowledge-gaps";
 import type { CallerContext } from "@/lib/api/auth";
+import {
+  resolveUniqueName,
+  selectTasksForAgentUpdate,
+  updateTasksInputSchema,
+  type AgentTask,
+} from "@/lib/tasks/agent-management";
 
 type ToolInput = Record<string, unknown>;
 
@@ -227,26 +233,36 @@ export const allToolDefinitions: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "get_my_tasks",
-      description: "Get tasks assigned to the caller or in their departments. Use view=kanban when the user asks for their board.",
+      name: "list_tasks",
+      description: "List the tickets/tasks the caller can access. ALWAYS returns ticket IDs. Use filters or query for open-ticket summaries, department views, blockers, or finding a ticket before discussing it.",
       parameters: {
         type: "object",
         properties: {
-          status: {
-            type: "string",
-            enum: ["open", "in_progress", "blocked", "complete", "all"],
-            description: "Filter by status. Defaults to all.",
+          statuses: {
+            type: "array",
+            items: {
+              type: "string",
+              enum: ["open", "in_progress", "blocked", "complete"],
+            },
+            description: "Optional current-status filters.",
           },
-          priority: {
-            type: "string",
-            enum: ["low", "medium", "high", "all"],
-            description: "Filter by priority. Defaults to all.",
+          priorities: {
+            type: "array",
+            items: {
+              type: "string",
+              enum: ["low", "medium", "high"],
+            },
+            description: "Optional priority filters.",
           },
+          department_name: { type: "string", description: "Optional department name filter." },
+          query: { type: "string", description: "Optional title/description keyword search." },
+          include_archived: { type: "boolean", description: "Include archived tickets. Defaults to false." },
           view: {
             type: "string",
             enum: ["list", "kanban"],
-            description: "Return a list or kanban-style board summary.",
+            description: "Return a list or kanban-style board.",
           },
+          limit: { type: "number", description: "Maximum list results, from 1 to 50. Defaults to 25." },
         },
         additionalProperties: false,
       },
@@ -255,27 +271,20 @@ export const allToolDefinitions: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "get_task_detail",
-      description: "Get details of a specific task by ID or keyword search.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: { type: "string", description: "Task ID (UUID) or keyword to search." },
-        },
-        required: ["query"],
-        additionalProperties: false,
-      },
+      name: "list_departments",
+      description: "List departments available to the caller for ticket management, including exact names and IDs. Use before moving or creating a ticket when the department name is uncertain.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
   {
     type: "function",
     function: {
-      name: "get_department_summary",
-      description: "Get a summary of tasks in a department (counts by status).",
+      name: "list_department_members",
+      description: "List active members of a department who can be assigned tickets. Returns names, IDs, and department roles without phone numbers or email addresses.",
       parameters: {
         type: "object",
         properties: {
-          department_name: { type: "string", description: "Department name." },
+          department_name: { type: "string", description: "Exact or unambiguous department name." },
         },
         required: ["department_name"],
         additionalProperties: false,
@@ -285,34 +294,8 @@ export const allToolDefinitions: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "update_task_status",
-      description: "Update the status of a task. Requires PM, HOD, or Leadership/Admin role.",
-      parameters: {
-        type: "object",
-        properties: {
-          task_id: { type: "string", description: "Task ID (UUID)." },
-          status: {
-            type: "string",
-            enum: ["open", "in_progress", "blocked", "complete"],
-            description: "New status.",
-          },
-          note: { type: "string", description: "Optional note about the update." },
-          priority: {
-            type: "string",
-            enum: ["low", "medium", "high"],
-            description: "Optional priority update.",
-          },
-        },
-        required: ["task_id"],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
       name: "create_task",
-      description: "Create a ticket/task. Department members can create tickets assigned to themselves; PM/HOD/Leadership can assign tickets.",
+      description: "Create a ticket/task. Department members can create self-assigned tickets; PM/HOD/Leadership can assign tickets.",
       parameters: {
         type: "object",
         properties: {
@@ -335,68 +318,48 @@ export const allToolDefinitions: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "assign_task",
-      description: "Assign a task to a person. Requires PM, HOD, or Leadership/Admin role.",
+      name: "update_tasks",
+      description: "Update one or many accessible tickets in ONE call. This tool resolves matching ticket IDs internally, so use it directly for requests like 'close all AI tickets' or 'move accommodation tickets to Accommodation'. It can change status, priority, title, description, department, assignee, due date, type, and archive state. Never claim success unless this result confirms the updated tickets.",
       parameters: {
         type: "object",
         properties: {
-          task_id: { type: "string", description: "Task ID (UUID)." },
-          assign_to_alias: { type: "string", description: "Name of person to assign." },
-        },
-        required: ["task_id", "assign_to_alias"],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_top_blockers",
-      description: "Get the highest priority blocked or overdue tasks. Requires PM, HOD, or Leadership/Admin role.",
-      parameters: {
-        type: "object",
-        properties: {
-          department_name: { type: "string", description: "Optional department name." },
-          limit: { type: "number", description: "Maximum number of blockers to return. Defaults to 5." },
-        },
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_all_departments_summary",
-      description: "Get summary of all departments. Leadership/Admin only.",
-      parameters: {
-        type: "object",
-        properties: {
-          filter: {
-            type: "string",
-            enum: ["all", "blocked", "overdue", "on_track"],
-            description: "Filter departments.",
+          selection: {
+            type: "object",
+            description: "Which currently accessible tickets to update.",
+            properties: {
+              task_ids: { type: "array", items: { type: "string" }, description: "Known ticket UUIDs." },
+              query: { type: "string", description: "Topic/keyword match against title and description." },
+              department_names: { type: "array", items: { type: "string" }, description: "Only tickets currently in these departments." },
+              exclude_department_names: { type: "array", items: { type: "string" }, description: "Exclude tickets currently in these departments." },
+              statuses: { type: "array", items: { type: "string", enum: ["open", "in_progress", "blocked", "complete"] } },
+              priorities: { type: "array", items: { type: "string", enum: ["low", "medium", "high"] } },
+              include_archived: { type: "boolean", description: "Allow archived tickets to match. Defaults to false." },
+              all_matching: { type: "boolean", description: "Set true ONLY when the user explicitly asked to update every matching ticket." },
+            },
+            required: ["all_matching"],
+            additionalProperties: false,
+          },
+          updates: {
+            type: "object",
+            description: "Fields to change. At least one is required.",
+            properties: {
+              status: { type: "string", enum: ["open", "in_progress", "blocked", "complete"] },
+              priority: { type: "string", enum: ["low", "medium", "high"] },
+              title: { type: "string", description: "Only valid when exactly one ticket matches." },
+              description: { type: "string", description: "Only valid when exactly one ticket matches." },
+              clear_description: { type: "boolean" },
+              department_name: { type: "string", description: "Move to this department." },
+              assigned_to_name: { type: "string", description: "Assign to this active member of the target/current department." },
+              unassign: { type: "boolean" },
+              due_date: { type: "string", description: "YYYY-MM-DD." },
+              clear_due_date: { type: "boolean" },
+              item_type: { type: "string", enum: ["task", "issue"] },
+              archived: { type: "boolean" },
+            },
+            additionalProperties: false,
           },
         },
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_department_tasks",
-      description: "Get all tasks in a specific department. Leadership/Admin only.",
-      parameters: {
-        type: "object",
-        properties: {
-          department_name: { type: "string", description: "Department name." },
-          status: {
-            type: "string",
-            enum: ["open", "in_progress", "blocked", "complete", "all"],
-            description: "Filter by status.",
-          },
-        },
-        required: ["department_name"],
+        required: ["selection", "updates"],
         additionalProperties: false,
       },
     },
@@ -506,21 +469,17 @@ async function flagKnowledgeGap(topic: string, question: string | null, phone: s
 
 function isTaskTool(name: string): boolean {
   return [
-    "get_my_tasks", "get_task_detail", "get_department_summary",
-    "update_task_status", "create_task", "assign_task", "get_top_blockers",
-    "get_all_departments_summary", "get_department_tasks",
+    "list_tasks", "list_departments", "list_department_members",
+    "update_tasks", "create_task",
     "get_milestones", "update_milestone",
   ].includes(name);
 }
 
 function getRequiredRole(name: string): string {
-  if (["get_all_departments_summary", "get_department_tasks"].includes(name)) {
-    return "leadership_admin";
-  }
   if (name === "create_task") {
     return "department membership";
   }
-  if (["update_task_status", "assign_task", "get_top_blockers", "update_milestone"].includes(name)) {
+  if (["update_tasks", "update_milestone"].includes(name)) {
     return "pm, hod, or leadership_admin";
   }
   return "any authenticated user";
@@ -552,6 +511,110 @@ async function callInternalApi(path: string, options: {
   });
 
   return res.json();
+}
+
+type DepartmentRef = { id: string; name: string; description?: string | null };
+type DepartmentMemberRef = { id: string; display_name: string | null; department_role: string };
+
+async function getDepartmentsForCaller(phone: string): Promise<DepartmentRef[] | { error: string }> {
+  const result = await callInternalApi("/api/departments", { phone });
+  return Array.isArray(result) ? result as DepartmentRef[] : { error: "Could not fetch departments." };
+}
+
+async function resolveDepartmentForCaller(phone: string, requestedName: string) {
+  const departments = await getDepartmentsForCaller(phone);
+  if (!Array.isArray(departments)) return departments;
+  const resolved = resolveUniqueName(departments, requestedName, "Department");
+  return resolved.item ?? { error: resolved.error ?? `Department not found: ${requestedName}` };
+}
+
+async function getDepartmentMembersForCaller(phone: string, departmentId: string) {
+  const result = await callInternalApi(`/api/departments/${departmentId}/members`, { phone });
+  return Array.isArray(result) ? result as DepartmentMemberRef[] : result;
+}
+
+export async function updateTasksFromAgent(args: ToolInput, context: ToolContext) {
+  const parsed = updateTasksInputSchema.safeParse(args);
+  if (!parsed.success) {
+    return { error: parsed.error.issues.map((issue) => issue.message).join("; ") };
+  }
+
+  const { selection, updates } = parsed.data;
+  if (Object.keys(updates).length === 0) {
+    return { error: "At least one update field is required." };
+  }
+
+  const params = new URLSearchParams();
+  if (selection.include_archived) params.set("include_archived", "true");
+  const taskResult = await callInternalApi(`/api/tasks?${params.toString()}`, { phone: context.phoneE164 });
+  if (!Array.isArray(taskResult)) return taskResult;
+
+  const matched = selectTasksForAgentUpdate(taskResult as AgentTask[], selection);
+  if (matched.error) return { error: matched.error };
+  if (matched.selected.length > 1 && (updates.title !== undefined || updates.description !== undefined || updates.clear_description)) {
+    return { error: "Title and description can only be changed when exactly one ticket matches." };
+  }
+
+  const updateBody: Record<string, unknown> = {};
+  if (updates.status !== undefined) updateBody.status = updates.status;
+  if (updates.priority !== undefined) updateBody.priority = updates.priority;
+  if (updates.title !== undefined) updateBody.title = updates.title;
+  if (updates.description !== undefined) updateBody.description = updates.description;
+  if (updates.clear_description) updateBody.description = null;
+  if (updates.due_date !== undefined) updateBody.due_date = updates.due_date;
+  if (updates.clear_due_date) updateBody.due_date = null;
+  if (updates.item_type !== undefined) updateBody.item_type = updates.item_type;
+  if (updates.archived !== undefined) updateBody.archived = updates.archived;
+  if (updates.unassign) updateBody.assigned_to = null;
+
+  let targetDepartment: DepartmentRef | undefined;
+  if (updates.department_name) {
+    const resolved = await resolveDepartmentForCaller(context.phoneE164, updates.department_name);
+    if ("error" in resolved) return resolved;
+    targetDepartment = resolved;
+    updateBody.department_id = resolved.id;
+  }
+
+  if (updates.assigned_to_name) {
+    const departmentIds = new Set(
+      matched.selected.map((task) => targetDepartment?.id ?? task.department_id).filter((id): id is string => Boolean(id)),
+    );
+    if (departmentIds.size !== 1) {
+      return { error: "Assigning a person requires all matched tickets to share one target department." };
+    }
+    const departmentId = Array.from(departmentIds)[0];
+    const members = await getDepartmentMembersForCaller(context.phoneE164, departmentId);
+    if (!Array.isArray(members)) return members;
+    const namedMembers = members
+      .filter((member) => member.display_name)
+      .map((member) => ({ ...member, name: member.display_name as string }));
+    const resolved = resolveUniqueName(namedMembers, updates.assigned_to_name, "Department member");
+    if (!resolved.item) return { error: resolved.error };
+    updateBody.assigned_to = resolved.item.id;
+  }
+
+  const updated: unknown[] = [];
+  const failed: Array<{ id: string; title: string; error: unknown }> = [];
+  for (const task of matched.selected) {
+    const result = await callInternalApi(`/api/tasks/${task.id}`, {
+      method: "PUT",
+      phone: context.phoneE164,
+      body: updateBody,
+    });
+    if (typeof result === "object" && result !== null && "error" in result) {
+      failed.push({ id: task.id, title: task.title, error: (result as { error: unknown }).error });
+    } else {
+      updated.push(result);
+    }
+  }
+
+  return {
+    matched_count: matched.selected.length,
+    updated_count: updated.length,
+    failed_count: failed.length,
+    updated,
+    failed,
+  };
 }
 
 async function getIndexedInfo(
@@ -702,57 +765,51 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
         },
       });
     // --- Task Management Tools ---
-    case "get_my_tasks": {
-      const status = (args.status as string) ?? "all";
-      const priority = (args.priority as string) ?? "all";
-      const view = (args.view as string) ?? "list";
+    case "list_tasks": {
+      const departmentName = typeof args.department_name === "string" ? args.department_name : undefined;
       const params = new URLSearchParams();
-      if (status !== "all") params.set("status", status);
-      if (priority !== "all") params.set("priority", priority);
-      if (view === "kanban") {
-        const board = await callInternalApi(`/api/tasks/kanban?${params.toString()}`, { phone: context.phoneE164 });
+      if (departmentName) {
+        const department = await resolveDepartmentForCaller(context.phoneE164, departmentName);
+        if ("error" in department) return department;
+        params.set("department_id", department.id);
+      }
+      if (args.include_archived === true) params.set("include_archived", "true");
+
+      const tasks = await callInternalApi(`/api/tasks?${params.toString()}`, { phone: context.phoneE164 });
+      if (!Array.isArray(tasks)) return tasks;
+      const statuses = new Set(Array.isArray(args.statuses) ? args.statuses as string[] : []);
+      const priorities = new Set(Array.isArray(args.priorities) ? args.priorities as string[] : []);
+      const query = typeof args.query === "string" ? args.query : undefined;
+      const filtered = (tasks as AgentTask[]).filter((task) => {
+        if (statuses.size > 0 && !statuses.has(task.status ?? "")) return false;
+        if (priorities.size > 0 && !priorities.has(task.priority ?? "")) return false;
+        if (query) {
+          const match = selectTasksForAgentUpdate([task], { query, all_matching: true, include_archived: args.include_archived === true });
+          if (match.selected.length === 0) return false;
+        }
+        return true;
+      });
+      const limit = typeof args.limit === "number" ? Math.max(1, Math.min(50, Math.floor(args.limit))) : 25;
+      if (args.view === "kanban") {
         return {
-          board,
+          open: filtered.filter((task) => task.status === "open"),
+          in_progress: filtered.filter((task) => task.status === "in_progress"),
+          blocked: filtered.filter((task) => task.status === "blocked"),
+          complete: filtered.filter((task) => task.status === "complete"),
           board_url: `${getBaseUrl()}/admin/tasks`,
         };
       }
-      return callInternalApi(`/api/tasks?${params.toString()}`, { phone: context.phoneE164 });
+      return { count: filtered.length, tasks: filtered.slice(0, limit) };
     }
-    case "get_task_detail": {
-      const query = args.query as string;
-      // Check if it looks like a UUID
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query);
-      if (isUuid) {
-        return callInternalApi(`/api/tasks/${query}`, { phone: context.phoneE164 });
-      }
-      // Keyword search - get all tasks and filter
-      const tasks = await callInternalApi("/api/tasks", { phone: context.phoneE164 }) as Array<{ title: string; description: string }>;
-      if (Array.isArray(tasks)) {
-        const lowerQuery = query.toLowerCase();
-        const matched = tasks.filter((t) =>
-          t.title?.toLowerCase().includes(lowerQuery) ||
-          t.description?.toLowerCase().includes(lowerQuery)
-        );
-        return matched.length > 0 ? matched.slice(0, 5) : { message: "No tasks found matching that query." };
-      }
-      return tasks;
+    case "list_departments":
+      return getDepartmentsForCaller(context.phoneE164);
+    case "list_department_members": {
+      const department = await resolveDepartmentForCaller(context.phoneE164, String(args.department_name ?? ""));
+      if ("error" in department) return department;
+      return getDepartmentMembersForCaller(context.phoneE164, department.id);
     }
-    case "get_department_summary": {
-      const deptName = args.department_name as string;
-      // First resolve department name to ID
-      const depts = await callInternalApi("/api/departments", { phone: context.phoneE164 }) as Array<{ id: string; name: string }>;
-      if (!Array.isArray(depts)) return { error: "Could not fetch departments" };
-      const dept = depts.find((d) => d.name.toLowerCase() === deptName.toLowerCase());
-      if (!dept) return { error: `Department not found: ${deptName}` };
-      return callInternalApi(`/api/departments/${dept.id}/summary`, { phone: context.phoneE164 });
-    }
-    case "update_task_status": {
-      return callInternalApi(`/api/tasks/${args.task_id}`, {
-        method: "PUT",
-        phone: context.phoneE164,
-        body: { status: args.status, priority: args.priority, note: args.note },
-      });
-    }
+    case "update_tasks":
+      return updateTasksFromAgent(args, context);
     case "create_task": {
       return callInternalApi("/api/tasks", {
         method: "POST",
@@ -767,59 +824,6 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
           source: "whatsapp_agent",
         },
       });
-    }
-    case "assign_task": {
-      return callInternalApi(`/api/tasks/${args.task_id}`, {
-        method: "PUT",
-        phone: context.phoneE164,
-        body: { assigned_to_alias: args.assign_to_alias },
-      });
-    }
-    case "get_top_blockers": {
-      const params = new URLSearchParams();
-      const deptName = typeof args.department_name === "string" ? args.department_name : undefined;
-      if (deptName) {
-        const depts = await callInternalApi("/api/departments", { phone: context.phoneE164 }) as Array<{ id: string; name: string }>;
-        if (!Array.isArray(depts)) return { error: "Could not fetch departments" };
-        const dept = depts.find((d) => d.name.toLowerCase() === deptName.toLowerCase());
-        if (!dept) return { error: `Department not found: ${deptName}` };
-        params.set("department_id", dept.id);
-      }
-      const tasks = await callInternalApi(`/api/tasks?${params.toString()}`, { phone: context.phoneE164 }) as Array<{
-        id: string;
-        title: string;
-        status: string;
-        priority?: string | null;
-        due_date?: string | null;
-        updated_at?: string | null;
-      }>;
-      if (!Array.isArray(tasks)) return tasks;
-      const today = new Date().toISOString().split("T")[0];
-      const limit = typeof args.limit === "number" && args.limit > 0 ? Math.min(args.limit, 20) : 5;
-      const weight = (priority: string | null | undefined) => priority === "high" ? 3 : priority === "medium" ? 2 : priority === "low" ? 1 : 0;
-      return tasks
-        .filter((task) => task.status === "blocked" || (Boolean(task.due_date) && task.due_date! < today && task.status !== "complete"))
-        .sort((a, b) => {
-          const priorityDiff = weight(b.priority) - weight(a.priority);
-          if (priorityDiff !== 0) return priorityDiff;
-          return new Date(b.updated_at ?? 0).getTime() - new Date(a.updated_at ?? 0).getTime();
-        })
-        .slice(0, limit);
-    }
-    case "get_all_departments_summary": {
-      const filter = (args.filter as string) ?? "all";
-      return callInternalApi(`/api/departments/summary/all?filter=${filter}`, { phone: context.phoneE164 });
-    }
-    case "get_department_tasks": {
-      const deptName = args.department_name as string;
-      const depts = await callInternalApi("/api/departments", { phone: context.phoneE164 }) as Array<{ id: string; name: string }>;
-      if (!Array.isArray(depts)) return { error: "Could not fetch departments" };
-      const dept = depts.find((d) => d.name.toLowerCase() === deptName.toLowerCase());
-      if (!dept) return { error: `Department not found: ${deptName}` };
-      const status = (args.status as string) ?? "all";
-      const params = new URLSearchParams();
-      if (status !== "all") params.set("status", status);
-      return callInternalApi(`/api/departments/${dept.id}/tasks?${params.toString()}`, { phone: context.phoneE164 });
     }
     case "get_milestones": {
       const deptName = args.department_name as string;

@@ -67,6 +67,7 @@ src/app/api/admin/issues/route.ts        — Issues CRUD (list + create)
 src/app/api/admin/issues/[issueId]/route.ts — Issue detail (GET/PUT/DELETE)
 src/app/api/admin/issues/[issueId]/link/route.ts — Link/unlink escalations to issues
 src/app/api/admin/issues/[issueId]/resolve/route.ts — Resolve issue + all linked escalations
+src/app/api/departments/[id]/members/route.ts — PII-minimal active department members for ticket assignment
 src/app/api/admin/issues/suggestions/route.ts       — AI grouping analysis endpoint
 src/app/api/admin/issues/suggestions/apply/route.ts  — Create issue + bulk-link from suggestion
 src/app/api/admin/issues/[issueId]/link-bulk/route.ts — Bulk-link escalations to existing issue

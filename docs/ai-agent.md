@@ -110,21 +110,23 @@ All tools are defined in `src/lib/agent/tools.ts`.
 
 | Tool | Description |
 |------|-------------|
-| `get_my_tasks` | Lists scoped tasks, with optional status/priority filters and kanban view |
-| `get_task_detail` | Gets a task by ID or keyword |
-| `get_department_summary` | Gets task counts for one department |
-| `update_task_status` | Updates status and/or priority |
+| `list_tasks` | Lists/filter scoped tickets, always including IDs |
+| `list_departments` | Lists departments available for ticket management |
+| `list_department_members` | Lists active assignment candidates without phone/email PII |
+| `update_tasks` | Resolves and updates one or many tickets in one bounded tool round |
 | `create_task` | Creates a ticket/task; department members create self-assigned tickets, PM/HOD can assign |
-| `assign_task` | Assigns a task to another user |
-| `get_top_blockers` | Returns highest priority blocked or overdue tasks |
-| `get_all_departments_summary` | Leadership/admin cross-department summary |
-| `get_department_tasks` | Leadership/admin department task list |
 
 ### Current Status
 
 `get_site_content_faq` returns indexed site content (or `no_indexed_match` when nothing
 clears the similarity threshold). `move_to_escalation` is live and gated server-side.
 Task tools are wired to the internal task APIs and are permission-gated by account/department role.
+`update_tasks` mirrors the portal's editable ticket fields (status, priority, title, description,
+department, assignee, due date, type, archive state). It resolves topic/filter selections to IDs
+inside the tool because the agent intentionally has only one bounded tool-call round. It returns
+matched/updated/failed counts, and the prompt forbids claiming success without confirmed updates.
+The task prompt also proactively tells authorized committee users that ticket management is
+available directly in chat.
 
 > The unimplemented committee-stub tools (`get_volunteer_assignment`, `lookup_committee_contact`,
 > `update_volunteer_status`, `create_internal_note`) were removed (June 2026) — they were never

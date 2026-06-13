@@ -51,7 +51,9 @@ mentions its open tickets, and the all-up summary shows the total across departm
 See [meal-rsvp-feedback-digest.md](./meal-rsvp-feedback-digest.md) §3 for details.
 
 ### Department Routes
-- `GET /api/departments` — List departments
+- `GET /api/departments` — List departments; authenticated committee chat/portal callers see the
+  full directory, while non-internal callers remain scoped
+- `GET /api/departments/[id]/members` — List active assignment-eligible members without phone/email PII
 - `POST /api/departments` — Create a department (admin only)
 - `PUT /api/departments/[id]` — Update department description (admin only)
 - `DELETE /api/departments/[id]` — Remove an unused department (admin only; blocked if members/tasks/milestones exist)
@@ -97,20 +99,22 @@ The `get_user_permissions` SQL function resolves a phone number to a full Caller
 
 New task management tools added to the agent:
 
-### Read Tools (all authenticated users)
-- `get_my_tasks` — List caller's tasks
-- `get_task_detail` — Get task by ID or keyword
-- `get_department_summary` — Department task counts
+### Read Tools
+- `list_tasks` — List/filter every ticket the caller can access; always returns ticket IDs
+- `list_departments` — List departments available to the caller
+- `list_department_members` — List active members eligible for assignment, without phone/email PII
 
-### Write Tools (pm, hod, leadership_admin)
-- `update_task_status` — Change task status
-- `create_task` — Create a new task with optional priority
-- `assign_task` — Assign a task to someone
-- `get_top_blockers` — Highest priority blocked or overdue tasks
+### Write Tools
+- `create_task` — Create a new task with optional priority and assignee
+- `update_tasks` — Resolve one or many tickets internally and update status, priority, title,
+  description, department, assignee, due date, type, or archive state
 
-### Leadership Tools (leadership_admin only)
-- `get_all_departments_summary` — Cross-department overview
-- `get_department_tasks` — All tasks in any department
+`update_tasks` exists because the agent runs one bounded tool-call round per inbound message.
+It can safely resolve IDs from explicit IDs, topic keywords, current department/status/priority,
+and exclusions before applying an authorized update. Bulk updates require `all_matching=true`,
+which the agent is instructed to set only when the user explicitly asks to update every match.
+The response reports matched, updated, and failed counts so the agent cannot honestly claim a
+partial or failed update succeeded.
 
 ## Transcript Parser
 

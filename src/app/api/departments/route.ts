@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { canAccessPortal } from "@/lib/admin/access";
 import { resolveCallerFromRequest, ForbiddenError } from "@/lib/api/auth";
+import { canListAllDepartments } from "@/lib/permissions";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export async function GET(req: NextRequest) {
@@ -11,10 +12,9 @@ export async function GET(req: NextRequest) {
 
     let query = supabase.from("departments").select("id, name, description, created_at").order("name");
 
-    // Portal users (committee/admin) get the full department list — they manage
-    // memberships and self-assign from Member Management. The agent/WhatsApp path
-    // (no portal session) stays scoped to the caller's own departments.
-    if (!caller.can_read_all && !canAccessPortal(caller.portal)) {
+    // Internal committee/admin callers get the full department directory in both
+    // portal and WhatsApp flows. Non-internal callers remain membership-scoped.
+    if (!canListAllDepartments(caller) && !canAccessPortal(caller.portal)) {
       const deptIds = caller.departments.map((d) => d.department_id);
       if (deptIds.length === 0) {
         return NextResponse.json([]);

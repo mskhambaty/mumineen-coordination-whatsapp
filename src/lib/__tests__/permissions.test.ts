@@ -8,14 +8,14 @@ describe("canUseTool", () => {
   });
 
   it("blocks internal (task) tools for visitors", () => {
-    expect(canUseTool({ role: "visitor", status: "active" }, "get_my_tasks")).toBe(false);
+    expect(canUseTool({ role: "visitor", status: "active" }, "list_tasks")).toBe(false);
   });
 
   it("allows internal (task) tools for committee users", () => {
-    expect(canUseTool({ role: "committee", status: "active" }, "get_my_tasks")).toBe(true);
+    expect(canUseTool({ role: "committee", status: "active" }, "list_tasks")).toBe(true);
   });
 
   it("blocks inactive users", () => {
-    expect(canUseTool({ role: "admin", status: "inactive" }, "get_my_tasks")).toBe(false);
+    expect(canUseTool({ role: "admin", status: "inactive" }, "list_tasks")).toBe(false);
   });
 });

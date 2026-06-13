@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canListAllDepartments,
   canUseTaskTool,
   canUseTaskToolForCaller,
   canWriteTasks,
@@ -30,33 +31,37 @@ describe("canWriteTasks", () => {
   });
 });
 
+describe("canListAllDepartments", () => {
+  it("allows internal committee users to discover the department directory", () => {
+    expect(canListAllDepartments({ role: "committee", can_read_all: false })).toBe(true);
+  });
+
+  it("does not expose the full directory to visitors", () => {
+    expect(canListAllDepartments({ role: "visitor", can_read_all: false })).toBe(false);
+  });
+});
+
 describe("canUseTaskTool", () => {
   it("allows read tools for all roles", () => {
-    expect(canUseTaskTool("member", "get_my_tasks")).toBe(true);
-    expect(canUseTaskTool("pm", "get_task_detail")).toBe(true);
-    expect(canUseTaskTool("hod", "get_department_summary")).toBe(true);
+    expect(canUseTaskTool("member", "list_tasks")).toBe(true);
+    expect(canUseTaskTool("pm", "list_departments")).toBe(true);
+    expect(canUseTaskTool("hod", "list_department_members")).toBe(true);
   });
 
   it("allows write tools for pm, hod, leadership_admin", () => {
-    expect(canUseTaskTool("pm", "update_task_status")).toBe(true);
+    expect(canUseTaskTool("pm", "update_tasks")).toBe(true);
     expect(canUseTaskTool("hod", "create_task")).toBe(true);
-    expect(canUseTaskTool("leadership_admin", "assign_task")).toBe(true);
+    expect(canUseTaskTool("leadership_admin", "update_tasks")).toBe(true);
   });
 
   it("blocks write tools for member", () => {
-    expect(canUseTaskTool("member", "update_task_status")).toBe(false);
+    expect(canUseTaskTool("member", "update_tasks")).toBe(false);
     expect(canUseTaskTool("member", "create_task")).toBe(false);
   });
 
-  it("allows leadership tools only for leadership_admin", () => {
-    expect(canUseTaskTool("leadership_admin", "get_all_departments_summary")).toBe(true);
-    expect(canUseTaskTool("leadership_admin", "get_department_tasks")).toBe(true);
-  });
-
-  it("blocks leadership tools for non-leadership roles", () => {
-    expect(canUseTaskTool("pm", "get_all_departments_summary")).toBe(false);
-    expect(canUseTaskTool("hod", "get_department_tasks")).toBe(false);
-    expect(canUseTaskTool("member", "get_all_departments_summary")).toBe(false);
+  it("keeps the old fragmented tools unavailable", () => {
+    expect(canUseTaskTool("leadership_admin", "update_task_status")).toBe(false);
+    expect(canUseTaskTool("leadership_admin", "assign_task")).toBe(false);
   });
 });
 
@@ -72,14 +77,14 @@ describe("canUseTaskToolForCaller", () => {
     expect(canUseTaskToolForCaller({
       global_role: "member",
       departments: [{ dept_role: "pm" }],
-    }, "update_task_status")).toBe(true);
+    }, "update_tasks")).toBe(true);
   });
 
-  it("blocks leadership tools for department PM/HOD callers", () => {
+  it("allows read tools for department PM/HOD callers", () => {
     expect(canUseTaskToolForCaller({
       global_role: "member",
       departments: [{ dept_role: "hod" }],
-    }, "get_all_departments_summary")).toBe(false);
+    }, "list_department_members")).toBe(true);
   });
 });
 

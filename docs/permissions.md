@@ -55,15 +55,11 @@ first require `committee` or `admin` in the WhatsApp tool layer, then apply depa
 
 | Tool | member | pm | hod | leadership_admin |
 |------|--------|----|-----|------------------|
-| `get_my_tasks` | ✅ | ✅ | ✅ | ✅ |
-| `get_task_detail` | ✅ | ✅ | ✅ | ✅ |
-| `get_department_summary` | ✅ | ✅ | ✅ | ✅ |
-| `update_task_status` | ❌ | ✅ | ✅ | ✅ |
+| `list_tasks` | ✅ | ✅ | ✅ | ✅ |
+| `list_departments` | ✅ | ✅ | ✅ | ✅ |
+| `list_department_members` | ✅ | ✅ | ✅ | ✅ |
+| `update_tasks` | ❌ | ✅ | ✅ | ✅ |
 | `create_task` | ✅ | ✅ | ✅ | ✅ |
-| `assign_task` | ❌ | ✅ | ✅ | ✅ |
-| `get_top_blockers` | ❌ | ✅ | ✅ | ✅ |
-| `get_all_departments_summary` | ❌ | ❌ | ❌ | ✅ |
-| `get_department_tasks` | ❌ | ❌ | ❌ | ✅ |
 
 ## `canUseTool()` Logic
 
@@ -85,6 +81,9 @@ Every tool call — allowed or denied — is written to the `tool_audit_logs` ta
 - `result_summary` (first 500 chars of result)
 
 See [database.md](./database.md) for the full schema.
+
+`list_department_members` returns only user ID, display name, and department role. Phone numbers
+and email addresses are deliberately excluded from the agent response.
 
 ## Portal (Admin Dashboard) Enforcement
 

@@ -31,6 +31,11 @@ POST /api/whatsapp/webhook          (src/app/api/whatsapp/webhook/route.ts)
     └─ touchConversationSession()    (src/lib/supabase/server.ts) — update last_message_at
 ```
 
+Ticket mutations use the same single bounded tool round. `update_tasks` first lists the caller's
+API-scoped tickets, resolves explicit IDs/topic/filter selections in-process, then calls
+`PUT /api/tasks/[id]` for each bounded match. Every write therefore still passes through the task
+route's department-role authorization; partial failures are returned to the agent.
+
 ## Knowledge base (RAG corpus)
 
 The agent's `get_site_content_faq` retrieves from `site_content`, which is now populated

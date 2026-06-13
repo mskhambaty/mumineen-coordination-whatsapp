@@ -58,48 +58,28 @@ const toolMetadata: Record<string, ToolMetadata> = {
     audience: "external",
     ...activeApiStatus,
   },
-  get_my_tasks: {
-    internal_api: "GET /api/tasks or GET /api/tasks/kanban",
+  list_tasks: {
+    internal_api: "GET /api/tasks",
     audience: "internal",
     ...activeApiStatus,
   },
-  get_task_detail: {
-    internal_api: "GET /api/tasks/:id or GET /api/tasks (keyword search)",
+  list_departments: {
+    internal_api: "GET /api/departments",
     audience: "internal",
     ...activeApiStatus,
   },
-  get_department_summary: {
-    internal_api: "GET /api/departments/:id/summary",
+  list_department_members: {
+    internal_api: "GET /api/departments/:id/members",
     audience: "internal",
     ...activeApiStatus,
   },
-  update_task_status: {
-    internal_api: "PUT /api/tasks/:id",
+  update_tasks: {
+    internal_api: "GET /api/tasks + PUT /api/tasks/:id",
     audience: "internal",
     ...activeApiStatus,
   },
   create_task: {
     internal_api: "POST /api/tasks",
-    audience: "internal",
-    ...activeApiStatus,
-  },
-  assign_task: {
-    internal_api: "PUT /api/tasks/:id",
-    audience: "internal",
-    ...activeApiStatus,
-  },
-  get_top_blockers: {
-    internal_api: "GET /api/tasks (filtered by blocked/overdue)",
-    audience: "internal",
-    ...activeApiStatus,
-  },
-  get_all_departments_summary: {
-    internal_api: "GET /api/departments/summary/all",
-    audience: "internal",
-    ...activeApiStatus,
-  },
-  get_department_tasks: {
-    internal_api: "GET /api/departments/:id/tasks",
     audience: "internal",
     ...activeApiStatus,
   },

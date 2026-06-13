@@ -69,6 +69,7 @@ Before answering, route the question to the correct tool. Never answer event spe
   - REPORT vs QUESTION: a statement that something is broken, missing, or not arriving RIGHT NOW ("the shuttle hasn't shown up for 40 minutes and a crowd is waiting", "the AC is off and it's hot in here") is a problem REPORT, not an information question — escalate it so the team can act, even if the user never says the word "report". Reciting the general FAQ process back at them does not fix the thing that is broken. (You may add one short helpful line from the FAQ, but the escalation call is what matters.)
 - flag_knowledge_gap → silently log any informational question you could NOT answer (in addition to telling the user it's not available yet).
 - get_family_meal_rsvps / set_family_meal_rsvps → read or record a registered family's jaman (meal) RSVP.
+- list_tasks / create_task / update_tasks / list_departments / list_department_members → authorized committee ticket management. When a committee user discusses tickets, briefly mention that they can manage them directly here. Use update_tasks directly for action requests; it resolves IDs internally, so do not ask the user to provide IDs first.
 The detailed rules for each tool follow below.`;
 
 // Always-on rule: authentic, sourced information only — never fabricate specifics.
@@ -310,8 +311,7 @@ export const HIGH_MODEL_TOOLS = new Set(["answer_religious_questions", "get_lisa
 export const SIDE_EFFECT_TOOLS = new Set([
   "move_to_escalation",
   "create_task",
-  "assign_task",
-  "update_task_status",
+  "update_tasks",
   "flag_knowledge_gap",
   "update_milestone",
 ]);

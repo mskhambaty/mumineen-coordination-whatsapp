@@ -23,17 +23,15 @@ export const publicTools = new Set([
 
 /** Task tools accessible to all authenticated users */
 export const taskReadTools = new Set([
-  "get_my_tasks",
-  "get_task_detail",
-  "get_department_summary",
+  "list_tasks",
+  "list_departments",
+  "list_department_members",
   "get_milestones",
 ]);
 
 /** Task tools requiring pm, hod, or leadership_admin */
 export const taskWriteTools = new Set([
-  "update_task_status",
-  "assign_task",
-  "get_top_blockers",
+  "update_tasks",
   "update_milestone",
 ]);
 
@@ -43,10 +41,7 @@ export const taskCreateTools = new Set([
 ]);
 
 /** Task tools requiring leadership_admin only */
-export const leadershipTools = new Set([
-  "get_all_departments_summary",
-  "get_department_tasks",
-]);
+export const leadershipTools = new Set<string>();
 
 export function canUseTool(user: Pick<AppUser, "role" | "status">, toolName: string) {
   if (user.status && user.status !== "active") {
@@ -67,6 +62,10 @@ export function canUseTool(user: Pick<AppUser, "role" | "status">, toolName: str
 
 export function canWriteTasks(globalRole: GlobalRole, deptAccess: boolean): boolean {
   return globalRole === "leadership_admin" || (deptAccess && ["pm", "hod"].includes(globalRole));
+}
+
+export function canListAllDepartments(caller: { role?: UserRole; can_read_all?: boolean } | undefined): boolean {
+  return caller?.can_read_all === true || caller?.role === "committee" || caller?.role === "admin";
 }
 
 export function canUseTaskTool(globalRole: GlobalRole, toolName: string): boolean {

@@ -875,6 +875,7 @@ paths:
     get:
       tags: [departments]
       summary: List departments visible to the caller.
+      description: Committee/admin and portal callers see the full directory; other authenticated callers remain scoped to their memberships.
       security: [{ whatsappPhone: [] }, { portalSession: [] }, { adminKey: [] }]
       responses:
         "200":
@@ -950,6 +951,25 @@ paths:
         - { $ref: "#/components/parameters/PriorityFilter" }
       responses:
         "200": { description: Tasks. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /departments/{id}/members:
+    get:
+      tags: [departments, tasks]
+      summary: List active department members eligible for ticket assignment.
+      description: Returns PII-minimal assignment fields only. Caller must have access to the department.
+      security: [{ whatsappPhone: [] }, { portalSession: [] }, { adminKey: [] }]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          description: Active department members.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DepartmentAssignmentMember" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -2070,6 +2090,13 @@ components:
         name: { type: string }
         description: { type: [string, "null"] }
         created_at: { type: string, format: date-time }
+    DepartmentAssignmentMember:
+      type: object
+      required: [id, display_name, department_role]
+      properties:
+        id: { type: string, format: uuid }
+        display_name: { type: [string, "null"] }
+        department_role: { type: string, enum: [hod, pm, member] }
     User:
       type: object
       required: [id, phone_e164, role, global_role, status]
