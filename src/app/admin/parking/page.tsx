@@ -437,7 +437,7 @@ export default function ParkingPage() {
   const [purposeFit, setPurposeFit] = useState(false);
 
   const [itsLookup, setItsLookup] = useState("");
-  const [itsResult, setItsResult] = useState<{ head_name: string; passes: { lot_name: string; lot_color: string | null; printed_at: string | null }[] } | null | "not_found">(null);
+  const [itsResult, setItsResult] = useState<{ head_name: string; passes: { id: string; lot_name: string; lot_color: string | null; printed_at: string | null }[] } | null | "not_found">(null);
   const [itsLooking, setItsLooking] = useState(false);
 
   const [proximityOpen, setProximityOpen] = useState(false);
@@ -791,6 +791,22 @@ export default function ParkingPage() {
     await loadAll(filters);
   }
 
+  async function unmarkPassPrinted(passId: string) {
+    setError(null);
+    const res = await apiFetch("/api/admin/parking/print/unmark-printed", {
+      method: "POST",
+      body: JSON.stringify({ pass_ids: [passId] }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(json.error ?? "Unmark printed failed");
+      return;
+    }
+    // Re-run the lookup so the result refreshes
+    if (itsLookup.trim()) void lookupIts(itsLookup);
+    await loadAll(filters);
+  }
+
   const loadProximityAudit = useCallback(async () => {
     setProximityLoading(true);
     setProximityNotice(null);
@@ -947,7 +963,21 @@ export default function ParkingPage() {
                 <span key={i} className={`ml-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${p.printed_at ? "border-gray-200 text-gray-600 dark:border-gray-600 dark:text-gray-300" : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-600 dark:text-amber-300"}`}>
                   <ColorDot color={p.lot_color} />
                   {p.lot_name}
-                  {p.printed_at ? <span className="text-green-600 dark:text-green-400" title={`Printed ${new Date(p.printed_at).toLocaleString()}`}>✓</span> : <span className="text-amber-500">● not printed</span>}
+                  {p.printed_at ? (
+                    <>
+                      <span className="text-green-600 dark:text-green-400" title={`Printed ${new Date(p.printed_at).toLocaleString()}`}>✓</span>
+                      {canManage && (
+                        <button
+                          type="button"
+                          onClick={() => void unmarkPassPrinted(p.id)}
+                          className="ml-0.5 rounded text-gray-400 hover:text-red-500"
+                          title="Unmark as printed"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </>
+                  ) : <span className="text-amber-500">● not printed</span>}
                 </span>
               ))
             )}
