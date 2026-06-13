@@ -63,6 +63,7 @@ export async function GET(req: NextRequest) {
     has_phone: tri("has_phone"),
     has_category: tri("has_category"),
     kids_under_7: tri("kids_under_7"),
+    unprinted_passes: tri("unprinted_passes"),
     assigned: (searchParams.get("assigned") ?? "") as HouseholdFilters["assigned"],
     q: searchParams.get("q") ?? "",
   };
