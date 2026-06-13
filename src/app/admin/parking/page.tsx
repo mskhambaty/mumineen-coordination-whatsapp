@@ -436,6 +436,8 @@ export default function ParkingPage() {
   // when a narrowable lot is picked; the chip stays toggleable for deliberate overrides.
   const [purposeFit, setPurposeFit] = useState(false);
 
+  const [markPrintedBusy, setMarkPrintedBusy] = useState(false);
+
   const [proximityOpen, setProximityOpen] = useState(false);
   const [proximityAudit, setProximityAudit] = useState<ProximityAuditResult | null>(null);
   const [proximityLoading, setProximityLoading] = useState(false);
@@ -678,6 +680,15 @@ export default function ParkingPage() {
     return n;
   }, [selected, rowByFamily, bulkLot]);
 
+  // Count of unprinted passes across selected households — drives the Mark as printed button.
+  const selectedUnprintedCount = useMemo(() => {
+    let n = 0;
+    for (const id of selected) {
+      n += (rowByFamily.get(id)?.passes ?? []).filter((p) => p.printed_at === null).length;
+    }
+    return n;
+  }, [selected, rowByFamily]);
+
   // Selected households whose existing anchor pass conflicts with the target lot —
   // surfaced as a proximity warning in the bulk bar, never a block.
   const proximityViolations = useMemo(() => {
@@ -751,6 +762,33 @@ export default function ParkingPage() {
       await loadAll(filters);
     } finally {
       setUnassignBusy(false);
+    }
+  }
+
+  async function bulkMarkPrinted() {
+    const passIds = [...selected]
+      .flatMap((id) => rowByFamily.get(id)?.passes ?? [])
+      .filter((p) => p.printed_at === null)
+      .map((p) => p.id);
+    if (passIds.length === 0) return;
+    setMarkPrintedBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await apiFetch("/api/admin/parking/print/mark-printed", {
+        method: "POST",
+        body: JSON.stringify({ pass_ids: passIds }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? "Mark as printed failed");
+        return;
+      }
+      setNotice(`Marked ${json.marked ?? passIds.length} pass${(json.marked ?? passIds.length) === 1 ? "" : "es"} as printed.`);
+      setSelected(new Set());
+      await loadAll(filters);
+    } finally {
+      setMarkPrintedBusy(false);
     }
   }
 
@@ -1248,6 +1286,31 @@ export default function ParkingPage() {
             )}
           </div>
 
+          {/* Mark as printed */}
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800/50">
+            <span className="font-semibold text-gray-700 dark:text-gray-200">Print status</span>
+            <button
+              type="button"
+              onClick={() => applyFilter({ unprinted_passes: filters.unprinted_passes === true ? null : true, eligible: null, assigned: "assigned" })}
+              className={`rounded-md border px-2.5 py-1 ${filters.unprinted_passes === true ? "border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-300" : "border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"}`}
+            >
+              {filters.unprinted_passes === true ? "Showing unprinted" : "Show unprinted passes"}
+            </button>
+            {selected.size > 0 && selectedUnprintedCount > 0 && (
+              <button
+                type="button"
+                onClick={() => void bulkMarkPrinted()}
+                disabled={markPrintedBusy}
+                className="rounded-md border border-amber-400 bg-amber-50 px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-300 dark:hover:bg-amber-900/50"
+              >
+                {markPrintedBusy ? "Marking…" : `Mark ${selectedUnprintedCount} pass${selectedUnprintedCount === 1 ? "" : "es"} as printed (${selected.size} household${selected.size === 1 ? "" : "s"})`}
+              </button>
+            )}
+            {selected.size > 0 && selectedUnprintedCount === 0 && (
+              <span className="text-gray-400">All passes in selection already printed</span>
+            )}
+          </div>
+
           {/* Assign to lot */}
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800/50">
             <span className="font-semibold text-gray-700 dark:text-gray-200">Bulk assign</span>
@@ -1426,11 +1489,12 @@ export default function ParkingPage() {
                     {r.passes.map((p) => (
                       <span
                         key={p.id}
-                        title={p.notes ?? undefined}
-                        className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-700 dark:border-gray-600 dark:text-gray-300"
+                        title={p.printed_at ? `Printed ${new Date(p.printed_at).toLocaleDateString()}` : (p.notes ?? "Not yet printed")}
+                        className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs ${p.printed_at ? "border-gray-200 text-gray-700 dark:border-gray-600 dark:text-gray-300" : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-600 dark:bg-amber-900/20 dark:text-amber-300"}`}
                       >
                         <ColorDot color={p.lot_color} />
                         {p.lot_name}
+                        {!p.printed_at && <span className="text-amber-500" title="Not yet printed">●</span>}
                         {canManage && (
                           <button
                             type="button"
