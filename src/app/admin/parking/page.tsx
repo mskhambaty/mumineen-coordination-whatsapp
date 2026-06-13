@@ -48,6 +48,51 @@ type Filters = {
   assigned: string;
 };
 
+type HouseholdDetail = {
+  family: {
+    hof_its: string;
+    registration_status: string | null;
+    submitted_at: string | null;
+    acc_type: string | null;
+    hotel_name: string | null;
+    hotel_address: string | null;
+    utaro_host_name: string | null;
+    utaro_host_its: string | null;
+    utaro_host_address: string | null;
+    transport_mode: string | null;
+    transport_detail: string | null;
+    open_to_utaro: boolean | null;
+  };
+  members: {
+    its: string;
+    full_name: string | null;
+    gender: string | null;
+    age: number | null;
+    is_head: boolean;
+    is_adult: boolean | null;
+    local_mehman: string | null;
+    city: string | null;
+    jamaat: string | null;
+    category: string | null;
+    prefix: string | null;
+    title: string | null;
+    venue: string | null;
+    rahat_seating: boolean;
+    wheelchair: boolean;
+    special_needs: string | null;
+    not_attending: boolean | null;
+    whatsapp_e164: string | null;
+    email: string | null;
+    daily_trans: string | null;
+    arrival_at: string | null;
+    arrival_flight_no: string | null;
+    departure_at: string | null;
+    departure_flight_no: string | null;
+  }[];
+  passes: { id: string; lot_name: string; lot_color: string | null; notes: string | null; printed_at: string | null }[];
+  utaro_guests: { hof_its: string; head_name: string | null; transport_mode: string | null; attending_count: number }[];
+};
+
 const DEFAULT_FILTERS: Filters = {
   eligible: true, // default: show only eligible households
   local_mehman: "",
@@ -440,6 +485,10 @@ export default function ParkingPage() {
   const [itsResult, setItsResult] = useState<{ head_name: string; passes: { id: string; lot_name: string; lot_color: string | null; printed_at: string | null }[] } | null | "not_found">(null);
   const [itsLooking, setItsLooking] = useState(false);
 
+  const [detailRow, setDetailRow] = useState<HouseholdRow | null>(null);
+  const [detail, setDetail] = useState<HouseholdDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
   const [proximityOpen, setProximityOpen] = useState(false);
   const [proximityAudit, setProximityAudit] = useState<ProximityAuditResult | null>(null);
   const [proximityLoading, setProximityLoading] = useState(false);
@@ -774,6 +823,19 @@ export default function ParkingPage() {
       }
     } finally {
       setItsLooking(false);
+    }
+  }
+
+  async function fetchDetail(row: HouseholdRow) {
+    setDetailRow(row);
+    setDetail(null);
+    setDetailLoading(true);
+    try {
+      const res = await apiFetch(`/api/admin/parking/household-detail?hof_its=${encodeURIComponent(row.hof_its)}`);
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) setDetail(json);
+    } finally {
+      setDetailLoading(false);
     }
   }
 
@@ -1485,10 +1547,16 @@ export default function ParkingPage() {
                   </td>
                 )}
                 <td className="px-3 py-2">
-                  <div className="font-medium text-gray-900 dark:text-white">{r.head_name}</div>
-                  <div className="text-[11px] text-gray-400">
-                    {r.hof_its} · {r.member_count} member{r.member_count === 1 ? "" : "s"}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void fetchDetail(r)}
+                    className="text-left hover:underline"
+                  >
+                    <div className="font-medium text-gray-900 dark:text-white">{r.head_name}</div>
+                    <div className="text-[11px] text-gray-400">
+                      {r.hof_its} · {r.member_count} member{r.member_count === 1 ? "" : "s"}
+                    </div>
+                  </button>
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex flex-col gap-0.5">
@@ -1686,6 +1754,179 @@ export default function ParkingPage() {
             Next
           </button>
         </div>
+      )}
+
+      {/* Household detail modal */}
+      {detailRow && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 px-4 py-8"
+          onClick={() => { setDetailRow(null); setDetail(null); }}
+        >
+          <div
+            className="w-full max-w-3xl rounded-xl bg-white shadow-2xl dark:bg-gray-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-gray-200 px-5 py-4 dark:border-gray-700">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg font-semibold text-gray-900 dark:text-white">{detailRow.head_name}</span>
+                  {detailRow.local_mehman && <Badge label={detailRow.local_mehman} tone={detailRow.local_mehman === "Local" ? "blue" : "gray"} />}
+                  {!detailRow.eligible && <Badge label="Not eligible" tone="amber" />}
+                </div>
+                <div className="mt-0.5 text-xs text-gray-400">{detailRow.hof_its} · {detailRow.member_count} member{detailRow.member_count !== 1 ? "s" : ""}</div>
+              </div>
+              <button type="button" onClick={() => { setDetailRow(null); setDetail(null); }} className="ml-4 text-xl text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕</button>
+            </div>
+
+            {detailLoading && (
+              <div className="px-5 py-10 text-center text-sm text-gray-400">Loading…</div>
+            )}
+
+            {detail && (
+              <div className="divide-y divide-gray-100 text-sm dark:divide-gray-700">
+
+                {/* Registration */}
+                <div className="px-5 py-4">
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Registration</h3>
+                  <div className="flex flex-wrap gap-x-6 gap-y-1">
+                    <div><span className="text-gray-500">Status: </span><span className="font-medium text-gray-800 dark:text-gray-100">{detail.family.registration_status ?? "—"}</span></div>
+                    {detail.family.submitted_at && (
+                      <div><span className="text-gray-500">Submitted: </span><span className="text-gray-800 dark:text-gray-100">{new Date(detail.family.submitted_at).toLocaleDateString()}</span></div>
+                    )}
+                    {detail.family.acc_type && (
+                      <div><span className="text-gray-500">Accommodation: </span><span className="text-gray-800 dark:text-gray-100">{detail.family.acc_type}</span></div>
+                    )}
+                    {detail.family.open_to_utaro !== null && (
+                      <div><span className="text-gray-500">Open to Utaro: </span><span className="text-gray-800 dark:text-gray-100">{detail.family.open_to_utaro ? "Yes" : "No"}</span></div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Accommodation */}
+                {(detail.family.hotel_name || detail.family.utaro_host_name || detail.family.utaro_host_its) && (
+                  <div className="px-5 py-4">
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      {detail.family.hotel_name ? "Hotel" : "Utaro Host"}
+                    </h3>
+                    {detail.family.hotel_name && (
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium text-gray-800 dark:text-gray-100">{detail.family.hotel_name}</span>
+                        {detail.family.hotel_address && <span className="text-xs text-gray-500">{detail.family.hotel_address}</span>}
+                      </div>
+                    )}
+                    {(detail.family.utaro_host_name || detail.family.utaro_host_its) && (
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium text-gray-800 dark:text-gray-100">{detail.family.utaro_host_name ?? detail.family.utaro_host_its}</span>
+                        {detail.family.utaro_host_its && <span className="text-xs text-gray-400">ITS {detail.family.utaro_host_its}</span>}
+                        {detail.family.utaro_host_address && <span className="text-xs text-gray-500">{detail.family.utaro_host_address}</span>}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Transport */}
+                {(detail.family.transport_mode || detail.family.transport_detail) && (
+                  <div className="px-5 py-4">
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Transport</h3>
+                    <div className="flex flex-wrap gap-x-6 gap-y-1">
+                      {detail.family.transport_mode && (
+                        <div><span className="text-gray-500">Mode: </span><span className="text-gray-800 dark:text-gray-100">{detail.family.transport_mode.replace(/_/g, " ")}</span></div>
+                      )}
+                      {detail.family.transport_detail && (
+                        <div><span className="text-gray-500">Detail: </span><span className="text-gray-800 dark:text-gray-100">{detail.family.transport_detail}</span></div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Parking Passes */}
+                <div className="px-5 py-4">
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Parking Passes</h3>
+                  {detail.passes.length === 0 ? (
+                    <span className="text-gray-400">No passes assigned</span>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {detail.passes.map((p) => (
+                        <span key={p.id} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${p.printed_at ? "border-gray-200 text-gray-600 dark:border-gray-600" : "border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300"}`}>
+                          <ColorDot color={p.lot_color} />
+                          {p.lot_name}
+                          {p.notes && <span className="text-gray-400">· {p.notes}</span>}
+                          {p.printed_at
+                            ? <span className="text-green-600 dark:text-green-400" title={`Printed ${new Date(p.printed_at).toLocaleString()}`}>✓ printed</span>
+                            : <span className="text-amber-500">● not printed</span>}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Utaro Guests */}
+                {detail.utaro_guests.length > 0 && (
+                  <div className="px-5 py-4">
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      Utaro Guests ({detail.utaro_guests.length} famil{detail.utaro_guests.length === 1 ? "y" : "ies"})
+                    </h3>
+                    <div className="flex flex-col gap-1">
+                      {detail.utaro_guests.map((g) => (
+                        <div key={g.hof_its} className="flex flex-wrap items-center gap-3 text-xs">
+                          <span className="font-medium text-gray-800 dark:text-gray-100">{g.head_name ?? g.hof_its}</span>
+                          <span className="text-gray-400">{g.hof_its}</span>
+                          <span className="text-gray-500">{g.attending_count} attending</span>
+                          {g.transport_mode && <span className="text-gray-400">{g.transport_mode.replace(/_/g, " ")}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Family Members */}
+                <div className="px-5 py-4">
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Family Members</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-gray-100 text-left text-gray-400 dark:border-gray-700">
+                          <th className="pb-1.5 pr-4 font-medium">Name</th>
+                          <th className="pb-1.5 pr-4 font-medium">ITS</th>
+                          <th className="pb-1.5 pr-4 font-medium">Age</th>
+                          <th className="pb-1.5 pr-4 font-medium">Gender</th>
+                          <th className="pb-1.5 pr-4 font-medium">Venue</th>
+                          <th className="pb-1.5 pr-4 font-medium">Category</th>
+                          <th className="pb-1.5 pr-4 font-medium">Needs</th>
+                          <th className="pb-1.5 font-medium">Attending</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+                        {detail.members.map((m) => (
+                          <tr key={m.its} className={m.not_attending ? "opacity-40" : ""}>
+                            <td className="py-1.5 pr-4">
+                              <span className="font-medium text-gray-800 dark:text-gray-100">{m.full_name ?? "—"}</span>
+                              {m.is_head && <span className="ml-1 text-[10px] text-gray-400">(HOF)</span>}
+                            </td>
+                            <td className="py-1.5 pr-4 text-gray-500">{m.its}</td>
+                            <td className="py-1.5 pr-4 text-gray-600 dark:text-gray-300">{m.age ?? "—"}</td>
+                            <td className="py-1.5 pr-4 text-gray-600 dark:text-gray-300">{m.gender ?? "—"}</td>
+                            <td className="py-1.5 pr-4 text-gray-600 dark:text-gray-300">{m.venue ?? "—"}</td>
+                            <td className="py-1.5 pr-4 text-gray-600 dark:text-gray-300">{m.category ?? "—"}</td>
+                            <td className="py-1.5 pr-4">
+                              {m.wheelchair && <Badge label="Wheelchair" tone="amber" />}
+                              {m.rahat_seating && !m.wheelchair && <Badge label="Rahat" tone="amber" />}
+                              {m.special_needs && <span className="ml-1 text-gray-500">{m.special_needs}</span>}
+                            </td>
+                            <td className="py-1.5 text-gray-600 dark:text-gray-300">{m.not_attending ? "No" : "Yes"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
