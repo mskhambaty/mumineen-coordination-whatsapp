@@ -42,6 +42,7 @@ export type RollupMember = {
   full_name: string | null;
   whatsapp_e164: string | null;
   local_mehman: string | null;
+  city: string | null;
   age: number | null;
   category: string | null;
   rahat_seating: boolean;
@@ -92,6 +93,7 @@ export function buildHouseholdRow(
 ): HouseholdRow {
   const head = members.find((m) => m.is_head) ?? members[0] ?? null;
   const localMehman = head?.local_mehman ?? null;
+  const isNorthChicago = head?.city?.trim().toLowerCase() === "north chicago";
   // All rollups are scoped to attending members only — non-attending members
   // take no parking spot and should not influence eligibility or criteria flags.
   const attending = members.filter((m) => !m.not_attending);
@@ -129,7 +131,8 @@ export function buildHouseholdRow(
     transport_mode: family.transport_mode,
     member_count: attendingCount,
     // Default pass rule: local household with ≥1 attending member; mehman only if they rented a car.
-    eligible: attendingCount > 0 && (localMehman === "Local" || (localMehman === "Mehman" && family.transport_mode === "rental")),
+    // North Chicago households are excluded — they use a separate lot not managed here.
+    eligible: !isNorthChicago && attendingCount > 0 && (localMehman === "Local" || (localMehman === "Mehman" && family.transport_mode === "rental")),
     suggested_passes,
     utaro_guest_count: guestFamilies.reduce((sum, g) => sum + g.attendingCount, 0),
     utaro_guest_commute_count: guestFamilies
