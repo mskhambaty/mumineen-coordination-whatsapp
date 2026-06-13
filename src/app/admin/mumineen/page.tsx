@@ -220,6 +220,7 @@ type AddMuminForm = {
   is_head: boolean;
   hof_its: string;
   gender: string;
+  local_mehman: string;
   age: string;
   whatsapp_e164: string;
   email: string;
@@ -228,7 +229,7 @@ type AddMuminForm = {
 
 const emptyAddForm: AddMuminForm = {
   its: "", full_name: "", prefix: "", is_head: true, hof_its: "",
-  gender: "", age: "",
+  gender: "", local_mehman: "Mehman", age: "",
   whatsapp_e164: "", email: "", jamaat: "",
 };
 
@@ -583,7 +584,7 @@ export default function MumineenPage() {
         is_head: addForm.is_head,
         ...(addForm.is_head ? {} : { hof_its: addForm.hof_its.trim() }),
         gender: addForm.gender || null,
-        local_mehman: "Mehman",
+        local_mehman: addForm.local_mehman || null,
         age: addForm.age ? parseInt(addForm.age, 10) : null,
         whatsapp_e164: addForm.whatsapp_e164.trim() || null,
         email: addForm.email.trim() || null,
@@ -1243,7 +1244,10 @@ export default function MumineenPage() {
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Type</label>
-                  <p className="mt-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">Mehman</p>
+                  <select value={addForm.local_mehman} onChange={(e) => setAddForm((f) => ({ ...f, local_mehman: e.target.value }))} className={inputCls}>
+                    <option value="Mehman">Mehman</option>
+                    <option value="Local">Local</option>
+                  </select>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
