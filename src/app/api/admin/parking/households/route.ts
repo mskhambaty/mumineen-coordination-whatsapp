@@ -144,15 +144,30 @@ export async function GET(req: NextRequest) {
     else hostGuests.set(hostIts, [entry]);
   }
 
+  // Set of all hof_its values that exist as active families in this load.
+  // Used to detect "orphaned" utaro guests whose host is not in the system.
+  const knownFamilyIts = new Set(families.map((f) => f.hof_its));
+
   const rows = families
-    .map((f) =>
-      buildHouseholdRow(
+    .map((f) => {
+      const row = buildHouseholdRow(
         f,
         membersByHof.get(f.hof_its) ?? [],
         passesByFamily.get(f.id) ?? [],
         hostGuests.get(f.hof_its) ?? [],
-      ),
-    )
+      );
+
+      // If this family is commuting with a utaro host that doesn't exist in the
+      // system, they can't roll up into the host's row. Treat them as eligible
+      // for their own pass so they aren't hidden from the default view.
+      const hostMissing =
+        f.utaro_host_its?.trim() && !knownFamilyIts.has(f.utaro_host_its.trim());
+      if (hostMissing && !row.eligible && row.member_count > 0) {
+        return { ...row, eligible: true, suggested_passes: Math.max(row.suggested_passes, 1) };
+      }
+
+      return row;
+    })
     .filter((r) => r.member_count > 0);
 
   const filtered = rows.filter((r) => matchesFilters(r, filters)).sort((a, b) => a.head_name.localeCompare(b.head_name));
