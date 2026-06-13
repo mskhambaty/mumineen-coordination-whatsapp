@@ -32,7 +32,7 @@ async function fetchAll<T>(
 }
 
 type FamilyRow = RollupFamily & { roster_active: boolean };
-type PassRow = { id: string; family_id: string; lot_id: string; notes: string | null };
+type PassRow = { id: string; family_id: string; lot_id: string; notes: string | null; printed_at: string | null };
 type LotRow = { id: string; name: string; color: string | null };
 
 // GET /api/admin/parking/households — one row per roster household with criteria
@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
         .range(from, to),
     ),
     fetchAll<PassRow>((from, to) =>
-      supabase.from("parking_passes").select("id, family_id, lot_id, notes").order("created_at").range(from, to),
+      supabase.from("parking_passes").select("id, family_id, lot_id, notes, printed_at").order("created_at").range(from, to),
     ),
     fetchAll<LotRow>((from, to) =>
       supabase.from("parking_lots").select("id, name, color").range(from, to),
@@ -103,6 +103,7 @@ export async function GET(req: NextRequest) {
       lot_name: lot?.name ?? "Unknown",
       lot_color: lot?.color ?? null,
       notes: p.notes,
+      printed_at: p.printed_at,
     };
     const list = passesByFamily.get(p.family_id);
     if (list) {

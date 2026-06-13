@@ -55,6 +55,7 @@ export type PassInfo = {
   lot_name: string;
   lot_color: string | null;
   notes: string | null;
+  printed_at: string | null;
 };
 
 export type HouseholdRow = {
@@ -78,6 +79,7 @@ export type HouseholdRow = {
   categories: string[];
   kids_under_7: number;
   passes: PassInfo[];
+  has_unprinted_passes: boolean;
 };
 
 // guestFamilies: utaro guests staying with this household. Non-rental guests share the
@@ -145,6 +147,7 @@ export function buildHouseholdRow(
     categories: [...new Set(allAttending.map((m) => m.category).filter((c): c is string => Boolean(c)))],
     kids_under_7: allAttending.filter((m) => m.age !== null && m.age < 7).length,
     passes,
+    has_unprinted_passes: passes.some((p) => p.printed_at === null),
   };
 }
 
@@ -215,6 +218,7 @@ export type HouseholdFilters = {
   has_phone?: boolean;    // household has a contact phone number
   has_category?: boolean; // any member carries a roster category value (e.g. VIP)
   kids_under_7?: boolean;
+  unprinted_passes?: boolean; // true = has at least one unprinted pass
 };
 
 export function matchesFilters(row: HouseholdRow, f: HouseholdFilters): boolean {
@@ -235,7 +239,8 @@ export function matchesFilters(row: HouseholdRow, f: HouseholdFilters): boolean 
   if (f.wheelchair   !== undefined) checks.push(() => f.wheelchair   === true ? row.wheelchair_count > 0   : row.wheelchair_count === 0);
   if (f.has_phone    !== undefined) checks.push(() => f.has_phone    === true ? Boolean(row.phone)         : !row.phone);
   if (f.has_category !== undefined) checks.push(() => f.has_category === true ? row.categories.length > 0  : row.categories.length === 0);
-  if (f.kids_under_7 !== undefined) checks.push(() => f.kids_under_7 === true ? row.kids_under_7 > 0       : row.kids_under_7 === 0);
+  if (f.kids_under_7       !== undefined) checks.push(() => f.kids_under_7       === true ? row.kids_under_7 > 0             : row.kids_under_7 === 0);
+  if (f.unprinted_passes   !== undefined) checks.push(() => f.unprinted_passes   === true ? row.has_unprinted_passes          : !row.has_unprinted_passes);
 
   if (checks.length === 0) return true;
   return f.filterMode === "or"

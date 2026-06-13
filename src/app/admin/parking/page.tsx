@@ -44,6 +44,7 @@ type Filters = {
   has_phone: boolean | null;
   has_category: boolean | null;
   kids_under_7: boolean | null;
+  unprinted_passes: boolean | null;
   assigned: string;
 };
 
@@ -59,6 +60,7 @@ const DEFAULT_FILTERS: Filters = {
   has_phone: null,
   has_category: null,
   kids_under_7: null,
+  unprinted_passes: null,
   assigned: "",
 };
 
@@ -483,6 +485,7 @@ export default function ParkingPage() {
       tri("has_phone", f.has_phone);
       tri("has_category", f.has_category);
       tri("kids_under_7", f.kids_under_7);
+      tri("unprinted_passes", f.unprinted_passes);
       if (f.assigned) params.set("assigned", f.assigned);
       const res = await apiFetch(`/api/admin/parking/households?${params}`);
       const json = await res.json().catch(() => ({}));
@@ -1006,7 +1009,7 @@ export default function ParkingPage() {
       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
         {/* AND / OR toggle — only shown when at least one criteria chip is active */}
         {([filters.any_rahat, filters.any_senior, filters.all_rahat, filters.all_65,
-           filters.wheelchair, filters.has_phone, filters.has_category, filters.kids_under_7]
+           filters.wheelchair, filters.has_phone, filters.has_category, filters.kids_under_7, filters.unprinted_passes]
            .filter((v) => v !== null).length > 1) && (
           <div className="flex overflow-hidden rounded-full border border-gray-300 dark:border-gray-600">
             {(["and", "or"] as const).map((mode) => (
@@ -1153,6 +1156,11 @@ export default function ParkingPage() {
           label="Not VIP"
           negative
           onClick={() => applyFilter({ has_category: filters.has_category === false ? null : false })}
+        />
+        <FilterChip
+          active={filters.unprinted_passes === true}
+          label="Not printed"
+          onClick={() => applyFilter({ unprinted_passes: filters.unprinted_passes === true ? null : true })}
         />
         <select
           value={filters.assigned}
