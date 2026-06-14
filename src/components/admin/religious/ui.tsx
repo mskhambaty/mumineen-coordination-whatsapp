@@ -19,6 +19,17 @@ export type Metrics = {
     unreviewed_ruling_flags: number;
   };
   top_words: { word: string; count: number }[];
+  recent_gaps: { query: string; created_at: string }[];
+};
+
+// A religious_topics row (subset) — used by the Overview "Today's uploads" panel.
+export type Topic = {
+  id: string;
+  year_hijri: string | null;
+  majlis_number: number | null;
+  is_ashura: boolean;
+  category: string | null;
+  status: string;
 };
 export type WordRequest = {
   id: string;
@@ -176,11 +187,11 @@ export function MessageBubble({ direction, body, at }: { direction: string; body
   const outbound = direction === "outbound";
   return (
     <div className={`flex ${outbound ? "justify-end" : "justify-start"}`}>
-      <div className={`max-w-[78%] rounded-lg border px-4 py-2.5 shadow-sm ${
-        outbound ? "border-blue-600 bg-blue-600 text-white dark:border-blue-700 dark:bg-blue-700" : "bg-white text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+      <div className={`max-w-[78%] rounded-lg border px-4 py-3 shadow-sm ${
+        outbound ? "bg-blue-600 text-white dark:bg-blue-700" : "bg-white text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
       }`}>
         <p className="whitespace-pre-wrap break-words text-sm leading-6">{body || "[message]"}</p>
-        <div className={`mt-1.5 text-[10px] ${outbound ? "text-blue-100" : "text-gray-400 dark:text-gray-500"}`}>{fmt(at)}</div>
+        <div className={`mt-2 text-xs ${outbound ? "text-blue-100" : "text-gray-400 dark:text-gray-500"}`}>{fmt(at)}</div>
       </div>
     </div>
   );

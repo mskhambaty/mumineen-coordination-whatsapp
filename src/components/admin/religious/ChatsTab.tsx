@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { apiFetch } from "@/lib/admin/client";
-import { Badge, Conversation, Empty, HandlingMode, MessageBubble, ModeToggle, fmt } from "./ui";
+import { Badge, Conversation, HandlingMode, MessageBubble, ModeToggle, fmt } from "./ui";
 
 // The Inbox, scoped to religious chats: list │ thread + AI/Manual toggle + reply. The toggle flips
 // conversation_sessions.handling_mode (shared with the agent); the reply is allowed only in Manual +
@@ -29,6 +29,17 @@ export default function ChatsTab({ conversations, onReload }: { conversations: C
   });
   const active = conversations.find((c) => c.phone === activePhone) ?? null;
   const canReply = !!active && active.handling_mode === "manual" && active.in_window;
+
+  // Auto-scroll the thread to the newest message when a conversation opens or a message arrives
+  // (mirrors the general Inbox).
+  const messagePaneRef = useRef<HTMLDivElement>(null);
+  const lastAt = active?.messages[active.messages.length - 1]?.created_at;
+  useEffect(() => {
+    const pane = messagePaneRef.current;
+    if (!pane) return;
+    const frame = requestAnimationFrame(() => { pane.scrollTop = pane.scrollHeight; });
+    return () => cancelAnimationFrame(frame);
+  }, [activePhone, lastAt]);
 
   async function setMode(mode: HandlingMode) {
     if (!active || active.handling_mode === mode) return;
@@ -64,9 +75,9 @@ export default function ChatsTab({ conversations, onReload }: { conversations: C
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-[300px_1fr]">
+    <div className="grid h-[calc(100vh-21rem)] min-h-[34rem] gap-4 md:grid-cols-[300px_1fr]">
       {/* List */}
-      <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+      <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
         <div className="space-y-2 border-b border-gray-100 p-3 dark:border-gray-800">
           <input
             value={search}
@@ -79,7 +90,7 @@ export default function ChatsTab({ conversations, onReload }: { conversations: C
             In-window only
           </label>
         </div>
-        <ul className="max-h-[28rem] divide-y divide-gray-100 overflow-y-auto dark:divide-gray-800">
+        <ul className="min-h-0 flex-1 divide-y divide-gray-100 overflow-y-auto dark:divide-gray-800">
           {list.map((c) => {
             const last = c.messages[c.messages.length - 1];
             return (
@@ -108,7 +119,7 @@ export default function ChatsTab({ conversations, onReload }: { conversations: C
       </div>
 
       {/* Thread */}
-      <div className="flex min-h-[32rem] flex-col rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+      <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
         {!active ? (
           <div className="flex flex-1 items-center justify-center text-sm text-gray-400">Select a conversation</div>
         ) : (
@@ -121,7 +132,7 @@ export default function ChatsTab({ conversations, onReload }: { conversations: C
               <ModeToggle mode={active.handling_mode} onChange={setMode} disabled={savingMode} />
             </div>
 
-            <div className="flex-1 space-y-2 overflow-y-auto bg-gray-50/50 p-4 dark:bg-gray-950/30">
+            <div ref={messagePaneRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-gray-50 p-5 dark:bg-gray-950/40">
               {active.messages.map((m, i) => (
                 <MessageBubble key={i} direction={m.direction} body={m.body} at={m.created_at} />
               ))}

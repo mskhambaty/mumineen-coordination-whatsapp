@@ -6,6 +6,11 @@ import { Badge, Empty, RulingFlag, SectionCard, fmt } from "./ui";
 export default function FlagsTab({ flags }: { flags: RulingFlag[] }) {
   return (
     <SectionCard title={`Ruling flags (${flags.length})`}>
+      <p className="mb-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-800/40 dark:text-gray-400">
+        When a member asks a <strong>personal ruling</strong> (halal/haram, wajib/farz, “do I need to…”), the bot
+        refuses and logs it here for awareness — caught by a <em>keyword</em> match or a <em>classifier</em>. This is
+        not an escalation; no one is paged.
+      </p>
       {flags.length === 0 ? (
         <Empty>No flagged ruling questions in this range.</Empty>
       ) : (
