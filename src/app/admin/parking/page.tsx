@@ -921,9 +921,9 @@ export default function ParkingPage() {
   // One CSV row per pass across the currently visible households.
   function exportCsv() {
     const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
-    const header = ["Household", "Phone", "Lot", "Color"];
+    const header = ["ITS", "Household", "Phone", "Lot", "Color"];
     const lines = visible.flatMap((r) =>
-      r.passes.map((p) => [r.head_name, r.phone ?? "", p.lot_name, p.lot_color ?? ""].map(esc).join(",")),
+      r.passes.map((p) => [r.hof_its, r.head_name, r.phone ?? "", p.lot_name, p.lot_color ?? ""].map(esc).join(",")),
     );
     const blob = new Blob([[header.join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
