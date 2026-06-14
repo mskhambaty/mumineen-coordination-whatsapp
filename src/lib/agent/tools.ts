@@ -3,6 +3,7 @@ import type OpenAI from "openai";
 import { canUseTool, canUseTaskToolForCaller, publicTools, taskReadTools, taskWriteTools, taskCreateTools, leadershipTools, type AppUser } from "@/lib/permissions";
 import { retrieveReligiousContext, retrieveSiteContext, RELIGIOUS_FALLBACK_MIN_SCORE } from "@/lib/scraper/retrieve-site-context";
 import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
+import { recordMissingLisanWord } from "@/lib/knowledge/lisan-word-requests";
 import { maybeSingleWordQuery } from "@/lib/agent/religious-guard";
 import { ACTIVE_ASHARA_YEAR, LAST_COMPLETED_ASHARA_YEAR, resolveAsharaYear } from "@/lib/knowledge/ashara-config";
 import {
@@ -747,8 +748,14 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       }
       return { decision: "not_found" };
     }
-    case "get_lisan_word_meaning":
-      return lookupLisanWord(String(args.word ?? ""));
+    case "get_lisan_word_meaning": {
+      const word = String(args.word ?? "");
+      const lookup = await lookupLisanWord(word);
+      // A genuine gap (not_found, not a "did you mean") → queue it + alert the owner once so the
+      // word can be added. Fire-and-forget; never blocks or breaks the member's reply.
+      if (lookup.status === "not_found") void recordMissingLisanWord(word, context.phoneE164);
+      return lookup;
+    }
     case "move_to_escalation":
       return callInternalApi("/api/escalations", {
         method: "POST",
