@@ -149,10 +149,12 @@ aggregation below then picks them up alongside real-time and admin feedback.
 
 `src/lib/digest/aggregate.ts` rolls up a day's feedback / issues (`tasks`) / escalations
 (`conversation_sessions`) / **open tickets** per department, plus an all-up view with flagged
-knowledge gaps and the total open ticket count. Meal RSVP totals are no longer included — that data
-is managed in a separate system. Open tickets (non-archived, non-complete tasks) are aggregated
-across all time, not just the current day — the per-department `DeptMetrics` includes `open_tickets`
-(count) and `open_ticket_titles` (up to 5), and `AllUpExtras` includes `total_open_tickets`.
+knowledge gaps and the total open ticket count. The per-department `DeptMetrics` includes:
+- `feedback` — counts + up to **100 sample comments** (so the AI can identify recurring themes and quantify them)
+- `new_issue_samples` — title + priority for up to 10 new issues created that day
+- `escalation_samples` — up to 10 escalation reasons
+- `open_ticket_details` — title + priority + status for up to 10 open tickets
+- `AllUpExtras` includes `total_open_tickets`
 
 `src/lib/digest/run.ts` generates **two** summaries per active
 department — a short one-liner (WhatsApp) and a longer bullet list (email + dashboard) — stores both
