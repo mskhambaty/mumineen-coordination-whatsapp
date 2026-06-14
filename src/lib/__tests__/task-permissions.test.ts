@@ -54,9 +54,11 @@ describe("canUseTaskTool", () => {
     expect(canUseTaskTool("leadership_admin", "update_tasks")).toBe(true);
   });
 
-  it("blocks write tools for member", () => {
+  it("blocks update/write tools for member (but create_task is open to all)", () => {
     expect(canUseTaskTool("member", "update_tasks")).toBe(false);
-    expect(canUseTaskTool("member", "create_task")).toBe(false);
+    // create_task moved into taskCreateTools (open to every authenticated user) in the
+    // issue/task-creation overhaul — members may create, just not update/assign.
+    expect(canUseTaskTool("member", "create_task")).toBe(true);
   });
 
   it("keeps the old fragmented tools unavailable", () => {

@@ -12,8 +12,9 @@ import { clearAdminSession } from "@/lib/admin/client";
 //  manage  = admin/leadership or department PM/HOD (AI-agent knowledge tools)
 //  portal  = any signed-in portal user (committee or admin). Workspace pages are
 //            "portal" but their content is dept-scoped server-side.
+//  religious = admin/leadership or a dedicated religious monitor (isolated section)
 //  any     = any signed-in user (same as portal in practice; kept for Profile)
-type Access = "admin" | "inbox" | "manage" | "portal" | "any";
+type Access = "admin" | "inbox" | "manage" | "portal" | "religious" | "any";
 
 type NavLink = { href: string; label: string; access: Access; exact?: boolean };
 
@@ -31,6 +32,10 @@ type NavAccess = {
   isInternal: boolean;
   isTransport: boolean;
   isAccommodations: boolean;
+  isReligiousMonitor: boolean;
+  // A monitor with NO other portal access — locked to the Religious section only (like helpdesk
+  // is locked to the inbox). A committee/admin who is also a monitor is NOT religious-only.
+  isReligiousOnly: boolean;
 };
 
 // Groups are organized by domain (the job a user shows up to do), not by whether a
@@ -89,19 +94,23 @@ const standaloneLinks: NavLink[] = [
 ];
 
 const trailingLinks: NavLink[] = [
+  // Top-level (not a dropdown) so a dedicated monitor lands on it directly. Admins + monitors only.
+  { href: "/admin/religious", label: "Religious", access: "religious" },
   { href: "/admin/profile", label: "Profile", access: "any" },
 ];
 
 function readNavAccess(): NavAccess {
-  const empty = { isAdmin: false, isHelpdesk: false, isSupport: false, isManager: false, isIt: false, isInternal: false, isTransport: false, isAccommodations: false };
+  const empty = { isAdmin: false, isHelpdesk: false, isSupport: false, isManager: false, isIt: false, isInternal: false, isTransport: false, isAccommodations: false, isReligiousMonitor: false, isReligiousOnly: false };
   if (typeof window === "undefined") return empty;
 
   try {
     const user = JSON.parse(window.localStorage.getItem("admin_user") ?? "null") as
-      | { role?: string; global_role?: string; is_support?: boolean; is_manager?: boolean; is_it?: boolean; is_internal?: boolean; is_transport?: boolean; is_accommodations?: boolean }
+      | { role?: string; global_role?: string; is_support?: boolean; is_manager?: boolean; is_it?: boolean; is_internal?: boolean; is_transport?: boolean; is_accommodations?: boolean; is_religious_monitor?: boolean }
       | null;
+    const isAdmin = user?.role === "admin" || user?.global_role === "leadership_admin";
+    const isReligiousMonitor = user?.is_religious_monitor === true;
     return {
-      isAdmin: user?.role === "admin" || user?.global_role === "leadership_admin",
+      isAdmin,
       isHelpdesk: user?.role === "helpdesk",
       isSupport: user?.is_support === true,
       isManager: user?.is_manager === true,
@@ -109,6 +118,9 @@ function readNavAccess(): NavAccess {
       isInternal: user?.is_internal === true,
       isTransport: user?.is_transport === true,
       isAccommodations: user?.is_accommodations === true,
+      isReligiousMonitor,
+      // Monitor with no other portal access (not admin/committee/helpdesk) → religious-only.
+      isReligiousOnly: isReligiousMonitor && !isAdmin && user?.role !== "committee" && user?.role !== "helpdesk",
     };
   } catch {
     return empty;
@@ -132,11 +144,18 @@ export default function AdminNav() {
   const [pendingCount, setPendingCount] = useState(0);
 
   function canSee(itemAccess: Access) {
+    if (itemAccess === "any") return true; // Profile, always
+    // Religious section: admins and dedicated monitors. (Checked before the isolation gates so a
+    // helpdesk-or-religious-only user still sees it.)
+    if (itemAccess === "religious") return access.isAdmin || access.isReligiousMonitor;
+    // A religious-monitor with no other portal access sees ONLY the Religious section — nothing
+    // logistics/event/roster. (Mirrors how helpdesk is locked to the inbox.)
+    if (access.isReligiousOnly) return false;
     // Helpdesk users see only the inbox and their own profile — nothing else.
-    if (access.isHelpdesk) return itemAccess === "inbox" || itemAccess === "any";
-    // The nav only renders for a signed-in portal user, so "any"/"portal" are
-    // always visible here; the server still enforces the real gate per route.
-    if (itemAccess === "any" || itemAccess === "portal") return true;
+    if (access.isHelpdesk) return itemAccess === "inbox";
+    // The nav only renders for a signed-in portal user, so "portal" is always visible here;
+    // the server still enforces the real gate per route.
+    if (itemAccess === "portal") return true;
     if (itemAccess === "admin") return access.isAdmin;
     if (itemAccess === "inbox") return access.isAdmin || access.isSupport;
     return access.isAdmin || access.isManager || access.isSupport; // manage
