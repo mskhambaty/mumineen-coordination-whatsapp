@@ -1,10 +1,16 @@
+import { FILTERABLE_AGENT_TOOLS } from "@/lib/agent/tool-names";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 // Custom audience targeting: a react-querybuilder rule tree evaluated over the roster in TS (the
 // roster is ~4k rows). No dynamic SQL — every field is whitelisted by the catalog below. Used by
 // the broadcast "custom" audience; the preset audiences stay in audience.ts.
 
-export type FieldType = "enum" | "bool" | "number" | "date" | "text";
+export type FieldType = "enum" | "bool" | "number" | "date" | "text" | "set";
+
+// Sentinel "hours since" value for behavioral rows that never happened (never messaged, never used a
+// tool). Using a large number rather than NaN/null makes both directions correct: "≤ N" excludes
+// these rows, "> N" includes them (haven't done it in N hours).
+const NEVER = 1e9;
 
 export type RosterRow = {
   mumin_id: string;
@@ -37,12 +43,20 @@ export type RosterRow = {
   acc_type: string | null;
   open_to_utaro: boolean | null;
   transport_mode: string | null;
+  // Behavioral signals attached in loadRoster() from the per-phone aggregate views (keyed by
+  // whatsapp_e164). Default to zero / empty when the number has no history.
+  inbound_count: number;
+  outbound_count: number;
+  last_inbound_at: string | null;
+  last_outbound_at: string | null;
+  tool_last_used: Record<string, string>; // tool_name -> last-used ISO
+  template_last_sent: Record<string, string>; // template_code -> last-sent ISO
 };
 
 export type FieldDef = {
   key: string;
   label: string;
-  group: "Person" | "Family";
+  group: "Person" | "Family" | "Engagement" | "AI tool usage" | "Template history";
   type: FieldType;
   get: (row: RosterRow) => unknown;
   enumValues?: string[];
@@ -78,6 +92,19 @@ export const FIELD_CATALOG: FieldDef[] = [
   { key: "acc_type", label: "Accommodation", group: "Family", type: "enum", enumValues: ["hotel", "utaro"], get: (r) => r.acc_type },
   { key: "open_to_utaro", label: "Open to utaro", group: "Family", type: "bool", get: (r) => r.open_to_utaro },
   { key: "transport_mode", label: "Transport mode", group: "Family", type: "enum", enumValues: ["rideshare", "rental", "commute_with_utaro", "other"], get: (r) => r.transport_mode },
+
+  // Engagement — conversation/messaging behavior, from phone_message_stats (see loadRoster).
+  { key: "hours_since_last_inbound", label: "Hours since they last messaged us", group: "Engagement", type: "number", get: (r) => (r.last_inbound_at ? (Date.now() - new Date(r.last_inbound_at).getTime()) / 3.6e6 : NEVER) },
+  { key: "has_messaged_us", label: "Has ever messaged us", group: "Engagement", type: "bool", get: (r) => r.inbound_count > 0 },
+  { key: "no_reply_from_them", label: "We messaged, no reply", group: "Engagement", type: "bool", get: (r) => r.last_outbound_at != null && r.inbound_count === 0 },
+  { key: "inbound_message_count", label: "Inbound message count", group: "Engagement", type: "number", get: (r) => r.inbound_count },
+
+  // AI tool usage — a recency-windowed set: "used / didn't use any of [tools] in the last N hours".
+  // Values are the curated mumineen-facing tools; get() returns tool_name -> last-used ISO.
+  { key: "tools_used", label: "AI tools used", group: "AI tool usage", type: "set", enumValues: FILTERABLE_AGENT_TOOLS.map((t) => t.name), get: (r) => r.tool_last_used },
+
+  // Template history — recency-windowed set: "sent / not sent any of [templates] in the last N hours".
+  { key: "templates_sent", label: "Templates sent", group: "Template history", type: "set", dynamicEnum: true, get: (r) => r.template_last_sent },
 ];
 
 const FIELD_BY_KEY = new Map(FIELD_CATALOG.map((f) => [f.key, f]));
@@ -88,6 +115,9 @@ export const OPS_BY_TYPE: Record<FieldType, string[]> = {
   bool: ["="],
   number: ["=", "!=", "<", "<=", ">", ">=", "between", "null", "notNull"],
   date: ["<", "<=", ">", ">=", "between", "null", "notNull"],
+  // set: "in" = did any of the selected within the window; "notIn" = did none of them within the
+  // window (covers never-done AND done-before-the-window). Value is { items, withinHours }.
+  set: ["in", "notIn"],
 };
 
 export type Rule = { field: string; operator: string; value?: unknown };
@@ -110,6 +140,11 @@ export function validateRules(node: Rule | RuleGroup, depth = 0): string | null 
   const def = FIELD_BY_KEY.get(node.field);
   if (!def) return `Unknown field: ${node.field}`;
   if (!OPS_BY_TYPE[def.type].includes(node.operator)) return `Operator ${node.operator} not allowed for ${node.field}.`;
+  if (def.type === "set") {
+    const v = node.value as { items?: unknown; withinHours?: unknown } | undefined;
+    if (!v || !Array.isArray(v.items) || v.items.length === 0) return `Select at least one option for ${node.field}.`;
+    if (v.withinHours != null && !(typeof v.withinHours === "number" && v.withinHours > 0)) return `Invalid time window for ${node.field}.`;
+  }
   return null;
 }
 
@@ -129,6 +164,26 @@ function asDate(v: unknown): number | null {
 function evalRule(rule: Rule, row: RosterRow): boolean {
   const def = FIELD_BY_KEY.get(rule.field);
   if (!def) return false;
+
+  // set: membership of selected items in the row's per-item timestamp map, optionally bounded to a
+  // recency window. Value is { items: string[]; withinHours: number | null } (null = ever).
+  if (def.type === "set") {
+    const map = (def.get(row) as Record<string, string> | null) ?? {};
+    const val = (rule.value ?? {}) as { items?: unknown; withinHours?: unknown };
+    const items = Array.isArray(val.items) ? val.items.map((v) => String(v)) : [];
+    const withinHours = typeof val.withinHours === "number" && val.withinHours > 0 ? val.withinHours : null;
+    const now = Date.now();
+    const didWithin = items.some((i) => {
+      const at = map[i];
+      if (!at) return false;
+      if (withinHours == null) return true;
+      return (now - new Date(at).getTime()) / 3.6e6 <= withinHours;
+    });
+    if (rule.operator === "in") return didWithin;
+    if (rule.operator === "notIn") return !didWithin;
+    return false;
+  }
+
   const raw = def.get(row);
   const op = rule.operator;
 
@@ -197,6 +252,21 @@ function normalizePhone(input: string): string {
   return digits ? `+${digits}` : input;
 }
 
+// Page through an aggregate view (one row per phone, or per phone+key) in 1000-row windows — the
+// PostgREST cap. Ordered by phone_e164 for stable, non-overlapping paging.
+async function fetchAllView<T>(table: string, columns: string): Promise<T[]> {
+  const supabase = getSupabaseAdmin();
+  const out: T[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from(table).select(columns).order("phone_e164", { ascending: true }).range(from, from + 999);
+    if (error) throw new Error(error.message);
+    const batch = (data ?? []) as T[];
+    out.push(...batch);
+    if (batch.length < 1000) break;
+  }
+  return out;
+}
+
 async function loadRoster(): Promise<RosterRow[]> {
   const supabase = getSupabaseAdmin();
 
@@ -210,6 +280,32 @@ async function loadRoster(): Promise<RosterRow[]> {
     if (error) throw new Error(error.message);
     for (const f of data ?? []) if (f.hof_its) families.set(f.hof_its, f);
     if (!data || data.length < 1000) break;
+  }
+
+  // Behavioral aggregates, keyed by normalized phone (matches whatsapp_e164). Built from the three
+  // per-phone views so the Engagement / AI tool usage / Template history fields resolve in-app.
+  const msgByPhone = new Map<string, { inbound_count: number; outbound_count: number; last_inbound_at: string | null; last_outbound_at: string | null }>();
+  for (const r of await fetchAllView<{ phone_e164: string; inbound_count: number; outbound_count: number; last_inbound_at: string | null; last_outbound_at: string | null }>("phone_message_stats", "phone_e164, inbound_count, outbound_count, last_inbound_at, last_outbound_at")) {
+    if (r.phone_e164) msgByPhone.set(normalizePhone(r.phone_e164), { inbound_count: Number(r.inbound_count) || 0, outbound_count: Number(r.outbound_count) || 0, last_inbound_at: r.last_inbound_at, last_outbound_at: r.last_outbound_at });
+  }
+
+  const filterableTools = new Set(FILTERABLE_AGENT_TOOLS.map((t) => t.name));
+  const toolByPhone = new Map<string, Record<string, string>>();
+  for (const r of await fetchAllView<{ phone_e164: string; tool_name: string; last_used_at: string }>("phone_tool_usage", "phone_e164, tool_name, last_used_at")) {
+    if (!r.phone_e164 || !filterableTools.has(r.tool_name)) continue;
+    const p = normalizePhone(r.phone_e164);
+    const m = toolByPhone.get(p) ?? {};
+    m[r.tool_name] = r.last_used_at;
+    toolByPhone.set(p, m);
+  }
+
+  const tplByPhone = new Map<string, Record<string, string>>();
+  for (const r of await fetchAllView<{ phone_e164: string; template_code: string | null; last_sent_at: string }>("phone_template_sends", "phone_e164, template_code, last_sent_at")) {
+    if (!r.phone_e164 || !r.template_code) continue;
+    const p = normalizePhone(r.phone_e164);
+    const m = tplByPhone.get(p) ?? {};
+    m[r.template_code] = r.last_sent_at;
+    tplByPhone.set(p, m);
   }
 
   const rows: RosterRow[] = [];
@@ -227,6 +323,8 @@ async function loadRoster(): Promise<RosterRow[]> {
       const khidmat = Array.isArray((m as { khidmat_department_ids?: unknown }).khidmat_department_ids)
         ? ((m as { khidmat_department_ids: unknown[] }).khidmat_department_ids).length
         : 0;
+      const phone = m.whatsapp_e164 ? normalizePhone(m.whatsapp_e164) : null;
+      const msg = phone ? msgByPhone.get(phone) : undefined;
       rows.push({
         mumin_id: m.id,
         family_id: fam?.id ?? null,
@@ -258,6 +356,12 @@ async function loadRoster(): Promise<RosterRow[]> {
         acc_type: fam?.acc_type ?? null,
         open_to_utaro: fam?.open_to_utaro ?? null,
         transport_mode: fam?.transport_mode ?? null,
+        inbound_count: msg?.inbound_count ?? 0,
+        outbound_count: msg?.outbound_count ?? 0,
+        last_inbound_at: msg?.last_inbound_at ?? null,
+        last_outbound_at: msg?.last_outbound_at ?? null,
+        tool_last_used: (phone ? toolByPhone.get(phone) : undefined) ?? {},
+        template_last_sent: (phone ? tplByPhone.get(phone) : undefined) ?? {},
       });
     }
     if (!data || data.length < 1000) break;
@@ -306,7 +410,12 @@ export async function dynamicEnumValues(): Promise<Record<string, string[]>> {
   for (const r of roster) {
     for (const f of FIELD_CATALOG.filter((f) => f.dynamicEnum)) {
       const v = f.get(r);
-      if (v != null && String(v).trim()) out[f.key].add(String(v));
+      if (f.type === "set") {
+        // set fields' get() returns a Record<item, ISO>; the dropdown options are its keys.
+        if (v && typeof v === "object") for (const k of Object.keys(v as Record<string, unknown>)) out[f.key].add(k);
+      } else if (v != null && String(v).trim()) {
+        out[f.key].add(String(v));
+      }
     }
   }
   return Object.fromEntries(Object.entries(out).map(([k, set]) => [k, [...set].sort()]));

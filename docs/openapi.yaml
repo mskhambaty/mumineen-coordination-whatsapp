@@ -2239,11 +2239,24 @@ paths:
     get:
       tags: [admin, templates]
       summary: One broadcast + delivery-status rollup + grouped failure reasons
-      description: Admin/leadership only. Aggregate status counts and a grouped failure-reason breakdown only — no phone numbers (use /failures for the per-recipient list). Failure reasons group by Meta's captured error code/title when available, otherwise the free/paid 24h-window fallback label.
+      description: Admin/leadership only. Aggregate status counts and a grouped failure-reason breakdown only — no phone numbers (use /failures or /recipients for per-recipient lists). The returned broadcast object carries how the audience was defined — audience_key, audience_rules, variable_bindings, and the audience toggles window_filter / window_hours / selected_user_ids (null on broadcasts created before these were recorded). Failure reasons group by Meta's captured error code/title when available, otherwise the free/paid 24h-window fallback label.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        "200": { description: "broadcast + status_counts + failure_reasons (reason → count)." }
+        "200": { description: "broadcast (incl. audience_rules/variable_bindings/window_filter/window_hours/selected_user_ids) + status_counts + failure_reasons (reason → count)." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/admin/templates/broadcasts/{id}/recipients:
+    get:
+      tags: [admin, templates]
+      summary: Full recipient list for a broadcast — every status (JSON or CSV)
+      description: Admin/leadership only. Returns the entire audience the broadcast sent to (sent/failed/skipped/queued/delivered/read/replied), each with phone, best-effort identity (name/ITS resolved by phone), send status, window flag, sent_at, and a detail field (failure reason for failed rows, skip reason for skipped). Exposes PII to authorized staff (same level as /failures); never shown to visitors. ?format=csv returns a download.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: format, in: query, required: false, schema: { type: string, enum: [csv] } }
+      responses:
+        "200": { description: "{ recipients[] } (JSON) or a text/csv attachment." }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
