@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { canManageKnowledge, canMonitorReligiousChats, isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 import ChatsTab from "@/components/admin/religious/ChatsTab";
+import ContentTab from "@/components/admin/religious/ContentTab";
 import DictionaryTab from "@/components/admin/religious/DictionaryTab";
 import FlagsTab from "@/components/admin/religious/FlagsTab";
 import OverviewTab from "@/components/admin/religious/OverviewTab";
@@ -133,6 +134,7 @@ export default function WaazTalaqqiPage() {
       { key: "chats", label: "Chats" },
     ];
     if (canManage) list.push({ key: "dictionary", label: "Dictionary", badge: s?.open_word_requests || undefined });
+    if (canManage) list.push({ key: "content", label: "Content" });
     list.push({ key: "flags", label: "Flags", badge: s?.unreviewed_ruling_flags || undefined });
     if (isAdmin) list.push({ key: "team", label: "Team" });
     return list;
@@ -196,6 +198,7 @@ export default function WaazTalaqqiPage() {
       )}
       {activeTab === "chats" && <ChatsTab conversations={conversations} onReload={loadAll} />}
       {activeTab === "dictionary" && canManage && <DictionaryTab wordRequests={requests} onResolve={resolveRequest} />}
+      {activeTab === "content" && canManage && <ContentTab />}
       {activeTab === "flags" && <FlagsTab flags={flags} />}
       {activeTab === "team" && isAdmin && <TeamTab monitors={monitors} directory={directory} onAdd={addMonitor} onRemove={removeMonitor} />}
     </div>

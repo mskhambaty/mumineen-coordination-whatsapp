@@ -64,7 +64,6 @@ const dropdownGroups: DropdownGroup[] = [
       { href: "/admin/prompt", label: "Prompts", access: "manage" },
       { href: "/admin/knowledge", label: "Knowledge Base", access: "portal" },
       { href: "/admin/knowledge-gaps", label: "Knowledge Gaps", access: "manage" },
-      { href: "/admin/ashara", label: "Ashara Daily Content", access: "manage" },
       { href: "/admin/ollama-test", label: "Model Testing", access: "admin" },
     ],
   },
