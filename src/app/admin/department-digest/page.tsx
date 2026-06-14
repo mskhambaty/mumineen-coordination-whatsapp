@@ -22,9 +22,23 @@ function getTicketInfo(metrics: unknown): { open_tickets: number; open_ticket_ti
   if (!metrics || typeof metrics !== "object") return null;
   const m = metrics as Record<string, unknown>;
   const count = typeof m.open_tickets === "number" ? m.open_tickets : 0;
-  const titles = Array.isArray(m.open_ticket_titles)
-    ? m.open_ticket_titles.filter((t): t is string => typeof t === "string")
-    : [];
+  // Support both new open_ticket_details (array of {title, priority, status}) and legacy open_ticket_titles
+  let titles: string[] = [];
+  if (Array.isArray(m.open_ticket_details)) {
+    titles = m.open_ticket_details
+      .map((d) => {
+        if (typeof d === "object" && d && typeof (d as Record<string, unknown>).title === "string") {
+          const det = d as Record<string, unknown>;
+          const label = det.title as string;
+          const prio = typeof det.priority === "string" ? ` [${det.priority}]` : "";
+          return label + prio;
+        }
+        return null;
+      })
+      .filter((t): t is string => t !== null);
+  } else if (Array.isArray(m.open_ticket_titles)) {
+    titles = m.open_ticket_titles.filter((t): t is string => typeof t === "string");
+  }
   if (count === 0 && titles.length === 0) return null;
   return { open_tickets: count, open_ticket_titles: titles };
 }

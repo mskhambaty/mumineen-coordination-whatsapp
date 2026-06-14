@@ -1,25 +1,28 @@
-import { getMealAttendanceTotals } from "@/lib/rsvp/meal-rsvp";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 // Aggregate a day's activity per department for the nightly digest. Pulls only cleanly
 // department-attributable signals: feedback (feedback_entries), issues (tasks created that day),
 // escalations (conversation_sessions escalated that day), plus an all-up view that also folds in
-// the day's flagged knowledge gaps and the next day's meal RSVP totals (for the kitchen).
+// the day's flagged knowledge gaps.
+
+export type TicketDetail = { title: string; priority: string | null; status: string | null };
+export type IssueSample = { title: string; priority: string | null };
 
 export type DeptMetrics = {
   department_id: string | null;
   department_name: string;
   feedback: { total: number; positive: number; neutral: number; negative: number; samples: string[] };
   issues: number;
+  new_issue_samples: IssueSample[];
   escalations: number;
+  escalation_samples: string[];
   open_tickets: number;
-  open_ticket_titles: string[];
+  open_ticket_details: TicketDetail[];
 };
 
 export type AllUpExtras = {
   questions_flagged: number; // knowledge gaps seen today
   untriaged_issues: number; // agent-raised issues with no department assigned
-  meals_next_day: { date: string | null; lunch_attending: number; dinner_attending: number };
   total_open_tickets: number;
 };
 
@@ -60,19 +63,19 @@ export async function aggregateDepartments(date: string): Promise<DeptMetrics[]>
       .eq("event_date", date),
     supabase
       .from("tasks")
-      .select("department_id, created_at")
+      .select("department_id, title, priority, created_at")
       .gte("created_at", start)
       .lte("created_at", end)
       .not("department_id", "is", null),
     supabase
       .from("conversation_sessions")
-      .select("escalation_department_id, escalated_at")
+      .select("escalation_department_id, escalation_reason, escalated_at")
       .gte("escalated_at", start)
       .lte("escalated_at", end)
       .not("escalation_department_id", "is", null),
     supabase
       .from("tasks")
-      .select("department_id, title, priority")
+      .select("department_id, title, priority, status")
       .eq("archived", false)
       .neq("status", "complete")
       .not("department_id", "is", null),
@@ -90,9 +93,11 @@ export async function aggregateDepartments(date: string): Promise<DeptMetrics[]>
         department_name: nameById.get(id) ?? "Unknown",
         feedback: { total: 0, positive: 0, neutral: 0, negative: 0, samples: [] },
         issues: 0,
+        new_issue_samples: [],
         escalations: 0,
+        escalation_samples: [],
         open_tickets: 0,
-        open_ticket_titles: [],
+        open_ticket_details: [],
       };
       metrics.set(id, m);
     }
@@ -108,26 +113,32 @@ export async function aggregateDepartments(date: string): Promise<DeptMetrics[]>
       if (f.sentiment === "positive") m.feedback.positive++;
       else if (f.sentiment === "negative") m.feedback.negative++;
       else m.feedback.neutral++;
-      if (f.comment_text && m.feedback.samples.length < 5) m.feedback.samples.push(f.comment_text);
+      if (f.comment_text && m.feedback.samples.length < 100) m.feedback.samples.push(f.comment_text);
     }
   }
-  for (const t of (issues ?? []) as { department_id: string | null }[]) {
-    if (t.department_id) ensure(t.department_id).issues++;
+  for (const t of (issues ?? []) as { department_id: string | null; title: string; priority: string | null }[]) {
+    if (!t.department_id) continue;
+    const m = ensure(t.department_id);
+    m.issues++;
+    if (t.title && m.new_issue_samples.length < 10) m.new_issue_samples.push({ title: t.title, priority: t.priority });
   }
-  for (const e of (escal ?? []) as { escalation_department_id: string | null }[]) {
-    if (e.escalation_department_id) ensure(e.escalation_department_id).escalations++;
+  for (const e of (escal ?? []) as { escalation_department_id: string | null; escalation_reason: string | null }[]) {
+    if (!e.escalation_department_id) continue;
+    const m = ensure(e.escalation_department_id);
+    m.escalations++;
+    if (e.escalation_reason && m.escalation_samples.length < 10) m.escalation_samples.push(e.escalation_reason);
   }
-  for (const t of (openTickets ?? []) as { department_id: string | null; title: string; priority: string | null }[]) {
+  for (const t of (openTickets ?? []) as { department_id: string | null; title: string; priority: string | null; status: string | null }[]) {
     if (!t.department_id) continue;
     const m = ensure(t.department_id);
     m.open_tickets++;
-    if (m.open_ticket_titles.length < 5) m.open_ticket_titles.push(t.title);
+    if (m.open_ticket_details.length < 10) m.open_ticket_details.push({ title: t.title, priority: t.priority, status: t.status });
   }
 
   return [...metrics.values()].sort((a, b) => b.feedback.total + b.issues + b.escalations - (a.feedback.total + a.issues + a.escalations));
 }
 
-// All-up extras: knowledge gaps surfaced today + the next day's meal RSVP attendance totals.
+// All-up extras: knowledge gaps surfaced today.
 export async function aggregateAllUpExtras(date: string): Promise<AllUpExtras> {
   const supabase = getSupabaseAdmin();
   const { start, end } = dayBounds(date);
@@ -154,16 +165,9 @@ export async function aggregateAllUpExtras(date: string): Promise<AllUpExtras> {
       .neq("status", "complete"),
   ]);
 
-  // Next day's meals — per-mumin attending head counts (niyaz_rsvp), split by meal.
-  const next = new Date(`${date}T00:00:00.000Z`);
-  next.setUTCDate(next.getUTCDate() + 1);
-  const nextDate = next.toISOString().slice(0, 10);
-  const meals = await getMealAttendanceTotals(nextDate);
-
   return {
     questions_flagged: gapsCount ?? 0,
     untriaged_issues: untriagedCount ?? 0,
-    meals_next_day: { date: meals.date, lunch_attending: meals.lunch, dinner_attending: meals.dinner },
     total_open_tickets: openTicketCount ?? 0,
   };
 }

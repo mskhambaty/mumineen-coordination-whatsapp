@@ -23,7 +23,20 @@ type Summary = { short: string; bullets: string[] };
 
 function metricsLine(m: DeptMetrics): string {
   const f = m.feedback;
-  return `${f.total} feedback (${f.positive}+/${f.neutral}~/${f.negative}-), ${m.issues} new issues, ${m.open_tickets} open tickets, ${m.escalations} escalations`;
+  const parts = [`${f.total} feedback (${f.positive}+/${f.neutral}~/${f.negative}-)`];
+  if (m.issues > 0) {
+    const titles = m.new_issue_samples.slice(0, 3).map((s) => s.title).join(", ");
+    parts.push(`${m.issues} new issue${m.issues !== 1 ? "s" : ""}${titles ? ": " + titles : ""}`);
+  }
+  if (m.open_tickets > 0) {
+    const titles = m.open_ticket_details.slice(0, 3).map((d) => `${d.title}${d.priority ? " [" + d.priority + "]" : ""}`).join(", ");
+    parts.push(`${m.open_tickets} open ticket${m.open_tickets !== 1 ? "s" : ""}${titles ? ": " + titles : ""}`);
+  }
+  if (m.escalations > 0) {
+    const reasons = m.escalation_samples.slice(0, 3).join("; ");
+    parts.push(`${m.escalations} escalation${m.escalations !== 1 ? "s" : ""}${reasons ? ": " + reasons : ""}`);
+  }
+  return parts.join(", ");
 }
 
 function escapeHtml(s: string): string {
@@ -43,16 +56,19 @@ function stripFences(s: string): string {
 const DEPT_SYSTEM =
   "You write an end-of-day committee briefing for one department of a Dawoodi Bohra Ashara relay center, using ONLY the JSON metrics provided. " +
   'Reply with STRICT JSON: {"short": string, "bullets": string[]}. ' +
-  '"short" = ONE plain sentence (max 160 chars) capturing the single most important feedback/issue for that department today (for a WhatsApp message). ' +
-  '"bullets" = 3-6 concise bullet strings covering sentiment, top feedback themes, issues/escalations, open tickets needing attention, and one improvement suggestion. ' +
-  "If there are open_tickets, mention the count and any high-priority ones. " +
-  "If there is feedback, lead with it; if there is no feedback but there ARE issues or open tickets, summarize those instead — NEVER output \"no feedback\" as the message. No markdown, no preamble.";
+  '"short" = ONE plain sentence (max 160 chars) capturing the single most important feedback theme or issue for that department today (for a WhatsApp message). ' +
+  '"bullets" = 6-10 concise bullet strings. STRUCTURE:\n' +
+  "1. FEEDBACK THEMES (weight these most heavily): Group the feedback samples by recurring theme. Quantify — e.g. \"12 people mentioned parking delays\" or \"8 praised shuttle timing but 3 said last shuttle left too early\". Surface patterns and sentiment shifts.\n" +
+  "2. TICKETS & ISSUES: Reference specific ticket/issue titles and priorities from new_issue_samples and open_ticket_details. Flag high-priority or stale items.\n" +
+  "3. ESCALATIONS: Summarize escalation reasons from escalation_samples — what drove people to escalate.\n" +
+  "4. One concrete improvement suggestion based on the above.\n" +
+  "If there is feedback, lead with themes; if there is no feedback but there ARE issues or open tickets, summarize those instead — NEVER output \"no feedback\" as the message. No markdown, no preamble.";
 
 const ALLUP_SYSTEM =
   "You write a short leadership end-of-day summary ACROSS ALL departments of a Dawoodi Bohra Ashara relay center, using ONLY the JSON provided. " +
   'Reply with STRICT JSON: {"short": string, "bullets": string[]}. ' +
   '"short" = ONE sentence (max 160 chars) on the overall day for a WhatsApp message. ' +
-  '"bullets" = 4-7 bullets: overall mood, departments needing attention, total issues/escalations, total open tickets across departments, next-day expected meal counts, and 1-2 priorities. No markdown.';
+  '"bullets" = 6-10 bullets: overall sentiment trends, top feedback themes across departments (quantified), departments needing attention, specific high-priority tickets/issues by name, escalation patterns, total open tickets, and 1-2 priorities for tomorrow. No markdown.';
 
 async function generateSummary(system: string, payload: unknown, fallbackShort: string): Promise<Summary> {
   try {
@@ -183,7 +199,7 @@ export async function runDepartmentDigest(date: string): Promise<DigestRunResult
 
     if (m.open_tickets > 0) {
       const ticketLine = `${m.open_tickets} open ticket${m.open_tickets !== 1 ? "s" : ""}${
-        m.open_ticket_titles.length > 0 ? ": " + m.open_ticket_titles.slice(0, 3).join(", ") : ""
+        m.open_ticket_details.length > 0 ? ": " + m.open_ticket_details.slice(0, 3).map((d) => `${d.title}${d.priority ? " [" + d.priority + "]" : ""}`).join(", ") : ""
       }`;
       summary.bullets.unshift(ticketLine);
     }
@@ -198,7 +214,7 @@ export async function runDepartmentDigest(date: string): Promise<DigestRunResult
     deptMetrics.some((m) => m.feedback.total + m.issues + m.escalations + m.open_tickets > 0) || extras.untriaged_issues > 0;
   if (anyActivity) {
     const allUpPayload = { date, departments: deptMetrics.map((m) => ({ name: m.department_name, ...m, summary: metricsLine(m) })), ...extras };
-    const allUpFallback = `Next-day meals: lunch ${extras.meals_next_day.lunch_attending}, dinner ${extras.meals_next_day.dinner_attending}.`;
+    const allUpFallback = `${extras.total_open_tickets} open tickets across all departments, ${extras.untriaged_issues} untriaged.`;
     const allUpSummary = await generateSummary(ALLUP_SYSTEM, allUpPayload, allUpFallback);
     if (allUpSummary.bullets.length === 0) allUpSummary.bullets = deptMetrics.map((m) => `${m.department_name}: ${metricsLine(m)}`);
 
