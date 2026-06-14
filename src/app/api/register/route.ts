@@ -121,9 +121,12 @@ type RegisterBody = {
 
 // One-time submission: everything is required except flight numbers and the rahat/same-flight
 // checkboxes. Mirrors the form. Returns the first problem, or null.
-function validateSubmission(members: MemberInput[], acc: Record<string, unknown>, tr: Record<string, unknown>, isLocal: boolean): string | null {
+export function validateSubmission(members: MemberInput[], acc: Record<string, unknown>, tr: Record<string, unknown>, isLocal: boolean): string | null {
   const present = members.filter((m) => str(m.its));
   if (present.length === 0) return "No family members were submitted.";
+  // A family that marks EVERY member not-attending isn't coming — they still register, but owe no
+  // accommodation/transport (mirrors the per-member rule that skips not-attending members).
+  const allNotAttending = present.every((m) => bool(m.not_attending));
   for (const m of present) {
     if (bool(m.not_attending)) continue; // not attending → their details aren't required
     const who = str(m.its) ?? "a member";
@@ -136,8 +139,8 @@ function validateSubmission(members: MemberInput[], acc: Record<string, unknown>
       if (!ts(m.departure_at)) return `Missing departure date & time for ${who}.`;
     }
   }
-  // Travel, accommodation, and transport are mehman-only; locals provide none of them.
-  if (!isLocal) {
+  // Travel, accommodation, and transport are mehman-only, and only when someone is attending.
+  if (!isLocal && !allNotAttending) {
     const accType = oneOf(acc.acc_type, ACC_TYPES);
     if (!accType) return "Accommodation type is required.";
     if (accType === "hotel" && (!str(acc.hotel_name) || !str(acc.hotel_address))) return "Hotel name and address are required.";
@@ -203,6 +206,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: incomplete }, { status: 400 });
   }
 
+  // A family marking EVERY member not-attending isn't coming — clear any accommodation/transport
+  // (e.g. left over from filling those fields before changing their mind) so the family isn't
+  // counted in accommodation/transport rollups.
+  const presentMembers = members.filter((m) => str(m.its));
+  const allNotAttending = presentMembers.length > 0 && presentMembers.every((m) => bool(m.not_attending));
+
   // Update each member's collected columns — scoped to this family so a submission can't
   // write to arbitrary mumineen. Only roster members (matched by ITS) are updated.
   const updatedLinks: { mumin_id: string; phone: string }[] = [];
@@ -265,6 +274,23 @@ export async function POST(req: NextRequest) {
     transport_detail: str(tr.transport_detail),
     updated_at: nowIso,
   };
+  if (allNotAttending) {
+    Object.assign(familyUpdate, {
+      acc_type: null,
+      hotel_name: null,
+      hotel_address: null,
+      hotel_lat: null,
+      hotel_lon: null,
+      open_to_utaro: false,
+      utaro_host_name: null,
+      utaro_host_its: null,
+      utaro_host_address: null,
+      utaro_host_whatsapp_e164: null,
+      utaro_host_email: null,
+      transport_mode: null,
+      transport_detail: null,
+    });
+  }
   if (!isEdit) {
     familyUpdate.registration_status = "submitted";
     familyUpdate.submitted_at = nowIso;

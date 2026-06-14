@@ -1789,7 +1789,12 @@ paths:
     post:
       tags: [registration]
       summary: Submit or edit a family registration.
-      description: Public. First submission sets status to submitted. Subsequent edits require a valid edit_token from /register/otp/verify.
+      description: >
+        Public. First submission sets status to submitted. Subsequent edits require a valid
+        edit_token from /register/otp/verify. Accommodation and transport are required for mehman
+        families EXCEPT when every member is marked not-attending — such a family isn't coming, so
+        those fields are neither required nor stored (any previously entered values are cleared).
+        Local families never provide accommodation/transport.
       requestBody:
         required: true
         content:
