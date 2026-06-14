@@ -21,7 +21,7 @@ const schema = z.object({
   rules: z.any().optional(), // react-querybuilder tree for the "custom" audience
   csv: z.string().optional(), // raw CSV text for the "csv_upload" audience (audience-export format)
   window: z.enum(WINDOW_FILTERS).optional(), // restrict to free (in_window) / paid (out_window)
-  window_hours: z.number().positive().max(24).optional(), // override the free-window size (hours)
+  window_hours: z.number().positive().optional(), // override the free-window size (hours)
   variable_bindings: z.any().optional(),
 });
 

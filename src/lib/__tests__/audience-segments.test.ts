@@ -160,8 +160,8 @@ describe("resolveWindowHours (UI override)", () => {
     expect(resolveWindowHours(14)).toBe(14);
   });
 
-  it("clamps an override above 24 down to 24", () => {
-    expect(resolveWindowHours(48)).toBe(24);
+  it("honors an override above 24 (no upper cap)", () => {
+    expect(resolveWindowHours(48)).toBe(48);
   });
 
   it("falls back to the env default for missing / non-positive values", () => {

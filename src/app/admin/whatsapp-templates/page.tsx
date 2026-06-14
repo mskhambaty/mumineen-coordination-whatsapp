@@ -520,16 +520,15 @@ export default function SendTemplatesPage() {
               <input
                 type="number"
                 min={1}
-                max={24}
                 step={1}
                 value={windowHours}
-                onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n > 0) { setWindowHours(Math.min(Math.round(n), 24)); setPreview(null); } }}
+                onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n > 0) { setWindowHours(Math.round(n)); setPreview(null); } }}
                 onBlur={() => { void loadSegments(windowHours); }}
                 className={`${input} mt-1 block w-full`}
               />
             </label>
           </div>
-          <span className="block text-[11px] text-gray-400">Restricts the audience to people who did / didn’t message us in the last {windowHours}h. Defaults to 24h (WhatsApp’s free window); lower it for a conservative margin. Updating it re-counts the header segments.</span>
+          <span className="block text-[11px] text-gray-400">Restricts the audience to people who did / didn’t message us in the last {windowHours}h. Defaults to 24h (WhatsApp’s free window); lower it for a conservative margin, or raise it to include older conversations. Updating it re-counts the header segments.</span>
 
           {audience === "selected_users" && (
             <div>

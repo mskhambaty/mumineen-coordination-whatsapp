@@ -73,11 +73,11 @@ export function windowHours(): number {
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_WINDOW_HOURS;
 }
 
-// Clamp a UI-supplied window override to a sane range (Meta's billing window is 24h, so a value
-// above that would wrongly count paid recipients as free). Falls back to the env default when the
-// value is missing or unusable.
+// Resolve a UI-supplied window override: any positive, finite value is honored (no upper cap —
+// staff may intentionally widen the window past Meta's 24h billing window). Falls back to the env
+// default when the value is missing or unusable.
 export function resolveWindowHours(hours?: number | null): number {
-  if (typeof hours === "number" && Number.isFinite(hours) && hours > 0) return Math.min(hours, 24);
+  if (typeof hours === "number" && Number.isFinite(hours) && hours > 0) return hours;
   return windowHours();
 }
 

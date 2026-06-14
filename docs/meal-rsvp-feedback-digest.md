@@ -197,8 +197,8 @@ everyone else needs a template. So both the header segments and the per-audience
 recipients into *messaged ≤24h (free)* vs *needs a template (paid)*.
 
 The window size defaults to **`WHATSAPP_WINDOW_HOURS`** (24) — `windowHours()` in `audience.ts` —
-but the console exposes a **Window (hours)** input so staff can override it per action (1–24,
-clamped by `resolveWindowHours()`). The chosen value flows through as `window_hours` on
+but the console exposes a **Window (hours)** input so staff can override it per action (any
+positive value, resolved by `resolveWindowHours()`). The chosen value flows through as `window_hours` on
 `POST /preview`, `/audience-export`, and `/send`, and as a `?hours=` query param on
 `GET /api/admin/templates/segments` (which re-counts the header and echoes back `window_hours`);
 `getInWindowPhones(hours)` applies it. Meta's billing window is 24h, so this is a conservative

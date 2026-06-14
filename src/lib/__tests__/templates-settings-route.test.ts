@@ -17,9 +17,9 @@ vi.mock("@/lib/whatsapp/template-settings", () => ({
 }));
 vi.mock("@/lib/whatsapp/audience", () => ({
   segmentCounts: (...a: unknown[]) => segmentCounts(...a),
-  // Mirror the real clamp: a valid 1–24 override wins, else the env default (24 in tests).
+  // Mirror the real resolver: any positive override wins (no upper cap), else the env default (24).
   resolveWindowHours: (h?: number | null) =>
-    typeof h === "number" && Number.isFinite(h) && h > 0 ? Math.min(h, 24) : 24,
+    typeof h === "number" && Number.isFinite(h) && h > 0 ? h : 24,
 }));
 
 import { PUT as settingsPut } from "@/app/api/admin/templates/settings/route";

@@ -82,9 +82,16 @@ describe("preview route auth + behavior", () => {
     expect(res.status).toBe(400);
   });
 
-  it("rejects an out-of-range window_hours (400)", async () => {
+  it("accepts a window_hours above 24 (no upper cap)", async () => {
     requirePortalCaller.mockResolvedValue(allow());
-    const res = await previewPost(req({ audience_key: "all_members", window_hours: 48 }));
+    previewAudience.mockResolvedValue({ total: 1, in_window: 1, out_window: 0, est_cost_usd: 0 });
+    await previewPost(req({ audience_key: "all_members", window_hours: 48 }));
+    expect(previewAudience).toHaveBeenLastCalledWith("all_members", [], undefined, "all", 48);
+  });
+
+  it("rejects a non-positive window_hours (400)", async () => {
+    requirePortalCaller.mockResolvedValue(allow());
+    const res = await previewPost(req({ audience_key: "all_members", window_hours: -5 }));
     expect(res.status).toBe(400);
     expect(previewAudience).not.toHaveBeenCalled();
   });
