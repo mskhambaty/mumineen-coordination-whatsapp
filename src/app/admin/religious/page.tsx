@@ -195,16 +195,15 @@ export default function WaazTalaqqiPage() {
         </div>
       </div>
 
-      {/* KPI band */}
+      {/* KPI band — people first, tool calls last (de-emphasized) */}
       {s && (
-        <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-          <KpiCard label="Tool calls" value={s.total_calls} icon={I.calls} tone="blue" />
-          <KpiCard label="Members" value={s.unique_members} icon={I.member} />
+        <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <KpiCard label="Mumineen" value={s.unique_members} icon={I.member} tone="blue" />
           <KpiCard label="Waaz Qs" value={s.waaz_questions} icon={I.book} />
-          <KpiCard label="Lisan lookups" value={s.lisan_lookups} icon={I.word} />
-          <KpiCard label="Not found" value={s.lisan_by_status?.not_found ?? 0} icon={I.warn} tone={(s.lisan_by_status?.not_found ?? 0) ? "amber" : "neutral"} />
-          <KpiCard label="Missing words" value={s.open_word_requests} icon={I.word} tone={s.open_word_requests ? "amber" : "neutral"} />
+          <KpiCard label="Word meanings" value={s.lisan_lookups} icon={I.word} />
+          <KpiCard label="Missing words" value={s.open_word_requests} icon={I.warn} tone={s.open_word_requests ? "amber" : "neutral"} />
           <KpiCard label="Ruling flags" value={s.unreviewed_ruling_flags} icon={I.flag} tone={s.unreviewed_ruling_flags ? "red" : "neutral"} />
+          <KpiCard label="Tool calls" value={s.total_calls} icon={I.calls} />
         </div>
       )}
 
