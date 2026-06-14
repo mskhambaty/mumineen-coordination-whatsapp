@@ -91,7 +91,9 @@ public/templates/mumineen-roster-template.xlsx — Downloadable Mumineen roster 
 supabase/migrations/                     — All database migrations
 src/app/api/relay-updates/route.ts       — Public relay updates JSON feed
 src/app/api/lost-found/route.ts          — Agent intake for lost/found reports; lost reports auto-escalate
-src/app/api/admin/lost-found/route.ts    — Portal-member lost/found report list with reporter details
+src/app/api/admin/lost-found/route.ts    — Portal-member lost/found report list + manual add (POST)
+src/app/api/admin/lost-found/[id]/route.ts — Edit (PUT) / Delete (DELETE) a lost/found item
+src/app/api/admin/lost-found/[id]/resolve/route.ts — Mark item resolved with history tracking
 src/lib/rsvp/meal-rsvp.ts                — Per-mumin Niyaz RSVP (niyaz_rsvp): grids, family/individual set-cascade, tallies (max/min), unregistered RSVP helpers, daily-button recording
 src/lib/rsvp/niyaz-prompt.ts             — Daily RSVP-template audiences (ITS/mumineen/HOF/adults) + button payloads + single-prompt creation for unregistered callers
 src/lib/feedback/record.ts               — Append-only feedback capture (area→department tagged)
