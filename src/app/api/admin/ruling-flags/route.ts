@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isAdminOrLeadership } from "@/lib/admin/access";
+import { canMonitorReligiousChats } from "@/lib/admin/access";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 
@@ -16,9 +16,9 @@ type Row = {
 
 // GET /api/admin/ruling-flags — awareness view of personal-ruling (fatwa) questions the bot
 // refused and flagged (NOT escalations). Counts + the most recent questions, so the team can see
-// what's being asked. Admin/leadership only. Phone is masked to the last 4 digits in the response.
+// what's being asked. Admin/leadership or a religious monitor. Phone is masked to the last 4 digits.
 export async function GET(req: NextRequest) {
-  const auth = await requirePortalCaller(req, isAdminOrLeadership);
+  const auth = await requirePortalCaller(req, canMonitorReligiousChats);
   if (auth instanceof NextResponse) return auth;
 
   const { data, error } = await getSupabaseAdmin()
