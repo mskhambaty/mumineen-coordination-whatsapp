@@ -1958,7 +1958,7 @@ paths:
                 kids: { type: integer, description: "Number of kids attending. For registered families, triggers partial attendance; capped at the family's kid count. For unregistered callers, records head count." }
                 its_number: { type: string, description: "Unregistered callers only — optional ITS for family matching." }
       responses:
-        "200": { description: "Updated row count + refreshed grid. When the requested adults/kids exceeded the family size, also returns clamped {requestedAdults, requestedKids, maxAdults, maxKids, message} so the agent tells the user the count was capped and extras must register separately. (Or status=unregistered for unlinked phones — upserts into unregistered_rsvps.)" }
+        "200": { description: "Updated row count + refreshed grid. When the requested counts exceeded the family size, also returns clamped {requestedAdults, requestedKids, requestedTotal, maxAdults, maxKids, maxTotal, message} so the agent tells the user the count was capped and extras must register separately. requestedTotal/maxTotal carry the single-number (head-count) case; adults/kids the split case. (Or status=unregistered for unlinked phones — upserts into unregistered_rsvps.)" }
         "400": { $ref: "#/components/responses/BadRequest" }
 
   /api/admin/niyaz/instances:
