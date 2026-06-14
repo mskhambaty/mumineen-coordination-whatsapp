@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
   }
   if (phones.length === 0) return NextResponse.json({ conversations: [] });
 
-  const [{ data: msgs }, { data: users }] = await Promise.all([
+  const [{ data: msgs }, { data: users }, { data: sessions }] = await Promise.all([
     supabase
       .from("messages")
       .select("phone_e164, direction, body, created_at")
@@ -55,11 +55,17 @@ export async function GET(req: NextRequest) {
       .order("created_at", { ascending: true })
       .limit(8000),
     supabase.from("whatsapp_users").select("phone_e164, display_name").in("phone_e164", phones),
+    // handling_mode drives the AI/Manual toggle + badge (mirrors the Inbox).
+    supabase.from("conversation_sessions").select("phone_e164, handling_mode, handling_mode_at").in("phone_e164", phones),
   ]);
 
   const nameByPhone = new Map<string, string | null>();
   for (const u of (users ?? []) as { phone_e164: string; display_name: string | null }[]) {
     nameByPhone.set(u.phone_e164, u.display_name);
+  }
+  const sessionByPhone = new Map<string, { handling_mode: string | null; handling_mode_at: string | null }>();
+  for (const s of (sessions ?? []) as { phone_e164: string; handling_mode: string | null; handling_mode_at: string | null }[]) {
+    sessionByPhone.set(s.phone_e164, { handling_mode: s.handling_mode, handling_mode_at: s.handling_mode_at });
   }
 
   type Msg = { phone_e164: string; direction: string; body: string | null; created_at: string };
@@ -76,12 +82,15 @@ export async function GET(req: NextRequest) {
     const lastInbound = [...list].reverse().find((m) => m.direction === "inbound");
     const inWindow = lastInbound ? now - new Date(lastInbound.created_at).getTime() < WINDOW_MS : false;
     const lastAt = list.length ? list[list.length - 1].created_at : null;
+    const session = sessionByPhone.get(phone);
     return {
       phone,
       phone_last4: phone.slice(-4),
       name: nameByPhone.get(phone) ?? null,
       last_at: lastAt,
       in_window: inWindow,
+      handling_mode: session?.handling_mode === "manual" ? "manual" : "ai",
+      handling_mode_at: session?.handling_mode_at ?? null,
       messages: list.map((m) => ({ direction: m.direction, body: m.body ?? "", created_at: m.created_at })),
     };
   });

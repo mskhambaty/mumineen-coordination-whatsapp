@@ -572,11 +572,32 @@ paths:
     get:
       tags: [conversations]
       summary: Conversations that used a religious tool, with each member's 24h-window state.
-      description: Threads (newest first) for the religious dashboard. ?from/?to optional. Religious monitor / admin.
+      description: Threads (newest first) for the Waaz Talaqqi Chats tab. ?from/?to optional. Each thread includes handling_mode (ai|manual) + in_window. Religious monitor / admin.
       security: [{ portalSession: [] }, { adminKey: [] }]
       responses:
-        "200": { description: "{ conversations[] } each with messages + in_window." }
+        "200": { description: "{ conversations[] } each with messages, in_window, handling_mode." }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/religious/mode:
+    put:
+      tags: [conversations]
+      summary: Flip a religious chat between AI-handled and Manual (Waaz Talaqqi Chats tab).
+      description: >-
+        Sets conversation_sessions.handling_mode. Gated for religious monitors (the Inbox's
+        /conversations/{phone}/mode is canAccessInbox, which monitors lack). Flipping to Manual takes
+        the member off the AI for all replies (logistics included), same as the Inbox toggle; updates
+        only handling_mode + attribution, never current_intent/state.
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [phone, mode], properties: { phone: { type: string }, mode: { type: string, enum: [ai, manual] } } }
+      responses:
+        "200": { description: "{ phone_e164, handling_mode, handling_mode_at }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: Conversation not found. }
         "500": { $ref: "#/components/responses/ServerError" }
   /admin/religious/word-requests:
     get:
