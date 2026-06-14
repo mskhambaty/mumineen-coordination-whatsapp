@@ -1,4 +1,4 @@
-import { getInWindowPhones, previewAudience, utilityMessageCostUsd, type AudienceKey, type Recipient } from "@/lib/whatsapp/audience";
+import { getInWindowPhones, previewAudience, utilityMessageCostUsd, type AudienceKey, type Recipient, type WindowFilter } from "@/lib/whatsapp/audience";
 import type { RuleGroup } from "@/lib/whatsapp/audience-filter";
 import { resolveApprovedTemplate, sendTemplateNotification } from "@/lib/whatsapp/send-template";
 import { resolveBindings, type SendComponentInputs, type VariableBindings } from "@/lib/whatsapp/templates";
@@ -20,6 +20,9 @@ export type CreateBroadcastInput = {
   audienceKey?: AudienceKey; // omit when passing an explicit `recipients` list
   selectedUserIds?: string[];
   rules?: RuleGroup; // for the "custom" audience
+  // Restrict the audience to one side of the 24h window (free in-window vs paid out-of-window).
+  // Defaults to "all".
+  windowFilter?: WindowFilter;
   variableBindings?: VariableBindings;
   triggeredByUserId?: string | null;
   // Explicit recipient list (e.g. the Niyaz RSVP send). When provided, audience resolution is
@@ -60,13 +63,18 @@ export async function createBroadcast(input: CreateBroadcastInput): Promise<Crea
   }
 
   // Recipients: an explicit list (Niyaz RSVP send) or a resolved audience. Both carry an inWindow flag.
+  const windowFilter: WindowFilter = input.windowFilter ?? "all";
   let recipients: (Recipient & { inWindow: boolean })[];
   if (input.recipients) {
     const inWindow = await getInWindowPhones();
     recipients = input.recipients.map((r) => ({ ...r, inWindow: inWindow.has(r.phone) }));
+    // Apply the window filter to explicit lists too (audience-path recipients are already filtered
+    // by previewAudience below). Niyaz callers omit windowFilter, so this is a no-op for them.
+    if (windowFilter === "in_window") recipients = recipients.filter((r) => r.inWindow);
+    else if (windowFilter === "out_window") recipients = recipients.filter((r) => !r.inWindow);
   } else {
     if (!input.audienceKey) return { error: "No audience specified." };
-    const preview = await previewAudience(input.audienceKey, input.selectedUserIds ?? [], input.rules);
+    const preview = await previewAudience(input.audienceKey, input.selectedUserIds ?? [], input.rules, windowFilter);
     recipients = preview.recipients;
   }
   if (recipients.length === 0) return { error: "No recipients in the selected audience." };

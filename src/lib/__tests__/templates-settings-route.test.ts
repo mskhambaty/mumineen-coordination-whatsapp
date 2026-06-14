@@ -17,6 +17,7 @@ vi.mock("@/lib/whatsapp/template-settings", () => ({
 }));
 vi.mock("@/lib/whatsapp/audience", () => ({
   segmentCounts: (...a: unknown[]) => segmentCounts(...a),
+  windowHours: () => 24,
 }));
 
 import { PUT as settingsPut } from "@/app/api/admin/templates/settings/route";
@@ -77,5 +78,6 @@ describe("GET /api/admin/templates/segments", () => {
     const json = await res.json();
     expect(json.segments).toHaveLength(1);
     expect(json.segments[0]).toMatchObject({ key: "segment_all_users", total: 3 });
+    expect(json.window_hours).toBe(24);
   });
 });

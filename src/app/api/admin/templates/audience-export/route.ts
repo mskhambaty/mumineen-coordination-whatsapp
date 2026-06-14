@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
-import { AUDIENCE_KEYS, enrichFieldsByPhone, previewAudience, previewExplicitRecipients, type AudiencePreview } from "@/lib/whatsapp/audience";
+import { AUDIENCE_KEYS, enrichFieldsByPhone, previewAudience, previewExplicitRecipients, WINDOW_FILTERS, type AudiencePreview } from "@/lib/whatsapp/audience";
 import { parseAudienceCsv } from "@/lib/whatsapp/audience-csv";
 import { validateRules, type RuleGroup } from "@/lib/whatsapp/audience-filter";
 
@@ -14,6 +14,7 @@ const schema = z.object({
   selected_user_ids: z.array(z.string().uuid()).optional(),
   rules: z.any().optional(),
   csv: z.string().optional(), // raw CSV text for the "csv_upload" audience (audience-export format)
+  window: z.enum(WINDOW_FILTERS).optional(), // restrict to free (in_window) / paid (out_window)
 });
 
 const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
@@ -40,6 +41,7 @@ export async function POST(req: NextRequest) {
     if (err) return NextResponse.json({ error: err }, { status: 400 });
   }
 
+  const window = parsed.data.window ?? "all";
   let preview: AudiencePreview;
   if (parsed.data.audience_key === "csv_upload") {
     if (!parsed.data.csv) return NextResponse.json({ error: "Upload a CSV file first." }, { status: 400 });
@@ -48,9 +50,9 @@ export async function POST(req: NextRequest) {
     // Same enrichment the preview/send paths apply, so the export carries roster Name/ITS for rows
     // that left them blank (CSV-provided values still win).
     await enrichFieldsByPhone(csv.recipients);
-    preview = await previewExplicitRecipients(csv.recipients);
+    preview = await previewExplicitRecipients(csv.recipients, window);
   } else {
-    preview = await previewAudience(parsed.data.audience_key, parsed.data.selected_user_ids ?? [], rules);
+    preview = await previewAudience(parsed.data.audience_key, parsed.data.selected_user_ids ?? [], rules, window);
   }
 
   const header = ["Name", "ITS", "HOF ITS", "Jamaat", "City", "Gender", "Local/Mehman", "WhatsApp", "Window"];

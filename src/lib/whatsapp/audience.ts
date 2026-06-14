@@ -30,6 +30,15 @@ export function isAudienceKey(v: unknown): v is AudienceKey {
   return typeof v === "string" && (AUDIENCE_KEYS as readonly string[]).includes(v);
 }
 
+// Restricts a resolved audience to one side of the 24h customer-service window: "in_window" (free —
+// they messaged us in the last 24h) or "out_window" (paid — needs a template). "all" keeps both.
+export const WINDOW_FILTERS = ["all", "in_window", "out_window"] as const;
+export type WindowFilter = (typeof WINDOW_FILTERS)[number];
+
+export function isWindowFilter(v: unknown): v is WindowFilter {
+  return typeof v === "string" && (WINDOW_FILTERS as readonly string[]).includes(v);
+}
+
 export const AUDIENCE_LABEL: Record<AudienceKey, string> = {
   selected_users: "Selected users (test)",
   chicago_committee: "Chicago committee members",
@@ -50,7 +59,22 @@ export type Recipient = {
   fields?: Record<string, string | null>; // mappable roster fields for personalization
 };
 
-const WINDOW_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_WINDOW_HOURS = 24;
+
+// Hours of the WhatsApp customer-service window we treat as "free" (in-window). Meta's billing
+// window is 24h; set WHATSAPP_WINDOW_HOURS *below* 24 for a conservative safety margin — e.g. 14
+// means anyone who hasn't messaged us in 14h is counted as paid even though they may technically
+// still be free, avoiding edge cases where the window closes between preview and send. Defaults to
+// 24. Non-positive / unparseable values fall back to the default.
+export function windowHours(): number {
+  const raw = optionalEnv("WHATSAPP_WINDOW_HOURS");
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_WINDOW_HOURS;
+}
+
+function windowMs(): number {
+  return windowHours() * 60 * 60 * 1000;
+}
 
 // Columns selected for roster-based audiences so recipients can personalize variables.
 const MAPPABLE_COLS = MAPPABLE_FIELDS.map((f) => f.key);
@@ -378,7 +402,7 @@ export async function resolveAudience(
 // Set of phone numbers currently inside the free 24h customer-service window. Paginated so the count
 // stays correct as in-window traffic grows past 1000 during Ashara.
 export async function getInWindowPhones(): Promise<Set<string>> {
-  const cutoff = new Date(Date.now() - WINDOW_MS).toISOString();
+  const cutoff = new Date(Date.now() - windowMs()).toISOString();
   const rows = await fetchAllRows<{ phone_e164: string }>(() =>
     getSupabaseAdmin().from("conversation_sessions").select("phone_e164").gte("last_message_at", cutoff).order("phone_e164", { ascending: true }) as unknown as Pageable<{ phone_e164: string }>,
   );
@@ -404,7 +428,12 @@ export type AudiencePreview = {
 // Resolve an audience and split it into free (in-window) vs paid, with an estimated cost. For the
 // custom filter it also reports the matched->reachable->deduped funnel so the count reconciles with
 // the people-counts on the analytics page.
-export async function previewAudience(key: AudienceKey, selectedUserIds: string[] = [], rules?: RuleGroup): Promise<AudiencePreview> {
+export async function previewAudience(
+  key: AudienceKey,
+  selectedUserIds: string[] = [],
+  rules?: RuleGroup,
+  windowFilter: WindowFilter = "all",
+): Promise<AudiencePreview> {
   let recipients: Recipient[];
   let funnel: AudiencePreview["funnel"];
   if (key === "custom" && rules) {
@@ -415,20 +444,31 @@ export async function previewAudience(key: AudienceKey, selectedUserIds: string[
       muminId: r.mumin_id,
       fields: fieldsOf(r as unknown as Record<string, unknown>),
     }));
+    // funnel describes the custom-filter resolution (matched -> reachable -> unique numbers) before
+    // any window filter is applied, so it still reconciles with the analytics people-counts.
     funnel = { matched: d.matched, with_whatsapp: d.withWhatsapp, unique: d.recipients.length };
   } else {
     recipients = await resolveAudience(key, selectedUserIds, rules);
   }
 
-  return { ...(await previewExplicitRecipients(recipients)), funnel };
+  return { ...(await previewExplicitRecipients(recipients, windowFilter)), funnel };
 }
 
 // Split an already-resolved recipient list into free (in-window) vs paid with an estimated cost.
 // Used by previewAudience and by the csv_upload path, which supplies recipients parsed from a file
 // rather than resolved from the database.
-export async function previewExplicitRecipients(recipients: Recipient[]): Promise<AudiencePreview> {
+export async function previewExplicitRecipients(
+  recipients: Recipient[],
+  windowFilter: WindowFilter = "all",
+): Promise<AudiencePreview> {
   const inWindow = await getInWindowPhones();
-  const enriched = recipients.map((r) => ({ ...r, inWindow: inWindow.has(r.phone) }));
+  const tagged = recipients.map((r) => ({ ...r, inWindow: inWindow.has(r.phone) }));
+  // Optionally keep only one side of the 24h window, then report counts on what remains — so the
+  // total and cost reflect exactly the people who will be messaged.
+  const enriched =
+    windowFilter === "in_window" ? tagged.filter((r) => r.inWindow)
+    : windowFilter === "out_window" ? tagged.filter((r) => !r.inWindow)
+    : tagged;
   const free = enriched.filter((r) => r.inWindow).length;
   const paid = enriched.length - free;
   return {

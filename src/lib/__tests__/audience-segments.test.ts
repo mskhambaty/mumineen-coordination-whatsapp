@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Flexible Supabase mock: every query builder method is chainable and resolves to the rows we've
 // stashed for that table, ignoring filters (resolveAudience applies its own logic on top). Supports
@@ -34,7 +34,7 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
-import { registeredMemberRecipients, resolveAudience, segmentCounts } from "@/lib/whatsapp/audience";
+import { previewExplicitRecipients, registeredMemberRecipients, resolveAudience, segmentCounts, windowHours, type Recipient } from "@/lib/whatsapp/audience";
 
 beforeEach(() => {
   state.mumineen = [];
@@ -121,6 +121,66 @@ describe("segment_hof_unresponded", () => {
     state.messages = [{ phone_e164: "+13125550001" }]; // f1's head was templated → dropped
     const r = await resolveAudience("segment_hof_unresponded");
     expect(r.map((x) => x.familyId)).toEqual(["f2"]);
+  });
+});
+
+describe("windowHours (WHATSAPP_WINDOW_HOURS)", () => {
+  const original = process.env.WHATSAPP_WINDOW_HOURS;
+  afterEach(() => {
+    if (original === undefined) delete process.env.WHATSAPP_WINDOW_HOURS;
+    else process.env.WHATSAPP_WINDOW_HOURS = original;
+  });
+
+  it("defaults to 24 when unset", () => {
+    delete process.env.WHATSAPP_WINDOW_HOURS;
+    expect(windowHours()).toBe(24);
+  });
+
+  it("honors a configured value", () => {
+    process.env.WHATSAPP_WINDOW_HOURS = "14";
+    expect(windowHours()).toBe(14);
+  });
+
+  it("falls back to 24 for non-positive / unparseable values", () => {
+    process.env.WHATSAPP_WINDOW_HOURS = "0";
+    expect(windowHours()).toBe(24);
+    process.env.WHATSAPP_WINDOW_HOURS = "abc";
+    expect(windowHours()).toBe(24);
+  });
+});
+
+describe("previewExplicitRecipients window filter", () => {
+  const recipients: Recipient[] = [
+    { phone: "+13125550001", familyId: "f1" }, // in-window
+    { phone: "+13125550002", familyId: "f2" }, // out-of-window
+    { phone: "+13125550003", familyId: "f3" }, // out-of-window
+  ];
+
+  beforeEach(() => {
+    state.conversation_sessions = [{ phone_e164: "+13125550001" }]; // only the first is in-window
+  });
+
+  it("default 'all' keeps everyone and reports the full free/paid split", async () => {
+    const p = await previewExplicitRecipients(recipients);
+    expect(p.total).toBe(3);
+    expect(p.in_window).toBe(1);
+    expect(p.out_window).toBe(2);
+  });
+
+  it("'in_window' keeps only the free recipients", async () => {
+    const p = await previewExplicitRecipients(recipients, "in_window");
+    expect(p.total).toBe(1);
+    expect(p.in_window).toBe(1);
+    expect(p.out_window).toBe(0);
+    expect(p.recipients.map((r) => r.phone)).toEqual(["+13125550001"]);
+  });
+
+  it("'out_window' keeps only the paid recipients", async () => {
+    const p = await previewExplicitRecipients(recipients, "out_window");
+    expect(p.total).toBe(2);
+    expect(p.in_window).toBe(0);
+    expect(p.out_window).toBe(2);
+    expect(p.recipients.every((r) => !r.inWindow)).toBe(true);
   });
 });
 

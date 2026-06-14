@@ -72,6 +72,7 @@ export default function SendTemplatesPage() {
   const [templates, setTemplates] = useState<TemplateDescriptor[]>([]);
   const [users, setUsers] = useState<SelectableUser[]>([]);
   const [segments, setSegments] = useState<SegmentCount[]>([]);
+  const [windowHours, setWindowHours] = useState<number>(24); // configured free-window size (WHATSAPP_WINDOW_HOURS)
   const [manageOpen, setManageOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -79,6 +80,7 @@ export default function SendTemplatesPage() {
   // Broadcast state
   const [tpl, setTpl] = useState<string>("");
   const [audience, setAudience] = useState<string>("selected_users");
+  const [windowFilter, setWindowFilter] = useState<"all" | "in_window" | "out_window">("all");
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [csvText, setCsvText] = useState<string>(""); // raw text of an uploaded audience CSV
   const [csvFileName, setCsvFileName] = useState<string>("");
@@ -174,7 +176,11 @@ export default function SendTemplatesPage() {
 
   const loadSegments = useCallback(async () => {
     const res = await apiFetch("/api/admin/templates/segments");
-    if (res.ok) setSegments(((await res.json()).segments as SegmentCount[]) ?? []);
+    if (res.ok) {
+      const data = await res.json();
+      setSegments((data.segments as SegmentCount[]) ?? []);
+      if (typeof data.window_hours === "number") setWindowHours(data.window_hours);
+    }
   }, []);
 
   useEffect(() => {
@@ -291,7 +297,7 @@ export default function SendTemplatesPage() {
     try {
       const res = await apiFetch("/api/admin/templates/preview", {
         method: "POST",
-        body: JSON.stringify({ audience_key: audience, selected_user_ids: selectedUsers, rules: audience === "custom" ? query : undefined, csv: audience === "csv_upload" ? csvText : undefined, include_recipients: true, limit: 50 }),
+        body: JSON.stringify({ audience_key: audience, selected_user_ids: selectedUsers, rules: audience === "custom" ? query : undefined, csv: audience === "csv_upload" ? csvText : undefined, window: windowFilter, include_recipients: true, limit: 50 }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Preview failed");
@@ -317,7 +323,7 @@ export default function SendTemplatesPage() {
     try {
       const res = await apiFetch("/api/admin/templates/audience-export", {
         method: "POST",
-        body: JSON.stringify({ audience_key: audience, selected_user_ids: selectedUsers, rules: audience === "custom" ? query : undefined, csv: audience === "csv_upload" ? csvText : undefined }),
+        body: JSON.stringify({ audience_key: audience, selected_user_ids: selectedUsers, rules: audience === "custom" ? query : undefined, csv: audience === "csv_upload" ? csvText : undefined, window: windowFilter }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -359,6 +365,7 @@ export default function SendTemplatesPage() {
           selected_user_ids: selectedUsers,
           rules: audience === "custom" ? query : undefined,
           csv: audience === "csv_upload" ? csvText : undefined,
+          window: windowFilter,
           variable_bindings: buildBindingsPayload(),
         }),
       });
@@ -421,7 +428,7 @@ export default function SendTemplatesPage() {
               <div className="text-xs font-medium text-gray-500 dark:text-gray-400">{s.label}</div>
               <div className="mt-1 text-2xl font-bold">{s.total.toLocaleString()}</div>
               <div className="mt-1 text-xs">
-                <span className="text-green-600">{s.in_window.toLocaleString()} messaged ≤24h (free)</span>
+                <span className="text-green-600">{s.in_window.toLocaleString()} messaged ≤{windowHours}h (free)</span>
                 {" · "}
                 <span className="text-amber-600">{s.out_window.toLocaleString()} need a template</span>
               </div>
@@ -430,7 +437,7 @@ export default function SendTemplatesPage() {
         </div>
       )}
       <p className="mt-1 text-xs text-gray-400">
-        “Need a template” counts against Meta’s ~250 template messages/day cap; people who messaged in the last 24h can be answered for free without a template.
+        “Need a template” counts against Meta’s ~250 template messages/day cap; people who messaged in the last {windowHours}h can be answered for free without a template.
       </p>
 
       <div className="mt-3 flex gap-2">
@@ -490,6 +497,18 @@ export default function SendTemplatesPage() {
                 <option key={a.key} value={a.key}>{a.label}</option>
               ))}
             </select>
+          </label>
+
+          {/* Restrict the chosen audience to one side of the 24h customer-service window: people who
+              messaged us in the last 24h (free session reply) vs those who didn't (need a paid template). */}
+          <label className="block text-xs uppercase tracking-wide text-gray-400">
+            Conversation window
+            <select value={windowFilter} onChange={(e) => { setWindowFilter(e.target.value as typeof windowFilter); setPreview(null); }} className={`${input} mt-1 block w-full`}>
+              <option value="all">All recipients</option>
+              <option value="in_window">Conversed ≤{windowHours}h (free)</option>
+              <option value="out_window">Not conversed (paid)</option>
+            </select>
+            <span className="mt-1 block text-[11px] normal-case text-gray-400">Restricts the audience to people who did / didn’t message us in the last {windowHours}h.</span>
           </label>
 
           {audience === "selected_users" && (

@@ -1952,10 +1952,12 @@ paths:
       summary: Niyaz reach segment sizes (free vs paid split)
       description: >-
         Admin/leadership only. Sizes of the three reach segments for the console header, each split
-        into in_window (messaged ≤24h — answerable for free) vs out_window (needs a template —
-        counts against the daily cap). Counts only; no PII.
+        into in_window (messaged within the free customer-service window — answerable for free) vs
+        out_window (needs a template — counts against the daily cap). Also returns window_hours (the
+        configured WHATSAPP_WINDOW_HOURS, default 24) so the console can label the split. Counts
+        only; no PII.
       responses:
-        "200": { description: "{ segments: [{ key, label, total, in_window, out_window }] }." }
+        "200": { description: "{ segments: [{ key, label, total, in_window, out_window }], window_hours }." }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
   /api/admin/templates/preview:
@@ -1975,6 +1977,7 @@ paths:
                 selected_user_ids: { type: array, items: { type: string, format: uuid } }
                 rules: { type: object, description: react-querybuilder rule tree (audience_key=custom) }
                 csv: { type: string, description: Raw CSV text in the audience-export format (audience_key=csv_upload) }
+                window: { type: string, enum: [all, in_window, out_window], default: all, description: "Restrict the audience to one side of the 24h customer-service window — in_window (free, messaged ≤24h) or out_window (paid, needs a template). Counts/cost reflect the filtered subset." }
                 include_recipients: { type: boolean }
                 limit: { type: integer, minimum: 1, maximum: 200 }
                 offset: { type: integer, minimum: 0 }
@@ -2002,6 +2005,7 @@ paths:
                 selected_user_ids: { type: array, items: { type: string, format: uuid } }
                 rules: { type: object, description: react-querybuilder rule tree (audience_key=custom) }
                 csv: { type: string, description: Raw CSV text in the audience-export format (audience_key=csv_upload) }
+                window: { type: string, enum: [all, in_window, out_window], default: all, description: "Restrict the audience to one side of the 24h customer-service window — in_window (free) or out_window (paid)." }
                 variable_bindings: { type: object, description: Per-variable static value or roster-field mapping }
       responses:
         "200": { description: "status=started + broadcastId + counts." }
@@ -2025,6 +2029,7 @@ paths:
                 selected_user_ids: { type: array, items: { type: string, format: uuid } }
                 rules: { type: object, description: react-querybuilder rule tree (audience_key=custom) }
                 csv: { type: string, description: Raw CSV text in the audience-export format (audience_key=csv_upload) }
+                window: { type: string, enum: [all, in_window, out_window], default: all, description: "Restrict the export to one side of the 24h customer-service window — in_window (free) or out_window (paid)." }
       responses:
         "200": { description: "text/csv attachment of the resolved audience." }
         "400": { $ref: "#/components/responses/BadRequest" }

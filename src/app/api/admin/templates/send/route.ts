@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
-import { AUDIENCE_KEYS, enrichFieldsByPhone } from "@/lib/whatsapp/audience";
+import { AUDIENCE_KEYS, enrichFieldsByPhone, WINDOW_FILTERS } from "@/lib/whatsapp/audience";
 import { parseAudienceCsv } from "@/lib/whatsapp/audience-csv";
 import { validateRules, type RuleGroup } from "@/lib/whatsapp/audience-filter";
 import { createBroadcast, drainUntilEmpty } from "@/lib/whatsapp/broadcast";
@@ -20,6 +20,7 @@ const schema = z.object({
   selected_user_ids: z.array(z.string().uuid()).optional(),
   rules: z.any().optional(), // react-querybuilder tree for the "custom" audience
   csv: z.string().optional(), // raw CSV text for the "csv_upload" audience (audience-export format)
+  window: z.enum(WINDOW_FILTERS).optional(), // restrict to free (in_window) / paid (out_window)
   variable_bindings: z.any().optional(),
 });
 
@@ -62,6 +63,7 @@ export async function POST(req: NextRequest) {
     audienceKey: parsed.data.audience_key,
     selectedUserIds: parsed.data.selected_user_ids ?? [],
     rules,
+    windowFilter: parsed.data.window ?? "all",
     recipients: csvRecipients,
     variableBindings: parsed.data.variable_bindings as VariableBindings | undefined,
     triggeredByUserId,

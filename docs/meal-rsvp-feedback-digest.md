@@ -196,6 +196,22 @@ free customer-service window and can be answered without a template (don't count
 everyone else needs a template. So both the header segments and the per-audience preview split
 recipients into *messaged ≤24h (free)* vs *needs a template (paid)*.
 
+The window size is configurable via **`WHATSAPP_WINDOW_HOURS`** (default 24) — `windowHours()` in
+`audience.ts`, used by `getInWindowPhones()`. Meta's billing window is 24h, so this is a
+conservative safety margin: set it below 24 (e.g. 14) to treat people who haven't messaged in that
+many hours as paid even if technically still free, avoiding edge cases where the window closes
+between preview and send. `GET /api/admin/templates/segments` returns `window_hours` so the console
+labels ("messaged ≤Nh", the filter dropdown) reflect the configured value.
+
+**Conversation-window filter.** Beyond just *showing* the split, a **Conversation window** dropdown
+next to the Audience picker restricts any audience to one side of the 24h window: `all` (default),
+`in_window` (free — conversed ≤24h), or `out_window` (paid — not conversed). It's a `window` param
+(`WindowFilter` in `audience.ts`) threaded through `POST /preview`, `/audience-export`, and `/send`;
+`previewExplicitRecipients(recipients, window)` post-filters by the per-recipient `inWindow` flag, so
+the total/cost reflect exactly who will be messaged. Composes with every audience type (presets,
+segments, custom, CSV). On the `custom` audience the `funnel` still describes the filter resolution
+*before* the window filter.
+
 **Reach segments** (header summary + sendable audiences). `segmentCounts()` (`audience.ts`) sizes
 three segments, each split free/paid, exposed by `GET /api/admin/templates/segments` and shown as
 cards atop the page; the same keys are selectable in the Audience dropdown. **All three are scoped to
@@ -243,6 +259,9 @@ and Single-recipient dropdowns** (the popup still lists them so they can be reac
   `chicago_committee`, `arrived_hof`, `registered_hof`, `all_members`, the three `segment_*` keys
   above, `custom` (rule-tree filter), and `csv_upload`. Split into in-window (free) vs out-window
   (paid) using `conversation_sessions.last_message_at`; cost via `WHATSAPP_UTILITY_MSG_COST_USD`.
+  The `custom` filter fields (`FIELD_CATALOG` in `audience-filter.ts`) include person/family columns
+  such as Jamaat, City, Gender, Age, Is-head-of-family, ITS, and **HOF ITS** (`hof_its` — target a
+  whole family by its head's ITS, e.g. `HOF ITS = 12345678`).
 - `csv_upload` (`src/lib/whatsapp/audience-csv.ts`): audience taken from an uploaded CSV in the **same
   format as the app's CSV downloads** (the audience export, or a broadcast's failures export). Columns
   matched by header (case-insensitive, order-free); a `WhatsApp` column is required; the roster columns
