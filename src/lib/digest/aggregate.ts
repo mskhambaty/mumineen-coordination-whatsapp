@@ -1,10 +1,9 @@
-import { getMealAttendanceTotals } from "@/lib/rsvp/meal-rsvp";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 // Aggregate a day's activity per department for the nightly digest. Pulls only cleanly
 // department-attributable signals: feedback (feedback_entries), issues (tasks created that day),
 // escalations (conversation_sessions escalated that day), plus an all-up view that also folds in
-// the day's flagged knowledge gaps and the next day's meal RSVP totals (for the kitchen).
+// the day's flagged knowledge gaps.
 
 export type DeptMetrics = {
   department_id: string | null;
@@ -19,7 +18,6 @@ export type DeptMetrics = {
 export type AllUpExtras = {
   questions_flagged: number; // knowledge gaps seen today
   untriaged_issues: number; // agent-raised issues with no department assigned
-  meals_next_day: { date: string | null; lunch_attending: number; dinner_attending: number };
   total_open_tickets: number;
 };
 
@@ -127,7 +125,7 @@ export async function aggregateDepartments(date: string): Promise<DeptMetrics[]>
   return [...metrics.values()].sort((a, b) => b.feedback.total + b.issues + b.escalations - (a.feedback.total + a.issues + a.escalations));
 }
 
-// All-up extras: knowledge gaps surfaced today + the next day's meal RSVP attendance totals.
+// All-up extras: knowledge gaps surfaced today.
 export async function aggregateAllUpExtras(date: string): Promise<AllUpExtras> {
   const supabase = getSupabaseAdmin();
   const { start, end } = dayBounds(date);
@@ -154,16 +152,9 @@ export async function aggregateAllUpExtras(date: string): Promise<AllUpExtras> {
       .neq("status", "complete"),
   ]);
 
-  // Next day's meals — per-mumin attending head counts (niyaz_rsvp), split by meal.
-  const next = new Date(`${date}T00:00:00.000Z`);
-  next.setUTCDate(next.getUTCDate() + 1);
-  const nextDate = next.toISOString().slice(0, 10);
-  const meals = await getMealAttendanceTotals(nextDate);
-
   return {
     questions_flagged: gapsCount ?? 0,
     untriaged_issues: untriagedCount ?? 0,
-    meals_next_day: { date: meals.date, lunch_attending: meals.lunch, dinner_attending: meals.dinner },
     total_open_tickets: openTicketCount ?? 0,
   };
 }

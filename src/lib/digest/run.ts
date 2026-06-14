@@ -52,7 +52,7 @@ const ALLUP_SYSTEM =
   "You write a short leadership end-of-day summary ACROSS ALL departments of a Dawoodi Bohra Ashara relay center, using ONLY the JSON provided. " +
   'Reply with STRICT JSON: {"short": string, "bullets": string[]}. ' +
   '"short" = ONE sentence (max 160 chars) on the overall day for a WhatsApp message. ' +
-  '"bullets" = 4-7 bullets: overall mood, departments needing attention, total issues/escalations, total open tickets across departments, next-day expected meal counts, and 1-2 priorities. No markdown.';
+  '"bullets" = 4-7 bullets: overall mood, departments needing attention, total issues/escalations, total open tickets across departments, and 1-2 priorities. No markdown.';
 
 async function generateSummary(system: string, payload: unknown, fallbackShort: string): Promise<Summary> {
   try {
@@ -198,7 +198,7 @@ export async function runDepartmentDigest(date: string): Promise<DigestRunResult
     deptMetrics.some((m) => m.feedback.total + m.issues + m.escalations + m.open_tickets > 0) || extras.untriaged_issues > 0;
   if (anyActivity) {
     const allUpPayload = { date, departments: deptMetrics.map((m) => ({ name: m.department_name, ...m, summary: metricsLine(m) })), ...extras };
-    const allUpFallback = `Next-day meals: lunch ${extras.meals_next_day.lunch_attending}, dinner ${extras.meals_next_day.dinner_attending}.`;
+    const allUpFallback = `${extras.total_open_tickets} open tickets across all departments, ${extras.untriaged_issues} untriaged.`;
     const allUpSummary = await generateSummary(ALLUP_SYSTEM, allUpPayload, allUpFallback);
     if (allUpSummary.bullets.length === 0) allUpSummary.bullets = deptMetrics.map((m) => `${m.department_name}: ${metricsLine(m)}`);
 
