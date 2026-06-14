@@ -147,7 +147,7 @@ describe("setFamilyNiyazRsvp partial attendance", () => {
     expect(rows).toHaveLength(3);
     expect(rows.every((r) => r.attending === true)).toBe(true);
     // The cap is reported back so the agent can tell the user.
-    expect(result.clamped).toEqual({ requestedAdults: 6, requestedKids: 5, maxAdults: 2, maxKids: 1 });
+    expect(result.clamped).toEqual({ requestedAdults: 6, requestedKids: 5, requestedTotal: undefined, maxAdults: 2, maxKids: 1, maxTotal: 3 });
   });
 
   it("does not report a clamp when counts fit within the family", async () => {

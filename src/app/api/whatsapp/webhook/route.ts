@@ -18,7 +18,7 @@ import { insertPendingMessage, runCoalescedInbound } from "@/lib/whatsapp/coales
 import { extractIncomingMessages, type IncomingWhatsAppMessage } from "@/lib/whatsapp/parser";
 import { applyBroadcastStatuses, extractStatusUpdates, markBroadcastReplied } from "@/lib/whatsapp/broadcast-status";
 import { resolveFamilyForPhone } from "@/lib/rsvp/family";
-import { recordFamilyHeadCount, recordNiyazButtonResponse, recordUnregisteredRsvp, recordUnregisteredHeadCount, scopeToEntries, type NiyazLevel, type NiyazScope } from "@/lib/rsvp/meal-rsvp";
+import { recordFamilyHeadCount, recordNiyazButtonResponse, recordUnregisteredRsvp, recordUnregisteredHeadCount, scopeToEntries, type ClampNotice, type NiyazLevel, type NiyazScope } from "@/lib/rsvp/meal-rsvp";
 import { consumePrompt, createPrompt, findOpenPrompt } from "@/lib/rsvp/niyaz-prompt";
 
 export const runtime = "nodejs";
@@ -267,16 +267,26 @@ async function handleNiyazHeadCount(message: IncomingWhatsAppMessage, userId: st
   const count = Math.min(999, parseInt(m[0], 10));
 
   const isUnregistered = !prompt.family_id;
+  let clamped: ClampNotice | undefined;
   if (prompt.family_id) {
-    await recordFamilyHeadCount(prompt.family_id, prompt.event_date, count, message.phoneE164);
+    // Head count is materialized into niyaz_rsvp (allocated across family members). If it exceeds
+    // the family's roster, the result is clamped to the actual member count.
+    const result = await recordFamilyHeadCount(prompt.family_id, prompt.event_date, count, message.phoneE164);
+    clamped = result.clamped;
   } else {
     await recordUnregisteredHeadCount(message.phoneE164, prompt.event_date, count);
   }
   await consumePrompt(prompt.id);
 
   const day = new Date(`${prompt.event_date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
-  const reply = `Shukran! Recorded ${count} from your family attending for ${day}. Reply with a new number if it changes.`
-    + (isUnregistered ? `\n\nPlease register your family at ${REGISTER_URL} so we can link your records automatically.` : "");
+  const recorded = clamped ? clamped.maxTotal : count;
+  let reply = `Shukran! Recorded ${recorded} from your family attending for ${day}. Reply with a new number if it changes.`;
+  if (clamped) {
+    reply += `\n\nThat's more than your registered family size, so we recorded ${clamped.maxTotal}. Anyone extra should message us from their own phone and register at ${REGISTER_URL}.`;
+  }
+  if (isUnregistered) {
+    reply += `\n\nPlease register your family at ${REGISTER_URL} so we can link your records automatically.`;
+  }
   const metaResponse = await sendWhatsAppText(message.phoneE164, reply);
   await recordOutboundMessage({
     phoneE164: message.phoneE164,

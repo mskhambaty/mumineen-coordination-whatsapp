@@ -19,7 +19,8 @@ responses come in.
   `20260610140000_fix_moharram_dinner_titles`.)
 - **`niyaz_rsvp`** (`20260608131000_*`): one row per `(registration_instance_id, mumin_id)` with
   `attending boolean`, `family_id`, and `source` (`default`|`registration`|`whatsapp`|`admin`). RLS
-  on, service-role access only. `rsvp_responses` is retired (left empty) for the meal flow.
+  on, service-role access only. (The legacy `rsvp_responses` table was dropped in
+  `20260614120000_drop_rsvp_responses` — it had been left empty after `niyaz_rsvp` replaced it.)
 - **Default rule** (America/Chicago calendar date): `not_attending` ⇒ No; no `arrival_at` ⇒ Yes
   (present all of Ashara, e.g. locals); else Yes when `event_date ≥ arrival date`. Seeded by the
   backfill (`20260609140000_*`, all registered active mumineen × the 20 events) and by the
@@ -115,11 +116,16 @@ The composer also supports a **head-count** mode (free-text family RSVP): pick "
 response type and a button-less template (variables `person_name`, `registration_message`,
 `family_members`, `example_response`). The send writes a **`niyaz_rsvp_prompts`** row per recipient
 (phone → family + date) instead of button payloads. When the family **replies with a number**, the
-webhook (`handleNiyazHeadCount`) matches the latest open prompt for that phone, records the count in
-**`niyaz_family_headcount`** (per event/family, applied to that day's events) via `recordFamilyHeadCount`,
-consumes the prompt, and confirms. The event-detail panel shows these family head counts
-(`getFamilyHeadCounts`) alongside the per-mumin button responses. (`niyaz_rsvp_prompts` +
-`niyaz_family_headcount`: `supabase/migrations/20260609120000_*`.)
+webhook (`handleNiyazHeadCount`) matches the latest open prompt for that phone and calls
+`recordFamilyHeadCount`, consumes the prompt, and confirms.
+
+`recordFamilyHeadCount` **materializes the number into `niyaz_rsvp`** — the single source of truth —
+by allocating that many attending members across the family (head → adults → kids, clamped to roster
+size; the clamp is surfaced in the reply so extras are nudged to register). It also upserts the raw
+number into **`niyaz_family_headcount`** purely as an audit record of what the family literally said;
+that table is display-only (`getFamilyHeadCounts`) and is **never summed into the event tallies** —
+the attendance it represents is already counted in `niyaz_rsvp`, so adding it would double-count.
+(`niyaz_rsvp_prompts` + `niyaz_family_headcount`: `supabase/migrations/20260609120000_*`.)
 
 ## 2. Feedback
 

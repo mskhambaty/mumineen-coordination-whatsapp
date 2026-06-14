@@ -544,6 +544,32 @@ Unique `(registration_instance_id, mumin_id)`. RLS enabled (service-role access 
 Function **`seed_family_niyaz_rsvp(p_family_id uuid)`** (re)defaults one family's rows from current
 arrival dates without clobbering `whatsapp`/`admin` overrides; called on registration submit/edit.
 
+**This table is the single source of truth for attendance counts.** Every input path writes here:
+button taps, the registration seed, admin edits, and free-text head counts (the head count is
+allocated across the family's members — head → adults → kids — clamped to roster size). Counts come
+only from `niyaz_rsvp`; nothing is summed on top of it.
+
+### `niyaz_family_headcount`
+
+Audit record of the **raw** free-text head-count reply a family texted (one number per `(event,
+family)`). It is **not** a second source of truth — the attendance it represents is materialized into
+`niyaz_rsvp` by `recordFamilyHeadCount`, so this table is display-only and is never added into the
+event tallies (doing so would double-count the family).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `registration_instance_id` | uuid | FK → `rsvp_registration_instance.id` (on delete cascade) |
+| `family_id` | uuid | FK → `families.id` (on delete cascade) |
+| `head_count` | integer | The literal number the family replied (`>= 0`) |
+| `source` | text | `whatsapp` \| `admin` |
+| `responded_by_phone` | text | Nullable |
+| `created_at` / `updated_at` | timestamptz | `updated_at` trigger-managed |
+
+Unique `(registration_instance_id, family_id)`. RLS enabled (service-role access only). The numeric
+reply is tied back to a date via the **`niyaz_rsvp_prompts`** table (a prompt is logged when the
+head-count template is sent; the next numeric reply consumes the most recent open prompt).
+
 ### `whatsapp_template_settings`
 
 Admin annotations on the Meta message templates for the Send Templates console. Meta owns the
