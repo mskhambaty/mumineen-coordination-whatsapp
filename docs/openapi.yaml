@@ -63,10 +63,114 @@ paths:
       tags: [lost-found, admin]
       summary: List all lost and found reports
       description: >-
-        Any portal member. Returns item details, escalation state, and reporter name/phone/ITS.
+        Any portal member. Returns item details, escalation state, resolver info, and reporter name/phone/ITS.
       security: [{ portalSession: [] }]
       responses:
         "200": { description: "{ reports: LostFoundReport[] }." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [lost-found, admin]
+      summary: Manually add a lost or found item
+      description: >-
+        Any portal member can add items. Source is recorded as 'manual'.
+      security: [{ portalSession: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [report_type, item_name]
+              properties:
+                report_type: { type: string, enum: [lost, found] }
+                item_name: { type: string, minLength: 2, maxLength: 160 }
+                description: { type: string, maxLength: 2000 }
+                category: { type: string, maxLength: 120 }
+                color: { type: string, maxLength: 120 }
+                brand: { type: string, maxLength: 120 }
+                location: { type: string, maxLength: 500 }
+                reporter_name: { type: string, maxLength: 200 }
+                reporter_its: { type: string, maxLength: 40 }
+      responses:
+        "201": { description: "{ report: { id, report_type, created_at } }." }
+        "400": { description: "Validation error." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/lost-found/{id}:
+    put:
+      tags: [lost-found, admin]
+      summary: Edit a lost/found item
+      description: Any portal member can edit item details.
+      security: [{ portalSession: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                item_name: { type: string, minLength: 2, maxLength: 160 }
+                description: { type: string, maxLength: 2000 }
+                category: { type: string, maxLength: 120 }
+                color: { type: string, maxLength: 120 }
+                brand: { type: string, maxLength: 120 }
+                location: { type: string, maxLength: 500 }
+                reporter_name: { type: string, maxLength: 200 }
+                reporter_its: { type: string, maxLength: 40 }
+      responses:
+        "200": { description: "{ ok: true }." }
+        "400": { description: "Validation error." }
+        "404": { description: "Report not found." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    delete:
+      tags: [lost-found, admin]
+      summary: Remove a lost/found item
+      description: Any portal member can delete items.
+      security: [{ portalSession: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: "{ ok: true }." }
+        "404": { description: "Report not found." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/lost-found/{id}/resolve:
+    patch:
+      tags: [lost-found, admin]
+      summary: Mark an item as resolved (found/returned)
+      description: >-
+        Any portal member. Records who closed it (user_id + display_name), when, and optional notes.
+        Shows in the Resolved history tab.
+      security: [{ portalSession: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes: { type: string, maxLength: 2000 }
+      responses:
+        "200": { description: "{ ok: true }." }
+        "404": { description: "Report not found or already resolved." }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "500": { $ref: "#/components/responses/ServerError" }
