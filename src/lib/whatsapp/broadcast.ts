@@ -1,6 +1,7 @@
-import { getInWindowPhones, previewAudience, utilityMessageCostUsd, type AudienceKey, type Recipient, type WindowFilter } from "@/lib/whatsapp/audience";
+import { getInWindowPhones, normalizePhone, previewAudience, utilityMessageCostUsd, type AudienceKey, type Recipient, type WindowFilter } from "@/lib/whatsapp/audience";
 import type { RuleGroup } from "@/lib/whatsapp/audience-filter";
 import { resolveApprovedTemplate, sendTemplateNotification } from "@/lib/whatsapp/send-template";
+import { suppressedPhones } from "@/lib/whatsapp/undeliverable";
 import { resolveBindings, type SendComponentInputs, type VariableBindings } from "@/lib/whatsapp/templates";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -69,10 +70,14 @@ export async function createBroadcast(input: CreateBroadcastInput): Promise<Crea
   const windowFilter: WindowFilter = input.windowFilter ?? "all";
   let recipients: (Recipient & { inWindow: boolean })[];
   if (input.recipients) {
-    const inWindow = await getInWindowPhones(input.windowHours);
-    recipients = input.recipients.map((r) => ({ ...r, inWindow: inWindow.has(r.phone) }));
-    // Apply the window filter to explicit lists too (audience-path recipients are already filtered
-    // by previewAudience below). Niyaz callers omit windowFilter, so this is a no-op for them.
+    const [inWindow, suppressed] = await Promise.all([getInWindowPhones(input.windowHours), suppressedPhones()]);
+    // Drop numbers Meta flagged as undeliverable so explicit-list sends (Niyaz RSVP, CSV upload)
+    // skip them too — the audience-path recipients are already filtered by previewAudience below.
+    recipients = input.recipients
+      .filter((r) => !suppressed.has(normalizePhone(r.phone)))
+      .map((r) => ({ ...r, inWindow: inWindow.has(r.phone) }));
+    // Apply the window filter to explicit lists too. Niyaz callers omit windowFilter, so this is a
+    // no-op for them.
     if (windowFilter === "in_window") recipients = recipients.filter((r) => r.inWindow);
     else if (windowFilter === "out_window") recipients = recipients.filter((r) => !r.inWindow);
   } else {

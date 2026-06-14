@@ -560,7 +560,34 @@ RLS enabled (service-role access only). Read/written only through `GET /api/admi
 (merge) and `PUT /api/admin/templates/settings`. Migration
 `20260611041719_whatsapp_template_settings.sql`.
 
+### `whatsapp_undeliverable`
+
+Phone-keyed suppression list for numbers Meta reports as undeliverable (not on WhatsApp / can't
+receive). The delivery-status webhook records each such failure (Meta error code `131026`); once a
+number crosses `UNDELIVERABLE_FAIL_THRESHOLD` (2) failures it is marked `suppressed`, and the
+audience layer drops it from every future broadcast so we stop re-sending and re-paying. Storing the
+phone here is correct (RLS-protected, server-only); it never escapes to logs or the client.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `phone_e164` | text | PK (normalized `+digits`) |
+| `fail_count` | int | Distinct undeliverable failures; reset to 0 on un-flag |
+| `first_failed_at` / `last_failed_at` | timestamptz | First/most-recent failure |
+| `last_error_code` | int | Last Meta error code (e.g. `131026`) |
+| `suppressed` | boolean | `true` once `fail_count >= threshold`; skipped on all sends |
+| `suppressed_at` | timestamptz | When suppression turned on |
+| `cleared_at` / `cleared_by` | timestamptz / uuid | Set when an admin un-flags the number |
+
+RLS enabled (service-role access only). Written by the delivery-status webhook via the
+`record_whatsapp_undeliverable` RPC; read by the audience layer (`suppressedPhones`) and managed
+through `GET`/`DELETE /api/admin/whatsapp/undeliverable`. Migration
+`20260614063542_whatsapp_undeliverable.sql`.
+
 ## Supabase RPC Function
+
+`record_whatsapp_undeliverable(p_phone, p_error_code, p_threshold)` — atomic upsert that increments a
+number's undeliverable failure count and (re)computes `suppressed` (sticky once it crosses the
+threshold). Source: `supabase/migrations/20260614063542_whatsapp_undeliverable.sql`
 
 `match_site_content(query_embedding, match_threshold, match_count)` — vector similarity search.  
 Source: `supabase/migrations/20260529134501_match_site_content.sql`

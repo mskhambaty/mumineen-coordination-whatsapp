@@ -74,6 +74,7 @@ export default function SendTemplatesPage() {
   const [segments, setSegments] = useState<SegmentCount[]>([]);
   const [windowHours, setWindowHours] = useState<number>(24); // configured free-window size (WHATSAPP_WINDOW_HOURS)
   const [manageOpen, setManageOpen] = useState(false);
+  const [undeliverableOpen, setUndeliverableOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -714,6 +715,14 @@ export default function SendTemplatesPage() {
           <div className="flex items-center gap-3">
             <button
               type="button"
+              onClick={() => setUndeliverableOpen(true)}
+              className="text-sm text-blue-600"
+              title="Numbers auto-skipped because they aren't on WhatsApp / can't receive"
+            >
+              Undeliverable numbers
+            </button>
+            <button
+              type="button"
               onClick={drainPending}
               disabled={draining}
               className="text-sm text-blue-600 disabled:opacity-50"
@@ -839,6 +848,120 @@ export default function SendTemplatesPage() {
           }}
         />
       )}
+
+      {undeliverableOpen && <UndeliverableModal onClose={() => setUndeliverableOpen(false)} />}
+    </div>
+  );
+}
+
+type UndeliverableNumber = {
+  phone: string;
+  name: string | null;
+  its: string | null;
+  fail_count: number;
+  last_error_code: number | null;
+  first_failed_at: string;
+  last_failed_at: string;
+  suppressed_at: string | null;
+};
+
+// Undeliverable-number management: lists numbers auto-suppressed because Meta reported them as
+// not-on-WhatsApp / can't-receive (so we stop re-sending), and lets an admin un-flag one (e.g. a
+// mistyped number that's since been corrected) to make it sendable again.
+function UndeliverableModal({ onClose }: { onClose: () => void }) {
+  const [numbers, setNumbers] = useState<UndeliverableNumber[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [clearing, setClearing] = useState<string | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
+
+  // Loads the suppression list. State starts at loading=true / error=null (correct for the mount
+  // fetch), so this awaits before touching state — no synchronous setState inside the effect.
+  const load = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/admin/whatsapp/undeliverable");
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to load");
+      setNumbers(((await res.json()).numbers as UndeliverableNumber[]) ?? []);
+      setModalError(null);
+    } catch (e) {
+      setModalError(e instanceof Error ? e.message : "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      await load();
+    })();
+  }, [load]);
+
+  async function unflag(phone: string) {
+    setClearing(phone);
+    setModalError(null);
+    try {
+      const res = await apiFetch(`/api/admin/whatsapp/undeliverable?phone=${encodeURIComponent(phone)}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Un-flag failed");
+      setNumbers((prev) => prev.filter((n) => n.phone !== phone));
+    } catch (e) {
+      setModalError(e instanceof Error ? e.message : "Un-flag failed");
+    } finally {
+      setClearing(null);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="max-h-[85vh] w-full max-w-3xl overflow-auto rounded-lg bg-white p-4 shadow-xl dark:bg-gray-950" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Undeliverable numbers</h2>
+          <button type="button" onClick={onClose} className="text-sm text-gray-500 hover:text-gray-700">Close</button>
+        </div>
+        <p className="mt-1 text-xs text-gray-500">
+          These numbers are auto-skipped on every broadcast because WhatsApp reported them as not on WhatsApp / unable to receive (after repeated failures). Un-flag a number to make it sendable again — e.g. a number that was mistyped and has since been corrected.
+        </p>
+        {modalError && <div className="mt-3 rounded-md bg-red-50 p-2 text-sm text-red-700 dark:bg-red-950">{modalError}</div>}
+        <div className="mt-3 overflow-auto rounded-md border border-gray-200 dark:border-gray-800">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-gray-50 text-xs uppercase text-gray-500 dark:bg-gray-900">
+              <tr>
+                <th className="px-2 py-1.5">Name</th>
+                <th className="px-2 py-1.5">ITS</th>
+                <th className="px-2 py-1.5">WhatsApp</th>
+                <th className="px-2 py-1.5">Failures</th>
+                <th className="px-2 py-1.5">Last failed</th>
+                <th className="px-2 py-1.5"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {numbers.map((n) => (
+                <tr key={n.phone} className="border-t border-gray-100 dark:border-gray-800">
+                  <td className="px-2 py-1.5">{n.name ?? "—"}</td>
+                  <td className="px-2 py-1.5 font-mono text-xs">{n.its ?? "—"}</td>
+                  <td className="px-2 py-1.5 font-mono">{n.phone}</td>
+                  <td className="px-2 py-1.5">{n.fail_count}</td>
+                  <td className="px-2 py-1.5 text-xs text-gray-500">{new Date(n.last_failed_at).toLocaleString()}</td>
+                  <td className="px-2 py-1.5">
+                    <button
+                      type="button"
+                      onClick={() => unflag(n.phone)}
+                      disabled={clearing === n.phone}
+                      className="rounded-md border border-gray-300 px-2 py-1 text-xs font-medium disabled:opacity-40 dark:border-gray-700"
+                    >
+                      {clearing === n.phone ? "Un-flagging…" : "Un-flag"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!loading && numbers.length === 0 && (
+                <tr><td colSpan={6} className="px-2 py-3 text-center text-gray-400">No undeliverable numbers.</td></tr>
+              )}
+              {loading && (
+                <tr><td colSpan={6} className="px-2 py-3 text-center text-gray-400">Loading…</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

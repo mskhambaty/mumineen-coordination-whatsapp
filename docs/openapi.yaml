@@ -2260,6 +2260,28 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/admin/whatsapp/undeliverable:
+    get:
+      tags: [admin, templates]
+      summary: List auto-suppressed undeliverable numbers
+      description: Admin/leadership only. Numbers auto-suppressed because Meta reported them as not-on-WhatsApp / can't-receive (error 131026) past the failure threshold, so they're skipped on every broadcast. Each row carries phone, best-effort identity (name/ITS by phone), fail_count, last error code, and timestamps. Exposes PII to authorized staff (same level as the failures export); never shown to visitors.
+      responses:
+        "200": { description: "{ numbers[] } (newest failure first)." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      tags: [admin, templates]
+      summary: Un-flag an undeliverable number
+      description: Admin/leadership only. Clears suppression for one number and resets its failure counter so it's eligible for sends again (e.g. a mistyped number that's since been corrected). It would take a fresh run of failures to re-suppress.
+      parameters:
+        - { name: phone, in: query, required: true, schema: { type: string }, description: "The number to un-flag (any format; normalized server-side)." }
+      responses:
+        "200": { description: "{ cleared: true, phone }." }
+        "400": { description: "phone is required." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "Number is not on the suppression list." }
+
   /api/admin/prompts/{key}:
     get:
       tags: [admin]

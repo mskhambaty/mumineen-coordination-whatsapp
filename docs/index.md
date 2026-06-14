@@ -100,6 +100,9 @@ src/lib/feedback/record.ts               — Append-only feedback capture (area�
 src/lib/whatsapp/audience.ts             — Send-console audience resolution + free/paid window split + roster-by-phone enrichment (resolveRosterByPhone) + Niyaz reach segments (segmentCounts, segment_* audiences)
 src/lib/whatsapp/audience-csv.ts         — Parse an uploaded audience CSV (export/failures format) into broadcast recipients (csv_upload)
 src/lib/whatsapp/broadcast.ts            — Throttled template broadcast engine (queue + drain; drainUntilEmpty + failure categorization)
+src/lib/whatsapp/phone.ts                — Shared normalizePhone (leaf module; re-exported from audience.ts)
+src/lib/whatsapp/undeliverable.ts        — Undeliverable-number suppression: record 131026 fails, threshold-based suppress, suppressedPhones filter, list/clear
+src/app/api/admin/whatsapp/undeliverable/route.ts — GET list + DELETE un-flag suppressed numbers (admin/leadership)
 src/app/api/admin/templates/drain/route.ts  — Manual "Send pending" — bounded drain trigger (admin/leadership)
 src/app/api/admin/templates/broadcasts/[id]/failures/route.ts — Per-recipient broadcast failure list (JSON/CSV, admin/leadership)
 src/lib/digest/run.ts                    — Nightly department digest: aggregate→AI→store→distribute

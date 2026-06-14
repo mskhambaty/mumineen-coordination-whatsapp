@@ -305,11 +305,23 @@ and Single-recipient dropdowns** (the popup still lists them so they can be reac
   24h-window label is only a fallback for failures Meta reports with no error detail (`categorizeFailure`).
   The per-recipient Name/ITS are resolved via the shared `resolveRosterByPhone` (direct + the
   `mumin_phone_links` fallback), so they populate for any failed number that maps to a roster member.
+- Undeliverable-number suppression: when a `failed` callback carries Meta code `131026` (not on
+  WhatsApp / can't receive), the webhook records it in `whatsapp_undeliverable` via the
+  `record_whatsapp_undeliverable` RPC (`src/lib/whatsapp/undeliverable.ts`). After
+  `UNDELIVERABLE_FAIL_THRESHOLD` (2) such failures a number is marked `suppressed`, and the audience
+  layer (`suppressedPhones` in `previewExplicitRecipients` + the explicit-recipients path of
+  `createBroadcast`) drops it from **every** future broadcast — so a dead number isn't re-sent or
+  re-billed. Two failures (not one) is deliberate: a single 131026 can be transient, and we'd rather
+  send one wasted message than silently drop a real family. Admins manage the list from the Broadcast
+  log header (**Undeliverable numbers** modal): `GET /api/admin/whatsapp/undeliverable` lists
+  suppressed numbers with identity; `DELETE …?phone=` un-flags one (clears suppression, resets the
+  counter) for a mistyped/corrected number. Both admin/leadership only.
 - API: `GET /api/admin/templates` (catalog + friendly-name/active annotations),
   `PUT /api/admin/templates/settings` (friendly name / active flag),
   `GET /api/admin/templates/segments` (reach-segment sizes),
   `POST /api/admin/templates/preview`, `POST .../send`,
-  `POST .../drain`, `GET .../broadcasts(/[id])`, `GET .../broadcasts/[id]/failures`.
+  `POST .../drain`, `GET .../broadcasts(/[id])`, `GET .../broadcasts/[id]/failures`,
+  `GET /api/admin/whatsapp/undeliverable`, `DELETE /api/admin/whatsapp/undeliverable?phone=`.
 
 The console handles **no-variable** templates to audiences; the older single-recipient composer
 (`/admin/whatsapp`, free-text + variable templates) remains for those cases. Full consolidation is
