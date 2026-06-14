@@ -19,6 +19,17 @@ function lisanStatus(resultSummary: string | null): string | null {
   }
 }
 
+// The routing decision for an answer_religious_questions row (answer / not_found / offer_last / …).
+function decisionOf(resultSummary: string | null): string | null {
+  if (!resultSummary) return null;
+  try {
+    const v = JSON.parse(resultSummary) as { decision?: unknown };
+    return typeof v.decision === "string" ? v.decision : null;
+  } catch {
+    return null;
+  }
+}
+
 // GET: aggregate metrics for the religious dashboard. Optional ?from / ?to (YYYY-MM-DD); defaults
 // to the last 30 days. Counts are computed in memory from a single bounded read (same pattern as
 // registration-analytics).
@@ -56,6 +67,7 @@ export async function GET(req: NextRequest) {
     arguments: { word?: unknown; query?: unknown } | null;
     result_summary: string | null;
     phone_e164: string | null;
+    created_at: string;
   }[];
 
   const members = new Set<string>();
@@ -63,10 +75,22 @@ export async function GET(req: NextRequest) {
   let lisan = 0;
   const lisanByStatus: Record<string, number> = { ok: 0, did_you_mean: 0, not_found: 0 };
   const wordCounts = new Map<string, number>();
+  // Recent Waaz questions the bot couldn't answer (decision not_found / offer_last) — the
+  // actionable "add this content" list for the Overview. Rows already arrive newest-first.
+  const recentGaps: { query: string; created_at: string }[] = [];
+  const seenGap = new Set<string>();
 
   for (const r of rows) {
     if (r.phone_e164) members.add(r.phone_e164);
-    if (r.tool_name === "answer_religious_questions") waaz += 1;
+    if (r.tool_name === "answer_religious_questions") {
+      waaz += 1;
+      const decision = decisionOf(r.result_summary);
+      const query = typeof r.arguments?.query === "string" ? r.arguments.query.trim() : "";
+      if ((decision === "not_found" || decision === "offer_last") && query && !seenGap.has(query.toLowerCase()) && recentGaps.length < 10) {
+        seenGap.add(query.toLowerCase());
+        recentGaps.push({ query, created_at: r.created_at });
+      }
+    }
     if (r.tool_name === "get_lisan_word_meaning") {
       lisan += 1;
       const status = lisanStatus(r.result_summary);
@@ -93,5 +117,6 @@ export async function GET(req: NextRequest) {
       unreviewed_ruling_flags: rulingFlags.count ?? 0,
     },
     top_words: topWords,
+    recent_gaps: recentGaps,
   });
 }

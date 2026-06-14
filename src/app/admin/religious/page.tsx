@@ -20,8 +20,19 @@ import {
   RulingFlag,
   TabKey,
   Tabs,
+  Topic,
   WordRequest,
 } from "@/components/admin/religious/ui";
+
+// One-line description shown under the tab bar for the active tab.
+const TAB_BLURB: Record<TabKey, string> = {
+  overview: "What needs attention today — content to upload, gaps to fill, flags to review.",
+  chats: "Monitor religious chats and reply. Switch a chat to Manual to take over from the AI.",
+  dictionary: "Words members asked for that aren't in the dictionary, plus the full Lisan dictionary.",
+  content: "Daily majlis content per year, plus supplementary documents and Waaz FAQ blocks.",
+  flags: "Personal-fatwa questions the bot refused, kept for awareness (not escalations).",
+  team: "Who can access this Waaz Talaqqi dashboard.",
+};
 
 // Tiny inline icons (no icon lib in this repo).
 const I = {
@@ -52,6 +63,7 @@ export default function WaazTalaqqiPage() {
   const [flags, setFlags] = useState<RulingFlag[]>([]);
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [directory, setDirectory] = useState<DirectoryUser[]>([]);
+  const [topics, setTopics] = useState<Topic[]>([]);
 
   // Auth gate + initial tab from the URL.
   useEffect(() => {
@@ -96,6 +108,15 @@ export default function WaazTalaqqiPage() {
   useEffect(() => {
     if (authorized) void loadAll();
   }, [authorized, loadAll]);
+
+  // Topics power the Overview "Today's uploads" panel — managers only (the endpoint is canAccessPortal).
+  useEffect(() => {
+    if (!authorized || !canManage) return;
+    void (async () => {
+      const res = await apiFetch("/api/admin/religious-topics");
+      if (res.ok) setTopics((await res.json()).topics ?? []);
+    })();
+  }, [authorized, canManage]);
 
   useEffect(() => {
     if (authorized) void loadMonitors();
@@ -187,14 +208,15 @@ export default function WaazTalaqqiPage() {
         </div>
       )}
 
-      {/* Tabs */}
+      {/* Tabs + active-tab description */}
       <div className="mb-5">
         <Tabs tabs={tabs} active={activeTab} onChange={changeTab} />
+        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{TAB_BLURB[activeTab]}</p>
       </div>
 
       {/* Tab content */}
       {activeTab === "overview" && (
-        <OverviewTab metrics={metrics} wordRequests={requests} flags={flags} conversations={conversations} onJump={changeTab} />
+        <OverviewTab metrics={metrics} topics={topics} canManage={canManage} onJump={changeTab} />
       )}
       {activeTab === "chats" && <ChatsTab conversations={conversations} onReload={loadAll} />}
       {activeTab === "dictionary" && canManage && <DictionaryTab wordRequests={requests} onResolve={resolveRequest} />}

@@ -86,9 +86,13 @@ no email. Never throws into the agent.
 
 **Waaz Talaqqi hub (`/admin/religious`, nav label "Waaz Talaqqi").** A single **tabbed** page
 (`src/app/admin/religious/page.tsx` shell + `src/components/admin/religious/*` tabs) — a KPI band over
-underline tabs, **access-gated per tab**: **Overview · Chats · Flags** for monitors; **Dictionary**
+underline tabs (each shows a one-line description), **access-gated per tab**: **Overview · Chats · Flags** for monitors; **Dictionary**
 (+ Content, see below) for managers/admins; **Team** for admins. A date-range selector drives the
-metrics. The **Chats** tab is an inbox with the same **AI ⇄ Manual** switch as the general Inbox —
+metrics. The **Overview** is action-oriented: **Today's uploads** (managers — today's majlis cell
+status for the active year, from the topics list), **Content gaps** (recent Waaz questions the bot
+couldn't answer — `metrics.recent_gaps`, i.e. `answer_religious_questions` with `decision`
+not_found/offer_last), **Needs attention** (missing words / ruling flags), and top words + Lisan
+miss-rate. The **Chats** tab is an inbox with the same **AI ⇄ Manual** switch as the general Inbox —
 `PUT /api/admin/religious/mode` (monitor-gated; the Inbox's own mode route is `canAccessInbox`). The
 reply box is enabled only in **Manual + inside the 24h window**; flipping to Manual takes the member
 off the AI for everything (same shared `handling_mode` as the Inbox). The **Content** tab holds the
