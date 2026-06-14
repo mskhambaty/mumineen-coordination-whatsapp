@@ -34,7 +34,7 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
-import { previewExplicitRecipients, registeredMemberRecipients, resolveAudience, segmentCounts, windowHours, type Recipient } from "@/lib/whatsapp/audience";
+import { previewExplicitRecipients, registeredMemberRecipients, resolveAudience, resolveWindowHours, segmentCounts, windowHours, type Recipient } from "@/lib/whatsapp/audience";
 
 beforeEach(() => {
   state.mumineen = [];
@@ -146,6 +146,30 @@ describe("windowHours (WHATSAPP_WINDOW_HOURS)", () => {
     expect(windowHours()).toBe(24);
     process.env.WHATSAPP_WINDOW_HOURS = "abc";
     expect(windowHours()).toBe(24);
+  });
+});
+
+describe("resolveWindowHours (UI override)", () => {
+  const original = process.env.WHATSAPP_WINDOW_HOURS;
+  afterEach(() => {
+    if (original === undefined) delete process.env.WHATSAPP_WINDOW_HOURS;
+    else process.env.WHATSAPP_WINDOW_HOURS = original;
+  });
+
+  it("uses a valid override", () => {
+    expect(resolveWindowHours(14)).toBe(14);
+  });
+
+  it("clamps an override above 24 down to 24", () => {
+    expect(resolveWindowHours(48)).toBe(24);
+  });
+
+  it("falls back to the env default for missing / non-positive values", () => {
+    delete process.env.WHATSAPP_WINDOW_HOURS; // env default 24
+    expect(resolveWindowHours(undefined)).toBe(24);
+    expect(resolveWindowHours(0)).toBe(24);
+    process.env.WHATSAPP_WINDOW_HOURS = "14";
+    expect(resolveWindowHours(null)).toBe(14);
   });
 });
 

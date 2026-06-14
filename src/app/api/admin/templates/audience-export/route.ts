@@ -15,6 +15,7 @@ const schema = z.object({
   rules: z.any().optional(),
   csv: z.string().optional(), // raw CSV text for the "csv_upload" audience (audience-export format)
   window: z.enum(WINDOW_FILTERS).optional(), // restrict to free (in_window) / paid (out_window)
+  window_hours: z.number().positive().max(24).optional(), // override the free-window size (hours)
 });
 
 const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
@@ -42,6 +43,7 @@ export async function POST(req: NextRequest) {
   }
 
   const window = parsed.data.window ?? "all";
+  const windowHours = parsed.data.window_hours;
   let preview: AudiencePreview;
   if (parsed.data.audience_key === "csv_upload") {
     if (!parsed.data.csv) return NextResponse.json({ error: "Upload a CSV file first." }, { status: 400 });
@@ -50,9 +52,9 @@ export async function POST(req: NextRequest) {
     // Same enrichment the preview/send paths apply, so the export carries roster Name/ITS for rows
     // that left them blank (CSV-provided values still win).
     await enrichFieldsByPhone(csv.recipients);
-    preview = await previewExplicitRecipients(csv.recipients, window);
+    preview = await previewExplicitRecipients(csv.recipients, window, windowHours);
   } else {
-    preview = await previewAudience(parsed.data.audience_key, parsed.data.selected_user_ids ?? [], rules, window);
+    preview = await previewAudience(parsed.data.audience_key, parsed.data.selected_user_ids ?? [], rules, window, windowHours);
   }
 
   const header = ["Name", "ITS", "HOF ITS", "Jamaat", "City", "Gender", "Local/Mehman", "WhatsApp", "Window"];

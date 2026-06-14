@@ -1974,9 +1974,12 @@ paths:
       description: >-
         Admin/leadership only. Sizes of the three reach segments for the console header, each split
         into in_window (messaged within the free customer-service window — answerable for free) vs
-        out_window (needs a template — counts against the daily cap). Also returns window_hours (the
-        configured WHATSAPP_WINDOW_HOURS, default 24) so the console can label the split. Counts
-        only; no PII.
+        out_window (needs a template — counts against the daily cap). The optional `hours` query
+        param overrides the free-window size (clamped to 1–24; falls back to the configured
+        WHATSAPP_WINDOW_HOURS, default 24); the resolved value is echoed back as window_hours so the
+        console can label the split. Counts only; no PII.
+      parameters:
+        - { name: hours, in: query, required: false, schema: { type: number, minimum: 1, maximum: 24 }, description: "Override the free-window size in hours." }
       responses:
         "200": { description: "{ segments: [{ key, label, total, in_window, out_window }], window_hours }." }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -1998,7 +2001,8 @@ paths:
                 selected_user_ids: { type: array, items: { type: string, format: uuid } }
                 rules: { type: object, description: react-querybuilder rule tree (audience_key=custom) }
                 csv: { type: string, description: Raw CSV text in the audience-export format (audience_key=csv_upload) }
-                window: { type: string, enum: [all, in_window, out_window], default: all, description: "Restrict the audience to one side of the 24h customer-service window — in_window (free, messaged ≤24h) or out_window (paid, needs a template). Counts/cost reflect the filtered subset." }
+                window: { type: string, enum: [all, in_window, out_window], default: all, description: "Restrict the audience to one side of the customer-service window — in_window (free) or out_window (paid, needs a template). Counts/cost reflect the filtered subset." }
+                window_hours: { type: number, minimum: 1, maximum: 24, description: "Override the free-window size in hours (defaults to WHATSAPP_WINDOW_HOURS, 24)." }
                 include_recipients: { type: boolean }
                 limit: { type: integer, minimum: 1, maximum: 200 }
                 offset: { type: integer, minimum: 0 }
@@ -2026,7 +2030,8 @@ paths:
                 selected_user_ids: { type: array, items: { type: string, format: uuid } }
                 rules: { type: object, description: react-querybuilder rule tree (audience_key=custom) }
                 csv: { type: string, description: Raw CSV text in the audience-export format (audience_key=csv_upload) }
-                window: { type: string, enum: [all, in_window, out_window], default: all, description: "Restrict the audience to one side of the 24h customer-service window — in_window (free) or out_window (paid)." }
+                window: { type: string, enum: [all, in_window, out_window], default: all, description: "Restrict the audience to one side of the customer-service window — in_window (free) or out_window (paid)." }
+                window_hours: { type: number, minimum: 1, maximum: 24, description: "Override the free-window size in hours (defaults to WHATSAPP_WINDOW_HOURS, 24)." }
                 variable_bindings: { type: object, description: Per-variable static value or roster-field mapping }
       responses:
         "200": { description: "status=started + broadcastId + counts." }
@@ -2050,7 +2055,8 @@ paths:
                 selected_user_ids: { type: array, items: { type: string, format: uuid } }
                 rules: { type: object, description: react-querybuilder rule tree (audience_key=custom) }
                 csv: { type: string, description: Raw CSV text in the audience-export format (audience_key=csv_upload) }
-                window: { type: string, enum: [all, in_window, out_window], default: all, description: "Restrict the export to one side of the 24h customer-service window — in_window (free) or out_window (paid)." }
+                window: { type: string, enum: [all, in_window, out_window], default: all, description: "Restrict the export to one side of the customer-service window — in_window (free) or out_window (paid)." }
+                window_hours: { type: number, minimum: 1, maximum: 24, description: "Override the free-window size in hours (defaults to WHATSAPP_WINDOW_HOURS, 24)." }
       responses:
         "200": { description: "text/csv attachment of the resolved audience." }
         "400": { $ref: "#/components/responses/BadRequest" }

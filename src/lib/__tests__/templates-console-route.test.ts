@@ -66,20 +66,27 @@ describe("preview route auth + behavior", () => {
     expect(json).toMatchObject({ total: 100, in_window: 40, out_window: 60, est_cost_usd: 3 });
   });
 
-  it("forwards the window filter to previewAudience (defaulting to 'all')", async () => {
+  it("forwards the window filter + window_hours to previewAudience (defaulting to 'all'/undefined)", async () => {
     requirePortalCaller.mockResolvedValue(allow());
     previewAudience.mockResolvedValue({ total: 60, in_window: 0, out_window: 60, est_cost_usd: 3 });
-    await previewPost(req({ audience_key: "all_members", window: "out_window" }));
-    expect(previewAudience).toHaveBeenLastCalledWith("all_members", [], undefined, "out_window");
+    await previewPost(req({ audience_key: "all_members", window: "out_window", window_hours: 12 }));
+    expect(previewAudience).toHaveBeenLastCalledWith("all_members", [], undefined, "out_window", 12);
 
     await previewPost(req({ audience_key: "all_members" }));
-    expect(previewAudience).toHaveBeenLastCalledWith("all_members", [], undefined, "all");
+    expect(previewAudience).toHaveBeenLastCalledWith("all_members", [], undefined, "all", undefined);
   });
 
   it("rejects an invalid window value (400)", async () => {
     requirePortalCaller.mockResolvedValue(allow());
     const res = await previewPost(req({ audience_key: "all_members", window: "yesterday" }));
     expect(res.status).toBe(400);
+  });
+
+  it("rejects an out-of-range window_hours (400)", async () => {
+    requirePortalCaller.mockResolvedValue(allow());
+    const res = await previewPost(req({ audience_key: "all_members", window_hours: 48 }));
+    expect(res.status).toBe(400);
+    expect(previewAudience).not.toHaveBeenCalled();
   });
 });
 
@@ -108,13 +115,13 @@ describe("send route auth + behavior", () => {
     expect(res.status).toBe(400);
   });
 
-  it("passes the window filter into createBroadcast (defaulting to 'all')", async () => {
+  it("passes the window filter + window_hours into createBroadcast (defaulting to 'all'/undefined)", async () => {
     requirePortalCaller.mockResolvedValue(allow());
     createBroadcast.mockResolvedValue({ broadcastId: "b1", total: 6, free: 0, paid: 6, estCostUsd: 0.3 });
-    await sendPost(req({ template_code: "t", audience_key: "all_members", window: "out_window" }));
-    expect(createBroadcast).toHaveBeenLastCalledWith(expect.objectContaining({ windowFilter: "out_window" }));
+    await sendPost(req({ template_code: "t", audience_key: "all_members", window: "out_window", window_hours: 14 }));
+    expect(createBroadcast).toHaveBeenLastCalledWith(expect.objectContaining({ windowFilter: "out_window", windowHours: 14 }));
 
     await sendPost(req({ template_code: "t", audience_key: "all_members" }));
-    expect(createBroadcast).toHaveBeenLastCalledWith(expect.objectContaining({ windowFilter: "all" }));
+    expect(createBroadcast).toHaveBeenLastCalledWith(expect.objectContaining({ windowFilter: "all", windowHours: undefined }));
   });
 });

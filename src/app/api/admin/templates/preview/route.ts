@@ -15,6 +15,7 @@ const schema = z.object({
   rules: z.any().optional(), // react-querybuilder tree for the "custom" audience
   csv: z.string().optional(), // raw CSV text for the "csv_upload" audience (audience-export format)
   window: z.enum(WINDOW_FILTERS).optional(), // restrict to free (in_window) / paid (out_window)
+  window_hours: z.number().positive().max(24).optional(), // override the free-window size (hours)
   include_recipients: z.boolean().optional(),
   limit: z.number().int().min(1).max(200).optional(),
   offset: z.number().int().min(0).optional(),
@@ -40,6 +41,7 @@ export async function POST(req: NextRequest) {
   }
 
   const window = parsed.data.window ?? "all";
+  const windowHours = parsed.data.window_hours;
   let preview: AudiencePreview;
   let csvStats: { parsed: number; skipped: number; duplicates: number; corrupted: number } | null = null;
   if (parsed.data.audience_key === "csv_upload") {
@@ -49,10 +51,10 @@ export async function POST(req: NextRequest) {
     // Fill missing Name/ITS/etc. from the roster by phone so personalization resolves even when the
     // uploaded row left them blank (e.g. a failures CSV); CSV-provided values still win.
     await enrichFieldsByPhone(csv.recipients);
-    preview = await previewExplicitRecipients(csv.recipients, window);
+    preview = await previewExplicitRecipients(csv.recipients, window, windowHours);
     csvStats = { parsed: csv.parsed, skipped: csv.skipped, duplicates: csv.duplicates, corrupted: csv.corrupted };
   } else {
-    preview = await previewAudience(parsed.data.audience_key, parsed.data.selected_user_ids ?? [], rules, window);
+    preview = await previewAudience(parsed.data.audience_key, parsed.data.selected_user_ids ?? [], rules, window, windowHours);
   }
 
   const body: Record<string, unknown> = {

@@ -23,6 +23,9 @@ export type CreateBroadcastInput = {
   // Restrict the audience to one side of the 24h window (free in-window vs paid out-of-window).
   // Defaults to "all".
   windowFilter?: WindowFilter;
+  // Override the free-window size (hours) used to classify recipients as in/out of window.
+  // Defaults to the env-configured WHATSAPP_WINDOW_HOURS.
+  windowHours?: number;
   variableBindings?: VariableBindings;
   triggeredByUserId?: string | null;
   // Explicit recipient list (e.g. the Niyaz RSVP send). When provided, audience resolution is
@@ -66,7 +69,7 @@ export async function createBroadcast(input: CreateBroadcastInput): Promise<Crea
   const windowFilter: WindowFilter = input.windowFilter ?? "all";
   let recipients: (Recipient & { inWindow: boolean })[];
   if (input.recipients) {
-    const inWindow = await getInWindowPhones();
+    const inWindow = await getInWindowPhones(input.windowHours);
     recipients = input.recipients.map((r) => ({ ...r, inWindow: inWindow.has(r.phone) }));
     // Apply the window filter to explicit lists too (audience-path recipients are already filtered
     // by previewAudience below). Niyaz callers omit windowFilter, so this is a no-op for them.
@@ -74,7 +77,7 @@ export async function createBroadcast(input: CreateBroadcastInput): Promise<Crea
     else if (windowFilter === "out_window") recipients = recipients.filter((r) => !r.inWindow);
   } else {
     if (!input.audienceKey) return { error: "No audience specified." };
-    const preview = await previewAudience(input.audienceKey, input.selectedUserIds ?? [], input.rules, windowFilter);
+    const preview = await previewAudience(input.audienceKey, input.selectedUserIds ?? [], input.rules, windowFilter, input.windowHours);
     recipients = preview.recipients;
   }
   if (recipients.length === 0) return { error: "No recipients in the selected audience." };

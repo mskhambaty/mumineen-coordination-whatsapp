@@ -17,7 +17,9 @@ vi.mock("@/lib/whatsapp/template-settings", () => ({
 }));
 vi.mock("@/lib/whatsapp/audience", () => ({
   segmentCounts: (...a: unknown[]) => segmentCounts(...a),
-  windowHours: () => 24,
+  // Mirror the real clamp: a valid 1–24 override wins, else the env default (24 in tests).
+  resolveWindowHours: (h?: number | null) =>
+    typeof h === "number" && Number.isFinite(h) && h > 0 ? Math.min(h, 24) : 24,
 }));
 
 import { PUT as settingsPut } from "@/app/api/admin/templates/settings/route";
@@ -79,5 +81,15 @@ describe("GET /api/admin/templates/segments", () => {
     expect(json.segments).toHaveLength(1);
     expect(json.segments[0]).toMatchObject({ key: "segment_all_users", total: 3 });
     expect(json.window_hours).toBe(24);
+  });
+
+  it("honors an ?hours override and passes it to segmentCounts", async () => {
+    requirePortalCaller.mockResolvedValue(allow());
+    segmentCounts.mockResolvedValue([]);
+    const res = await segmentsGet(new NextRequest("http://localhost/x?hours=12", { method: "GET" }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.window_hours).toBe(12);
+    expect(segmentCounts).toHaveBeenCalledWith(12);
   });
 });

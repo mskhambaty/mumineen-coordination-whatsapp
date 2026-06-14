@@ -64,16 +64,21 @@ const DEFAULT_WINDOW_HOURS = 24;
 // Hours of the WhatsApp customer-service window we treat as "free" (in-window). Meta's billing
 // window is 24h; set WHATSAPP_WINDOW_HOURS *below* 24 for a conservative safety margin — e.g. 14
 // means anyone who hasn't messaged us in 14h is counted as paid even though they may technically
-// still be free, avoiding edge cases where the window closes between preview and send. Defaults to
-// 24. Non-positive / unparseable values fall back to the default.
+// still be free, avoiding edge cases where the window closes between preview and send. This is the
+// default; the Send Templates console can override it per-action (see the `hours` params below).
+// Defaults to 24. Non-positive / unparseable values fall back to the default.
 export function windowHours(): number {
   const raw = optionalEnv("WHATSAPP_WINDOW_HOURS");
   const n = raw ? Number(raw) : NaN;
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_WINDOW_HOURS;
 }
 
-function windowMs(): number {
-  return windowHours() * 60 * 60 * 1000;
+// Clamp a UI-supplied window override to a sane range (Meta's billing window is 24h, so a value
+// above that would wrongly count paid recipients as free). Falls back to the env default when the
+// value is missing or unusable.
+export function resolveWindowHours(hours?: number | null): number {
+  if (typeof hours === "number" && Number.isFinite(hours) && hours > 0) return Math.min(hours, 24);
+  return windowHours();
 }
 
 // Columns selected for roster-based audiences so recipients can personalize variables.
@@ -399,10 +404,11 @@ export async function resolveAudience(
   );
 }
 
-// Set of phone numbers currently inside the free 24h customer-service window. Paginated so the count
-// stays correct as in-window traffic grows past 1000 during Ashara.
-export async function getInWindowPhones(): Promise<Set<string>> {
-  const cutoff = new Date(Date.now() - windowMs()).toISOString();
+// Set of phone numbers currently inside the free customer-service window. `hours` overrides the
+// window size (defaults to the env-configured value). Paginated so the count stays correct as
+// in-window traffic grows past 1000 during Ashara.
+export async function getInWindowPhones(hours?: number): Promise<Set<string>> {
+  const cutoff = new Date(Date.now() - resolveWindowHours(hours) * 60 * 60 * 1000).toISOString();
   const rows = await fetchAllRows<{ phone_e164: string }>(() =>
     getSupabaseAdmin().from("conversation_sessions").select("phone_e164").gte("last_message_at", cutoff).order("phone_e164", { ascending: true }) as unknown as Pageable<{ phone_e164: string }>,
   );
@@ -433,6 +439,7 @@ export async function previewAudience(
   selectedUserIds: string[] = [],
   rules?: RuleGroup,
   windowFilter: WindowFilter = "all",
+  hours?: number,
 ): Promise<AudiencePreview> {
   let recipients: Recipient[];
   let funnel: AudiencePreview["funnel"];
@@ -451,7 +458,7 @@ export async function previewAudience(
     recipients = await resolveAudience(key, selectedUserIds, rules);
   }
 
-  return { ...(await previewExplicitRecipients(recipients, windowFilter)), funnel };
+  return { ...(await previewExplicitRecipients(recipients, windowFilter, hours)), funnel };
 }
 
 // Split an already-resolved recipient list into free (in-window) vs paid with an estimated cost.
@@ -460,8 +467,9 @@ export async function previewAudience(
 export async function previewExplicitRecipients(
   recipients: Recipient[],
   windowFilter: WindowFilter = "all",
+  hours?: number,
 ): Promise<AudiencePreview> {
-  const inWindow = await getInWindowPhones();
+  const inWindow = await getInWindowPhones(hours);
   const tagged = recipients.map((r) => ({ ...r, inWindow: inWindow.has(r.phone) }));
   // Optionally keep only one side of the 24h window, then report counts on what remains — so the
   // total and cost reflect exactly the people who will be messaged.
@@ -493,8 +501,8 @@ export type SegmentCount = {
 // Sizes of the three Niyaz reach segments, each split into the free 24h-window vs the rest. Powers
 // the console's header so staff can see how many template sends a segment would actually require.
 // Resolves each segment list and the in-window phone set once.
-export async function segmentCounts(): Promise<SegmentCount[]> {
-  const inWindow = await getInWindowPhones();
+export async function segmentCounts(hours?: number): Promise<SegmentCount[]> {
+  const inWindow = await getInWindowPhones(hours);
   const out: SegmentCount[] = [];
   for (const key of SEGMENT_KEYS) {
     const recipients = await resolveAudience(key);

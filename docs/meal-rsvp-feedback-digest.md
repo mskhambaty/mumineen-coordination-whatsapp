@@ -196,12 +196,15 @@ free customer-service window and can be answered without a template (don't count
 everyone else needs a template. So both the header segments and the per-audience preview split
 recipients into *messaged ≤24h (free)* vs *needs a template (paid)*.
 
-The window size is configurable via **`WHATSAPP_WINDOW_HOURS`** (default 24) — `windowHours()` in
-`audience.ts`, used by `getInWindowPhones()`. Meta's billing window is 24h, so this is a
-conservative safety margin: set it below 24 (e.g. 14) to treat people who haven't messaged in that
-many hours as paid even if technically still free, avoiding edge cases where the window closes
-between preview and send. `GET /api/admin/templates/segments` returns `window_hours` so the console
-labels ("messaged ≤Nh", the filter dropdown) reflect the configured value.
+The window size defaults to **`WHATSAPP_WINDOW_HOURS`** (24) — `windowHours()` in `audience.ts` —
+but the console exposes a **Window (hours)** input so staff can override it per action (1–24,
+clamped by `resolveWindowHours()`). The chosen value flows through as `window_hours` on
+`POST /preview`, `/audience-export`, and `/send`, and as a `?hours=` query param on
+`GET /api/admin/templates/segments` (which re-counts the header and echoes back `window_hours`);
+`getInWindowPhones(hours)` applies it. Meta's billing window is 24h, so this is a conservative
+safety margin: lower it (e.g. 14) to treat people who haven't messaged in that many hours as paid
+even if technically still free, avoiding edge cases where the window closes between preview and
+send. The console labels ("Conversed ≤Nh", the helper text) reflect the active value.
 
 **Conversation-window filter.** Beyond just *showing* the split, a **Conversation window** dropdown
 next to the Audience picker restricts any audience to one side of the 24h window: `all` (default),

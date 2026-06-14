@@ -174,12 +174,15 @@ export default function SendTemplatesPage() {
     return false;
   }, []);
 
-  const loadSegments = useCallback(async () => {
-    const res = await apiFetch("/api/admin/templates/segments");
+  // Load the header reach-segment sizes. `hours` overrides the free-window size; when omitted we
+  // adopt the server's configured default (WHATSAPP_WINDOW_HOURS) as the editable starting value.
+  const loadSegments = useCallback(async (hours?: number) => {
+    const qs = typeof hours === "number" ? `?hours=${hours}` : "";
+    const res = await apiFetch(`/api/admin/templates/segments${qs}`);
     if (res.ok) {
       const data = await res.json();
       setSegments((data.segments as SegmentCount[]) ?? []);
-      if (typeof data.window_hours === "number") setWindowHours(data.window_hours);
+      if (hours === undefined && typeof data.window_hours === "number") setWindowHours(data.window_hours);
     }
   }, []);
 
@@ -297,7 +300,7 @@ export default function SendTemplatesPage() {
     try {
       const res = await apiFetch("/api/admin/templates/preview", {
         method: "POST",
-        body: JSON.stringify({ audience_key: audience, selected_user_ids: selectedUsers, rules: audience === "custom" ? query : undefined, csv: audience === "csv_upload" ? csvText : undefined, window: windowFilter, include_recipients: true, limit: 50 }),
+        body: JSON.stringify({ audience_key: audience, selected_user_ids: selectedUsers, rules: audience === "custom" ? query : undefined, csv: audience === "csv_upload" ? csvText : undefined, window: windowFilter, window_hours: windowHours, include_recipients: true, limit: 50 }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Preview failed");
@@ -323,7 +326,7 @@ export default function SendTemplatesPage() {
     try {
       const res = await apiFetch("/api/admin/templates/audience-export", {
         method: "POST",
-        body: JSON.stringify({ audience_key: audience, selected_user_ids: selectedUsers, rules: audience === "custom" ? query : undefined, csv: audience === "csv_upload" ? csvText : undefined, window: windowFilter }),
+        body: JSON.stringify({ audience_key: audience, selected_user_ids: selectedUsers, rules: audience === "custom" ? query : undefined, csv: audience === "csv_upload" ? csvText : undefined, window: windowFilter, window_hours: windowHours }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -366,6 +369,7 @@ export default function SendTemplatesPage() {
           rules: audience === "custom" ? query : undefined,
           csv: audience === "csv_upload" ? csvText : undefined,
           window: windowFilter,
+          window_hours: windowHours,
           variable_bindings: buildBindingsPayload(),
         }),
       });
@@ -499,17 +503,33 @@ export default function SendTemplatesPage() {
             </select>
           </label>
 
-          {/* Restrict the chosen audience to one side of the 24h customer-service window: people who
-              messaged us in the last 24h (free session reply) vs those who didn't (need a paid template). */}
-          <label className="block text-xs uppercase tracking-wide text-gray-400">
-            Conversation window
-            <select value={windowFilter} onChange={(e) => { setWindowFilter(e.target.value as typeof windowFilter); setPreview(null); }} className={`${input} mt-1 block w-full`}>
-              <option value="all">All recipients</option>
-              <option value="in_window">Conversed ≤{windowHours}h (free)</option>
-              <option value="out_window">Not conversed (paid)</option>
-            </select>
-            <span className="mt-1 block text-[11px] normal-case text-gray-400">Restricts the audience to people who did / didn’t message us in the last {windowHours}h.</span>
-          </label>
+          {/* Restrict the chosen audience to one side of the customer-service window: people who
+              messaged us within the window (free session reply) vs those who didn't (paid template).
+              The window size defaults to WHATSAPP_WINDOW_HOURS (24) but is editable here per send. */}
+          <div className="flex flex-wrap items-start gap-3">
+            <label className="block min-w-[12rem] flex-1 text-xs uppercase tracking-wide text-gray-400">
+              Conversation window
+              <select value={windowFilter} onChange={(e) => { setWindowFilter(e.target.value as typeof windowFilter); setPreview(null); }} className={`${input} mt-1 block w-full`}>
+                <option value="all">All recipients</option>
+                <option value="in_window">Conversed ≤{windowHours}h (free)</option>
+                <option value="out_window">Not conversed (paid)</option>
+              </select>
+            </label>
+            <label className="block w-28 text-xs uppercase tracking-wide text-gray-400">
+              Window (hours)
+              <input
+                type="number"
+                min={1}
+                max={24}
+                step={1}
+                value={windowHours}
+                onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n > 0) { setWindowHours(Math.min(Math.round(n), 24)); setPreview(null); } }}
+                onBlur={() => { void loadSegments(windowHours); }}
+                className={`${input} mt-1 block w-full`}
+              />
+            </label>
+          </div>
+          <span className="block text-[11px] text-gray-400">Restricts the audience to people who did / didn’t message us in the last {windowHours}h. Defaults to 24h (WhatsApp’s free window); lower it for a conservative margin. Updating it re-counts the header segments.</span>
 
           {audience === "selected_users" && (
             <div>
