@@ -36,6 +36,11 @@ API-scoped tickets, resolves explicit IDs/topic/filter selections in-process, th
 `PUT /api/tasks/[id]` for each bounded match. Every write therefore still passes through the task
 route's department-role authorization; partial failures are returned to the agent.
 
+Lost-and-found reports also use the bounded tool round. `report_lost_item` / `report_found_item`
+call `POST /api/lost-found`, which resolves the sender against registration data, stores a reporter
+snapshot, and returns help-desk guidance. Lost reports additionally call `POST /api/escalations`
+with category `lost_found` and department `Lost and Found`; found reports stop after recording.
+
 ## Knowledge base (RAG corpus)
 
 The agent's `get_site_content_faq` retrieves from `site_content`, which is now populated

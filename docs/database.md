@@ -55,6 +55,31 @@ Every inbound and outbound message.
 
 Indexes: `(phone_e164, created_at desc)`, `(direction, created_at desc)`
 
+### `lost_found_reports`
+
+Structured reports submitted through the agent's `report_lost_item` / `report_found_item` tools.
+Lost reports automatically enter the escalation pipeline; found reports are recorded for review.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `report_type` | text | `lost` \| `found` |
+| `status` | text | `open` \| `resolved` |
+| `item_name` | text | Required short item label |
+| `description`, `category`, `color`, `brand`, `location` | text | Identification and location details (nullable) |
+| `occurred_at` | timestamptz | When it was lost/found, if known |
+| `department_id` | uuid | FK → `departments.id`; tagged to Lost and Found |
+| `reporter_user_id` | uuid | FK → `whatsapp_users.id` (nullable) |
+| `reporter_mumin_id` | uuid | FK → `mumineen.id` (nullable) |
+| `reporter_name`, `reporter_phone_e164`, `reporter_its` | text | Reporter snapshot; phone required |
+| `source` | text | `whatsapp_agent` \| `manual` |
+| `escalation_status` | text | `not_required` \| `pending` \| `failed` |
+| `escalated_at` | timestamptz | Successful lost-report escalation time |
+| `created_at`, `updated_at` | timestamptz | Auto |
+
+RLS is enabled. Indexes: `(report_type, status, created_at desc)`, `(reporter_phone_e164)`,
+`(department_id)`.
+
 ### `conversation_sessions`
 
 One row per phone number; upserted on every message.

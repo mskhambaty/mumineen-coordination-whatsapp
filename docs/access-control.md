@@ -55,6 +55,7 @@ independent: a person's department role does not change their account role and v
 | **Mumineen → Accommodations** | ✅ | ✅ | ✅ | ✅ | Host/guest views + matching. |
 | **Mumineen → Parking Passes** | ✅ | 👁 | 👁 | 👁 | View open to all portal users. **Assign/revoke/edit lots/export** = parking-write tier (admin, IT, Transport). |
 | **Mumineen → Niyaz** | ✅ | ✅ | ✅ | ✅ | |
+| **Mumineen → Lost & Found** | ✅ | ✅ | ✅ | ✅ | Portal-member report list includes reporter contact details. |
 | **Messaging → Relay Updates** | ✅ | ❌ | ❌ | ❌ | Admin/leadership only (view + edit). |
 | **Messaging → WhatsApp Templates** | ✅ | ❌ | ❌ | ❌ | Admin/leadership only (view + edit). |
 | **AI Agent → Prompts** | ✅ | ❌ | ❌ | ✅ | manage tier (includes escalation/on-call). |

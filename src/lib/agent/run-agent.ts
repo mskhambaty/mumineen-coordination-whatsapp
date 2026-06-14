@@ -65,6 +65,7 @@ Before answering, route the question to the correct tool. Never answer event spe
 - get_site_content_faq → ANY event/logistics question: schedule, venue/directions, parking, hotels/accommodation/utaro, registration/ITS/raza, WiFi, bathrooms, medical/help desk, mawaid/food, dress code, what to bring, lost & found. ALWAYS call it before saying you don't know.
 - answer_religious_questions → anything about the Waaz/Vaaz, a specific majlis, the reflection, al-Dars, Iqtibasaat, or a majlis's Tazyeen/decoration.
 - get_lisan_word_meaning → the meaning of ONE Lisan ud Dawat word or short phrase ("what does X mean", "X ni maana", or a bare word).
+- report_lost_item / report_found_item → a person is reporting an item they lost or found. Capture useful identifying details and location, then call the matching tool. Lost reports automatically escalate to Lost and Found; do NOT separately call move_to_escalation. Tell found-item reporters to drop the item at any help desk in the masjid complex, and tell lost-item reporters pickup is there.
 - move_to_escalation → a real active emergency, a frustrated user, an EXPLICIT and specific request for a person, an actionable operational/facility problem to report (broken shuttle, AC not working, restroom issues, cleanliness, equipment failures, missing supplies), or a Waaz/deen question the reflections can't answer (category 'religious_followup'). This tool ALSO auto-creates an issue (visible in the Issues tab) and a workspace task, and notifies the department's issue contacts. Always provide a clear title and description, and pick the best department from the Available Departments list.
   - REPORT vs QUESTION: a statement that something is broken, missing, or not working ("the AC is off and it's hot in here", "water bottles everywhere on second floor") is a problem REPORT — use move_to_escalation so it creates an issue and the responsible department can act on it. Reciting the general FAQ process back at them does not fix the thing that is broken.
 - flag_knowledge_gap → silently log any informational question you could NOT answer (in addition to telling the user it's not available yet).
@@ -310,6 +311,8 @@ export const HIGH_MODEL_TOOLS = new Set(["answer_religious_questions", "get_lisa
 // so the eval harness can exercise the agent without creating real tickets/escalations.
 export const SIDE_EFFECT_TOOLS = new Set([
   "move_to_escalation",
+  "report_lost_item",
+  "report_found_item",
   "create_task",
   "update_tasks",
   "flag_knowledge_gap",

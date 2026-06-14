@@ -24,7 +24,52 @@ tags:
   - name: email
   - name: accommodations
   - name: triage
+  - name: lost-found
 paths:
+  /lost-found:
+    post:
+      tags: [lost-found]
+      summary: Record a lost or found item report
+      description: >-
+        WhatsApp-agent intake identified by x-whatsapp-from. Reporter identity is enriched from
+        registration data when available. Lost reports automatically enter the escalation
+        pipeline tagged to the Lost and Found department; found reports are recorded only.
+      security: [{ whatsappPhone: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [report_type, item_name]
+              additionalProperties: false
+              properties:
+                report_type: { type: string, enum: [lost, found] }
+                item_name: { type: string, minLength: 2, maxLength: 160 }
+                description: { type: [string, "null"], maxLength: 2000 }
+                category: { type: [string, "null"], maxLength: 120 }
+                color: { type: [string, "null"], maxLength: 120 }
+                brand: { type: [string, "null"], maxLength: 120 }
+                location: { type: [string, "null"], maxLength: 500 }
+                occurred_at: { type: [string, "null"], format: date-time }
+                reporter_name: { type: [string, "null"], maxLength: 200 }
+                reporter_its: { type: [string, "null"], maxLength: 40 }
+      responses:
+        "201": { description: Report recorded, with escalation status and help-desk guidance. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/lost-found:
+    get:
+      tags: [lost-found, admin]
+      summary: List all lost and found reports
+      description: >-
+        Any portal member. Returns item details, escalation state, and reporter name/phone/ITS.
+      security: [{ portalSession: [] }]
+      responses:
+        "200": { description: "{ reports: LostFoundReport[] }." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /admin/auth:
     post:
       tags: [auth]

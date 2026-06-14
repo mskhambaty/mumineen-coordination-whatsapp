@@ -58,6 +58,16 @@ const toolMetadata: Record<string, ToolMetadata> = {
     audience: "external",
     ...activeApiStatus,
   },
+  report_lost_item: {
+    internal_api: "POST /api/lost-found",
+    audience: "external",
+    ...activeApiStatus,
+  },
+  report_found_item: {
+    internal_api: "POST /api/lost-found",
+    audience: "external",
+    ...activeApiStatus,
+  },
   list_tasks: {
     internal_api: "GET /api/tasks",
     audience: "internal",

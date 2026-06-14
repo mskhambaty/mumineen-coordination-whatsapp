@@ -49,6 +49,7 @@ const dropdownGroups: DropdownGroup[] = [
       { href: "/admin/accommodations", label: "Accommodations", access: "portal" },
       { href: "/admin/parking", label: "Parking Passes", access: "portal" },
       { href: "/admin/niyaz", label: "Niyaz", access: "portal" },
+      { href: "/admin/lost-found", label: "Lost & Found", access: "portal" },
     ],
   },
   {

@@ -104,6 +104,8 @@ All tools are defined in `src/lib/agent/tools.ts`.
 | `answer_religious_questions` | Religious/sermon RAG — answers Vaaz Talaqi, Iqtibasaat, and Tazyeen/decoration questions from the **dedicated `religious_content` store** (`match_religious_content`). Kept fully separate from `get_site_content_faq` so religious and logistics retrieval never cross-contaminate. |
 | `get_lisan_word_meaning` | **Exact** Lisan ud Dawat word lookup over the `lisan_words` table (not vector search), with `pg_trgm` "did you mean" suggestions (`match_lisan_words`). Returns `ok` / `did_you_mean` / `not_found`. |
 | `move_to_escalation` | **Last resort** — hands the conversation to the human support team. Deterministic guardrails enforced server-side in `/api/escalations` (see [escalation.md](./escalation.md)). |
+| `report_lost_item` | Records a structured lost-item report, enriches reporter identity, and automatically escalates it to the Lost and Found department. |
+| `report_found_item` | Records a structured found-item report and directs the reporter to drop it at any help desk in the masjid complex. |
 | `create_issue` | Logs an external issue the visitor reports (`POST /api/issues` → `tasks` row with `item_type='issue'`, `origin='external'`). Shown on the Kanban with External/Internal badges. |
 
 ### Task Tools

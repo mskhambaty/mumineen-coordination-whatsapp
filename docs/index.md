@@ -33,6 +33,7 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 | [relay-updates.md](./relay-updates.md) | Public relay-page updates feed: endpoint, authoring UI, agent indexing |
 | [accommodations-matching.md](./plans/accommodations-matching.md) | Accommodations host-guest utaro matching module: import, rollups, matching |
 | [meal-rsvp-feedback-digest.md](./meal-rsvp-feedback-digest.md) | Jaman meal RSVP, feedback capture, nightly department digest, and the manual template send console |
+| [lost-found.md](./lost-found.md) | Lost/found reporting tools, auto-escalation, reporter identity, and portal page |
 | [webinars.md](./webinars.md) | Public `/webinars` page: ITS gate, video card grid, modal player, admin add/manage |
 | [openapi.yaml](./openapi.yaml) | API-first contract for all `src/app/api/**` routes |
 
@@ -46,6 +47,7 @@ src/app/api/auth/forgot-password/route.ts — Password reset email endpoint (any
 src/lib/admin/email.ts                   — Case-insensitive email normalization/matching for auth lookups
 src/lib/agent/run-agent.ts               — AI agent orchestration
 src/lib/mumineen/sender-profile.ts       — Phone→registration profile for Sender Context + inbox User Profile panel
+src/lib/lost-found/reporter.ts           — Phone→roster/user identity enrichment for lost-and-found reports
 src/lib/ai/model.ts                      — Central OpenAI model/client configuration
 src/lib/email/postmark.ts                — Postmark email service
 src/lib/issues/notify.ts                 — Department issue-contact email + WhatsApp template notifications
@@ -88,6 +90,8 @@ src/lib/env.ts                           — Env var lookup with alias support
 public/templates/mumineen-roster-template.xlsx — Downloadable Mumineen roster import template
 supabase/migrations/                     — All database migrations
 src/app/api/relay-updates/route.ts       — Public relay updates JSON feed
+src/app/api/lost-found/route.ts          — Agent intake for lost/found reports; lost reports auto-escalate
+src/app/api/admin/lost-found/route.ts    — Portal-member lost/found report list with reporter details
 src/lib/rsvp/meal-rsvp.ts                — Per-mumin Niyaz RSVP (niyaz_rsvp): grids, family/individual set-cascade, tallies (max/min), unregistered RSVP helpers, daily-button recording
 src/lib/rsvp/niyaz-prompt.ts             — Daily RSVP-template audiences (ITS/mumineen/HOF/adults) + button payloads + single-prompt creation for unregistered callers
 src/lib/feedback/record.ts               — Append-only feedback capture (area→department tagged)

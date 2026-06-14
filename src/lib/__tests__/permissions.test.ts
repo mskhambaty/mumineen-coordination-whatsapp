@@ -5,6 +5,8 @@ import { canUseTool } from "@/lib/permissions";
 describe("canUseTool", () => {
   it("allows public tools for visitors", () => {
     expect(canUseTool({ role: "visitor", status: "active" }, "get_site_content_faq")).toBe(true);
+    expect(canUseTool({ role: "visitor", status: "active" }, "report_lost_item")).toBe(true);
+    expect(canUseTool({ role: "visitor", status: "active" }, "report_found_item")).toBe(true);
   });
 
   it("blocks internal (task) tools for visitors", () => {
