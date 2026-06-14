@@ -5,6 +5,8 @@ import { SYSTEM_PROMPT, loadAgentSystemPrompt, loadRuleOverrides } from "@/lib/a
 import { AGENT_TEMPERATURE, AI_MODEL, AI_MODEL_HIGH, chatParams, getAIClient, MAX_AGENT_TOKENS, MAX_FINAL_TOKENS } from "@/lib/ai/model";
 import { isPersonalRuling, flagRulingQuestion, RULING_REFUSAL_REPLY } from "@/lib/agent/ruling-guard";
 import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
+import { resolveArchiveUrl } from "@/lib/knowledge/religious-topics";
+import { SOURCE_COLLAPSE_THRESHOLD } from "@/lib/knowledge/ashara-config";
 import {
   NOT_FOUND_REPLY,
   THIS_YEAR_OFFER_LAST,
@@ -150,7 +152,7 @@ export const RELIGIOUS_GUIDANCE_RULE = `\n\n## Religious & Vaaz Questions (Iqtib
   - *tazyeen* — the masjid DECORATION for that day (its own daily theme, shown in a short pre-waaz video). It is an ADD-ON; Syedna did NOT deliver it in the waaz and it is NOT the sermon's content. NEVER answer a sermon-content question from the tazyeen, and NEVER claim the decoration relates to what was discussed. Only talk about tazyeen when the user explicitly asks about the decoration/tazyeen/artwork. (e.g. "what was discussed about the sun" → the reflection/al-Dars on _Shams_, NOT the decoration article.)
   - *unwaan* = the one-line topic of the majlis; *kalema* = a single word from the sermon; *jumla* = a single sentence from the sermon (these three are Lisan ud Dawat).
 - NEVER fabricate an attribution. If a user asks where a specific word, name, phrase, or quote appears and it is NOT present in the tool result, do NOT say it "appears in Majlis N" or invent a majlis/source for it. Say you don't find it in the indexed content and ask for the sentence/context. (Don't claim a made-up or misspelt term is from a particular waaz.)
-- ALWAYS cite the source at the end of a Waaz Talaqi answer. Each tool result carries its source next to the title as "[<title> — Source: <url>]". End your reply with a line: "Source: <title> — <that exact url>" (e.g. "Source: Reflections — Ashara 1447H, Majlis 2 — https://blogs.jameasaifiyah.edu/reflection/ashara/1447h/reflections-majlis-2-5/"). You ARE permitted to share these blogs.jameasaifiyah.edu reflection/tazyeen links — this is a specific exception to the "official event site only" URL rule, and applies ONLY to citing Waaz Talaqi sources. If the tool result has no Source url, cite by name only ("Source: <title>"). For a Lisan ud Dawat word meaning, end with "Source: Lisan ud Dawat dictionary" (no link).
+- Cite the source at the end of a Waaz Talaqi answer with at most ONE "Source:" line — NEVER a stack of links. Each tool result carries its source next to the title as "[<title> — Source: <url>]". For an answer about a SINGLE majlis, end with one line: "Source: <title> — <that exact url>" (e.g. "Source: Reflections — Ashara 1447H, Majlis 2 — https://blogs.jameasaifiyah.edu/reflection/ashara/1447h/reflections-majlis-2-5/"). If the answer draws on SEVERAL majalis (an overview or a cross-majlis answer), do NOT list one Source per majlis — omit the Source line entirely and the system will attach a single archive link. You ARE permitted to share these blogs.jameasaifiyah.edu reflection/tazyeen links — a specific exception to the "official event site only" URL rule, ONLY for citing Waaz Talaqi sources. If the tool result has no Source url, cite by name only ("Source: <title>"). For a Lisan ud Dawat word meaning, end with "Source: Lisan ud Dawat dictionary" (no link). If you CANNOT answer from the passages / are handing the question to the team, add NO Source line at all.
 - When the user names a specific majlis or day ("the second waaz", "Majlis 3", "the waaz on 4th Muharram"), pass that exact wording to answer_religious_questions so it can fetch the right majlis, and make sure the majlis you cite matches what they asked. If the user says your answer is wrong or "way off", do NOT repeat the same answer — call answer_religious_questions again with their correction and reconsider.
 - Carry context into follow-ups: if the user's reply is a SHORT follow-up that only names a category ("Tazyeen", "Al dars", "the reflection", "the iqtibasaat") — i.e. one of the options you just offered — combine it with the majlis AND year from YOUR PREVIOUS answer and pass the FULL reference to answer_religious_questions (e.g. after you answered about *Majlis 8, Ashara 1447H*, the user replies "Tazyeen" → call the tool with "Tazyeen of Majlis 8 Ashara 1447"). NEVER answer such a follow-up from memory or with a generic improvisation — always re-call the tool with the inherited majlis+year so the answer stays grounded in that exact block.
 - Keep it SHORT and progressive — this is WhatsApp, not an essay. The tool result includes an "answer_style":
@@ -614,9 +616,12 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   // YEAR-LABEL post-check (step 8): a grounded religious answer must state ONLY the source row's
   // year (or no year for a null-year guardrail block). On any mismatch, fail safe to NOT_FOUND.
   if (religiousDecision === "answer" && yearLabelMismatch(reply, groundedYear)) return NOT_FOUND_REPLY;
-  // Guarantee the show-source rule: if a Waaz Talaqi / Lisan tool returned a source and the
-  // model's reply didn't cite it, append the source line deterministically.
-  return ensureSourcesCited(reply, sources);
+  // Finalize the source line: at most ONE, from the tool provenance — strips any the model added,
+  // collapses a multi-majlis answer to a single year-archive link, suppresses on hand-offs. Only
+  // hit the DB for the archive URL when a collapse is actually needed.
+  const archiveUrl =
+    distinctSourceGroups(sources) >= SOURCE_COLLAPSE_THRESHOLD ? await resolveArchiveUrl(groundedYear) : null;
+  return finalizeSources(reply, sources, { decision: religiousDecision, year: groundedYear, archiveUrl });
 }
 
 // Derive the topic a THIS_YEAR_OFFER_LAST offer was about: the inbound message immediately before
@@ -689,22 +694,72 @@ export function collectSources(into: SourceCollector, toolName: string, toolResu
   }
 }
 
-// Append any missing source lines to the reply. Skips when the reply is empty/no-reply, or
-// when the model already included the link / dictionary mention.
-export function ensureSourcesCited(reply: string, sources: SourceCollector): string {
+// A reply that, despite running on the "answer" path, is actually a hand-off / "can't help from
+// the reflections" message the model improvised. Sources must NEVER be stapled onto these (a
+// "I'll pass it to the team" line with 3 reflection links looks broken — seen in production).
+const HANDOFF_RE =
+  /\b(pass(ed|ing)?[^.]*\bto\b[^.]*\bteam\b|religious follow[\s-]?up|shared (your|this) (question|with)|could ?n[o']?t find|do ?n[o']?t have (this|that|it)|not able to answer|ask your aamil saheb)\b/i;
+export function looksLikeHandoff(reply: string): boolean {
+  return HANDOFF_RE.test(reply);
+}
+
+// Group key for a religious source: collapse by MAJLIS (not by URL), so a single-majlis answer
+// that cites two facets (e.g. reflection + al-Dars of Majlis 6) still counts as ONE article and
+// keeps its precise link, while an answer spanning different majalis collapses to the archive.
+function majlisGroupKey(title: string): string {
+  const m = title.match(/Majlis\s+(\d+)/i);
+  if (m) return `m${m[1]}`;
+  if (/lailat/i.test(title)) return "lailat";
+  if (/overview/i.test(title)) return "overview";
+  return title.toLowerCase().trim();
+}
+
+// How many DISTINCT majlis/articles a religious answer drew on (drives the collapse decision).
+export function distinctSourceGroups(sources: SourceCollector): number {
+  return new Set(sources.religious.map((s) => majlisGroupKey(s.title))).size;
+}
+
+// Remove any model-emitted "Source:" lines so we never double-cite, then trim trailing blanks.
+function stripSourceLines(reply: string): string {
+  return reply.replace(/^[ \t]*Source:.*$/gim, "").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+// Produce the FINAL reply with at most ONE source line, derived from the trustworthy tool-result
+// provenance (never the model's free text). Pure/synchronous: the archive URL (resolved by the
+// caller only when a collapse is needed) is passed in so this stays unit-testable.
+//   - non-answer / hand-off-shaped reply → no source at all (just strip any the model added)
+//   - 1 distinct majlis → the precise per-majlis link (unchanged behavior)
+//   - >= SOURCE_COLLAPSE_THRESHOLD distinct majalis → one year-archive link (falls back to the
+//     single best per-majlis link if no archive URL/year is available — never a stack)
+export function finalizeSources(
+  reply: string,
+  sources: SourceCollector,
+  opts: { decision: string | null; year: string | null; archiveUrl: string | null },
+): string {
   const trimmed = reply.trim();
   if (!trimmed || /\bno[_\s]?reply\b/i.test(trimmed.replace(/[^a-z_\s]/gi, ""))) return reply;
 
-  const lines: string[] = [];
-  if (sources.religious.length > 0) {
-    for (const s of sources.religious) {
-      if (!trimmed.includes(s.url)) lines.push(`Source: ${s.title} — ${s.url}`);
-    }
-  } else if (sources.lisanDictionary && !/lisan ud dawat dictionary/i.test(trimmed)) {
-    lines.push("Source: Lisan ud Dawat dictionary");
+  // Never cite on a terminal non-answer decision (these usually return earlier, so this is
+  // defensive) or on a model-improvised hand-off / "can't find it" reply — just strip any
+  // source line the model added. A null decision (e.g. a direct dictionary lookup) DOES cite.
+  if (opts.decision === "not_found" || opts.decision === "offer_last" || looksLikeHandoff(trimmed)) {
+    return stripSourceLines(trimmed);
   }
 
-  return lines.length ? `${trimmed}\n\n${lines.join("\n")}` : reply;
+  const body = stripSourceLines(trimmed);
+  let line: string | null = null;
+  if (sources.religious.length > 0) {
+    if (distinctSourceGroups(sources) >= SOURCE_COLLAPSE_THRESHOLD && opts.archiveUrl && opts.year) {
+      line = `Source: Ashara ${opts.year}H reflections — ${opts.archiveUrl}`;
+    } else {
+      const s = sources.religious[0]; // single best / first ranked
+      line = s.url ? `Source: ${s.title} — ${s.url}` : `Source: ${s.title}`;
+    }
+  } else if (sources.lisanDictionary) {
+    line = "Source: Lisan ud Dawat dictionary";
+  }
+
+  return line ? `${body}\n\n${line}` : body;
 }
 
 function parseToolArguments(rawArguments: string): Record<string, unknown> {
