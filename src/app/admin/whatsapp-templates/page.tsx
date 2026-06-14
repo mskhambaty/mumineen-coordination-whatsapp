@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { QueryBuilder, formatQuery, type Field, type RuleGroupType } from "react-querybuilder";
 import "react-querybuilder/dist/query-builder.css";
 
+import { RecentSetValueEditor } from "@/components/admin/RecentSetValueEditor";
 import { apiFetch } from "@/lib/admin/client";
 
 type TemplateDescriptor = {
@@ -26,6 +27,18 @@ type Preview = { total: number; in_window: number; out_window: number; est_cost_
 type CatalogField = { key: string; label: string; group: string; type: string; operators: string[]; values: string[] };
 type MappableField = { key: string; label: string };
 type Binding = { kind: "static"; value: string } | { kind: "field"; field: string };
+// rqb Field plus our marker for `set` fields, read by RecentSetValueEditor (avoids an `as Field` cast).
+type RqbField = Field & { setField?: boolean };
+type SavedBindings = { body?: Record<string, Binding>; header?: Binding; urlButton?: Binding; headerMediaUrl?: string };
+type BroadcastAudit = {
+  audience_key: string;
+  audience_rules: RuleGroupType | null;
+  variable_bindings: SavedBindings | null;
+  window_filter: string | null;
+  window_hours: number | null;
+  selected_user_ids: string[] | null;
+};
+type FullRecipient = { phone: string; name: string | null; its: string | null; status: string; was_in_window: boolean | null; sent_at: string | null; detail: string | null };
 type Broadcast = {
   id: string;
   template_code: string;
@@ -89,9 +102,11 @@ export default function SendTemplatesPage() {
   const [busy, setBusy] = useState(false);
   const [draining, setDraining] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [detail, setDetail] = useState<{ status_counts: Record<string, number>; failure_reasons: Record<string, number> } | null>(null);
+  const [detail, setDetail] = useState<{ broadcast: BroadcastAudit; status_counts: Record<string, number>; failure_reasons: Record<string, number> } | null>(null);
   const [failures, setFailures] = useState<{ phone: string; name: string | null; its: string | null; was_in_window: boolean | null; reason: string }[] | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [recipients, setRecipients] = useState<FullRecipient[] | null>(null);
+  const [recipientsLoading, setRecipientsLoading] = useState(false);
 
   // Custom audience + variable bindings
   const [query, setQuery] = useState<RuleGroupType>({ combinator: "and", rules: [] });
@@ -141,17 +156,31 @@ export default function SendTemplatesPage() {
       setExpanded(null);
       setDetail(null);
       setFailures(null);
+      setRecipients(null);
       return;
     }
     setExpanded(b.id);
     setDetail(null);
     setFailures(null);
+    setRecipients(null);
     setDetailLoading(true);
     try {
       const res = await apiFetch(`/api/admin/templates/broadcasts/${b.id}`);
       if (res.ok) {
         const data = await res.json();
-        setDetail({ status_counts: data.status_counts ?? {}, failure_reasons: data.failure_reasons ?? {} });
+        const bc = (data.broadcast ?? {}) as Partial<BroadcastAudit>;
+        setDetail({
+          broadcast: {
+            audience_key: bc.audience_key ?? b.audience_key,
+            audience_rules: bc.audience_rules ?? null,
+            variable_bindings: bc.variable_bindings ?? null,
+            window_filter: bc.window_filter ?? null,
+            window_hours: bc.window_hours ?? null,
+            selected_user_ids: bc.selected_user_ids ?? null,
+          },
+          status_counts: data.status_counts ?? {},
+          failure_reasons: data.failure_reasons ?? {},
+        });
       }
       if (b.count_failed > 0) {
         const fr = await apiFetch(`/api/admin/templates/broadcasts/${b.id}/failures`);
@@ -161,6 +190,19 @@ export default function SendTemplatesPage() {
       setDetailLoading(false);
     }
   }
+
+  // Lazy-load the full recipient list (all statuses) for a broadcast — PII, so fetched only on demand.
+  async function loadRecipients(id: string) {
+    setRecipientsLoading(true);
+    try {
+      const r = await apiFetch(`/api/admin/templates/broadcasts/${id}/recipients`);
+      if (r.ok) setRecipients(((await r.json()).recipients as FullRecipient[]) ?? []);
+    } finally {
+      setRecipientsLoading(false);
+    }
+  }
+
+  const WINDOW_LABELS: Record<string, string> = { all: "All recipients", in_window: "Conversed (free)", out_window: "Not conversed (paid)" };
 
   const loadTemplates = useCallback(async () => {
     const res = await apiFetch("/api/admin/templates");
@@ -206,12 +248,14 @@ export default function SendTemplatesPage() {
   const selectedSingleTpl = templates.find((t) => t.name === singleTpl) ?? null;
   const dynamicUrlBtn = selectedTpl?.urlButtons.find((b) => b.hasVar) ?? null;
 
-  const rqbFields: Field[] = useMemo(
+  const rqbFields: RqbField[] = useMemo(
     () =>
-      catalog.map((f) => {
+      catalog.map((f): RqbField => {
         const base = { name: f.key, label: `${f.group}: ${f.label}`, operators: f.operators.map((o) => ({ name: o, label: OP_LABELS[o] ?? o })) };
         if (f.type === "bool") return { ...base, valueEditorType: "select" as const, values: [{ name: "true", label: "Yes" }, { name: "false", label: "No" }], defaultValue: "true" };
         if (f.type === "enum") return { ...base, valueEditorType: "multiselect" as const, values: f.values.map((v) => ({ name: v, label: v })) };
+        // set: a recency-windowed multiselect rendered by RecentSetValueEditor (keyed off `setField`).
+        if (f.type === "set") return { ...base, setField: true, values: f.values.map((v) => ({ name: v, label: v })) };
         if (f.type === "number") return { ...base, inputType: "number" };
         if (f.type === "date") return { ...base, inputType: "date" };
         return base;
@@ -235,6 +279,19 @@ export default function SendTemplatesPage() {
       return "";
     }
   }, [query, rqbFields]);
+
+  // Plain-language description of the expanded broadcast's saved rule tree (set-field compound values
+  // render approximately — fine for a history summary). Memoized like filterSummary so the
+  // formatQuery(... rqbFields) call stays inside a memo, keeping rqbFields's memoization preservable.
+  const auditRulesText = useMemo(() => {
+    const rules = detail?.broadcast.audience_rules;
+    if (!rules) return "";
+    try {
+      return formatQuery(rules, { format: "natural_language", fields: rqbFields }) || "";
+    } catch {
+      return "(could not render rules)";
+    }
+  }, [detail, rqbFields]);
 
   function selectBroadcastTemplate(name: string) {
     setTpl(name);
@@ -581,7 +638,7 @@ export default function SendTemplatesPage() {
               <div className="mb-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300">
                 This audience is everyone matching the filter <b>who has a valid WhatsApp number</b>, <b>deduplicated by number</b> (one message per number — relatives sharing a number are messaged once). So it can be lower than the people counts on the registration analytics page.
               </div>
-              <QueryBuilder fields={rqbFields} query={query} onQueryChange={setQuery} listsAsArrays />
+              <QueryBuilder fields={rqbFields} query={query} onQueryChange={setQuery} controlElements={{ valueEditor: RecentSetValueEditor }} listsAsArrays />
               <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">
                 <span className="text-gray-400">Filter:</span> {filterSummary}
               </div>
@@ -766,6 +823,27 @@ export default function SendTemplatesPage() {
                           {detailLoading && <p className="text-xs text-gray-500">Loading…</p>}
                           {!detailLoading && detail && (
                             <div className="space-y-2 text-xs">
+                              {/* How this audience was defined: preset/custom, the conversation-window
+                                  toggle + hours, the saved rule tree, and the variable bindings. */}
+                              <div className="rounded border border-gray-200 p-2 dark:border-gray-700">
+                                <div className="font-semibold text-gray-600 dark:text-gray-300">Audience &amp; filters</div>
+                                <div className="mt-1 space-y-0.5 text-gray-600 dark:text-gray-400">
+                                  <div>Audience: <span className="text-gray-800 dark:text-gray-200">{AUDIENCES.find((a) => a.key === detail.broadcast.audience_key)?.label ?? detail.broadcast.audience_key}</span>
+                                    {detail.broadcast.selected_user_ids?.length ? ` (${detail.broadcast.selected_user_ids.length} user${detail.broadcast.selected_user_ids.length === 1 ? "" : "s"})` : ""}
+                                  </div>
+                                  <div>Window: <span className="text-gray-800 dark:text-gray-200">{detail.broadcast.window_filter ? (WINDOW_LABELS[detail.broadcast.window_filter] ?? detail.broadcast.window_filter) : "not recorded"}</span>
+                                    {detail.broadcast.window_hours ? ` · ${detail.broadcast.window_hours}h` : detail.broadcast.window_filter ? " · default hours" : ""}
+                                  </div>
+                                  {detail.broadcast.audience_rules && (
+                                    <div>Filter: <span className="text-gray-800 dark:text-gray-200">{auditRulesText}</span></div>
+                                  )}
+                                  {detail.broadcast.variable_bindings?.body && Object.keys(detail.broadcast.variable_bindings.body).length > 0 && (
+                                    <div>Variables: <span className="text-gray-800 dark:text-gray-200">
+                                      {Object.entries(detail.broadcast.variable_bindings.body).map(([tok, b]) => `${tok}=${b.kind === "static" ? `"${b.value}"` : `[${b.field}]`}`).join(", ")}
+                                    </span></div>
+                                  )}
+                                </div>
+                              </div>
                               <div className="flex flex-wrap gap-x-4 gap-y-1">
                                 {Object.entries(detail.status_counts).map(([k, v]) => (
                                   <span key={k}><span className="font-semibold">{v}</span> {k}</span>
@@ -814,6 +892,52 @@ export default function SendTemplatesPage() {
                                   </table>
                                 </div>
                               )}
+
+                              {/* Full audience this broadcast sent to (every status) — loaded on demand (PII). */}
+                              <div className="mt-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-semibold text-gray-600 dark:text-gray-300">Recipients (full audience)</span>
+                                  <div className="flex items-center gap-3">
+                                    {recipients === null && (
+                                      <button type="button" onClick={(e) => { e.stopPropagation(); void loadRecipients(b.id); }} disabled={recipientsLoading} className="text-blue-600 disabled:opacity-50">
+                                        {recipientsLoading ? "Loading…" : "Show full audience"}
+                                      </button>
+                                    )}
+                                    <a href={`/api/admin/templates/broadcasts/${b.id}/recipients?format=csv`} className="text-blue-600" onClick={(e) => e.stopPropagation()}>
+                                      Download full audience (CSV)
+                                    </a>
+                                  </div>
+                                </div>
+                                {recipients && (
+                                  <div className="mt-1 max-h-64 overflow-auto rounded border border-gray-200 dark:border-gray-700">
+                                    <table className="w-full text-left text-xs">
+                                      <thead className="sticky top-0 bg-gray-100 text-gray-500 dark:bg-gray-800">
+                                        <tr>
+                                          <th className="px-2 py-1">Name</th>
+                                          <th className="px-2 py-1">ITS</th>
+                                          <th className="px-2 py-1">WhatsApp</th>
+                                          <th className="px-2 py-1">Status</th>
+                                          <th className="px-2 py-1">Window</th>
+                                          <th className="px-2 py-1">Detail</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {recipients.map((r, i) => (
+                                          <tr key={`${r.phone}-${i}`} className="border-t border-gray-100 dark:border-gray-800">
+                                            <td className="px-2 py-1">{r.name ?? "—"}</td>
+                                            <td className="px-2 py-1 font-mono">{r.its ?? "—"}</td>
+                                            <td className="px-2 py-1 font-mono">{r.phone}</td>
+                                            <td className="px-2 py-1">{r.status}</td>
+                                            <td className="px-2 py-1">{r.was_in_window ? "free" : "paid"}</td>
+                                            <td className="px-2 py-1">{r.detail ?? "—"}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                    <p className="px-2 py-1 text-[11px] text-gray-400">{recipients.length} recipient{recipients.length === 1 ? "" : "s"}.</p>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           )}
                         </td>

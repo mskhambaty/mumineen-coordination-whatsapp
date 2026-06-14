@@ -264,7 +264,20 @@ and Single-recipient dropdowns** (the popup still lists them so they can be reac
   (paid) using `conversation_sessions.last_message_at`; cost via `WHATSAPP_UTILITY_MSG_COST_USD`.
   The `custom` filter fields (`FIELD_CATALOG` in `audience-filter.ts`) include person/family columns
   such as Jamaat, City, Gender, Age, Is-head-of-family, ITS, and **HOF ITS** (`hof_its` — target a
-  whole family by its head's ITS, e.g. `HOF ITS = 12345678`).
+  whole family by its head's ITS, e.g. `HOF ITS = 12345678`), plus three **behavioral** groups
+  attached per-phone in `loadRoster()` from aggregate views (keyed by `whatsapp_e164`):
+  - **Engagement** (from `phone_message_stats`): `hours_since_last_inbound` (≤ N — conversed recently),
+    `has_messaged_us` (= No — cold contacts), `no_reply_from_them` (we sent ≥1, zero inbound), and
+    `inbound_message_count` (≥ N). A never-messaged row uses a large `hours_since` sentinel so both
+    `≤ N` (excludes) and `> N` (includes) read correctly.
+  - **AI tool usage** (from `phone_tool_usage` over `tool_audit_logs`) and **Template history** (from
+    `phone_template_sends`, parsing the `[template:NAME]` outbound marker) are `set` fields: a recency
+    -windowed multiselect with the value `{ items, withinHours }`. `in` = did any of the selected
+    within the last N hours; `notIn` = did none within N hours (covers never-done **and**
+    done-before-the-window). Blank hours = ever/never. Tool options are the curated mumineen-facing
+    tools (`FILTERABLE_AGENT_TOOLS` in `src/lib/agent/tool-names.ts`); template options are codes that
+    have actually been sent. Rendered by the custom `RecentSetValueEditor` (multiselect + "within last
+    N hours") wired into the QueryBuilder via `controlElements.valueEditor`.
 - `csv_upload` (`src/lib/whatsapp/audience-csv.ts`): audience taken from an uploaded CSV in the **same
   format as the app's CSV downloads** (the audience export, or a broadcast's failures export). Columns
   matched by header (case-insensitive, order-free); a `WhatsApp` column is required; the roster columns
@@ -305,11 +318,21 @@ and Single-recipient dropdowns** (the popup still lists them so they can be reac
   24h-window label is only a fallback for failures Meta reports with no error detail (`categorizeFailure`).
   The per-recipient Name/ITS are resolved via the shared `resolveRosterByPhone` (direct + the
   `mumin_phone_links` fallback), so they populate for any failed number that maps to a roster member.
+- Audience transparency: the expanded Broadcast-log row also shows an **Audience & filters** block —
+  the audience label, the conversation-window toggle + hours, the saved rule tree rendered in plain
+  language (`formatQuery` natural-language; `set`-field compound values render approximately), and the
+  variable bindings. The toggles are persisted on `template_broadcasts` (`window_filter`,
+  `window_hours`, `selected_user_ids`; `audience_rules`/`variable_bindings` were already stored) by
+  `createBroadcast()`; older broadcasts predating the columns read as "not recorded". The **full
+  recipient list** (every status, not just failures) is available — loaded on demand (PII) and as a
+  CSV — from `GET .../broadcasts/[id]/recipients` (admin/leadership only), reusing the failures route's
+  roster resolution.
 - API: `GET /api/admin/templates` (catalog + friendly-name/active annotations),
   `PUT /api/admin/templates/settings` (friendly name / active flag),
   `GET /api/admin/templates/segments` (reach-segment sizes),
   `POST /api/admin/templates/preview`, `POST .../send`,
-  `POST .../drain`, `GET .../broadcasts(/[id])`, `GET .../broadcasts/[id]/failures`.
+  `POST .../drain`, `GET .../broadcasts(/[id])`, `GET .../broadcasts/[id]/failures`,
+  `GET .../broadcasts/[id]/recipients` (full audience, JSON/CSV).
 
 The console handles **no-variable** templates to audiences; the older single-recipient composer
 (`/admin/whatsapp`, free-text + variable templates) remains for those cases. Full consolidation is

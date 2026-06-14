@@ -107,6 +107,11 @@ export async function createBroadcast(input: CreateBroadcastInput): Promise<Crea
       audience_key: input.audienceKey ?? "niyaz_rsvp",
       audience_rules: input.rules ?? null,
       variable_bindings: input.variableBindings ?? null,
+      // Record the audience toggles so the send log can show how the audience was scoped. null
+      // window_hours means "used the configured default"; null selected_user_ids means "n/a".
+      window_filter: windowFilter,
+      window_hours: input.windowHours ?? null,
+      selected_user_ids: input.selectedUserIds?.length ? input.selectedUserIds : null,
       triggered_by_user_id: input.triggeredByUserId ?? null,
       status: "running",
       total_recipients: recipients.length,

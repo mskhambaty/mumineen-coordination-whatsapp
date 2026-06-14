@@ -37,6 +37,12 @@ function row(overrides: Partial<RosterRow>): RosterRow {
     acc_type: null,
     open_to_utaro: null,
     transport_mode: null,
+    inbound_count: 0,
+    outbound_count: 0,
+    last_inbound_at: null,
+    last_outbound_at: null,
+    tool_last_used: {},
+    template_last_sent: {},
     ...overrides,
   };
 }
