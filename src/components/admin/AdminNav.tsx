@@ -95,7 +95,7 @@ const standaloneLinks: NavLink[] = [
 
 const trailingLinks: NavLink[] = [
   // Top-level (not a dropdown) so a dedicated monitor lands on it directly. Admins + monitors only.
-  { href: "/admin/religious", label: "Religious", access: "religious" },
+  { href: "/admin/religious", label: "Waaz Talaqqi", access: "religious" },
   { href: "/admin/profile", label: "Profile", access: "any" },
 ];
 

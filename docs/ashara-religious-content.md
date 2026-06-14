@@ -84,6 +84,17 @@ word via `addLisanWord` calls `markWordRequestAdded`, which flips the matching o
 so it leaves the queue automatically. If `LISAN_ALERT_EMAIL` is unset the word is still queued, just
 no email. Never throws into the agent.
 
+**Waaz Talaqqi hub (`/admin/religious`, nav label "Waaz Talaqqi").** A single **tabbed** page
+(`src/app/admin/religious/page.tsx` shell + `src/components/admin/religious/*` tabs) — a KPI band over
+underline tabs, **access-gated per tab**: **Overview · Chats · Flags** for monitors; **Dictionary**
+(+ Content, see below) for managers/admins; **Team** for admins. A date-range selector drives the
+metrics. The **Chats** tab is an inbox with the same **AI ⇄ Manual** switch as the general Inbox —
+`PUT /api/admin/religious/mode` (monitor-gated; the Inbox's own mode route is `canAccessInbox`). The
+reply box is enabled only in **Manual + inside the 24h window**; flipping to Manual takes the member
+off the AI for everything (same shared `handling_mode` as the Inbox). *(Dictionary + Content
+consolidation — the Lisan dictionary and the Ashara majlis grid moving onto this page — follows in a
+second change.)*
+
 **Religious dashboard + monitors (`/admin/religious`).** A dedicated team can oversee religious
 chats on their own page, fully separate from the logistics/event admin. A **religious monitor** is a
 membership flag (`religious_monitors` table → `is_religious_monitor`, mirroring

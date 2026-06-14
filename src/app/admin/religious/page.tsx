@@ -1,84 +1,49 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { canMonitorReligiousChats, isAdminOrLeadership } from "@/lib/admin/access";
+import { canManageKnowledge, canMonitorReligiousChats, isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
+import ChatsTab from "@/components/admin/religious/ChatsTab";
+import DictionaryTab from "@/components/admin/religious/DictionaryTab";
+import FlagsTab from "@/components/admin/religious/FlagsTab";
+import OverviewTab from "@/components/admin/religious/OverviewTab";
+import TeamTab from "@/components/admin/religious/TeamTab";
+import {
+  Conversation,
+  DirectoryUser,
+  KpiCard,
+  Metrics,
+  Monitor,
+  RulingFlag,
+  TabKey,
+  Tabs,
+  WordRequest,
+} from "@/components/admin/religious/ui";
 
-// ─── Types (mirror the /api/admin/religious/* responses) ──────────────────────────────────────
-type Metrics = {
-  summary: {
-    total_calls: number;
-    unique_members: number;
-    waaz_questions: number;
-    lisan_lookups: number;
-    lisan_by_status: Record<string, number>;
-    open_word_requests: number;
-    unreviewed_ruling_flags: number;
-  };
-  top_words: { word: string; count: number }[];
+// Tiny inline icons (no icon lib in this repo).
+const I = {
+  calls: <svg viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor"><path d="M2 4a2 2 0 012-2h2.6a1 1 0 01.95.68l1 3a1 1 0 01-.27 1.05l-1.2 1.2a12 12 0 005.06 5.06l1.2-1.2a1 1 0 011.05-.27l3 1a1 1 0 01.68.95V16a2 2 0 01-2 2h-1C7.6 18 2 12.4 2 5V4z"/></svg>,
+  member: <svg viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor"><path d="M10 10a3 3 0 100-6 3 3 0 000 6zm-6 7a6 6 0 1112 0H4z"/></svg>,
+  book: <svg viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor"><path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h5V3H4zm7 0v14h5a2 2 0 002-2V5a2 2 0 00-2-2h-5z"/></svg>,
+  word: <svg viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor"><path d="M3 4h14v2H3V4zm0 5h14v2H3V9zm0 5h9v2H3v-2z"/></svg>,
+  warn: <svg viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor"><path d="M8.3 3.3a2 2 0 013.4 0l6 10A2 2 0 0116 16H4a2 2 0 01-1.7-2.7l6-10zM9 8v3h2V8H9zm0 4v2h2v-2H9z"/></svg>,
+  flag: <svg viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor"><path d="M4 2a1 1 0 011 1v1h9l-2 3 2 3H5v7H3V3a1 1 0 011-1z"/></svg>,
 };
-type WordRequest = {
-  id: string;
-  word: string;
-  times_seen: number;
-  last_phone_e164: string | null;
-  last_seen_at: string;
-};
-type ChatMsg = { direction: string; body: string; created_at: string };
-type Conversation = {
-  phone: string;
-  phone_last4: string;
-  name: string | null;
-  last_at: string | null;
-  in_window: boolean;
-  messages: ChatMsg[];
-};
-type RulingFlag = { phone_last4: string; message: string; detected_by: string; reviewed: boolean; created_at: string };
-type Monitor = { id: string; user: { id: string; display_name: string | null; phone_e164: string | null } | null };
-type DirectoryUser = { id: string; display_name: string | null; phone_e164: string | null };
 
-function fmt(ts: string | null): string {
-  if (!ts) return "";
-  try {
-    return new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return ts;
-  }
+function daysAgoIso(days: number): string {
+  return new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10);
 }
 
-function StatCard({ label, value, tone }: { label: string; value: number; tone?: "amber" | "red" }) {
-  const toneClass =
-    tone === "red"
-      ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
-      : tone === "amber"
-        ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
-        : "border-gray-200 bg-white text-gray-700 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200";
-  return (
-    <div className={`rounded-lg border px-4 py-3 ${toneClass}`}>
-      <div className="text-2xl font-semibold">{value.toLocaleString()}</div>
-      <div className="text-xs font-medium uppercase tracking-wide opacity-75">{label}</div>
-    </div>
-  );
-}
-
-function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
-  return (
-    <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">{title}</h2>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-export default function ReligiousDashboardPage() {
+export default function WaazTalaqqiPage() {
   const router = useRouter();
-  const [isAdmin, setIsAdmin] = useState(false);
   const [authorized, setAuthorized] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [canManage, setCanManage] = useState(false);
+
+  const [tab, setTab] = useState<TabKey>("overview");
+  const [days, setDays] = useState(30);
 
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [requests, setRequests] = useState<WordRequest[]>([]);
@@ -87,12 +52,7 @@ export default function ReligiousDashboardPage() {
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [directory, setDirectory] = useState<DirectoryUser[]>([]);
 
-  const [activePhone, setActivePhone] = useState<string | null>(null);
-  const [reply, setReply] = useState("");
-  const [sending, setSending] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-
-  // ─── Auth gate ──────────────────────────────────────────────────────────────────────────────
+  // Auth gate + initial tab from the URL.
   useEffect(() => {
     const user = readAdminUser();
     if (!user || !canMonitorReligiousChats(user)) {
@@ -100,21 +60,32 @@ export default function ReligiousDashboardPage() {
       return;
     }
     setIsAdmin(isAdminOrLeadership(user));
+    setCanManage(canManageKnowledge(user));
+    const urlTab = new URLSearchParams(window.location.search).get("tab") as TabKey | null;
+    if (urlTab) setTab(urlTab);
     setAuthorized(true);
   }, [router]);
 
+  function changeTab(next: TabKey) {
+    setTab(next);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", next);
+    window.history.replaceState(null, "", url.toString());
+  }
+
   const loadAll = useCallback(async () => {
+    const from = daysAgoIso(days);
     const [m, w, c, f] = await Promise.all([
-      apiFetch("/api/admin/religious/metrics"),
+      apiFetch(`/api/admin/religious/metrics?from=${from}`),
       apiFetch("/api/admin/religious/word-requests?status=open"),
-      apiFetch("/api/admin/religious/conversations"),
+      apiFetch(`/api/admin/religious/conversations?from=${from}`),
       apiFetch("/api/admin/ruling-flags"),
     ]);
     if (m.ok) setMetrics(await m.json());
     if (w.ok) setRequests((await w.json()).requests ?? []);
     if (c.ok) setConversations((await c.json()).conversations ?? []);
     if (f.ok) setFlags((await f.json()).recent ?? []);
-  }, []);
+  }, [days]);
 
   const loadMonitors = useCallback(async () => {
     const res = await apiFetch("/api/admin/religious/monitors");
@@ -122,54 +93,29 @@ export default function ReligiousDashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (!authorized) return;
-    void loadAll();
-    void loadMonitors();
-  }, [authorized, loadAll, loadMonitors]);
+    if (authorized) void loadAll();
+  }, [authorized, loadAll]);
 
-  // Admins load the user directory for the "add monitor" picker.
   useEffect(() => {
-    if (!isAdmin) return;
+    if (authorized) void loadMonitors();
+  }, [authorized, loadMonitors]);
+
+  useEffect(() => {
+    if (!authorized || !isAdmin) return;
     void (async () => {
       const res = await apiFetch("/api/admin/users");
       if (res.ok) {
         const data = await res.json();
-        const list = (Array.isArray(data) ? data : data.users) ?? [];
-        setDirectory(list.map((u: DirectoryUser) => ({ id: u.id, display_name: u.display_name, phone_e164: u.phone_e164 })));
+        const listed = (Array.isArray(data) ? data : data.users) ?? [];
+        setDirectory(listed.map((u: DirectoryUser) => ({ id: u.id, display_name: u.display_name, phone_e164: u.phone_e164 })));
       }
     })();
-  }, [isAdmin]);
-
-  if (!authorized) return null;
-
-  const active = conversations.find((c) => c.phone === activePhone) ?? null;
+  }, [authorized, isAdmin]);
 
   async function resolveRequest(id: string, status: "added" | "dismissed") {
     const res = await apiFetch("/api/admin/religious/word-requests", { method: "PATCH", body: JSON.stringify({ id, status }) });
     if (res.ok) setRequests((prev) => prev.filter((r) => r.id !== id));
   }
-
-  async function sendReply() {
-    if (!active || !reply.trim()) return;
-    setSending(true);
-    setNotice(null);
-    try {
-      const res = await apiFetch("/api/admin/religious/reply", {
-        method: "POST",
-        body: JSON.stringify({ phone: active.phone, text: reply.trim() }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Send failed");
-      setReply("");
-      setNotice("Reply sent.");
-      void loadAll();
-    } catch (err) {
-      setNotice(err instanceof Error ? err.message : "Send failed");
-    } finally {
-      setSending(false);
-    }
-  }
-
   async function addMonitor(userId: string) {
     if (!userId) return;
     const res = await apiFetch("/api/admin/religious/monitors", { method: "POST", body: JSON.stringify({ user_id: userId }) });
@@ -181,172 +127,77 @@ export default function ReligiousDashboardPage() {
   }
 
   const s = metrics?.summary;
+  const tabs = useMemo(() => {
+    const list: { key: TabKey; label: string; badge?: number }[] = [
+      { key: "overview", label: "Overview" },
+      { key: "chats", label: "Chats" },
+    ];
+    if (canManage) list.push({ key: "dictionary", label: "Dictionary", badge: s?.open_word_requests || undefined });
+    list.push({ key: "flags", label: "Flags", badge: s?.unreviewed_ruling_flags || undefined });
+    if (isAdmin) list.push({ key: "team", label: "Team" });
+    return list;
+  }, [canManage, isAdmin, s?.open_word_requests, s?.unreviewed_ruling_flags]);
+
+  // If the URL/tab points somewhere this user can't see, fall back to Overview.
+  const activeTab = tabs.some((t) => t.key === tab) ? tab : "overview";
+
+  if (!authorized) return null;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-6">
-      <div>
-        <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">Religious chats</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          Monitoring for Waaz / Lisan questions — last 30 days. Separate from event &amp; logistics admin.
-        </p>
-      </div>
-
-      {/* Metrics */}
-      {s && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-          <StatCard label="Tool calls" value={s.total_calls} />
-          <StatCard label="Members" value={s.unique_members} />
-          <StatCard label="Waaz Qs" value={s.waaz_questions} />
-          <StatCard label="Lisan lookups" value={s.lisan_lookups} />
-          <StatCard label="Not found" value={s.lisan_by_status?.not_found ?? 0} tone="amber" />
-          <StatCard label="Missing words" value={s.open_word_requests} tone={s.open_word_requests ? "amber" : undefined} />
-          <StatCard label="Ruling flags" value={s.unreviewed_ruling_flags} tone={s.unreviewed_ruling_flags ? "red" : undefined} />
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+      {/* Header */}
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">Waaz Talaqqi</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Religious chats, dictionary &amp; content — separate from event &amp; logistics admin.</p>
         </div>
-      )}
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Missing-word queue */}
-        <Section title={`Missing words (${requests.length})`} action={<a href="/admin/knowledge" className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400">Add words →</a>}>
-          {requests.length === 0 ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400">No open requests. 🎉</p>
-          ) : (
-            <ul className="divide-y divide-gray-100 dark:divide-gray-800">
-              {requests.map((r) => (
-                <li key={r.id} className="flex items-center justify-between py-2 text-sm">
-                  <span>
-                    <span className="font-medium text-gray-900 dark:text-gray-100">{r.word}</span>
-                    <span className="ml-2 text-xs text-gray-400">×{r.times_seen} · {fmt(r.last_seen_at)}</span>
-                  </span>
-                  <span className="flex gap-2">
-                    <button onClick={() => resolveRequest(r.id, "added")} className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white hover:bg-green-700">Added</button>
-                    <button onClick={() => resolveRequest(r.id, "dismissed")} className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">Dismiss</button>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Section>
-
-        {/* Top words */}
-        <Section title="Top words asked">
-          {!metrics?.top_words.length ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400">No data yet.</p>
-          ) : (
-            <ul className="space-y-1 text-sm">
-              {metrics.top_words.map((w) => (
-                <li key={w.word} className="flex justify-between">
-                  <span className="text-gray-800 dark:text-gray-200">{w.word}</span>
-                  <span className="text-gray-400">{w.count}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Section>
-      </div>
-
-      {/* Conversations + reply */}
-      <Section title="Religious chats">
-        <div className="grid gap-4 md:grid-cols-[260px_1fr]">
-          <ul className="max-h-96 space-y-1 overflow-y-auto">
-            {conversations.map((c) => (
-              <li key={c.phone}>
-                <button
-                  onClick={() => { setActivePhone(c.phone); setNotice(null); }}
-                  className={`w-full rounded px-3 py-2 text-left text-sm ${activePhone === c.phone ? "bg-blue-50 dark:bg-blue-900/30" : "hover:bg-gray-50 dark:hover:bg-gray-800"}`}
-                >
-                  <div className="flex justify-between">
-                    <span className="font-medium text-gray-900 dark:text-gray-100">{c.name ?? `…${c.phone_last4}`}</span>
-                    {!c.in_window && <span className="text-[10px] uppercase text-amber-600 dark:text-amber-400">closed</span>}
-                  </div>
-                  <div className="text-xs text-gray-400">{fmt(c.last_at)}</div>
-                </button>
-              </li>
-            ))}
-            {conversations.length === 0 && <li className="px-3 py-2 text-sm text-gray-500">No religious chats yet.</li>}
-          </ul>
-
-          <div className="flex min-h-[24rem] flex-col rounded-lg border border-gray-100 dark:border-gray-800">
-            {!active ? (
-              <div className="flex flex-1 items-center justify-center text-sm text-gray-400">Select a conversation</div>
-            ) : (
-              <>
-                <div className="flex-1 space-y-2 overflow-y-auto p-3">
-                  {active.messages.map((m, i) => (
-                    <div key={i} className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${m.direction === "inbound" ? "bg-gray-100 dark:bg-gray-800" : "ml-auto bg-blue-600 text-white"}`}>
-                      <div className="whitespace-pre-wrap">{m.body}</div>
-                      <div className={`mt-1 text-[10px] ${m.direction === "inbound" ? "text-gray-400" : "text-blue-100"}`}>{fmt(m.created_at)}</div>
-                    </div>
-                  ))}
-                </div>
-                <div className="border-t border-gray-100 p-3 dark:border-gray-800">
-                  {active.in_window ? (
-                    <div className="flex gap-2">
-                      <input
-                        value={reply}
-                        onChange={(e) => setReply(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendReply(); } }}
-                        placeholder="Reply to this member…"
-                        className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
-                      />
-                      <button onClick={sendReply} disabled={sending || !reply.trim()} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-700">
-                        {sending ? "Sending…" : "Send"}
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-amber-600 dark:text-amber-400">
-                      This member is outside WhatsApp&apos;s 24-hour window — a free-text reply can&apos;t be delivered. Use an approved template (WhatsApp Templates) to reach them.
-                    </p>
-                  )}
-                  {notice && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{notice}</p>}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </Section>
-
-      {/* Ruling flags */}
-      <Section title={`Ruling flags (${flags.length})`}>
-        {flags.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">No flagged ruling questions.</p>
-        ) : (
-          <ul className="divide-y divide-gray-100 text-sm dark:divide-gray-800">
-            {flags.map((f, i) => (
-              <li key={i} className="py-2">
-                <div className="text-gray-800 dark:text-gray-200">{f.message}</div>
-                <div className="text-xs text-gray-400">…{f.phone_last4} · {f.detected_by} · {fmt(f.created_at)}</div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Section>
-
-      {/* Monitors (admin only) */}
-      {isAdmin && (
-        <Section title={`Religious monitors (${monitors.length})`}>
-          <ul className="mb-3 divide-y divide-gray-100 text-sm dark:divide-gray-800">
-            {monitors.map((m) => (
-              <li key={m.id} className="flex items-center justify-between py-2">
-                <span className="text-gray-800 dark:text-gray-200">{m.user?.display_name ?? m.user?.phone_e164 ?? "—"}</span>
-                <button onClick={() => removeMonitor(m.id)} className="text-xs text-red-600 hover:underline dark:text-red-400">Remove</button>
-              </li>
-            ))}
-            {monitors.length === 0 && <li className="py-2 text-gray-500">No monitors yet.</li>}
-          </ul>
+        <div className="flex items-center gap-2">
           <select
-            onChange={(e) => { void addMonitor(e.target.value); e.target.value = ""; }}
-            defaultValue=""
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+            value={days}
+            onChange={(e) => setDays(Number(e.target.value))}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
           >
-            <option value="" disabled>Add a monitor…</option>
-            {directory
-              .filter((u) => !monitors.some((m) => m.user?.id === u.id))
-              .map((u) => (
-                <option key={u.id} value={u.id}>{u.display_name ?? u.phone_e164 ?? u.id}</option>
-              ))}
+            <option value={7}>Last 7 days</option>
+            <option value={30}>Last 30 days</option>
+            <option value={90}>Last 90 days</option>
           </select>
-        </Section>
+          {isAdmin && (
+            <a
+              href={`/api/admin/conversations/religious-export?from=${daysAgoIso(days)}`}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              Export
+            </a>
+          )}
+        </div>
+      </div>
+
+      {/* KPI band */}
+      {s && (
+        <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+          <KpiCard label="Tool calls" value={s.total_calls} icon={I.calls} tone="blue" />
+          <KpiCard label="Members" value={s.unique_members} icon={I.member} />
+          <KpiCard label="Waaz Qs" value={s.waaz_questions} icon={I.book} />
+          <KpiCard label="Lisan lookups" value={s.lisan_lookups} icon={I.word} />
+          <KpiCard label="Not found" value={s.lisan_by_status?.not_found ?? 0} icon={I.warn} tone={(s.lisan_by_status?.not_found ?? 0) ? "amber" : "neutral"} />
+          <KpiCard label="Missing words" value={s.open_word_requests} icon={I.word} tone={s.open_word_requests ? "amber" : "neutral"} />
+          <KpiCard label="Ruling flags" value={s.unreviewed_ruling_flags} icon={I.flag} tone={s.unreviewed_ruling_flags ? "red" : "neutral"} />
+        </div>
       )}
+
+      {/* Tabs */}
+      <div className="mb-5">
+        <Tabs tabs={tabs} active={activeTab} onChange={changeTab} />
+      </div>
+
+      {/* Tab content */}
+      {activeTab === "overview" && (
+        <OverviewTab metrics={metrics} wordRequests={requests} flags={flags} conversations={conversations} onJump={changeTab} />
+      )}
+      {activeTab === "chats" && <ChatsTab conversations={conversations} onReload={loadAll} />}
+      {activeTab === "dictionary" && canManage && <DictionaryTab wordRequests={requests} onResolve={resolveRequest} />}
+      {activeTab === "flags" && <FlagsTab flags={flags} />}
+      {activeTab === "team" && isAdmin && <TeamTab monitors={monitors} directory={directory} onAdd={addMonitor} onRemove={removeMonitor} />}
     </div>
   );
 }
