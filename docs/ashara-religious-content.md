@@ -84,6 +84,19 @@ word via `addLisanWord` calls `markWordRequestAdded`, which flips the matching o
 so it leaves the queue automatically. If `LISAN_ALERT_EMAIL` is unset the word is still queued, just
 no email. Never throws into the agent.
 
+**Religious dashboard + monitors (`/admin/religious`).** A dedicated team can oversee religious
+chats on their own page, fully separate from the logistics/event admin. A **religious monitor** is a
+membership flag (`religious_monitors` table → `is_religious_monitor`, mirroring
+`escalation_support_members`); `canMonitorReligiousChats` = admin/leadership or monitor. A monitor
+with no other portal access signs in and sees **only** this section (locked down like `helpdesk` is
+to the inbox — see [access-control.md](./access-control.md)). The dashboard shows: usage metrics
+(waaz vs Lisan, `not_found` count, top words — from `tool_audit_logs`), the **missing-word queue**
+(`lisan_word_requests`, with Add/Dismiss), the ruling-flags feed, and the religious chats with a
+**reply box**. Replying (`POST /api/admin/religious/reply`) sends free-form text **only inside
+WhatsApp's 24-hour window** (else 422) and is **state-preserving** — it updates only
+`last_message_at`, never the member's conversation intent/state or `handling_mode`, so an
+in-progress logistics flow is never disturbed. Admins manage the monitor list from the same page.
+
 **Year resolution (1447 ↔ 1448).** Before retrieving, the tool calls `resolveAsharaYear(query, today)` (`ashara-config.ts`) to anchor on the *event*, not the Hijri calendar: explicit `1447/1448` → that year; "last year" → `LAST_COMPLETED_ASHARA_YEAR` (1447, the indexed one); "this year / today / this Ashara / upcoming" → `ACTIVE_ASHARA_YEAR` (1448, not yet posted); no cue → most-recent-available. If the resolved year has no content, the tool returns `not_available` **with** `available_year` + last year's content, and the agent says "1448H isn't posted yet — here's last year (1447H): …" — it never relabels one year's content as another's. Every answer states the concrete year.
 
 **Category-disciplined retrieval.** The tool checks a **specific majlis** first, then **overview** intent (`isOverviewQuery` → the curated `overview` block + per-majlis theme list), then a **category-aware vector fallback**: a decoration question searches `tazyeen`; everything else searches the sermon sources (`reflection`+`al_dars`+`overview`) so the decoration article can never answer a sermon-content question. `retrieveReligiousContext(query, topK, categories)` post-filters by the denormalized `category` on `religious_content`.

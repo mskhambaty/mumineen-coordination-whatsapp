@@ -549,10 +549,126 @@ paths:
       description: >-
         Counts + recent personal fiqh / halal-haram questions the assistant refused (redirecting to
         the Aamil Saheb) and quietly flagged via the deterministic ruling guard. NOT escalations —
-        no one is paged. Phone is masked to the last 4 digits. Admin/leadership only.
+        no one is paged. Phone is masked to the last 4 digits. Admin/leadership or a religious monitor.
       security: [{ portalSession: [] }, { adminKey: [] }]
       responses:
         "200": { description: "{ total, unreviewed, recent[] } of flagged ruling questions." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/religious/metrics:
+    get:
+      tags: [conversations]
+      summary: Religious-dashboard metrics (waaz/Lisan tool usage, missing words, ruling flags).
+      description: >-
+        Aggregated counts from tool_audit_logs over a window (?from/?to YYYY-MM-DD, default 30 days):
+        total calls, unique members, waaz questions, Lisan lookups + status split, top words, open
+        missing-word requests, unreviewed ruling flags. Admin/leadership or a religious monitor.
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      responses:
+        "200": { description: "{ summary, top_words[] }." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/religious/conversations:
+    get:
+      tags: [conversations]
+      summary: Conversations that used a religious tool, with each member's 24h-window state.
+      description: Threads (newest first) for the religious dashboard. ?from/?to optional. Religious monitor / admin.
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      responses:
+        "200": { description: "{ conversations[] } each with messages + in_window." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/religious/word-requests:
+    get:
+      tags: [conversations]
+      summary: Missing-word queue (words asked for that aren't in the dictionary).
+      description: ?status=open|added|dismissed|all (default open), most-asked first. Religious monitor / admin.
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      responses:
+        "200": { description: "{ requests[] }." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    patch:
+      tags: [conversations]
+      summary: Resolve a missing-word request (mark added / dismissed).
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, status]
+              properties:
+                id: { type: string, format: uuid }
+                status: { type: string, enum: [open, added, dismissed] }
+      responses:
+        "200": { description: Updated. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/religious/reply:
+    post:
+      tags: [conversations]
+      summary: Send a WhatsApp reply to a member from the religious dashboard.
+      description: >-
+        Free-form text, delivered ONLY inside WhatsApp's 24-hour window (else 422 out_of_window).
+        State-preserving — updates only last_message_at; never resets the member's conversation
+        intent/state or handling_mode, so an in-progress logistics flow is untouched. Religious
+        monitor / admin.
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, text]
+              properties:
+                phone: { type: string }
+                text: { type: string, maxLength: 4096 }
+      responses:
+        "200": { description: "{ sent, whatsapp_message_id }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { description: Member is outside the 24-hour window (out_of_window true). }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/religious/monitors:
+    get:
+      tags: [conversations, users]
+      summary: List religious monitors. Religious monitor / admin.
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      responses:
+        "200": { description: "{ members[] }." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [conversations, users]
+      summary: Add a religious monitor (admin/leadership only).
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [user_id], properties: { user_id: { type: string, format: uuid } } }
+      responses:
+        "201": { description: Added. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { description: User is already a monitor. }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/religious/monitors/{id}:
+    delete:
+      tags: [conversations, users]
+      summary: Remove a religious monitor (admin/leadership only).
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Removed. }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
   /admin/escalation-support:
