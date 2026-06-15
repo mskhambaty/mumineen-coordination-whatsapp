@@ -36,6 +36,11 @@ API-scoped tickets, resolves explicit IDs/topic/filter selections in-process, th
 `PUT /api/tasks/[id]` for each bounded match. Every write therefore still passes through the task
 route's department-role authorization; partial failures are returned to the agent.
 
+Lost-and-found reports also use the bounded tool round. `report_lost_item` / `report_found_item`
+call `POST /api/lost-found`, which resolves the sender against registration data, stores a reporter
+snapshot, and returns help-desk guidance. Lost reports additionally call `POST /api/escalations`
+with category `lost_found` and department `Lost and Found`; found reports stop after recording.
+
 ## Knowledge base (RAG corpus)
 
 The agent's `get_site_content_faq` retrieves from `site_content`, which is now populated
@@ -81,6 +86,7 @@ head-count responses override the per-mumin defaults.
 |---------|---------|------|
 | Meta WhatsApp Cloud API | Receive messages, send replies | `WHATSAPP_ACCESS_TOKEN` |
 | Meta Graph API (signature) | Verify webhook authenticity | `META_APP_SECRET` (optional) |
+| Meta WhatsApp Cloud API (2nd number) | Optional broadcast number — its own Meta App + WABA; shares the single `/api/whatsapp/webhook` URL (routed by `metadata.phone_number_id`) | `*_BROADCAST` env vars |
 | OpenAI | Chat completions + embeddings | `OPENAI_API_KEY` |
 | Supabase | Database (users, messages, sessions, audit, site content) | `SUPABASE_SERVICE_ROLE_KEY` |
 | Vercel | Hosting, env vars, cron | — |

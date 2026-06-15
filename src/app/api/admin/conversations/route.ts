@@ -5,6 +5,7 @@ import { countUnreadInbound, groupRowsByPhoneChronologically } from "@/lib/admin
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { RELIGIOUS_TOOL_NAMES } from "@/lib/admin/religious-transcript";
+import { getBroadcastAccount } from "@/lib/whatsapp/accounts";
 
 type MessageRow = {
   id: string;
@@ -72,6 +73,20 @@ export async function GET(req: NextRequest) {
   const selectedPhone = req.nextUrl.searchParams.get("phone");
   const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") ?? 75) || 75, 200);
 
+  // Inbox split by the number a conversation is on. `niyaz` = only the broadcast/niyaz RSVP number;
+  // `main` (default) = everything else (NULL primary + any other number). When no broadcast account
+  // is configured, `main` is unfiltered and `niyaz` is empty.
+  const scope = req.nextUrl.searchParams.get("scope") === "niyaz" ? "niyaz" : "main";
+  const broadcastPhoneNumberId = getBroadcastAccount()?.phoneNumberId ?? null;
+  // PostgREST scope filter for a conversation_sessions query (string passed to .or()/.eq()).
+  // niyaz: only the broadcast number; main: NULL or any non-broadcast number. Empty when no broadcast
+  // account is configured and scope=niyaz (matches nothing).
+  const scopeOr =
+    broadcastPhoneNumberId && scope === "main"
+      ? `phone_number_id.is.null,phone_number_id.neq.${broadcastPhoneNumberId}`
+      : null;
+  const scopeEq = scope === "niyaz" ? broadcastPhoneNumberId ?? "__none__" : null;
+
   const sessionColumns = "id, phone_e164, user_id, current_intent, state, last_message_at, created_at, handling_mode, handling_mode_at, escalation_status, escalation_reason, escalation_priority, escalation_category, escalated_at, escalation_stage, escalation_assigned_to, escalation_assigned_at, escalation_sla_deadline, linked_issue_id, quality_score, quality_reason, quality_analyzed_at, user:whatsapp_users!conversation_sessions_user_id_fkey(id, display_name, phone_e164, email, role, global_role), assigned_user:whatsapp_users!conversation_sessions_escalation_assigned_to_fkey(id, display_name, phone_e164, email, role, global_role), issue:issues!conversation_sessions_linked_issue_id_fkey(id, issue_number, title)";
 
   let sessionsQuery = supabase
@@ -82,18 +97,25 @@ export async function GET(req: NextRequest) {
 
   if (selectedPhone) {
     sessionsQuery = sessionsQuery.eq("phone_e164", selectedPhone);
+  } else {
+    if (scopeOr) sessionsQuery = sessionsQuery.or(scopeOr);
+    if (scopeEq) sessionsQuery = sessionsQuery.eq("phone_number_id", scopeEq);
   }
 
   // Fetch recent sessions + ALL pending escalations in parallel so the
   // Escalations tab always shows every open ticket, not just those within
   // the recent-conversations window.
-  const escalationsQuery = selectedPhone
+  let escalationsQuery = selectedPhone
     ? null
     : supabase
         .from("conversation_sessions")
         .select(sessionColumns)
         .eq("escalation_status", "pending")
         .order("last_message_at", { ascending: false });
+  if (escalationsQuery) {
+    if (scopeOr) escalationsQuery = escalationsQuery.or(scopeOr);
+    if (scopeEq) escalationsQuery = escalationsQuery.eq("phone_number_id", scopeEq);
+  }
 
   const [recentResult, escalationResult] = await Promise.all([
     sessionsQuery,

@@ -7,6 +7,7 @@ export type PortalUser = {
   is_internal?: boolean | null;
   is_transport?: boolean | null;
   is_accommodations?: boolean | null;
+  is_religious_monitor?: boolean | null;
   is_master_admin?: boolean | null;
 };
 
@@ -14,12 +15,24 @@ export function isAdminOrLeadership(user: PortalUser | null | undefined) {
   return user?.role === "admin" || user?.global_role === "leadership_admin";
 }
 
+// Religious-chats dashboard (/admin/religious + its API): admins/leadership or a dedicated
+// religious monitor (religious_monitors membership). Deliberately a separate tier from everything
+// else — it grants ONLY the religious section, nothing logistics/event/roster.
+export function canMonitorReligiousChats(user: PortalUser | null | undefined) {
+  return isAdminOrLeadership(user) || user?.is_religious_monitor === true;
+}
+
 // Front-door sign-in check: who may log in at all. Committee, Admin/Leadership,
 // and Helpdesk users may sign in. Visitors (the public/mumineen) are always
 // rejected. Helpdesk users land on the Inbox only — all data routes still
 // require canAccessPortal (committee/admin), so they can't reach anything else.
 export function canSignIn(user: PortalUser | null | undefined): boolean {
-  return user?.role === "committee" || user?.role === "admin" || user?.role === "helpdesk";
+  return (
+    user?.role === "committee" ||
+    user?.role === "admin" ||
+    user?.role === "helpdesk" ||
+    user?.is_religious_monitor === true // a dedicated monitor signs in even if their role is visitor
+  );
 }
 
 // Baseline "internal staff" tier: any committee or admin user. Most coordination

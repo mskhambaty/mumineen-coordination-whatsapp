@@ -79,6 +79,12 @@ The admin dashboard provides a web interface for managing tasks, departments, us
 - **Roster activate/deactivate a whole family** (`POST /api/admin/mumineen/roster-status`, IT or admin/leadership via `canImportMumineen`): flips `roster_active` on the family and every member sharing its `hof_its`. The lookup results show **Activate family** / **Deactivate** on the (acting) head row for these users, so a family dropped by a bulk import can be re-added without touching the database. Because deactivated families are hidden from every normal read (including search), the same users get an **Include deactivated families** checkbox under the search box — it passes `?include_inactive=1` to `GET /api/admin/mumineen/search`, which then returns inactive rows (marked **Inactive** and dimmed); the param is silently ignored for anyone else.
 - **Unregister / Family not attending** (`POST /api/admin/mumineen/registration`): registration is two-state — `not_started` (pending) and `submitted` (registered). From the lookup results a **registered** family shows **Unregister** (resets to `not_started`, erases all submitted registration details, clears every member's `not_attending`, and deletes the family's Niyaz RSVP — a destructive reset), and an **unregistered head-of-family** row shows **Family not attending** (registers the family and flags every member `not_attending`, so they drop out of the unregistered nudge and all attendance rollups).
 
+### Lost & Found (`/admin/lost-found`)
+- **Access: any portal user.**
+- Lists all reports submitted through `report_lost_item` and `report_found_item`, with search and lost/found filters.
+- Shows item details, location, escalation state, and the reporter snapshot (name, phone, ITS).
+- Backed by `GET /api/admin/lost-found`; the page never queries Supabase directly.
+
 ### Knowledge Base (`/admin/knowledge`)
 Two tabs, each feeding a **separate vector store** so logistics and religious answers never mix.
 

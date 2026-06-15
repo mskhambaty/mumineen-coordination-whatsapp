@@ -9,8 +9,9 @@ import { apiFetch, readAdminUser } from "@/lib/admin/client";
 type Meal = "lunch" | "dinner";
 type ServingType = "thaal" | "packet";
 
-// One Niyaz event with its per-event attendance tallies (from the niyaz_event_tallies view) plus the
-// free-text family head-count total and the combined RSVP count.
+// One Niyaz event with its per-event attendance tallies (from the niyaz_event_tallies view). The
+// free-text family head-count total is shown as a raw-reply figure only — its attendance is already
+// materialized into niyaz_rsvp, so it is not added into rsvpCount.
 type TallyMode = "max" | "min";
 
 type NiyazEvent = {
@@ -231,11 +232,27 @@ export default function NiyazPage() {
   return (
     <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
       <div className="mb-5 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold">Niyaz Registration</h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Click an event to see its RSVP responses.
-          </p>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => router.push("/admin/niyaz/days")}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+          >
+            Niyaz days →
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push("/admin/conversations?scope=niyaz")}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+          >
+            Niyaz inbox →
+          </button>
+          <div>
+            <h1 className="text-xl font-bold">Niyaz Registration</h1>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Click an event to see its RSVP responses. Configure and send RSVPs from Niyaz days.
+            </p>
+          </div>
         </div>
         <button type="button" onClick={openCreate} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
           New event
@@ -334,6 +351,7 @@ export default function NiyazPage() {
               <thead className="text-xs uppercase text-gray-400">
                 <tr>
                   <th className="px-2 py-1.5">Event</th>
+                  <th className="px-2 py-1.5 text-right" title="Total attending (adults + kids)">Yes count</th>
                   <th className="px-2 py-1.5 text-right">Yes adults</th>
                   <th className="px-2 py-1.5 text-right">Yes kids</th>
                   <th className="px-2 py-1.5 text-right">Yes families</th>
@@ -361,6 +379,7 @@ export default function NiyazPage() {
                         {e.servingType ? ` · ${e.servingType}` : ""}
                       </div>
                     </td>
+                    <td className={`${num} font-semibold`}>{e.yesAdults + e.yesKids}</td>
                     <td className={num}>{e.yesAdults}</td>
                     <td className={num}>{e.yesKids}</td>
                     <td className={num}>{e.yesFamilies}</td>
@@ -392,7 +411,7 @@ export default function NiyazPage() {
               {summary && (
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   Yes {summary.yes_adults + summary.yes_kids} ({summary.yes_families} fam) · No {summary.no_adults + summary.no_kids} ({summary.no_families} fam)
-                  {summary.headcount_families ? ` · Head counts: ${summary.headcount_total} (${summary.headcount_families} fam)` : ""}
+                  {summary.headcount_families ? ` · Head-count replies: ${summary.headcount_total} (${summary.headcount_families} fam)` : ""}
                 </p>
               )}
             </div>
@@ -416,7 +435,8 @@ export default function NiyazPage() {
 
             {headcounts.length > 0 && (
               <div className="mb-4 rounded-md border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-950">
-                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Family head counts</h3>
+                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Family head-count replies (raw)</h3>
+                <p className="mb-1 text-xs text-gray-400 dark:text-gray-500">The number each family texted. Already counted in the attendance above — not added on top.</p>
                 <div className="max-h-40 overflow-auto text-sm">
                   {headcounts.map((h) => (
                     <div key={h.id} className="flex justify-between border-t border-gray-100 py-1 dark:border-gray-800">

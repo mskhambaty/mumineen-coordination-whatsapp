@@ -74,6 +74,51 @@ day-to-day path — `addLisanWord` computes the same `norm`/`norm_skeleton`/`ske
 producing a master copy). A single add is live immediately for `get_lisan_word_meaning`; it
 survives until the next full CSV re-upload, so export before replacing if the master isn't current.
 
+**Missing-word loop.** When `get_lisan_word_meaning` returns `not_found` (a genuine gap — not a
+trivial reply and not a "did you mean"), the agent fire-and-forget calls `recordMissingLisanWord`
+([src/lib/knowledge/lisan-word-requests.ts](../src/lib/knowledge/lisan-word-requests.ts)), which
+queues the word in `lisan_word_requests` (one open row per `normalized_word`, repeat asks bump
+`times_seen`) and — only on the **first** sighting — emails the **whole religious-monitor team**
+(`getReligiousMonitorEmails` + the optional `LISAN_ALERT_EMAIL`, deduped, one Postmark `sendRawEmail`
+per recipient) with the word + asker so any of them can add it. Adding the word via `addLisanWord`
+calls `markWordRequestAdded`, which flips the matching open row to `added` and — when it actually
+**closed** a waiting request — emails the same team again ("‘<word>’ added by <name>") so nobody
+double-works it (a proactive add of a never-requested word sends nothing; bulk CSV import doesn't
+notify). If there are no monitors and no `LISAN_ALERT_EMAIL`, the word is still queued, just no email.
+Never throws into the agent or the admin add flow.
+
+**Waaz Talaqqi hub (`/admin/religious`, nav label "Waaz Talaqqi").** A single **tabbed** page
+(`src/app/admin/religious/page.tsx` shell + `src/components/admin/religious/*` tabs) — a KPI band over
+underline tabs (each shows a one-line description), **access-gated per tab**: **Overview · Chats · Flags** for monitors; **Dictionary**
+(+ Content, see below) for managers/admins; **Team** for admins. A date-range selector drives the
+metrics. The **Overview** is action-oriented: **Today's uploads** (managers — today's majlis cell
+status for the active year, from the topics list), **Content gaps** (recent Waaz questions the bot
+couldn't answer — `metrics.recent_gaps`, i.e. `answer_religious_questions` with `decision`
+not_found/offer_last), **Needs attention** (missing words / ruling flags), and top words + Lisan
+miss-rate. The **Chats** tab is an inbox with the same **AI ⇄ Manual** switch as the general Inbox —
+`PUT /api/admin/religious/mode` (monitor-gated; the Inbox's own mode route is `canAccessInbox`). The
+reply box is enabled only in **Manual + inside the 24h window**; flipping to Manual takes the member
+off the AI for everything (same shared `handling_mode` as the Inbox). The **Content** tab holds the
+Ashara **majlis × category grid** (`AsharaContent` — the daily-content ingest for the active year,
+e.g. 1448, with the overview block + translation queue + theme generation); `/admin/ashara` now
+**redirects** here. The Content tab also carries the **supplementary** content (`SupplementaryContent`)
+— free-form religious doc upload + indexed docs + the standalone Waaz FAQ-by-Topic blocks — and the
+Lisan dictionary is on the **Dictionary** tab. `/admin/knowledge` is now **logistics-only** (its "Waaz
+Talaqi" tab was removed); all religious content lives under Waaz Talaqqi.
+
+**Religious dashboard + monitors (`/admin/religious`).** A dedicated team can oversee religious
+chats on their own page, fully separate from the logistics/event admin. A **religious monitor** is a
+membership flag (`religious_monitors` table → `is_religious_monitor`, mirroring
+`escalation_support_members`); `canMonitorReligiousChats` = admin/leadership or monitor. A monitor
+with no other portal access signs in and sees **only** this section (locked down like `helpdesk` is
+to the inbox — see [access-control.md](./access-control.md)). The dashboard shows: usage metrics
+(waaz vs Lisan, `not_found` count, top words — from `tool_audit_logs`), the **missing-word queue**
+(`lisan_word_requests`, with Add/Dismiss), the ruling-flags feed, and the religious chats with a
+**reply box**. Replying (`POST /api/admin/religious/reply`) sends free-form text **only inside
+WhatsApp's 24-hour window** (else 422) and is **state-preserving** — it updates only
+`last_message_at`, never the member's conversation intent/state or `handling_mode`, so an
+in-progress logistics flow is never disturbed. Admins manage the monitor list from the same page.
+
 **Year resolution (1447 ↔ 1448).** Before retrieving, the tool calls `resolveAsharaYear(query, today)` (`ashara-config.ts`) to anchor on the *event*, not the Hijri calendar: explicit `1447/1448` → that year; "last year" → `LAST_COMPLETED_ASHARA_YEAR` (1447, the indexed one); "this year / today / this Ashara / upcoming" → `ACTIVE_ASHARA_YEAR` (1448, not yet posted); no cue → most-recent-available. If the resolved year has no content, the tool returns `not_available` **with** `available_year` + last year's content, and the agent says "1448H isn't posted yet — here's last year (1447H): …" — it never relabels one year's content as another's. Every answer states the concrete year.
 
 **Category-disciplined retrieval.** The tool checks a **specific majlis** first, then **overview** intent (`isOverviewQuery` → the curated `overview` block + per-majlis theme list), then a **category-aware vector fallback**: a decoration question searches `tazyeen`; everything else searches the sermon sources (`reflection`+`al_dars`+`overview`) so the decoration article can never answer a sermon-content question. `retrieveReligiousContext(query, topK, categories)` post-filters by the denormalized `category` on `religious_content`.
@@ -82,6 +127,14 @@ survives until the next full CSV re-upload, so export before replacing if the ma
 1. A real, on-topic match in the reflections → answer + cite the source (above).
 2. A genuine Waaz/deen/Iqtibasaat question with **no usable match**, OR a **personal fiqh/fatwa** ("should I fast on 10th Muharram"), OR sectarian/theological debate → the agent calls `move_to_escalation` with category **`religious_followup`** (priority `normal`). It must NOT give a ruling, an Aamil-Saheb redirect, or any `Source:` citation. The system then returns a **fixed reply** (`RELIGIOUS_FOLLOWUP_REPLY` in `run-agent.ts`): *"I answer only from the published Ashara reflections, and I couldn't find this there. I've shared your question with our team — if it relates to the Waaz Mubarak, someone will get back to you, Inshallah."* (subtly scopes follow-up to the Waaz Mubarak).
 3. Logistics (hotels, registration, ITS) → `get_site_content_faq`; content-free closings → `[[NO_REPLY]]`. Never escalate those.
+
+**On-call Istibsaar suggestion.** `appendOnCallSuggestion` (`religious-guard.ts`) deterministically adds
+one line — *"…ask your question on the on-call Istibsaar — sign in with your ITS: `ISTIBSAAR_ONCALL_URL`"* —
+to a religious reply when the bot **can't answer** (`NOT_FOUND_REPLY`, the no-tool religious refusal, and
+the `religious_followup` hand-off, `force:true`) or after the member has had **≥3 inbound messages** on a
+normal religious **answer**. **Not** added to a personal-ruling refusal (Aamil Saheb only) or the
+offer-last reply. Deduped with no new state: skipped if a recent outbound in the loaded history already
+carries the URL. Wired at the religious return points in `run-agent.ts`.
 
 This reuses the existing escalation queue (`POST /api/escalations` → `conversation_sessions.escalation_status='pending'` → on-call email/WhatsApp → `/admin/conversations` *Escalations* tab). `religious_followup` is **exempt from the 3-inbound-message gate** (deen questions are often the first message). Because a successful escalation returns its deterministic acknowledgment and skips the second model completion, the irrelevant-citation bug (a fatwa decline getting reflection `Source:` lines stapled on) cannot occur on this path.
 

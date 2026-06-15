@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { recordUndeliverable } from "@/lib/whatsapp/undeliverable";
 
 // Meta delivery-status callbacks (sent/delivered/read/failed) arrive on the same webhook as
 // inbound messages, under entry[].changes[].value.statuses[]. We correlate them back to broadcast
@@ -7,8 +8,10 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 // from a number we recently broadcast to.
 
 // `errorDetail` is present only for failed statuses that carried a Meta error[] entry — it holds a
-// concise "<code>: <title>" (plus a friendly hint for common codes), never any PII.
-export type WaStatusUpdate = { waMessageId: string; status: string; timestamp: number | null; errorDetail?: string };
+// concise "<code>: <title>" (plus a friendly hint for common codes), never any PII. `errorCode` is
+// the raw numeric Meta code (when present) so the undeliverable-suppression logic can match specific
+// codes without parsing the string.
+export type WaStatusUpdate = { waMessageId: string; status: string; timestamp: number | null; errorDetail?: string; errorCode?: number };
 
 // Plain-language hints for the failure codes that dominate large broadcasts, so non-technical admins
 // reading the failures CSV understand them. Anything not listed falls back to just "<code>: <title>".
@@ -36,6 +39,13 @@ function formatStatusError(errors: unknown): string | undefined {
   return hint ? `${base} (${hint})` : base;
 }
 
+// Pull the raw numeric Meta error code out of a status error[] entry, if present.
+function statusErrorCode(errors: unknown): number | undefined {
+  if (!Array.isArray(errors) || errors.length === 0) return undefined;
+  const code = (errors[0] as { code?: unknown }).code;
+  return typeof code === "number" ? code : undefined;
+}
+
 // Pull status updates out of a raw webhook payload. Returns [] for message-only payloads.
 export function extractStatusUpdates(payload: unknown): WaStatusUpdate[] {
   const out: WaStatusUpdate[] = [];
@@ -54,6 +64,8 @@ export function extractStatusUpdates(payload: unknown): WaStatusUpdate[] {
           const update: WaStatusUpdate = { waMessageId: row.id, status: row.status, timestamp: Number.isFinite(tsNum) ? tsNum : null };
           const errorDetail = formatStatusError(row.errors);
           if (errorDetail) update.errorDetail = errorDetail;
+          const errorCode = statusErrorCode(row.errors);
+          if (errorCode !== undefined) update.errorCode = errorCode;
           out.push(update);
         }
       }
@@ -75,10 +87,19 @@ export async function applyBroadcastStatuses(updates: WaStatusUpdate[]): Promise
   for (const u of updates) {
     const { data: recip } = await supabase
       .from("template_broadcast_recipients")
-      .select("id, send_status")
+      .select("id, send_status, phone_e164")
       .eq("wa_message_id", u.waMessageId)
       .maybeSingle();
     if (!recip) continue;
+
+    // A number Meta reports as undeliverable (not on WhatsApp / can't receive) gets counted toward
+    // suppression so we stop re-sending to it. Only count the FIRST transition into 'failed' for this
+    // recipient row: Meta can redeliver a status webhook (at-least-once), and double-counting a single
+    // real failure would suppress a number prematurely. Distinct broadcasts use distinct recipient
+    // rows, so this still counts genuine repeat failures. No-op for non-undeliverable codes.
+    if (u.status === "failed" && recip.send_status !== "failed") {
+      await recordUndeliverable(recip.phone_e164, u.errorCode);
+    }
 
     const next = u.status === "failed" ? "failed" : u.status;
     if ((RANK[next] ?? -1) <= (RANK[recip.send_status] ?? -1) && next !== "failed") continue;

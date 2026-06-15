@@ -82,6 +82,7 @@ type PortalPermissions = {
   global_role: string | null;
   departments: { department_id: string; department_name: string; dept_role: string }[];
   is_escalation_support: boolean;
+  is_religious_monitor: boolean;
 };
 
 // Mirrors buildPortalSessionUser / the isItMember-style helpers in supabase/server.ts,
@@ -102,6 +103,7 @@ export function derivePortalFlags(perms: PortalPermissions): PortalUser {
     is_it: isIt,
     is_transport: isTransport,
     is_internal: isManager || isIt || isTransport || perms.departments.length > 0,
+    is_religious_monitor: perms.is_religious_monitor,
   };
 }
 
@@ -150,6 +152,7 @@ export async function resolveCallerFromSession(req: Request): Promise<CallerCont
       global_role: (result.global_role as string) ?? null,
       departments,
       is_escalation_support: result.is_escalation_support === true,
+      is_religious_monitor: result.is_religious_monitor === true,
     }),
   };
 }

@@ -115,6 +115,8 @@ export async function recordInboundMessage(message: IncomingWhatsAppMessage) {
       body: message.body,
       message_type: message.messageType,
       raw_payload: message.rawMessage,
+      // Which of our numbers this came in on (NULL = primary) — powers the inbox split.
+      phone_number_id: message.businessPhoneNumberId ?? null,
     })
     .select("id")
     .single();
@@ -135,6 +137,9 @@ export async function recordOutboundMessage(input: {
   body: string;
   whatsappMessageId?: string;
   rawPayload?: unknown;
+  // Which of our numbers this went out from (NULL = primary). Set for niyaz/broadcast sends so they
+  // attribute to the niyaz inbox, not the main one.
+  phoneNumberId?: string | null;
 }) {
   const { error } = await getSupabaseAdmin().from("messages").insert({
     phone_e164: input.phoneE164,
@@ -143,6 +148,7 @@ export async function recordOutboundMessage(input: {
     body: input.body,
     message_type: "text",
     raw_payload: input.rawPayload,
+    phone_number_id: input.phoneNumberId ?? null,
   });
 
   if (error && error.code !== "23505") {
@@ -266,17 +272,20 @@ export async function touchConversationSession(input: {
   userId?: string;
   currentIntent?: string | null;
   state?: Record<string, unknown>;
+  // The number this conversation is on (NULL = primary). Latest message wins; OMITTED leaves the
+  // existing value untouched on conflict (so callers that don't know the account don't clobber it).
+  phoneNumberId?: string | null;
 }) {
-  const { error } = await getSupabaseAdmin().from("conversation_sessions").upsert(
-    {
-      phone_e164: input.phoneE164,
-      user_id: input.userId,
-      current_intent: input.currentIntent ?? null,
-      state: input.state ?? {},
-      last_message_at: new Date().toISOString(),
-    },
-    { onConflict: "phone_e164" },
-  );
+  const row: Record<string, unknown> = {
+    phone_e164: input.phoneE164,
+    user_id: input.userId,
+    current_intent: input.currentIntent ?? null,
+    state: input.state ?? {},
+    last_message_at: new Date().toISOString(),
+  };
+  if (input.phoneNumberId !== undefined) row.phone_number_id = input.phoneNumberId;
+
+  const { error } = await getSupabaseAdmin().from("conversation_sessions").upsert(row, { onConflict: "phone_e164" });
 
   if (error) {
     throw error;

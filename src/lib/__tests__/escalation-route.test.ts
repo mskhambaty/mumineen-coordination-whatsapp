@@ -74,6 +74,15 @@ describe("POST /api/escalations gate", () => {
     expect(notifyEscalationTeam).toHaveBeenCalledTimes(1);
   });
 
+  it("lost_found escalates on the first inbound message because lost reports auto-escalate", async () => {
+    const out = await POST(
+      req({ reason: "Lost item reported: black backpack", category: "lost_found", priority: "normal" }),
+    );
+    const json = await out.json();
+    expect(json.status).toBe("escalated");
+    expect(json.category).toBe("lost_found");
+  });
+
   it("a non-exempt category is still gated until enough inbound messages", async () => {
     inboundCount = 0;
     const out = await POST(req({ reason: "where do I register", category: "registration", priority: "normal" }));

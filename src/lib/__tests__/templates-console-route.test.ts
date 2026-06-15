@@ -17,6 +17,7 @@ vi.mock("@/lib/api/portal-auth", () => ({
 vi.mock("@/lib/admin/access", () => ({ isAdminOrLeadership: () => true }));
 vi.mock("@/lib/whatsapp/audience", () => ({
   AUDIENCE_KEYS: ["selected_users", "chicago_committee", "arrived_hof", "registered_hof", "all_members"],
+  WINDOW_FILTERS: ["all", "in_window", "out_window"],
   previewAudience: (...a: unknown[]) => previewAudience(...a),
 }));
 vi.mock("@/lib/whatsapp/broadcast", () => ({
@@ -64,6 +65,36 @@ describe("preview route auth + behavior", () => {
     const json = await res.json();
     expect(json).toMatchObject({ total: 100, in_window: 40, out_window: 60, est_cost_usd: 3 });
   });
+
+  it("forwards the window filter + window_hours to previewAudience (defaulting to 'all'/undefined)", async () => {
+    requirePortalCaller.mockResolvedValue(allow());
+    previewAudience.mockResolvedValue({ total: 60, in_window: 0, out_window: 60, est_cost_usd: 3 });
+    await previewPost(req({ audience_key: "all_members", window: "out_window", window_hours: 12 }));
+    expect(previewAudience).toHaveBeenLastCalledWith("all_members", [], undefined, "out_window", 12);
+
+    await previewPost(req({ audience_key: "all_members" }));
+    expect(previewAudience).toHaveBeenLastCalledWith("all_members", [], undefined, "all", undefined);
+  });
+
+  it("rejects an invalid window value (400)", async () => {
+    requirePortalCaller.mockResolvedValue(allow());
+    const res = await previewPost(req({ audience_key: "all_members", window: "yesterday" }));
+    expect(res.status).toBe(400);
+  });
+
+  it("accepts a window_hours above 24 (no upper cap)", async () => {
+    requirePortalCaller.mockResolvedValue(allow());
+    previewAudience.mockResolvedValue({ total: 1, in_window: 1, out_window: 0, est_cost_usd: 0 });
+    await previewPost(req({ audience_key: "all_members", window_hours: 48 }));
+    expect(previewAudience).toHaveBeenLastCalledWith("all_members", [], undefined, "all", 48);
+  });
+
+  it("rejects a non-positive window_hours (400)", async () => {
+    requirePortalCaller.mockResolvedValue(allow());
+    const res = await previewPost(req({ audience_key: "all_members", window_hours: -5 }));
+    expect(res.status).toBe(400);
+    expect(previewAudience).not.toHaveBeenCalled();
+  });
 });
 
 describe("send route auth + behavior", () => {
@@ -89,5 +120,15 @@ describe("send route auth + behavior", () => {
     createBroadcast.mockResolvedValue({ error: "No recipients in the selected audience." });
     const res = await sendPost(req({ template_code: "t", audience_key: "selected_users" }));
     expect(res.status).toBe(400);
+  });
+
+  it("passes the window filter + window_hours into createBroadcast (defaulting to 'all'/undefined)", async () => {
+    requirePortalCaller.mockResolvedValue(allow());
+    createBroadcast.mockResolvedValue({ broadcastId: "b1", total: 6, free: 0, paid: 6, estCostUsd: 0.3 });
+    await sendPost(req({ template_code: "t", audience_key: "all_members", window: "out_window", window_hours: 14 }));
+    expect(createBroadcast).toHaveBeenLastCalledWith(expect.objectContaining({ windowFilter: "out_window", windowHours: 14 }));
+
+    await sendPost(req({ template_code: "t", audience_key: "all_members" }));
+    expect(createBroadcast).toHaveBeenLastCalledWith(expect.objectContaining({ windowFilter: "all", windowHours: undefined }));
   });
 });

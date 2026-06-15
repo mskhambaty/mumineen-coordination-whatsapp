@@ -24,7 +24,156 @@ tags:
   - name: email
   - name: accommodations
   - name: triage
+  - name: lost-found
 paths:
+  /lost-found:
+    post:
+      tags: [lost-found]
+      summary: Record a lost or found item report
+      description: >-
+        WhatsApp-agent intake identified by x-whatsapp-from. Reporter identity is enriched from
+        registration data when available. Lost reports automatically enter the escalation
+        pipeline tagged to the Lost and Found department; found reports are recorded only.
+      security: [{ whatsappPhone: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [report_type, item_name]
+              additionalProperties: false
+              properties:
+                report_type: { type: string, enum: [lost, found] }
+                item_name: { type: string, minLength: 2, maxLength: 160 }
+                description: { type: [string, "null"], maxLength: 2000 }
+                category: { type: [string, "null"], maxLength: 120 }
+                color: { type: [string, "null"], maxLength: 120 }
+                brand: { type: [string, "null"], maxLength: 120 }
+                location: { type: [string, "null"], maxLength: 500 }
+                occurred_at: { type: [string, "null"], format: date-time }
+                reporter_name: { type: [string, "null"], maxLength: 200 }
+                reporter_its: { type: [string, "null"], maxLength: 40 }
+      responses:
+        "201": { description: Report recorded, with escalation status and help-desk guidance. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/lost-found:
+    get:
+      tags: [lost-found, admin]
+      summary: List all lost and found reports
+      description: >-
+        Any portal member. Returns item details, escalation state, resolver info, and reporter name/phone/ITS.
+      security: [{ portalSession: [] }]
+      responses:
+        "200": { description: "{ reports: LostFoundReport[] }." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [lost-found, admin]
+      summary: Manually add a lost or found item
+      description: >-
+        Any portal member can add items. Source is recorded as 'manual'.
+      security: [{ portalSession: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [report_type, item_name]
+              properties:
+                report_type: { type: string, enum: [lost, found] }
+                item_name: { type: string, minLength: 2, maxLength: 160 }
+                description: { type: string, maxLength: 2000 }
+                category: { type: string, maxLength: 120 }
+                color: { type: string, maxLength: 120 }
+                brand: { type: string, maxLength: 120 }
+                location: { type: string, maxLength: 500 }
+                reporter_name: { type: string, maxLength: 200 }
+                reporter_its: { type: string, maxLength: 40 }
+      responses:
+        "201": { description: "{ report: { id, report_type, created_at } }." }
+        "400": { description: "Validation error." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/lost-found/{id}:
+    put:
+      tags: [lost-found, admin]
+      summary: Edit a lost/found item
+      description: Any portal member can edit item details.
+      security: [{ portalSession: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                item_name: { type: string, minLength: 2, maxLength: 160 }
+                description: { type: string, maxLength: 2000 }
+                category: { type: string, maxLength: 120 }
+                color: { type: string, maxLength: 120 }
+                brand: { type: string, maxLength: 120 }
+                location: { type: string, maxLength: 500 }
+                reporter_name: { type: string, maxLength: 200 }
+                reporter_its: { type: string, maxLength: 40 }
+      responses:
+        "200": { description: "{ ok: true }." }
+        "400": { description: "Validation error." }
+        "404": { description: "Report not found." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    delete:
+      tags: [lost-found, admin]
+      summary: Remove a lost/found item
+      description: Any portal member can delete items.
+      security: [{ portalSession: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: "{ ok: true }." }
+        "404": { description: "Report not found." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/lost-found/{id}/resolve:
+    patch:
+      tags: [lost-found, admin]
+      summary: Mark an item as resolved (found/returned)
+      description: >-
+        Any portal member. Records who closed it (user_id + display_name), when, and optional notes.
+        Shows in the Resolved history tab.
+      security: [{ portalSession: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes: { type: string, maxLength: 2000 }
+      responses:
+        "200": { description: "{ ok: true }." }
+        "404": { description: "Report not found or already resolved." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /admin/auth:
     post:
       tags: [auth]
@@ -310,6 +459,10 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, default: 75, maximum: 200 }
+        - name: scope
+          in: query
+          schema: { type: string, enum: [main, niyaz], default: main }
+          description: "Inbox split by the number a conversation is on (conversation_sessions.phone_number_id). main = exclude the niyaz RSVP/broadcast number; niyaz = only it."
       responses:
         "200": { description: Conversations with handling mode, messages, and tool calls. }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -549,10 +702,147 @@ paths:
       description: >-
         Counts + recent personal fiqh / halal-haram questions the assistant refused (redirecting to
         the Aamil Saheb) and quietly flagged via the deterministic ruling guard. NOT escalations —
-        no one is paged. Phone is masked to the last 4 digits. Admin/leadership only.
+        no one is paged. Phone is masked to the last 4 digits. Admin/leadership or a religious monitor.
       security: [{ portalSession: [] }, { adminKey: [] }]
       responses:
         "200": { description: "{ total, unreviewed, recent[] } of flagged ruling questions." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/religious/metrics:
+    get:
+      tags: [conversations]
+      summary: Religious-dashboard metrics (waaz/Lisan tool usage, missing words, ruling flags).
+      description: >-
+        Aggregated counts from tool_audit_logs over a window (?from/?to YYYY-MM-DD, default 30 days):
+        total calls, unique members, waaz questions, Lisan lookups + status split, top words, open
+        missing-word requests, unreviewed ruling flags. Admin/leadership or a religious monitor.
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      responses:
+        "200": { description: "{ summary, top_words[] }." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/religious/conversations:
+    get:
+      tags: [conversations]
+      summary: Conversations that used a religious tool, with each member's 24h-window state.
+      description: Threads (newest first) for the Waaz Talaqqi Chats tab. ?from/?to optional. Each thread includes handling_mode (ai|manual) + in_window. Religious monitor / admin.
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      responses:
+        "200": { description: "{ conversations[] } each with messages, in_window, handling_mode." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/religious/mode:
+    put:
+      tags: [conversations]
+      summary: Flip a religious chat between AI-handled and Manual (Waaz Talaqqi Chats tab).
+      description: >-
+        Sets conversation_sessions.handling_mode. Gated for religious monitors (the Inbox's
+        /conversations/{phone}/mode is canAccessInbox, which monitors lack). Flipping to Manual takes
+        the member off the AI for all replies (logistics included), same as the Inbox toggle; updates
+        only handling_mode + attribution, never current_intent/state.
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [phone, mode], properties: { phone: { type: string }, mode: { type: string, enum: [ai, manual] } } }
+      responses:
+        "200": { description: "{ phone_e164, handling_mode, handling_mode_at }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: Conversation not found. }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/religious/word-requests:
+    get:
+      tags: [conversations]
+      summary: Missing-word queue (words asked for that aren't in the dictionary).
+      description: ?status=open|added|dismissed|all (default open), most-asked first. Religious monitor / admin.
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      responses:
+        "200": { description: "{ requests[] }." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    patch:
+      tags: [conversations]
+      summary: Resolve a missing-word request (mark added / dismissed).
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, status]
+              properties:
+                id: { type: string, format: uuid }
+                status: { type: string, enum: [open, added, dismissed] }
+      responses:
+        "200": { description: Updated. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/religious/reply:
+    post:
+      tags: [conversations]
+      summary: Send a WhatsApp reply to a member from the religious dashboard.
+      description: >-
+        Free-form text, delivered ONLY inside WhatsApp's 24-hour window (else 422 out_of_window).
+        State-preserving — updates only last_message_at; never resets the member's conversation
+        intent/state or handling_mode, so an in-progress logistics flow is untouched. Religious
+        monitor / admin.
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, text]
+              properties:
+                phone: { type: string }
+                text: { type: string, maxLength: 4096 }
+      responses:
+        "200": { description: "{ sent, whatsapp_message_id }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { description: Member is outside the 24-hour window (out_of_window true). }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/religious/monitors:
+    get:
+      tags: [conversations, users]
+      summary: List religious monitors. Religious monitor / admin.
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      responses:
+        "200": { description: "{ members[] }." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [conversations, users]
+      summary: Add a religious monitor (admin/leadership only).
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [user_id], properties: { user_id: { type: string, format: uuid } } }
+      responses:
+        "201": { description: Added. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { description: User is already a monitor. }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/religious/monitors/{id}:
+    delete:
+      tags: [conversations, users]
+      summary: Remove a religious monitor (admin/leadership only).
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Removed. }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
   /admin/escalation-support:
@@ -1256,17 +1546,26 @@ paths:
   /whatsapp/webhook:
     get:
       tags: [conversations]
-      summary: Verify Meta WhatsApp webhook subscription.
+      summary: Verify Meta WhatsApp webhook subscription (all numbers).
+      description: >-
+        Single shared callback URL for every WhatsApp account. The GET handshake echoes the challenge
+        when hub.verify_token matches ANY configured account's verify token (e.g.
+        META_WEBHOOK_VERIFY_TOKEN or META_WEBHOOK_VERIFY_TOKEN_BROADCAST).
       security: []
       responses:
         "200": { description: Challenge response. }
         "403": { $ref: "#/components/responses/Forbidden" }
     post:
       tags: [conversations]
-      summary: Receive inbound WhatsApp webhook messages.
+      summary: Receive inbound WhatsApp webhook messages (all numbers).
+      description: >-
+        Single shared endpoint for every WhatsApp account. The handler resolves the account from the
+        payload's metadata.phone_number_id, verifies the X-Hub-Signature-256 with THAT account's app
+        secret, and sends any reply from that number. Deliveries for an unconfigured number are acked
+        with 200 and ignored.
       security: []
       responses:
-        "200": { description: Webhook processed. }
+        "200": { description: Webhook processed (or ignored for an unknown number). }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
   /relay-updates:
@@ -1503,7 +1802,12 @@ paths:
     post:
       tags: [registration]
       summary: Submit or edit a family registration.
-      description: Public. First submission sets status to submitted. Subsequent edits require a valid edit_token from /register/otp/verify.
+      description: >
+        Public. First submission sets status to submitted. Subsequent edits require a valid
+        edit_token from /register/otp/verify. Accommodation and transport are required for mehman
+        families EXCEPT when every member is marked not-attending — such a family isn't coming, so
+        those fields are neither required nor stored (any previously entered values are cleared).
+        Local families never provide accommodation/transport.
       requestBody:
         required: true
         content:
@@ -1667,7 +1971,7 @@ paths:
                 kids: { type: integer, description: "Number of kids attending. For registered families, triggers partial attendance; capped at the family's kid count. For unregistered callers, records head count." }
                 its_number: { type: string, description: "Unregistered callers only — optional ITS for family matching." }
       responses:
-        "200": { description: "Updated row count + refreshed grid. When the requested adults/kids exceeded the family size, also returns clamped {requestedAdults, requestedKids, maxAdults, maxKids, message} so the agent tells the user the count was capped and extras must register separately. (Or status=unregistered for unlinked phones — upserts into unregistered_rsvps.)" }
+        "200": { description: "Updated row count + refreshed grid. When the requested counts exceeded the family size, also returns clamped {requestedAdults, requestedKids, requestedTotal, maxAdults, maxKids, maxTotal, message} so the agent tells the user the count was capped and extras must register separately. requestedTotal/maxTotal carry the single-number (head-count) case; adults/kids the split case. (Or status=unregistered for unlinked phones — upserts into unregistered_rsvps.)" }
         "400": { $ref: "#/components/responses/BadRequest" }
 
   /api/parking/my-passes:
@@ -1731,6 +2035,93 @@ paths:
         "201": { description: "{ instance: { id } }." }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /api/admin/niyaz/days:
+    get:
+      tags: [admin]
+      summary: List Niyaz days (day-level RSVP config)
+      description: >-
+        Admin (portal). The configured Niyaz days from niyaz_event_config (prefilled 1st–10th
+        Moharram), each with a representative registration instance id for that date (used to
+        preview/send the RSVP broadcast). Ordered by date.
+      responses:
+        "200": { description: "{ days: [{ date, title, lunch_menu, dinner_menu, rsvp_end_time, has_lunch, has_dinner, template_code, instance_id }] }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/niyaz/days/{date}:
+    get:
+      tags: [admin]
+      summary: Day-level Niyaz config by date
+      description: Admin (portal). The niyaz_event_config row for a date (null if not configured yet).
+      parameters:
+        - { name: date, in: path, required: true, schema: { type: string, format: date } }
+      responses:
+        "200": { description: "{ date, config }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [admin]
+      summary: Upsert day-level Niyaz config by date
+      description: Admin/leadership (portal). Partial patch — only provided fields are written.
+      parameters:
+        - { name: date, in: path, required: true, schema: { type: string, format: date } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rsvp_event_title: { type: string, nullable: true }
+                lunch_menu: { type: string, nullable: true }
+                dinner_menu: { type: string, nullable: true }
+                rsvp_end_time: { type: string, nullable: true }
+                has_lunch: { type: boolean }
+                has_dinner: { type: boolean }
+                template_code: { type: string, nullable: true }
+      responses:
+        "200": { description: "{ date, config }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/niyaz/instances/{id}/config:
+    get:
+      tags: [admin]
+      summary: Day-level Niyaz event config (by instance)
+      description: >-
+        Admin/leadership (portal). The day-level config (keyed by the instance's event_date) holding
+        the template-facing fields the RSVP broadcast needs: rsvp_event_title, lunch/dinner menus,
+        rsvp_end_time, which meals are offered, and the template to send. The per-meal
+        rsvp_registration_instance rows remain the RSVP/tally source of truth.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ date, config }. config is null if not configured yet." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [admin]
+      summary: Upsert day-level Niyaz event config
+      description: Admin/leadership (portal). Partial patch — only provided fields are written.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rsvp_event_title: { type: string, nullable: true }
+                lunch_menu: { type: string, nullable: true }
+                dinner_menu: { type: string, nullable: true }
+                rsvp_end_time: { type: string, nullable: true }
+                has_lunch: { type: boolean }
+                has_dinner: { type: boolean }
+                template_code: { type: string, nullable: true }
+      responses:
+        "200": { description: "{ date, config }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /api/admin/niyaz/instances/{id}/responses:
     get:
       tags: [admin]
@@ -1745,24 +2136,34 @@ paths:
   /api/admin/niyaz/instances/{id}/broadcast:
     get:
       tags: [admin]
-      summary: Preview recipient count for a Niyaz RSVP send
-      description: Admin (portal). Returns the recipient count (and any unresolved ITS) for the chosen audience/level/filter.
+      summary: Preview the audience for a Niyaz RSVP send
+      description: >-
+        Admin (portal). Returns the recipient count, any unresolved ITS, and a sample list
+        (name / ITS / masked phone, first 100) for the chosen audience/level/filter so the composer
+        can preview who will receive the broadcast.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: audience, in: query, required: true, schema: { type: string, enum: [specific_its, all_mumineen, all_hof, all_adults] } }
         - { name: level, in: query, schema: { type: string, enum: [ind, fam] } }
         - { name: only_non_responders, in: query, schema: { type: boolean } }
+        - { name: require_registered, in: query, schema: { type: boolean, default: true }, description: "false targets every roster-active, not-attending=false family (drops the submitted-registration filter)." }
         - { name: its, in: query, schema: { type: string }, description: Comma/space-separated ITS for the test audience. }
       responses:
-        "200": { description: "{ count, unresolved_its }." }
+        "200": { description: "{ count, unresolved_its, sample: [{ name, its, phone_masked }] }." }
         "403": { $ref: "#/components/responses/Forbidden" }
     post:
       tags: [admin]
-      summary: Send the daily Niyaz RSVP template (quick-reply buttons)
+      summary: Send a Niyaz RSVP template (quick-reply or custom Flow/quick-reply buttons)
       description: >-
         Admin/leadership (portal). Sends an approved template to the chosen audience for the event's
-        date, stamping each quick-reply button with a niyaz|level|scope|date payload, via the
-        broadcast queue. Taps are recorded by the WhatsApp webhook.
+        date via the broadcast queue. Body variables auto-bind to person fields, family_members, or
+        the day's event-config values (rsvp_event_title / lunch_menu / dinner_menu / rsvp_end_time).
+        When `buttons` is supplied (ashara_relay_double_rsvp), each button's payload templates are
+        resolved per recipient — {{hof_its}}, {{RegistrationInstanceId}} (the day's numeric
+        niyaz_event_config.day_id), {{EligibleFamilyCount}} — replacing the legacy
+        niyaz|level|scope|date quick-reply buttons.
+        Phase 1: inbound Flow/button responses are captured raw by the webhook; decoding into RSVPs
+        is phase 2.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       requestBody:
@@ -1776,11 +2177,44 @@ paths:
                 audience: { type: string, enum: [specific_its, all_mumineen, all_hof, all_adults] }
                 its: { type: array, items: { type: string } }
                 only_non_responders: { type: boolean }
+                require_registered: { type: boolean, default: true, description: "false targets every roster-active, not-attending=false family." }
                 level: { type: string, enum: [ind, fam] }
                 template_code: { type: string }
-                mode: { type: string, enum: [buttons, headcount], description: "buttons = quick-reply RSVP; headcount = free-text family head count (logs a prompt for the numeric reply)." }
+                mode: { type: string, enum: [buttons, headcount], description: "buttons = quick-reply RSVP; headcount = free-text family head count (logs a prompt for the numeric reply). Ignored when `buttons` is supplied." }
                 registration_message: { type: string, description: "Head-count mode: {{registration_message}} (auto-generated if omitted)." }
                 example_response: { type: string, description: "Head-count mode: {{example_response}} (default 4)." }
+                buttons:
+                  type: array
+                  description: "Custom per-recipient button payloads (Flow + quick-reply). Replaces the legacy niyaz buttons."
+                  items:
+                    oneOf:
+                      - type: object
+                        required: [type, index, flow_token]
+                        properties:
+                          type: { type: string, enum: [flow] }
+                          index: { type: integer }
+                          flow_token: { type: string, description: "Templated, e.g. rsvp:{{Person.Id}}:{{RegistrationInstanceId}}." }
+                          flow_action_data: { type: object, additionalProperties: { type: string }, description: "Templated values; integer-looking values are coerced to numbers." }
+                      - type: object
+                        required: [type, index, payload]
+                        properties:
+                          type: { type: string, enum: [quick_reply] }
+                          index: { type: integer }
+                          payload: { type: string, description: "Templated, e.g. rsvp:{{hof_its}}:{{RegistrationInstanceId}}:not-attending." }
+                variable_bindings:
+                  type: object
+                  description: "Explicit per-variable bindings (override the auto-bound defaults). Each body token (and optional header) binds to a static value or a per-recipient roster field."
+                  properties:
+                    body:
+                      type: object
+                      additionalProperties:
+                        oneOf:
+                          - { type: object, required: [kind, value], properties: { kind: { type: string, enum: [static] }, value: { type: string } } }
+                          - { type: object, required: [kind, field], properties: { kind: { type: string, enum: [field] }, field: { type: string } } }
+                    header:
+                      oneOf:
+                        - { type: object, required: [kind, value], properties: { kind: { type: string, enum: [static] }, value: { type: string } } }
+                        - { type: object, required: [kind, field], properties: { kind: { type: string, enum: [field] }, field: { type: string } } }
       responses:
         "200": { description: "{ status: started, broadcastId, total, … }." }
         "400": { $ref: "#/components/responses/BadRequest" }
@@ -1824,16 +2258,22 @@ paths:
         x-portal-user-id). Returns the FULL catalog (active + inactive); each template carries
         friendlyName (string|null) and isActive (boolean) merged from whatsapp_template_settings.
         The console filters its dropdowns to isActive and drives the cleanup popup from the full
-        list. No phone numbers returned.
+        list. No phone numbers returned. Spans ALL configured WhatsApp accounts: each template is
+        tagged with accountLabel (string), wabaId (string|null), and phoneNumberId (string) of the
+        account/WABA that owns it, and its friendlyName/isActive are scoped to that WABA.
       responses:
-        "200": { description: "templates[] (each + friendlyName, isActive) + selectable_users[] (id + name only)." }
+        "200": { description: "templates[] (each + friendlyName, isActive, accountLabel, wabaId, phoneNumberId) + selectable_users[] (id + name only)." }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
   /api/admin/templates/settings:
     put:
       tags: [admin, templates]
       summary: Set a template's friendly name and/or active flag
-      description: Admin/leadership only. Upserts whatsapp_template_settings for one Meta template. Inactive templates are hidden from the console's Template dropdowns.
+      description: >-
+        Admin/leadership only. Upserts whatsapp_template_settings for one Meta template, scoped to a
+        WABA. Inactive templates are hidden from the console's Template dropdowns. Pass waba_id to
+        annotate a non-primary account's template; omit it for the primary account. An unknown
+        waba_id returns 400.
       requestBody:
         required: true
         content:
@@ -1843,6 +2283,7 @@ paths:
               required: [template_name]
               properties:
                 template_name: { type: string }
+                waba_id: { type: string, description: "WABA that owns the template; omit for the primary account." }
                 friendly_name: { type: string, nullable: true, maxLength: 120 }
                 is_active: { type: boolean }
       responses:
@@ -1856,10 +2297,15 @@ paths:
       summary: Niyaz reach segment sizes (free vs paid split)
       description: >-
         Admin/leadership only. Sizes of the three reach segments for the console header, each split
-        into in_window (messaged ≤24h — answerable for free) vs out_window (needs a template —
-        counts against the daily cap). Counts only; no PII.
+        into in_window (messaged within the free customer-service window — answerable for free) vs
+        out_window (needs a template — counts against the daily cap). The optional `hours` query
+        param overrides the free-window size (any positive value; falls back to the configured
+        WHATSAPP_WINDOW_HOURS, default 24); the resolved value is echoed back as window_hours so the
+        console can label the split. Counts only; no PII.
+      parameters:
+        - { name: hours, in: query, required: false, schema: { type: number, minimum: 1 }, description: "Override the free-window size in hours (any positive value)." }
       responses:
-        "200": { description: "{ segments: [{ key, label, total, in_window, out_window }] }." }
+        "200": { description: "{ segments: [{ key, label, total, in_window, out_window }], window_hours }." }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
   /api/admin/templates/preview:
@@ -1879,6 +2325,8 @@ paths:
                 selected_user_ids: { type: array, items: { type: string, format: uuid } }
                 rules: { type: object, description: react-querybuilder rule tree (audience_key=custom) }
                 csv: { type: string, description: Raw CSV text in the audience-export format (audience_key=csv_upload) }
+                window: { type: string, enum: [all, in_window, out_window], default: all, description: "Restrict the audience to one side of the customer-service window — in_window (free) or out_window (paid, needs a template). Counts/cost reflect the filtered subset." }
+                window_hours: { type: number, minimum: 1, description: "Override the free-window size in hours, any positive value (defaults to WHATSAPP_WINDOW_HOURS, 24)." }
                 include_recipients: { type: boolean }
                 limit: { type: integer, minimum: 1, maximum: 200 }
                 offset: { type: integer, minimum: 0 }
@@ -1906,6 +2354,8 @@ paths:
                 selected_user_ids: { type: array, items: { type: string, format: uuid } }
                 rules: { type: object, description: react-querybuilder rule tree (audience_key=custom) }
                 csv: { type: string, description: Raw CSV text in the audience-export format (audience_key=csv_upload) }
+                window: { type: string, enum: [all, in_window, out_window], default: all, description: "Restrict the audience to one side of the customer-service window — in_window (free) or out_window (paid)." }
+                window_hours: { type: number, minimum: 1, description: "Override the free-window size in hours, any positive value (defaults to WHATSAPP_WINDOW_HOURS, 24)." }
                 variable_bindings: { type: object, description: Per-variable static value or roster-field mapping }
       responses:
         "200": { description: "status=started + broadcastId + counts." }
@@ -1929,6 +2379,8 @@ paths:
                 selected_user_ids: { type: array, items: { type: string, format: uuid } }
                 rules: { type: object, description: react-querybuilder rule tree (audience_key=custom) }
                 csv: { type: string, description: Raw CSV text in the audience-export format (audience_key=csv_upload) }
+                window: { type: string, enum: [all, in_window, out_window], default: all, description: "Restrict the export to one side of the customer-service window — in_window (free) or out_window (paid)." }
+                window_hours: { type: number, minimum: 1, description: "Override the free-window size in hours, any positive value (defaults to WHATSAPP_WINDOW_HOURS, 24)." }
       responses:
         "200": { description: "text/csv attachment of the resolved audience." }
         "400": { $ref: "#/components/responses/BadRequest" }
@@ -1948,7 +2400,9 @@ paths:
     get:
       tags: [admin, templates]
       summary: Broadcast send log with metrics
-      description: Admin/leadership only.
+      description: Admin/leadership only. Optionally filter by audience_key (e.g. niyaz_rsvp for the Niyaz RSVP sends).
+      parameters:
+        - { name: audience_key, in: query, required: false, schema: { type: string }, description: "Filter to broadcasts with this audience_key (e.g. niyaz_rsvp)." }
       responses:
         "200": { description: "broadcasts[] (most recent first)." }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -1957,11 +2411,24 @@ paths:
     get:
       tags: [admin, templates]
       summary: One broadcast + delivery-status rollup + grouped failure reasons
-      description: Admin/leadership only. Aggregate status counts and a grouped failure-reason breakdown only — no phone numbers (use /failures for the per-recipient list). Failure reasons group by Meta's captured error code/title when available, otherwise the free/paid 24h-window fallback label.
+      description: Admin/leadership only. Aggregate status counts and a grouped failure-reason breakdown only — no phone numbers (use /failures or /recipients for per-recipient lists). The returned broadcast object carries how the audience was defined — audience_key, audience_rules, variable_bindings, and the audience toggles window_filter / window_hours / selected_user_ids (null on broadcasts created before these were recorded). Failure reasons group by Meta's captured error code/title when available, otherwise the free/paid 24h-window fallback label.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        "200": { description: "broadcast + status_counts + failure_reasons (reason → count)." }
+        "200": { description: "broadcast (incl. audience_rules/variable_bindings/window_filter/window_hours/selected_user_ids) + status_counts + failure_reasons (reason → count)." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/admin/templates/broadcasts/{id}/recipients:
+    get:
+      tags: [admin, templates]
+      summary: Full recipient list for a broadcast — every status (JSON or CSV)
+      description: Admin/leadership only. Returns the entire audience the broadcast sent to (sent/failed/skipped/queued/delivered/read/replied), each with phone, best-effort identity (name/ITS resolved by phone), send status, window flag, sent_at, and a detail field (failure reason for failed rows, skip reason for skipped). Exposes PII to authorized staff (same level as /failures); never shown to visitors. ?format=csv returns a download.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: format, in: query, required: false, schema: { type: string, enum: [csv] } }
+      responses:
+        "200": { description: "{ recipients[] } (JSON) or a text/csv attachment." }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
@@ -1977,6 +2444,28 @@ paths:
         "200": { description: "{ failures[] } (JSON) or a text/csv attachment." }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/admin/whatsapp/undeliverable:
+    get:
+      tags: [admin, templates]
+      summary: List auto-suppressed undeliverable numbers
+      description: Admin/leadership only. Numbers auto-suppressed because Meta reported them as not-on-WhatsApp / can't-receive (error 131026) past the failure threshold, so they're skipped on every broadcast. Each row carries phone, best-effort identity (name/ITS by phone), fail_count, last error code, and timestamps. Exposes PII to authorized staff (same level as the failures export); never shown to visitors.
+      responses:
+        "200": { description: "{ numbers[] } (newest failure first)." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      tags: [admin, templates]
+      summary: Un-flag an undeliverable number
+      description: Admin/leadership only. Clears suppression for one number and resets its failure counter so it's eligible for sends again (e.g. a mistyped number that's since been corrected). It would take a fresh run of failures to re-suppress.
+      parameters:
+        - { name: phone, in: query, required: true, schema: { type: string }, description: "The number to un-flag (any format; normalized server-side)." }
+      responses:
+        "200": { description: "{ cleared: true, phone }." }
+        "400": { description: "phone is required." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "Number is not on the suppression list." }
 
   /api/admin/prompts/{key}:
     get:

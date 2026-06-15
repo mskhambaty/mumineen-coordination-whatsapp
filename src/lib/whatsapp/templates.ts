@@ -13,6 +13,8 @@ export type TemplateDescriptor = {
   header: { format: string; hasVar: boolean } | null; // format: TEXT | IMAGE | VIDEO | DOCUMENT
   headerVar: string | null; // header text variable token, if any
   urlButtons: { index: number; text: string | null; hasVar: boolean }[];
+  // Flow buttons (sub_type "flow") — sent with a per-recipient flow_token + flow_action_data.
+  flowButtons: { index: number; text: string | null }[];
 };
 
 // Ordered, de-duped variable tokens in a template string. Positional tokens are sorted numerically;
@@ -47,6 +49,11 @@ export function describeTemplate(tpl: WaTemplate): TemplateDescriptor {
     .filter(({ b }) => b.type?.toUpperCase() === "URL")
     .map(({ b, index }) => ({ index, text: b.text ?? null, hasVar: /\{\{\s*[a-zA-Z0-9_]+\s*\}\}/.test(b.url ?? "") }));
 
+  const flowButtons = (buttonsComp?.buttons ?? [])
+    .map((b, index) => ({ b, index }))
+    .filter(({ b }) => b.type?.toUpperCase() === "FLOW")
+    .map(({ b, index }) => ({ index, text: b.text ?? null }));
+
   return {
     name: tpl.name,
     language: tpl.language,
@@ -58,6 +65,7 @@ export function describeTemplate(tpl: WaTemplate): TemplateDescriptor {
     header: header ? { format: headerFormat ?? "TEXT", hasVar: headerTokens.length > 0 || (headerFormat ?? "TEXT") !== "TEXT" } : null,
     headerVar: headerTokens[0] ?? null,
     urlButtons,
+    flowButtons,
   };
 }
 
@@ -69,6 +77,9 @@ export type SendComponentInputs = {
   // Per-send payloads for quick-reply buttons (e.g. RSVP buttons encoding level|scope|date). The
   // index matches the button's position in the template's BUTTONS component.
   quickReplyButtons?: { index: number; payload: string }[];
+  // Resolved Flow buttons (sub_type "flow"): a flow_token and the flow_action_data seeding the
+  // Flow's first screen. The index matches the button's position in the BUTTONS component.
+  flowButtons?: { index: number; flowToken: string; flowActionData: Record<string, unknown> }[];
 };
 
 // Build the Meta `components` array for a template send. Emits named parameters (`parameter_name`)
@@ -117,6 +128,15 @@ export function buildSendComponents(inputs: SendComponentInputs, desc: TemplateD
     });
   }
 
+  for (const btn of inputs.flowButtons ?? []) {
+    components.push({
+      type: "button",
+      sub_type: "flow",
+      index: String(btn.index),
+      parameters: [{ type: "action", action: { flow_token: btn.flowToken, flow_action_data: btn.flowActionData } }],
+    });
+  }
+
   return components;
 }
 
@@ -136,11 +156,25 @@ export function previewBody(bodyText: string | null, bodyParams: string[], bodyV
 // ── Per-recipient variable bindings (broadcasts) ────────────────────────────
 
 export type Binding = { kind: "static"; value: string } | { kind: "field"; field: string };
+
+// Per-recipient button payload specs. Each string may contain {{token}} placeholders resolved
+// against the recipient's field map plus per-send static tokens (VariableBindings.buttonTokens).
+// Recognized aliases: {{Person.Id}} (recipient mumin id), {{EligibleFamilyCount}}, and any field
+// name; statics like {{RegistrationInstanceId}} come from buttonTokens.
+export type ButtonBinding =
+  | { type: "quick_reply"; index: number; payload: string }
+  | { type: "flow"; index: number; flowToken: string; flowActionData: Record<string, string> };
+
 export type VariableBindings = {
   body?: Record<string, Binding>; // token -> binding
   header?: Binding;
   headerMediaUrl?: string;
   urlButton?: Binding;
+  // Templated, per-recipient button payloads (Flow + quick-reply). Resolved per recipient in
+  // resolveBindings and frozen into the recipient's send inputs.
+  buttons?: ButtonBinding[];
+  // Per-send static token values for button templates (e.g. RegistrationInstanceId).
+  buttonTokens?: Record<string, string>;
 };
 
 // Roster fields offered for per-recipient ("Field") variable mapping.
@@ -164,6 +198,67 @@ function resolveBinding(b: Binding | undefined, row: Record<string, unknown>): {
   const v = row[b.field];
   if (v == null || String(v).trim() === "") return { missing: b.field };
   return { value: String(v) };
+}
+
+// Build the substitution context for button templates from a recipient's field map + per-send
+// statics. Adds friendly aliases for the tokens used in button specs.
+function buttonContext(row: Record<string, unknown>, statics: Record<string, string>): Record<string, string> {
+  const ctx: Record<string, string> = {};
+  for (const [k, v] of Object.entries(row)) ctx[k] = v == null ? "" : String(v);
+  if (row.mumin_id != null) ctx["Person.Id"] = String(row.mumin_id);
+  if (row.eligible_family_count != null) ctx["EligibleFamilyCount"] = String(row.eligible_family_count);
+  for (const [k, v] of Object.entries(statics)) ctx[k] = v;
+  return ctx;
+}
+
+// Substitute {{token}} placeholders (dotted names allowed) in `tpl` against `ctx`. Returns the
+// resolved string, or { missing } naming the first token that is absent/empty — so the caller can
+// skip a recipient for whom a required button value can't be formed.
+function resolveTokens(tpl: string, ctx: Record<string, string>): { value: string } | { missing: string } {
+  let missing: string | null = null;
+  const value = tpl.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, tok: string) => {
+    const v = ctx[tok];
+    if (v == null || v === "") {
+      if (!missing) missing = tok;
+      return "";
+    }
+    return v;
+  });
+  return missing ? { missing } : { value };
+}
+
+// flow_action_data values are sent as JSON; coerce integer-looking strings to numbers (e.g.
+// attending_count) while leaving uuids/text as strings.
+function coerceFlowValue(v: string): string | number {
+  return /^-?\d+$/.test(v) ? Number(v) : v;
+}
+
+// Resolve a button spec against one recipient's context into concrete send inputs, or a skipReason
+// if a required token is unresolved for this recipient.
+function resolveButtons(
+  buttons: ButtonBinding[],
+  ctx: Record<string, string>,
+): { quickReplyButtons?: SendComponentInputs["quickReplyButtons"]; flowButtons?: SendComponentInputs["flowButtons"] } | { skipReason: string } {
+  let quickReplyButtons: SendComponentInputs["quickReplyButtons"];
+  let flowButtons: SendComponentInputs["flowButtons"];
+  for (const b of buttons) {
+    if (b.type === "quick_reply") {
+      const r = resolveTokens(b.payload, ctx);
+      if ("missing" in r) return { skipReason: `missing ${r.missing}` };
+      (quickReplyButtons ??= []).push({ index: b.index, payload: r.value });
+    } else {
+      const tokenR = resolveTokens(b.flowToken, ctx);
+      if ("missing" in tokenR) return { skipReason: `missing ${tokenR.missing}` };
+      const data: Record<string, unknown> = {};
+      for (const [key, tpl] of Object.entries(b.flowActionData)) {
+        const r = resolveTokens(tpl, ctx);
+        if ("missing" in r) return { skipReason: `missing ${r.missing}` };
+        data[key] = coerceFlowValue(r.value);
+      }
+      (flowButtons ??= []).push({ index: b.index, flowToken: tokenR.value, flowActionData: data });
+    }
+  }
+  return { quickReplyButtons, flowButtons };
 }
 
 // Resolve all of a template's variable bindings against one recipient field-map → send inputs, or a
@@ -194,5 +289,14 @@ export function resolveBindings(
     urlButtonParam = r.value;
   }
 
-  return { inputs: { bodyParams, headerText, headerMediaUrl: bindings.headerMediaUrl ?? null, urlButtonParam } };
+  let quickReplyButtons: SendComponentInputs["quickReplyButtons"];
+  let flowButtons: SendComponentInputs["flowButtons"];
+  if (bindings.buttons && bindings.buttons.length > 0) {
+    const resolved = resolveButtons(bindings.buttons, buttonContext(row, bindings.buttonTokens ?? {}));
+    if ("skipReason" in resolved) return { inputs: {}, skipReason: resolved.skipReason };
+    quickReplyButtons = resolved.quickReplyButtons;
+    flowButtons = resolved.flowButtons;
+  }
+
+  return { inputs: { bodyParams, headerText, headerMediaUrl: bindings.headerMediaUrl ?? null, urlButtonParam, quickReplyButtons, flowButtons } };
 }

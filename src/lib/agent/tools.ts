@@ -3,6 +3,7 @@ import type OpenAI from "openai";
 import { canUseTool, canUseTaskToolForCaller, publicTools, taskReadTools, taskWriteTools, taskCreateTools, leadershipTools, type AppUser } from "@/lib/permissions";
 import { retrieveReligiousContext, retrieveSiteContext, RELIGIOUS_FALLBACK_MIN_SCORE } from "@/lib/scraper/retrieve-site-context";
 import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
+import { recordMissingLisanWord } from "@/lib/knowledge/lisan-word-requests";
 import { maybeSingleWordQuery } from "@/lib/agent/religious-guard";
 import { ACTIVE_ASHARA_YEAR, LAST_COMPLETED_ASHARA_YEAR, resolveAsharaYear } from "@/lib/knowledge/ashara-config";
 import {
@@ -111,6 +112,54 @@ export const allToolDefinitions: ToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "report_lost_item",
+      description:
+        "Record a visitor's lost-item report and automatically escalate it to the Lost and Found team. Gather a useful item name/description and ask where it was last seen; include color/brand when known. If Sender Context does not show a registered roster profile, ask for the reporter's name and ITS number (if they have one) before calling. After success, tell them the team will follow up and that pickup is at any help desk in the masjid complex.",
+      parameters: {
+        type: "object",
+        properties: {
+          item_name: { type: "string", description: "Short name of the lost item, e.g. 'black backpack'." },
+          description: { type: "string", description: "Distinctive details that will help identify the item." },
+          category: { type: "string", description: "Optional broad category, e.g. bag, clothing, electronics, document." },
+          color: { type: "string", description: "Item color, when known." },
+          brand: { type: "string", description: "Brand or maker, when known." },
+          location: { type: "string", description: "Where the item was last seen." },
+          occurred_at: { type: "string", description: "ISO 8601 timestamp when it was lost, only when the reporter provided a date/time." },
+          reporter_name: { type: "string", description: "Reporter name, needed when Sender Context has no registered profile." },
+          reporter_its: { type: "string", description: "Reporter ITS number, when provided." },
+        },
+        required: ["item_name"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "report_found_item",
+      description:
+        "Record an item that a visitor found. Gather a useful item name/description and where it was found; include color/brand when known. If Sender Context does not show a registered roster profile, ask for the reporter's name and ITS number (if they have one) before calling. After success, tell them to drop it off at any help desk in the masjid complex.",
+      parameters: {
+        type: "object",
+        properties: {
+          item_name: { type: "string", description: "Short name of the found item, e.g. 'blue water bottle'." },
+          description: { type: "string", description: "Distinctive details that will help identify the item." },
+          category: { type: "string", description: "Optional broad category, e.g. bag, clothing, electronics, document." },
+          color: { type: "string", description: "Item color, when known." },
+          brand: { type: "string", description: "Brand or maker, when known." },
+          location: { type: "string", description: "Where the item was found." },
+          occurred_at: { type: "string", description: "ISO 8601 timestamp when it was found, only when the reporter provided a date/time." },
+          reporter_name: { type: "string", description: "Reporter name, needed when Sender Context has no registered profile." },
+          reporter_its: { type: "string", description: "Reporter ITS number, when provided." },
+        },
+        required: ["item_name"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "move_to_escalation",
       description:
         "Hand the conversation to the human team and create an issue for tracking. TWO uses: (1) LAST RESORT for logistics — only after you genuinely tried get_site_content_faq and still cannot, or the user is clearly frustrated after you tried, or an emergency (lost child, lost passport, medical, security); never escalate just because someone asks for a person early on. (2) RELIGIOUS FOLLOW-UP — a genuine Waaz/deen question the reflections can't answer, or a personal fiqh/fatwa question: call with category 'religious_followup' so the team can follow up (the system sends a fixed reply; do not add your own). This also creates an issue, workspace task, and notifies the department team.",
@@ -145,6 +194,7 @@ export const allToolDefinitions: ToolDefinition[] = [
               "facilities",
               "complaint",
               "religious_followup",
+              "lost_found",
               "other",
             ],
             description:
@@ -756,8 +806,14 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       }
       return { decision: "not_found" };
     }
-    case "get_lisan_word_meaning":
-      return lookupLisanWord(String(args.word ?? ""));
+    case "get_lisan_word_meaning": {
+      const word = String(args.word ?? "");
+      const lookup = await lookupLisanWord(word);
+      // A genuine gap (not_found, not a "did you mean") → queue it + alert the owner once so the
+      // word can be added. Fire-and-forget; never blocks or breaks the member's reply.
+      if (lookup.status === "not_found") void recordMissingLisanWord(word, context.phoneE164);
+      return lookup;
+    }
     case "move_to_escalation":
       return callInternalApi("/api/escalations", {
         method: "POST",
@@ -770,6 +826,24 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
           category: args.category,
           department: args.department,
           source: "ai",
+        },
+      });
+    case "report_lost_item":
+    case "report_found_item":
+      return callInternalApi("/api/lost-found", {
+        method: "POST",
+        phone: context.phoneE164,
+        body: {
+          report_type: name === "report_lost_item" ? "lost" : "found",
+          item_name: args.item_name,
+          description: args.description,
+          category: args.category,
+          color: args.color,
+          brand: args.brand,
+          location: args.location,
+          occurred_at: args.occurred_at,
+          reporter_name: args.reporter_name,
+          reporter_its: args.reporter_its,
         },
       });
     case "flag_knowledge_gap":

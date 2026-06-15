@@ -28,6 +28,7 @@ independent: a person's department role does not change their account role and v
 | **Member** | `is_internal = true` |
 | (in IT dept) | `is_it = true` · (in Transport dept) `is_transport = true` |
 | (added to escalation/on-call) | `is_support = true` — any account/department role can be added |
+| (added to religious monitors) | `is_religious_monitor = true` — any account role can be added; a monitor with no other portal access (e.g. a `visitor`) can sign in but sees ONLY `/admin/religious` |
 
 ## Access tiers (predicates)
 
@@ -39,6 +40,7 @@ independent: a person's department role does not change their account role and v
 | **admin** | `isAdminOrLeadership` | Admin/leadership only. |
 | **import** | `canImportMumineen` | Admin/leadership **or** IT (`is_it`). Bulk roster import only. |
 | **parking-write** | `canManageParking` | Admin/leadership, IT, or Transport. Parking assign/revoke/export only. |
+| **religious** | `canMonitorReligiousChats` | Admin/leadership **or** a religious monitor (`is_religious_monitor`). The isolated `/admin/religious` dashboard only. |
 
 ## Page matrix
 
@@ -53,6 +55,7 @@ independent: a person's department role does not change their account role and v
 | **Mumineen → Accommodations** | ✅ | ✅ | ✅ | ✅ | Host/guest views + matching. |
 | **Mumineen → Parking Passes** | ✅ | 👁 | 👁 | 👁 | View open to all portal users. **Assign/revoke/edit lots/export** = parking-write tier (admin, IT, Transport). |
 | **Mumineen → Niyaz** | ✅ | ✅ | ✅ | ✅ | |
+| **Mumineen → Lost & Found** | ✅ | ✅ | ✅ | ✅ | Portal-member report list includes reporter contact details. |
 | **Messaging → Relay Updates** | ✅ | ❌ | ❌ | ❌ | Admin/leadership only (view + edit). |
 | **Messaging → WhatsApp Templates** | ✅ | ❌ | ❌ | ❌ | Admin/leadership only (view + edit). |
 | **AI Agent → Prompts** | ✅ | ❌ | ❌ | ✅ | manage tier (includes escalation/on-call). |

@@ -17,6 +17,9 @@ vi.mock("@/lib/whatsapp/template-settings", () => ({
 }));
 vi.mock("@/lib/whatsapp/audience", () => ({
   segmentCounts: (...a: unknown[]) => segmentCounts(...a),
+  // Mirror the real resolver: any positive override wins (no upper cap), else the env default (24).
+  resolveWindowHours: (h?: number | null) =>
+    typeof h === "number" && Number.isFinite(h) && h > 0 ? h : 24,
 }));
 
 import { PUT as settingsPut } from "@/app/api/admin/templates/settings/route";
@@ -55,7 +58,8 @@ describe("PUT /api/admin/templates/settings", () => {
     upsertTemplateSetting.mockResolvedValue({ friendlyName: "Daily RSVP", isActive: false });
     const res = await settingsPut(jsonReq({ template_name: "daily_niyaz", friendly_name: "Daily RSVP", is_active: false }));
     expect(res.status).toBe(200);
-    expect(upsertTemplateSetting).toHaveBeenCalledWith("daily_niyaz", { friendlyName: "Daily RSVP", isActive: false });
+    // No waba_id in the body → primary account (passed as undefined; the lib defaults it).
+    expect(upsertTemplateSetting).toHaveBeenCalledWith(undefined, "daily_niyaz", { friendlyName: "Daily RSVP", isActive: false });
     const json = await res.json();
     expect(json).toMatchObject({ template_name: "daily_niyaz", friendlyName: "Daily RSVP", isActive: false });
   });
@@ -77,5 +81,16 @@ describe("GET /api/admin/templates/segments", () => {
     const json = await res.json();
     expect(json.segments).toHaveLength(1);
     expect(json.segments[0]).toMatchObject({ key: "segment_all_users", total: 3 });
+    expect(json.window_hours).toBe(24);
+  });
+
+  it("honors an ?hours override and passes it to segmentCounts", async () => {
+    requirePortalCaller.mockResolvedValue(allow());
+    segmentCounts.mockResolvedValue([]);
+    const res = await segmentsGet(new NextRequest("http://localhost/x?hours=12", { method: "GET" }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.window_hours).toBe(12);
+    expect(segmentCounts).toHaveBeenCalledWith(12);
   });
 });

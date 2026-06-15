@@ -19,7 +19,8 @@ responses come in.
   `20260610140000_fix_moharram_dinner_titles`.)
 - **`niyaz_rsvp`** (`20260608131000_*`): one row per `(registration_instance_id, mumin_id)` with
   `attending boolean`, `family_id`, and `source` (`default`|`registration`|`whatsapp`|`admin`). RLS
-  on, service-role access only. `rsvp_responses` is retired (left empty) for the meal flow.
+  on, service-role access only. (The legacy `rsvp_responses` table was dropped in
+  `20260614120000_drop_rsvp_responses` — it had been left empty after `niyaz_rsvp` replaced it.)
 - **Default rule** (America/Chicago calendar date): `not_attending` ⇒ No; no `arrival_at` ⇒ Yes
   (present all of Ashara, e.g. locals); else Yes when `event_date ≥ arrival date`. Seeded by the
   backfill (`20260609140000_*`, all registered active mumineen × the 20 events) and by the
@@ -115,11 +116,61 @@ The composer also supports a **head-count** mode (free-text family RSVP): pick "
 response type and a button-less template (variables `person_name`, `registration_message`,
 `family_members`, `example_response`). The send writes a **`niyaz_rsvp_prompts`** row per recipient
 (phone → family + date) instead of button payloads. When the family **replies with a number**, the
-webhook (`handleNiyazHeadCount`) matches the latest open prompt for that phone, records the count in
-**`niyaz_family_headcount`** (per event/family, applied to that day's events) via `recordFamilyHeadCount`,
-consumes the prompt, and confirms. The event-detail panel shows these family head counts
-(`getFamilyHeadCounts`) alongside the per-mumin button responses. (`niyaz_rsvp_prompts` +
-`niyaz_family_headcount`: `supabase/migrations/20260609120000_*`.)
+webhook (`handleNiyazHeadCount`) matches the latest open prompt for that phone and calls
+`recordFamilyHeadCount`, consumes the prompt, and confirms.
+
+`recordFamilyHeadCount` **materializes the number into `niyaz_rsvp`** — the single source of truth —
+by allocating that many attending members across the family (head → adults → kids, clamped to roster
+size; the clamp is surfaced in the reply so extras are nudged to register). It also upserts the raw
+number into **`niyaz_family_headcount`** purely as an audit record of what the family literally said;
+that table is display-only (`getFamilyHeadCounts`) and is **never summed into the event tallies** —
+the attendance it represents is already counted in `niyaz_rsvp`, so adding it would double-count.
+(`niyaz_rsvp_prompts` + `niyaz_family_headcount`: `supabase/migrations/20260609120000_*`.)
+
+### 1b. Double-RSVP via WhatsApp Flow (`ashara_relay_double_rsvp`)
+
+**Niyaz days vs Niyaz events.** The admin UI separates configuration from responses:
+- **Niyaz days** (`/admin/niyaz/days`) — the day-level config in `niyaz_event_config` (keyed by
+  `event_date`), **prefilled 1st–10th Moharram** (`20260615190000_seed_niyaz_days`): `rsvp_event_title`,
+  `lunch_menu`, `dinner_menu`, `rsvp_end_time`, `has_lunch`/`has_dinner` checkboxes, `template_code`.
+  This is where each day is configured **and the RSVP is sent** (`EventRsvpComposer`). Listed via
+  `GET /api/admin/niyaz/days`; edited via `GET/PUT /api/admin/niyaz/days/[date]`
+  (`src/lib/rsvp/event-config.ts`). The page maps each day to a **representative registration
+  instance** for that date to drive the broadcast.
+- **Niyaz events** (`/admin/niyaz`) — the per-meal `rsvp_registration_instance` rows, which remain the
+  RSVP/tally source of truth; clicking one shows **only its responses**. A "Niyaz days →" button links
+  the two. (`GET/PUT /api/admin/niyaz/instances/[id]/config` still exists as an instance-keyed alias.)
+
+The composer sends `ashara_relay_double_rsvp` (a **Flow** button "Attending" + a "Not attending"
+quick-reply) from the niyaz RSVP number (the broadcast WhatsApp account that owns the template).
+Body variables auto-bind to the event-config values (`rsvp_event_title` / `lunch_menu` /
+`dinner_menu` / `rsvp_end_time`), person fields, or `family_members`. The **button payloads are
+specified in the composer** and resolved **per recipient** at send time via `resolveBindings` —
+`{{Person.Id}}` → mumin id, `{{RegistrationInstanceId}}` → this instance, `{{EligibleFamilyCount}}` →
+the family's roster-active, not-attending=false count. `buildSendComponents` emits the Flow button as
+`{ sub_type: "flow", parameters: [{ type: "action", action: { flow_token, flow_action_data } }] }`.
+
+**Audiences** (the composer): *All HOF* (one reachable number per family, `roster_active` +
+`not_attending=false`, `require_registered=false`) and *All HOF — not yet responded* (the same, minus
+families with a `whatsapp`/`admin` `niyaz_rsvp` row for this event). Both have a **preview** (count +
+a sample list of name / ITS / masked phone), and there's a **single-ITS test send**.
+
+The flow_token / not-attending payloads use the `rsvp:<hof_its>:<day_id>` shape (`day_id` =
+`niyaz_event_config.day_id`, a stable numeric per-day id; the Flow's `registration_instance_id` is
+this day_id, not a per-meal instance UUID). flow_action_data carries `hof_its`,
+`registration_instance_id` (day_id), and `lunch_attending_count` / `dinner_attending_count`.
+
+**Inbound (phase 2 — recorded):** Flow completions (`nfm_reply`) and `rsvp:…:not-attending` taps are
+captured raw into `whatsapp_interactive_responses` AND decoded into `niyaz_rsvp`
+(`recordNiyazRsvpFromInteractive` → `recordNiyazDayRsvp`): resolve family by `hof_its`, day by
+`day_id`, then write per meal — `min(count, roster)` members attending (head→adults→kids), and any
+**overflow** beyond the roster as **guest** mumineen rows (`roster_active=false`, sentinel ITS
+`00000-…`, `full_name='Guest'`) that still count in the tallies. Re-submissions reconcile (idempotent;
+guests walk down on a lower count). See [whatsapp-webhook.md](./whatsapp-webhook.md).
+
+**Niyaz inbox:** conversations on the niyaz number are attributed via
+`conversation_sessions.phone_number_id` (and `messages.phone_number_id`) and kept **out of the main
+inbox**; view them via the **Niyaz inbox** button on `/admin/niyaz` (→ `/admin/conversations?scope=niyaz`).
 
 ## 2. Feedback
 
@@ -149,10 +200,12 @@ aggregation below then picks them up alongside real-time and admin feedback.
 
 `src/lib/digest/aggregate.ts` rolls up a day's feedback / issues (`tasks`) / escalations
 (`conversation_sessions`) / **open tickets** per department, plus an all-up view with flagged
-knowledge gaps, the next day's meal RSVP totals, and the total open ticket count. Open tickets
-(non-archived, non-complete tasks) are aggregated across all time, not just the current day — the
-per-department `DeptMetrics` includes `open_tickets` (count) and `open_ticket_titles` (up to 5), and
-`AllUpExtras` includes `total_open_tickets`.
+knowledge gaps and the total open ticket count. The per-department `DeptMetrics` includes:
+- `feedback` — counts + up to **100 sample comments** (so the AI can identify recurring themes and quantify them)
+- `new_issue_samples` — title + priority for up to 10 new issues created that day
+- `escalation_samples` — up to 10 escalation reasons
+- `open_ticket_details` — title + priority + status for up to 10 open tickets
+- `AllUpExtras` includes `total_open_tickets`
 
 `src/lib/digest/run.ts` generates **two** summaries per active
 department — a short one-liner (WhatsApp) and a longer bullet list (email + dashboard) — stores both
@@ -162,7 +215,9 @@ in `department_daily_summaries` (`ai_briefing` = long, `ai_briefing_short` = sho
   `{{2}}` short summary) — `DEPARTMENT_SUMMARY_WA_TEMPLATE`. Gated by `DIGEST_WHATSAPP_ENABLED=true`
   (default off) to control Meta template quota. When enabled, a summary `template_broadcasts` row
   (`audience_key = 'department_digest'`) is logged for visibility on the `/admin/whatsapp-templates`
-  broadcasts page.
+  broadcasts page. For the **All Departments** send, `{{2}}` is now a richer multi-line payload:
+  headline + a few per-department lines (only departments with issues/open tickets/escalations),
+  plus untriaged issue count when present.
 - **Email** via the Postmark `daily-department-summary` template (`department_name`, `feedback_html`
   bullet list, `feedback_text`) — `POSTMARK_DEPARTMENT_SUMMARY_TEMPLATE`.
 
@@ -193,6 +248,25 @@ helps staff spend that quota deliberately. People who **messaged us in the last 
 free customer-service window and can be answered without a template (don't count against the cap);
 everyone else needs a template. So both the header segments and the per-audience preview split
 recipients into *messaged ≤24h (free)* vs *needs a template (paid)*.
+
+The window size defaults to **`WHATSAPP_WINDOW_HOURS`** (24) — `windowHours()` in `audience.ts` —
+but the console exposes a **Window (hours)** input so staff can override it per action (any
+positive value, resolved by `resolveWindowHours()`). The chosen value flows through as `window_hours` on
+`POST /preview`, `/audience-export`, and `/send`, and as a `?hours=` query param on
+`GET /api/admin/templates/segments` (which re-counts the header and echoes back `window_hours`);
+`getInWindowPhones(hours)` applies it. Meta's billing window is 24h, so this is a conservative
+safety margin: lower it (e.g. 14) to treat people who haven't messaged in that many hours as paid
+even if technically still free, avoiding edge cases where the window closes between preview and
+send. The console labels ("Conversed ≤Nh", the helper text) reflect the active value.
+
+**Conversation-window filter.** Beyond just *showing* the split, a **Conversation window** dropdown
+next to the Audience picker restricts any audience to one side of the 24h window: `all` (default),
+`in_window` (free — conversed ≤24h), or `out_window` (paid — not conversed). It's a `window` param
+(`WindowFilter` in `audience.ts`) threaded through `POST /preview`, `/audience-export`, and `/send`;
+`previewExplicitRecipients(recipients, window)` post-filters by the per-recipient `inWindow` flag, so
+the total/cost reflect exactly who will be messaged. Composes with every audience type (presets,
+segments, custom, CSV). On the `custom` audience the `funnel` still describes the filter resolution
+*before* the window filter.
 
 **Reach segments** (header summary + sendable audiences). `segmentCounts()` (`audience.ts`) sizes
 three segments, each split free/paid, exposed by `GET /api/admin/templates/segments` and shown as
@@ -241,6 +315,22 @@ and Single-recipient dropdowns** (the popup still lists them so they can be reac
   `chicago_committee`, `arrived_hof`, `registered_hof`, `all_members`, the three `segment_*` keys
   above, `custom` (rule-tree filter), and `csv_upload`. Split into in-window (free) vs out-window
   (paid) using `conversation_sessions.last_message_at`; cost via `WHATSAPP_UTILITY_MSG_COST_USD`.
+  The `custom` filter fields (`FIELD_CATALOG` in `audience-filter.ts`) include person/family columns
+  such as Jamaat, City, Gender, Age, Is-head-of-family, ITS, and **HOF ITS** (`hof_its` — target a
+  whole family by its head's ITS, e.g. `HOF ITS = 12345678`), plus three **behavioral** groups
+  attached per-phone in `loadRoster()` from aggregate views (keyed by `whatsapp_e164`):
+  - **Engagement** (from `phone_message_stats`): `hours_since_last_inbound` (≤ N — conversed recently),
+    `has_messaged_us` (= No — cold contacts), `no_reply_from_them` (we sent ≥1, zero inbound), and
+    `inbound_message_count` (≥ N). A never-messaged row uses a large `hours_since` sentinel so both
+    `≤ N` (excludes) and `> N` (includes) read correctly.
+  - **AI tool usage** (from `phone_tool_usage` over `tool_audit_logs`) and **Template history** (from
+    `phone_template_sends`, parsing the `[template:NAME]` outbound marker) are `set` fields: a recency
+    -windowed multiselect with the value `{ items, withinHours }`. `in` = did any of the selected
+    within the last N hours; `notIn` = did none within N hours (covers never-done **and**
+    done-before-the-window). Blank hours = ever/never. Tool options are the curated mumineen-facing
+    tools (`FILTERABLE_AGENT_TOOLS` in `src/lib/agent/tool-names.ts`); template options are codes that
+    have actually been sent. Rendered by the custom `RecentSetValueEditor` (multiselect + "within last
+    N hours") wired into the QueryBuilder via `controlElements.valueEditor`.
 - `csv_upload` (`src/lib/whatsapp/audience-csv.ts`): audience taken from an uploaded CSV in the **same
   format as the app's CSV downloads** (the audience export, or a broadcast's failures export). Columns
   matched by header (case-insensitive, order-free); a `WhatsApp` column is required; the roster columns
@@ -281,11 +371,33 @@ and Single-recipient dropdowns** (the popup still lists them so they can be reac
   24h-window label is only a fallback for failures Meta reports with no error detail (`categorizeFailure`).
   The per-recipient Name/ITS are resolved via the shared `resolveRosterByPhone` (direct + the
   `mumin_phone_links` fallback), so they populate for any failed number that maps to a roster member.
+- Undeliverable-number suppression: when a `failed` callback carries Meta code `131026` (not on
+  WhatsApp / can't receive), the webhook records it in `whatsapp_undeliverable` via the
+  `record_whatsapp_undeliverable` RPC (`src/lib/whatsapp/undeliverable.ts`). After
+  `UNDELIVERABLE_FAIL_THRESHOLD` (2) such failures a number is marked `suppressed`, and the audience
+  layer (`suppressedPhones` in `previewExplicitRecipients` + the explicit-recipients path of
+  `createBroadcast`) drops it from **every** future broadcast — so a dead number isn't re-sent or
+  re-billed. Two failures (not one) is deliberate: a single 131026 can be transient, and we'd rather
+  send one wasted message than silently drop a real family. Admins manage the list from the Broadcast
+  log header (**Undeliverable numbers** modal): `GET /api/admin/whatsapp/undeliverable` lists
+  suppressed numbers with identity; `DELETE …?phone=` un-flags one (clears suppression, resets the
+  counter) for a mistyped/corrected number. Both admin/leadership only.
+- Audience transparency: the expanded Broadcast-log row also shows an **Audience & filters** block —
+  the audience label, the conversation-window toggle + hours, the saved rule tree rendered in plain
+  language (`formatQuery` natural-language; `set`-field compound values render approximately), and the
+  variable bindings. The toggles are persisted on `template_broadcasts` (`window_filter`,
+  `window_hours`, `selected_user_ids`; `audience_rules`/`variable_bindings` were already stored) by
+  `createBroadcast()`; older broadcasts predating the columns read as "not recorded". The **full
+  recipient list** (every status, not just failures) is available — loaded on demand (PII) and as a
+  CSV — from `GET .../broadcasts/[id]/recipients` (admin/leadership only), reusing the failures route's
+  roster resolution.
 - API: `GET /api/admin/templates` (catalog + friendly-name/active annotations),
   `PUT /api/admin/templates/settings` (friendly name / active flag),
   `GET /api/admin/templates/segments` (reach-segment sizes),
   `POST /api/admin/templates/preview`, `POST .../send`,
-  `POST .../drain`, `GET .../broadcasts(/[id])`, `GET .../broadcasts/[id]/failures`.
+  `POST .../drain`, `GET .../broadcasts(/[id])`, `GET .../broadcasts/[id]/failures`,
+  `GET .../broadcasts/[id]/recipients` (full audience, JSON/CSV),
+  `GET /api/admin/whatsapp/undeliverable`, `DELETE /api/admin/whatsapp/undeliverable?phone=`.
 
 The console handles **no-variable** templates to audiences; the older single-recipient composer
 (`/admin/whatsapp`, free-text + variable templates) remains for those cases. Full consolidation is

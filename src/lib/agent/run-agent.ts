@@ -8,6 +8,7 @@ import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
 import {
   NOT_FOUND_REPLY,
   THIS_YEAR_OFFER_LAST,
+  appendOnCallSuggestion,
   maybeSingleWordQuery,
   renderLisanReply,
   isDidYouMeanFollowUp,
@@ -65,6 +66,7 @@ Before answering, route the question to the correct tool. Never answer event spe
 - get_site_content_faq → ANY event/logistics question: schedule, venue/directions, parking, hotels/accommodation/utaro, registration/ITS/raza, WiFi, bathrooms, medical/help desk, mawaid/food, dress code, what to bring, lost & found. ALWAYS call it before saying you don't know.
 - answer_religious_questions → anything about the Waaz/Vaaz, a specific majlis, the reflection, al-Dars, Iqtibasaat, or a majlis's Tazyeen/decoration.
 - get_lisan_word_meaning → the meaning of ONE Lisan ud Dawat word or short phrase ("what does X mean", "X ni maana", or a bare word).
+- report_lost_item / report_found_item → a person is reporting an item they lost or found. Capture useful identifying details and location, then call the matching tool. Lost reports automatically escalate to Lost and Found; do NOT separately call move_to_escalation. Tell found-item reporters to drop the item at any help desk in the masjid complex, and tell lost-item reporters pickup is there.
 - move_to_escalation → a real active emergency, a frustrated user, an EXPLICIT and specific request for a person, an actionable operational/facility problem to report (broken shuttle, AC not working, restroom issues, cleanliness, equipment failures, missing supplies), or a Waaz/deen question the reflections can't answer (category 'religious_followup'). This tool ALSO auto-creates an issue (visible in the Issues tab) and a workspace task, and notifies the department's issue contacts. Always provide a clear title and description, and pick the best department from the Available Departments list.
   - REPORT vs QUESTION: a statement that something is broken, missing, or not working ("the AC is off and it's hot in here", "water bottles everywhere on second floor") is a problem REPORT — use move_to_escalation so it creates an issue and the responsible department can act on it. Reciting the general FAQ process back at them does not fix the thing that is broken.
 - flag_knowledge_gap → silently log any informational question you could NOT answer (in addition to telling the user it's not available yet).
@@ -199,7 +201,11 @@ Examples of ITS-level requests (not exhaustive):
 
 When a user asks about any of these, tell them warmly that this is something the local jamaat is unable to change, and direct them to contact the ITS Helpline directly: +91 98198 78653. Always include the number in your reply. Do NOT escalate to the local team for these — the local team cannot action ITS-level changes.
 
-Special case — the person is NOT registered in ITS at all (no ITS number, or their ITS is not found/active) and needs help to get registered or resolved: do NOT simply send them away. Warmly acknowledge, capture their name and ITS number if they have one, and use move_to_escalation with category 'registration' and department 'ITS' — reason: a short neutral note that this is an unregistered-in-ITS case for the ITS team (Shabbir Bhai Mala) to assist with. Then reassure the user that the ITS team will follow up to help them. Do NOT share any individual's personal contact details in your reply.`;
+New ITS application (no ITS number at all and wants to apply for one): if the user does NOT have an ITS number and is asking how to get/apply for one, this is SELF-SERVE — call get_site_content_faq and give them the new-ITS-application form link from the result (do NOT escalate for this case, and do NOT just say "the team will help"). Sharing the official application form is the answer.
+
+Special case — the person is NOT registered in ITS at all (their existing ITS is not found/active, or they're on a transfer list) and needs help to get registered or resolved (NOT simply applying for a new number): do NOT simply send them away. Warmly acknowledge, capture their name and ITS number if they have one, and use move_to_escalation with category 'registration' and department 'ITS' — reason: a short neutral note that this is an unregistered-in-ITS case for the ITS team (Shabbir Bhai Mala) to assist with. Then reassure the user that the ITS team will follow up to help them. Do NOT share any individual's personal contact details in your reply.
+
+Registration-help / transfer-list requests — collect the 3 fields the team needs BEFORE escalating: When a user wants help registering for the Chicago Relay Center, says they cannot register on the Chicago site, or is on a transfer list waiting to be added (e.g. "please register me/us", "I can't register on Chicago Relay", "add us to the Chicago list", "we transferred our raza to Chicago and want to register"), the registration team needs THREE things to action it without back-and-forth: (1) the ITS number(s), (2) the full name(s), and (3) who is the HOF (head of family). If any of these is missing from the conversation, ask for the missing ones in ONE short message before escalating. Once you have them (or the user can't provide one and asks you to proceed), use move_to_escalation with category 'registration' (department 'ITS') and put the collected ITS number(s), full name(s), and the HOF into the reason so the team can act immediately. Then reassure the user the registration team will add them and follow up. Never claim the registration is already done — only the team can complete it.`;
 
 // Always-on: capture topics we couldn't answer so the team can publish FAQs.
 const KNOWLEDGE_GAP_RULE = `\n\n## Flag Knowledge Gaps
@@ -212,7 +218,7 @@ const KNOWLEDGE_GAP_RULE = `\n\n## Flag Knowledge Gaps
 const MEAL_RSVP_FEEDBACK_RULE = `\n\n## Jaman (Meal) RSVP & Feedback
 - We serve jaman each day of Ashara (Pehli Raat thaal, daily lunch thaals, and dinners) and track a Niyaz RSVP per person so the kitchen can prepare accurate counts. IMPORTANT: every registered family is ALREADY defaulted to attending, based on each person's arrival date — so you do NOT need to ask families to RSVP. Your job is only to record CHANGES.
 - CRITICAL — "register / sign up for a jaman" is a MEAL RSVP, never event registration. "Pehli Raat", "1st/2nd/…/10th Moharram", "Ashura", "the lunches/dinners", "jaman", "niyaz", or a specific day/meal are all MEAL events. When a user says "register me for Pehli Raat", "sign up for the 1st Moharram jaman", "I'd like to register for Ashura", etc., treat it as a meal RSVP — call get_family_meal_rsvps (and set_family_meal_rsvps if they want a change). Do NOT route these to get_site_content_faq and do NOT give in-person event-registration instructions (come to the masjid, bring your ITS card, confirm accommodation). Those in-person instructions are ONLY for the one-time Ashara registration, never for a meal.
-- EXCEPTION — PIRSA (home niyaz / niyaz taken home, e.g. for health reasons) is NOT a meal RSVP and NOT an accommodation/utaro request. You cannot register anyone for pirsa and must never promise that you have. When a user asks for pirsa or to take niyaz home: warmly acknowledge, capture their ITS number and reason if offered, then use move_to_escalation (assign department 'Mawaid') so the Mawaid team can follow up based on availability. Do not send them to the utaro/accommodation form for pirsa.
+- EXCEPTION — PIRSA (home niyaz / niyaz taken home, e.g. for health reasons) is NOT a meal RSVP and NOT an accommodation/utaro request, and you cannot register anyone for it. It is SELF-SERVE: when a user asks for pirsa or to take niyaz home, answer from get_site_content_faq — pirsa is provided based on availability after Niyaz, and they should check with the Pirsa counter after each Niyaz. Do NOT escalate, do NOT promise to register them, and do NOT send them to the utaro/accommodation form.
 - CRITICAL — never tell an already-registered user to register again. If the Sender Context shows "Registration: submitted" (or "family of N"), the caller is already registered for Ashara. NEVER tell them to come to the masjid to register, bring their ITS card, or confirm accommodation to register — they are done. If they mention "registering" for a day/meal, go straight to their meal RSVP; if they ask about something else, help with that. The in-person registration FAQ is only for users who are NOT yet registered.
 - CRITICAL — ALWAYS call get_family_meal_rsvps BEFORE any set_family_meal_rsvps. You need the current grid (with each event's exact \`title\`, \`eventDate\`, and \`meal\`) to target the right event. NEVER call set on the strength of your own memory of which date an event falls on.
 - CRITICAL — NEVER translate a named jaman (e.g. "Pehli Raat", "2nd Moharram", "Ashura") into a date yourself. The hijri night runs ahead of the Gregorian day, so a dinner's date is usually NOT the day you'd guess (e.g. Pehli Raat dinner is Jun 14, "2nd Moharram" dinner is Jun 15). Instead, target the event by its \`titles\` — copy the title string EXACTLY from the grid and pass it in the entry's \`titles\` array along with \`meal\`; the server resolves it to the correct date. Only use \`dates\` when the user gave an explicit calendar date (e.g. "the 16th").
@@ -330,6 +336,8 @@ export const HIGH_MODEL_TOOLS = new Set(["answer_religious_questions", "get_lisa
 // so the eval harness can exercise the agent without creating real tickets/escalations.
 export const SIDE_EFFECT_TOOLS = new Set([
   "move_to_escalation",
+  "report_lost_item",
+  "report_found_item",
   "create_task",
   "update_tasks",
   "flag_knowledge_gap",
@@ -524,7 +532,7 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   if (!firstMessage?.tool_calls?.length) {
     const content = sanitizeFinalReply(firstMessage?.content?.trim() || fallbackReply());
     if (isClearlySocial(input.message)) return content;
-    if (hasReligiousSignal(input.message)) return NOT_FOUND_REPLY;
+    if (hasReligiousSignal(input.message)) return appendOnCallSuggestion(NOT_FOUND_REPLY, history, { force: true });
     return content;
   }
 
@@ -581,12 +589,15 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   // the second completion. A 'declined' guardrail result falls through so the model
   // keeps assisting normally.
   if (escalationAck) {
-    return escalationAck;
+    // A deen question handed to the team → also point them to the on-call Istibsaar for now.
+    return escalationAck === RELIGIOUS_FOLLOWUP_REPLY
+      ? appendOnCallSuggestion(escalationAck, history, { force: true })
+      : escalationAck;
   }
 
   // DETERMINISTIC religious decisions — the model never narrates a refusal/offer (no citations,
   // no improvisation). Only a grounded "answer" proceeds to the (constrained) final completion.
-  if (religiousDecision === "not_found") return NOT_FOUND_REPLY;
+  if (religiousDecision === "not_found") return appendOnCallSuggestion(NOT_FOUND_REPLY, history, { force: true });
   if (religiousDecision === "offer_last") return THIS_YEAR_OFFER_LAST;
   // Word-meaning that was routed to the waaz tool → answer from the dictionary, deterministically.
   if (religiousDecision === "word_lookup" && religiousWord) return renderLisanReply(await lookupLisanWord(religiousWord));
@@ -636,7 +647,11 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   if (religiousDecision === "answer" && yearLabelMismatch(reply, groundedYear)) return NOT_FOUND_REPLY;
   // Guarantee the show-source rule: if a Waaz Talaqi / Lisan tool returned a source and the
   // model's reply didn't cite it, append the source line deterministically.
-  return ensureSourcesCited(reply, sources);
+  const finalReply = ensureSourcesCited(reply, sources);
+  // After a few back-and-forths on a religious answer, suggest the on-call Istibsaar (once).
+  return religiousDecision === "answer"
+    ? appendOnCallSuggestion(finalReply, history, { force: false })
+    : finalReply;
 }
 
 // Derive the topic a THIS_YEAR_OFFER_LAST offer was about: the inbound message immediately before

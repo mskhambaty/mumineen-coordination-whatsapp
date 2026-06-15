@@ -16,6 +16,7 @@ vi.mock("@/lib/api/portal-auth", () => ({
 vi.mock("@/lib/admin/access", () => ({ isAdminOrLeadership: () => true }));
 vi.mock("@/lib/whatsapp/audience", () => ({
   AUDIENCE_KEYS: ["selected_users", "all_members", "custom", "csv_upload"],
+  WINDOW_FILTERS: ["all", "in_window", "out_window"],
   previewAudience: (...a: unknown[]) => previewAudience(...a),
   previewExplicitRecipients: (...a: unknown[]) => previewExplicitRecipients(...a),
   enrichFieldsByPhone: (...a: unknown[]) => enrichFieldsByPhone(...a),

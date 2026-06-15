@@ -37,6 +37,9 @@ const supabaseMock = vi.hoisted(() => {
 
 vi.mock("@/lib/supabase/server", () => ({ getSupabaseAdmin: () => supabaseMock.client }));
 
+const undeliverableMock = vi.hoisted(() => ({ recordUndeliverable: vi.fn() }));
+vi.mock("@/lib/whatsapp/undeliverable", () => ({ recordUndeliverable: undeliverableMock.recordUndeliverable }));
+
 import { applyBroadcastStatuses, extractStatusUpdates } from "@/lib/whatsapp/broadcast-status";
 
 describe("extractStatusUpdates", () => {
@@ -98,8 +101,23 @@ describe("extractStatusUpdates", () => {
     expect(update.errorDetail).toBe(
       "131049: This message was not delivered to maintain healthy ecosystem engagement. (Meta engagement/frequency cap — recipient throttled)",
     );
+    // The raw numeric code is surfaced separately so suppression logic can match it without parsing.
+    expect(update.errorCode).toBe(131049);
     // Must never leak the recipient phone/id into the stored reason.
     expect(update.errorDetail).not.toContain("15551234567");
+  });
+
+  it("captures the 131026 (undeliverable) code from a failed status", () => {
+    const payload = {
+      entry: [{ changes: [{ value: { statuses: [{ id: "wamid.U", status: "failed", timestamp: "1700000300", errors: [{ code: 131026, title: "Message Undeliverable" }] }] } }] }],
+    };
+    const [update] = extractStatusUpdates(payload);
+    expect(update.errorCode).toBe(131026);
+  });
+
+  it("leaves errorCode undefined for non-error statuses", () => {
+    const payload = { entry: [{ changes: [{ value: { statuses: [{ id: "wamid.A", status: "delivered", timestamp: "1700000000" }] } }] }] };
+    expect(extractStatusUpdates(payload)[0].errorCode).toBeUndefined();
   });
 
   it("falls back to error_data.details when title is missing and emits a bare code for unknown codes", () => {
@@ -135,7 +153,30 @@ describe("extractStatusUpdates", () => {
 });
 
 describe("applyBroadcastStatuses", () => {
-  beforeEach(() => supabaseMock.reset());
+  beforeEach(() => {
+    supabaseMock.reset();
+    undeliverableMock.recordUndeliverable.mockClear();
+  });
+
+  it("records the number for suppression on a failed status, passing the recipient phone + Meta code", async () => {
+    supabaseMock.setRecip({ id: "r1", send_status: "sent", phone_e164: "+13125550001" });
+    await applyBroadcastStatuses([{ waMessageId: "wamid.U", status: "failed", timestamp: 1700000300, errorCode: 131026 }]);
+    expect(undeliverableMock.recordUndeliverable).toHaveBeenCalledWith("+13125550001", 131026);
+  });
+
+  it("does not touch the suppression list for a successful (delivered) status", async () => {
+    supabaseMock.setRecip({ id: "r2", send_status: "sent", phone_e164: "+13125550002" });
+    await applyBroadcastStatuses([{ waMessageId: "wamid.D", status: "delivered", timestamp: 1700000000 }]);
+    expect(undeliverableMock.recordUndeliverable).not.toHaveBeenCalled();
+  });
+
+  it("does not re-count a redelivered failed webhook (row already 'failed')", async () => {
+    // Meta can redeliver a status webhook; counting the same failure twice would suppress a number
+    // from a single real failure. Only the first transition into 'failed' counts.
+    supabaseMock.setRecip({ id: "r3", send_status: "failed", phone_e164: "+13125550003" });
+    await applyBroadcastStatuses([{ waMessageId: "wamid.U", status: "failed", timestamp: 1700000300, errorCode: 131026 }]);
+    expect(undeliverableMock.recordUndeliverable).not.toHaveBeenCalled();
+  });
 
   it("writes error_detail when a failed status carries a Meta reason (regression)", async () => {
     supabaseMock.setRecip({ id: "r1", send_status: "sent" });

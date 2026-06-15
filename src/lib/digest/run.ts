@@ -16,6 +16,7 @@ import { aggregateAllUpExtras, aggregateDepartments, type AllUpExtras, type Dept
 
 const WA_TEMPLATE = optionalEnv("DEPARTMENT_SUMMARY_WA_TEMPLATE") ?? "daily_department_issue_confirmation";
 const ALL_UP_LABEL = "All Departments";
+const MAX_ALL_UP_WA_CHARS = 900;
 
 export type DigestRunResult = { date: string; departments: number; emails: number; whatsapp: number; errors: string[] };
 
@@ -23,7 +24,20 @@ type Summary = { short: string; bullets: string[] };
 
 function metricsLine(m: DeptMetrics): string {
   const f = m.feedback;
-  return `${f.total} feedback (${f.positive}+/${f.neutral}~/${f.negative}-), ${m.issues} new issues, ${m.open_tickets} open tickets, ${m.escalations} escalations`;
+  const parts = [`${f.total} feedback (${f.positive}+/${f.neutral}~/${f.negative}-)`];
+  if (m.issues > 0) {
+    const titles = m.new_issue_samples.slice(0, 3).map((s) => s.title).join(", ");
+    parts.push(`${m.issues} new issue${m.issues !== 1 ? "s" : ""}${titles ? ": " + titles : ""}`);
+  }
+  if (m.open_tickets > 0) {
+    const titles = m.open_ticket_details.slice(0, 3).map((d) => `${d.title}${d.priority ? " [" + d.priority + "]" : ""}`).join(", ");
+    parts.push(`${m.open_tickets} open ticket${m.open_tickets !== 1 ? "s" : ""}${titles ? ": " + titles : ""}`);
+  }
+  if (m.escalations > 0) {
+    const reasons = m.escalation_samples.slice(0, 3).join("; ");
+    parts.push(`${m.escalations} escalation${m.escalations !== 1 ? "s" : ""}${reasons ? ": " + reasons : ""}`);
+  }
+  return parts.join(", ");
 }
 
 function escapeHtml(s: string): string {
@@ -40,19 +54,62 @@ function stripFences(s: string): string {
   return s.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
 }
 
+function allUpIssueScore(m: DeptMetrics): number {
+  return m.open_tickets * 3 + m.issues * 2 + m.escalations;
+}
+
+function hasDepartmentIssues(m: DeptMetrics): boolean {
+  return m.open_tickets > 0 || m.issues > 0 || m.escalations > 0;
+}
+
+function allUpIssueLine(m: DeptMetrics): string {
+  const parts: string[] = [];
+  if (m.open_tickets > 0) parts.push(`${m.open_tickets} open`);
+  if (m.issues > 0) parts.push(`${m.issues} new`);
+  if (m.escalations > 0) parts.push(`${m.escalations} escalated`);
+  const top =
+    m.open_ticket_details.find((d) => d.title)?.title ??
+    m.new_issue_samples.find((i) => i.title)?.title ??
+    m.escalation_samples.find((s) => s)?.trim();
+  return `${m.department_name}: ${parts.join(", ")}${top ? ` — ${top}` : ""}`;
+}
+
+export function buildAllUpWhatsappSummary(baseShort: string, depts: DeptMetrics[], extras: AllUpExtras): string {
+  const headline = (baseShort || `${extras.total_open_tickets} open tickets across all departments.`).trim();
+  const issueDepts = depts.filter(hasDepartmentIssues).sort((a, b) => allUpIssueScore(b) - allUpIssueScore(a));
+  if (issueDepts.length === 0 && extras.untriaged_issues === 0) return headline.slice(0, MAX_ALL_UP_WA_CHARS);
+
+  const lines = [headline, "Departments needing attention:"];
+  let hidden = 0;
+  for (let i = 0; i < issueDepts.length; i++) {
+    const candidate = `- ${allUpIssueLine(issueDepts[i])}`;
+    if ([...lines, candidate].join("\n").length > MAX_ALL_UP_WA_CHARS) {
+      hidden = issueDepts.length - i;
+      break;
+    }
+    lines.push(candidate);
+  }
+  if (extras.untriaged_issues > 0) lines.push(`- Untriaged agent issues: ${extras.untriaged_issues}`);
+  if (hidden > 0) lines.push(`- +${hidden} more departments with issues`);
+  return lines.join("\n").slice(0, MAX_ALL_UP_WA_CHARS);
+}
+
 const DEPT_SYSTEM =
   "You write an end-of-day committee briefing for one department of a Dawoodi Bohra Ashara relay center, using ONLY the JSON metrics provided. " +
   'Reply with STRICT JSON: {"short": string, "bullets": string[]}. ' +
-  '"short" = ONE plain sentence (max 160 chars) capturing the single most important feedback/issue for that department today (for a WhatsApp message). ' +
-  '"bullets" = 3-6 concise bullet strings covering sentiment, top feedback themes, issues/escalations, open tickets needing attention, and one improvement suggestion. ' +
-  "If there are open_tickets, mention the count and any high-priority ones. " +
-  "If there is feedback, lead with it; if there is no feedback but there ARE issues or open tickets, summarize those instead — NEVER output \"no feedback\" as the message. No markdown, no preamble.";
+  '"short" = ONE plain sentence (max 160 chars) capturing the single most important feedback theme or issue for that department today (for a WhatsApp message). ' +
+  '"bullets" = 6-10 concise bullet strings. STRUCTURE:\n' +
+  "1. FEEDBACK THEMES (weight these most heavily): Group the feedback samples by recurring theme. Quantify — e.g. \"12 people mentioned parking delays\" or \"8 praised shuttle timing but 3 said last shuttle left too early\". Surface patterns and sentiment shifts.\n" +
+  "2. TICKETS & ISSUES: Reference specific ticket/issue titles and priorities from new_issue_samples and open_ticket_details. Flag high-priority or stale items.\n" +
+  "3. ESCALATIONS: Summarize escalation reasons from escalation_samples — what drove people to escalate.\n" +
+  "4. One concrete improvement suggestion based on the above.\n" +
+  "If there is feedback, lead with themes; if there is no feedback but there ARE issues or open tickets, summarize those instead — NEVER output \"no feedback\" as the message. No markdown, no preamble.";
 
 const ALLUP_SYSTEM =
   "You write a short leadership end-of-day summary ACROSS ALL departments of a Dawoodi Bohra Ashara relay center, using ONLY the JSON provided. " +
   'Reply with STRICT JSON: {"short": string, "bullets": string[]}. ' +
   '"short" = ONE sentence (max 160 chars) on the overall day for a WhatsApp message. ' +
-  '"bullets" = 4-7 bullets: overall mood, departments needing attention, total issues/escalations, total open tickets across departments, next-day expected meal counts, and 1-2 priorities. No markdown.';
+  '"bullets" = 6-10 bullets: overall sentiment trends, top feedback themes across departments (quantified), departments needing attention, specific high-priority tickets/issues by name, escalation patterns, total open tickets, and 1-2 priorities for tomorrow. No markdown.';
 
 async function generateSummary(system: string, payload: unknown, fallbackShort: string): Promise<Summary> {
   try {
@@ -135,6 +192,7 @@ async function distribute(
   departmentLabel: string,
   s: Summary,
   counters: { emails: number; whatsapp: number; errors: string[] },
+  options?: { whatsappSummary?: string },
 ) {
   const feedbackHtml = htmlList(s.bullets);
   const feedbackText = textList(s.bullets);
@@ -157,7 +215,7 @@ async function distribute(
         phoneE164: r.phone_e164,
         userId: r.user_id,
         templateName: WA_TEMPLATE,
-        bodyParams: [departmentLabel, s.short || "See dashboard for today's summary."],
+        bodyParams: [departmentLabel, options?.whatsappSummary ?? s.short ?? "See dashboard for today's summary."],
         source: "department_digest",
       });
       if (res.status === "sent") counters.whatsapp++;
@@ -183,7 +241,7 @@ export async function runDepartmentDigest(date: string): Promise<DigestRunResult
 
     if (m.open_tickets > 0) {
       const ticketLine = `${m.open_tickets} open ticket${m.open_tickets !== 1 ? "s" : ""}${
-        m.open_ticket_titles.length > 0 ? ": " + m.open_ticket_titles.slice(0, 3).join(", ") : ""
+        m.open_ticket_details.length > 0 ? ": " + m.open_ticket_details.slice(0, 3).map((d) => `${d.title}${d.priority ? " [" + d.priority + "]" : ""}`).join(", ") : ""
       }`;
       summary.bullets.unshift(ticketLine);
     }
@@ -198,7 +256,7 @@ export async function runDepartmentDigest(date: string): Promise<DigestRunResult
     deptMetrics.some((m) => m.feedback.total + m.issues + m.escalations + m.open_tickets > 0) || extras.untriaged_issues > 0;
   if (anyActivity) {
     const allUpPayload = { date, departments: deptMetrics.map((m) => ({ name: m.department_name, ...m, summary: metricsLine(m) })), ...extras };
-    const allUpFallback = `Next-day meals: lunch ${extras.meals_next_day.lunch_attending}, dinner ${extras.meals_next_day.dinner_attending}.`;
+    const allUpFallback = `${extras.total_open_tickets} open tickets across all departments, ${extras.untriaged_issues} untriaged.`;
     const allUpSummary = await generateSummary(ALLUP_SYSTEM, allUpPayload, allUpFallback);
     if (allUpSummary.bullets.length === 0) allUpSummary.bullets = deptMetrics.map((m) => `${m.department_name}: ${metricsLine(m)}`);
 
@@ -207,7 +265,8 @@ export async function runDepartmentDigest(date: string): Promise<DigestRunResult
     }
 
     await upsertSummary(null, date, allUpPayload, allUpSummary);
-    await distribute(await allUpRecipients(), ALL_UP_LABEL, allUpSummary, result);
+    const allUpWhatsappSummary = buildAllUpWhatsappSummary(allUpSummary.short, deptMetrics, extras);
+    await distribute(await allUpRecipients(), ALL_UP_LABEL, allUpSummary, result, { whatsappSummary: allUpWhatsappSummary });
   }
 
   const waFailCount = result.errors.filter((e) => e.startsWith("wa ")).length;

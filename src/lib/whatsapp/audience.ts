@@ -1,7 +1,14 @@
 import { optionalEnv } from "@/lib/env";
 import { runFilter, runFilterDetailed, type RuleGroup } from "@/lib/whatsapp/audience-filter";
+import { normalizePhone } from "@/lib/whatsapp/phone";
 import { MAPPABLE_FIELDS } from "@/lib/whatsapp/templates";
+import { suppressedPhones } from "@/lib/whatsapp/undeliverable";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+
+// Re-exported so the many call sites that import it from here (audience-csv, the failures route,
+// etc.) keep working; the implementation lives in the leaf phone.ts module to avoid an import cycle
+// with undeliverable.ts.
+export { normalizePhone };
 
 // Audience resolution for the template-send console. Each audience key resolves to a set of
 // recipients, always DEDUPED by phone number (one message max per number). A recipient is "in
@@ -30,6 +37,15 @@ export function isAudienceKey(v: unknown): v is AudienceKey {
   return typeof v === "string" && (AUDIENCE_KEYS as readonly string[]).includes(v);
 }
 
+// Restricts a resolved audience to one side of the 24h customer-service window: "in_window" (free —
+// they messaged us in the last 24h) or "out_window" (paid — needs a template). "all" keeps both.
+export const WINDOW_FILTERS = ["all", "in_window", "out_window"] as const;
+export type WindowFilter = (typeof WINDOW_FILTERS)[number];
+
+export function isWindowFilter(v: unknown): v is WindowFilter {
+  return typeof v === "string" && (WINDOW_FILTERS as readonly string[]).includes(v);
+}
+
 export const AUDIENCE_LABEL: Record<AudienceKey, string> = {
   selected_users: "Selected users (test)",
   chicago_committee: "Chicago committee members",
@@ -50,7 +66,27 @@ export type Recipient = {
   fields?: Record<string, string | null>; // mappable roster fields for personalization
 };
 
-const WINDOW_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_WINDOW_HOURS = 24;
+
+// Hours of the WhatsApp customer-service window we treat as "free" (in-window). Meta's billing
+// window is 24h; set WHATSAPP_WINDOW_HOURS *below* 24 for a conservative safety margin — e.g. 14
+// means anyone who hasn't messaged us in 14h is counted as paid even though they may technically
+// still be free, avoiding edge cases where the window closes between preview and send. This is the
+// default; the Send Templates console can override it per-action (see the `hours` params below).
+// Defaults to 24. Non-positive / unparseable values fall back to the default.
+export function windowHours(): number {
+  const raw = optionalEnv("WHATSAPP_WINDOW_HOURS");
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_WINDOW_HOURS;
+}
+
+// Resolve a UI-supplied window override: any positive, finite value is honored (no upper cap —
+// staff may intentionally widen the window past Meta's 24h billing window). Falls back to the env
+// default when the value is missing or unusable.
+export function resolveWindowHours(hours?: number | null): number {
+  if (typeof hours === "number" && Number.isFinite(hours) && hours > 0) return hours;
+  return windowHours();
+}
 
 // Columns selected for roster-based audiences so recipients can personalize variables.
 const MAPPABLE_COLS = MAPPABLE_FIELDS.map((f) => f.key);
@@ -62,13 +98,6 @@ function fieldsOf(row: Record<string, unknown>): Record<string, string | null> {
     out[key] = v == null ? null : String(v);
   }
   return out;
-}
-
-// Normalize a phone string to "+<digits>" so it keys/dedupes consistently with getInWindowPhones
-// and the broadcast recipient rows. Exported for the CSV-upload audience parser.
-export function normalizePhone(input: string): string {
-  const digits = input.replace(/[^\d]/g, "");
-  return digits ? `+${digits}` : input;
 }
 
 // Dedupe a candidate list by phone, keeping the first recipient (with its fields) seen.
@@ -375,10 +404,11 @@ export async function resolveAudience(
   );
 }
 
-// Set of phone numbers currently inside the free 24h customer-service window. Paginated so the count
-// stays correct as in-window traffic grows past 1000 during Ashara.
-export async function getInWindowPhones(): Promise<Set<string>> {
-  const cutoff = new Date(Date.now() - WINDOW_MS).toISOString();
+// Set of phone numbers currently inside the free customer-service window. `hours` overrides the
+// window size (defaults to the env-configured value). Paginated so the count stays correct as
+// in-window traffic grows past 1000 during Ashara.
+export async function getInWindowPhones(hours?: number): Promise<Set<string>> {
+  const cutoff = new Date(Date.now() - resolveWindowHours(hours) * 60 * 60 * 1000).toISOString();
   const rows = await fetchAllRows<{ phone_e164: string }>(() =>
     getSupabaseAdmin().from("conversation_sessions").select("phone_e164").gte("last_message_at", cutoff).order("phone_e164", { ascending: true }) as unknown as Pageable<{ phone_e164: string }>,
   );
@@ -404,7 +434,13 @@ export type AudiencePreview = {
 // Resolve an audience and split it into free (in-window) vs paid, with an estimated cost. For the
 // custom filter it also reports the matched->reachable->deduped funnel so the count reconciles with
 // the people-counts on the analytics page.
-export async function previewAudience(key: AudienceKey, selectedUserIds: string[] = [], rules?: RuleGroup): Promise<AudiencePreview> {
+export async function previewAudience(
+  key: AudienceKey,
+  selectedUserIds: string[] = [],
+  rules?: RuleGroup,
+  windowFilter: WindowFilter = "all",
+  hours?: number,
+): Promise<AudiencePreview> {
   let recipients: Recipient[];
   let funnel: AudiencePreview["funnel"];
   if (key === "custom" && rules) {
@@ -415,20 +451,36 @@ export async function previewAudience(key: AudienceKey, selectedUserIds: string[
       muminId: r.mumin_id,
       fields: fieldsOf(r as unknown as Record<string, unknown>),
     }));
+    // funnel describes the custom-filter resolution (matched -> reachable -> unique numbers) before
+    // any window filter is applied, so it still reconciles with the analytics people-counts.
     funnel = { matched: d.matched, with_whatsapp: d.withWhatsapp, unique: d.recipients.length };
   } else {
     recipients = await resolveAudience(key, selectedUserIds, rules);
   }
 
-  return { ...(await previewExplicitRecipients(recipients)), funnel };
+  return { ...(await previewExplicitRecipients(recipients, windowFilter, hours)), funnel };
 }
 
 // Split an already-resolved recipient list into free (in-window) vs paid with an estimated cost.
 // Used by previewAudience and by the csv_upload path, which supplies recipients parsed from a file
 // rather than resolved from the database.
-export async function previewExplicitRecipients(recipients: Recipient[]): Promise<AudiencePreview> {
-  const inWindow = await getInWindowPhones();
-  const enriched = recipients.map((r) => ({ ...r, inWindow: inWindow.has(r.phone) }));
+export async function previewExplicitRecipients(
+  recipients: Recipient[],
+  windowFilter: WindowFilter = "all",
+  hours?: number,
+): Promise<AudiencePreview> {
+  const [inWindow, suppressed] = await Promise.all([getInWindowPhones(hours), suppressedPhones()]);
+  // Drop numbers Meta has flagged as undeliverable (not on WhatsApp / can't receive) so they never
+  // get re-sent or counted toward the cost estimate. See src/lib/whatsapp/undeliverable.ts.
+  const tagged = recipients
+    .filter((r) => !suppressed.has(normalizePhone(r.phone)))
+    .map((r) => ({ ...r, inWindow: inWindow.has(r.phone) }));
+  // Optionally keep only one side of the 24h window, then report counts on what remains — so the
+  // total and cost reflect exactly the people who will be messaged.
+  const enriched =
+    windowFilter === "in_window" ? tagged.filter((r) => r.inWindow)
+    : windowFilter === "out_window" ? tagged.filter((r) => !r.inWindow)
+    : tagged;
   const free = enriched.filter((r) => r.inWindow).length;
   const paid = enriched.length - free;
   return {
@@ -453,8 +505,8 @@ export type SegmentCount = {
 // Sizes of the three Niyaz reach segments, each split into the free 24h-window vs the rest. Powers
 // the console's header so staff can see how many template sends a segment would actually require.
 // Resolves each segment list and the in-window phone set once.
-export async function segmentCounts(): Promise<SegmentCount[]> {
-  const inWindow = await getInWindowPhones();
+export async function segmentCounts(hours?: number): Promise<SegmentCount[]> {
+  const inWindow = await getInWindowPhones(hours);
   const out: SegmentCount[] = [];
   for (const key of SEGMENT_KEYS) {
     const recipients = await resolveAudience(key);

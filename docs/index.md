@@ -33,19 +33,21 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 | [relay-updates.md](./relay-updates.md) | Public relay-page updates feed: endpoint, authoring UI, agent indexing |
 | [accommodations-matching.md](./plans/accommodations-matching.md) | Accommodations host-guest utaro matching module: import, rollups, matching |
 | [meal-rsvp-feedback-digest.md](./meal-rsvp-feedback-digest.md) | Jaman meal RSVP, feedback capture, nightly department digest, and the manual template send console |
+| [lost-found.md](./lost-found.md) | Lost/found reporting tools, auto-escalation, reporter identity, and portal page |
 | [webinars.md](./webinars.md) | Public `/webinars` page: ITS gate, video card grid, modal player, admin add/manage |
 | [openapi.yaml](./openapi.yaml) | API-first contract for all `src/app/api/**` routes |
 
 ## Key File Locations
 
 ```
-src/app/api/whatsapp/webhook/route.ts    — Meta webhook handler (GET + POST)
+src/app/api/whatsapp/webhook/route.ts    — Single shared Meta webhook for ALL numbers (GET + POST); routes each delivery to its account by metadata.phone_number_id
 src/app/api/ollama/models/route.ts       — Ollama model list proxy
 src/app/api/ollama/chat/route.ts         — Ollama A/B chat completion endpoint
 src/app/api/auth/forgot-password/route.ts — Password reset email endpoint (any non-visitor user, via canAccessPortal)
 src/lib/admin/email.ts                   — Case-insensitive email normalization/matching for auth lookups
 src/lib/agent/run-agent.ts               — AI agent orchestration
 src/lib/mumineen/sender-profile.ts       — Phone→registration profile for Sender Context + inbox User Profile panel
+src/lib/lost-found/reporter.ts           — Phone→roster/user identity enrichment for lost-and-found reports
 src/lib/ai/model.ts                      — Central OpenAI model/client configuration
 src/lib/email/postmark.ts                — Postmark email service
 src/lib/issues/notify.ts                 — Department issue-contact email + WhatsApp template notifications
@@ -54,10 +56,12 @@ src/lib/permissions.ts                   — Agent tool roles + canUseTool()
 src/lib/admin/access.ts                  — Portal page/route access predicates (see docs/access-control.md)
 src/components/admin/AdminNav.tsx        — Portal nav + per-link access tiers
 src/lib/supabase/server.ts               — All Supabase operations
-src/lib/meta/whatsapp.ts                 — Meta Graph API calls + signature verification
-src/lib/whatsapp/send-template.ts        — Standardized template-send pipeline (resolve→validate→send→log) for all notifications
+src/lib/whatsapp/accounts.ts             — WhatsApp account registry (primary + optional *_BROADCAST account; lookups by phone-number-id / WABA / label)
+src/lib/whatsapp/inbound.ts              — Shared inbound webhook logic (verify/parse/process); resolves the account per delivery from metadata.phone_number_id
+src/lib/meta/whatsapp.ts                 — Meta Graph API calls + signature verification (account-aware; defaults to the primary account)
+src/lib/whatsapp/send-template.ts        — Standardized template-send pipeline (resolve→validate→send→log); cross-account template resolution (resolveApprovedTemplateForAnyAccount, listApprovedTemplatesForAllAccounts)
 src/lib/whatsapp/templates.ts            — Template descriptor + components builder + body preview
-src/lib/whatsapp/template-settings.ts    — Per-template friendly-name + active flag (get/upsert) for the send console
+src/lib/whatsapp/template-settings.ts    — Per-template friendly-name + active flag (get/upsert) for the send console, keyed by (WABA, template name)
 src/app/api/admin/templates/settings/route.ts — PUT template friendly-name / active flag (admin/leadership)
 src/app/api/admin/templates/segments/route.ts — GET Niyaz reach-segment sizes (free/paid split) for the console header
 src/lib/escalation/notify.ts             — On-call escalation email + WhatsApp template notifications
@@ -90,14 +94,35 @@ supabase/migrations/                     — All database migrations
 src/app/api/relay-updates/route.ts       — Public relay updates JSON feed
 src/app/api/parking/my-passes/route.ts   — Caller-scoped parking-pass lookup (phone→own family's passes only); backs get_family_parking_passes
 src/lib/parking/entry-info.ts            — Authoritative per-color parking entry guidance + rideshare drop-off (shared by the route + agent)
+src/app/api/lost-found/route.ts          — Agent intake for lost/found reports; lost reports auto-escalate
+src/app/api/admin/lost-found/route.ts    — Portal-member lost/found report list + manual add (POST)
+src/app/api/admin/lost-found/[id]/route.ts — Edit (PUT) / Delete (DELETE) a lost/found item
+src/app/api/admin/lost-found/[id]/resolve/route.ts — Mark item resolved with history tracking
 src/lib/rsvp/meal-rsvp.ts                — Per-mumin Niyaz RSVP (niyaz_rsvp): grids, family/individual set-cascade, tallies (max/min), unregistered RSVP helpers, daily-button recording
-src/lib/rsvp/niyaz-prompt.ts             — Daily RSVP-template audiences (ITS/mumineen/HOF/adults) + button payloads + single-prompt creation for unregistered callers
+src/lib/rsvp/niyaz-prompt.ts             — Daily RSVP-template audiences (ITS/mumineen/HOF/adults, requireRegistered) + button payloads + per-recipient fields (mumin_id, family_members, eligible_family_count) + single-prompt creation for unregistered callers
+src/lib/rsvp/event-config.ts             — Day-level Niyaz event config (niyaz_event_config): rsvp_event_title, lunch/dinner menus, rsvp_end_time, meals, template_code
+src/app/admin/niyaz/days/page.tsx        — Niyaz days view: lists prefilled 1st–10th Moharram days; click a day to configure + send RSVP (composer)
+src/app/api/admin/niyaz/days/route.ts    — GET list of Niyaz days (config + representative instance id per date)
+src/app/api/admin/niyaz/days/[date]/route.ts — GET/PUT day-level config by date
+src/app/api/admin/niyaz/instances/[id]/config/route.ts — GET/PUT day-level event config (by instance id)
+src/app/api/admin/niyaz/instances/[id]/broadcast/route.ts — Send Niyaz RSVP: audience + preview (count/sample), event-config body bindings, custom per-recipient Flow/quick-reply button payloads, single-ITS test
+src/components/admin/niyaz/EventRsvpComposer.tsx — Admin composer: event config (template dropdown from the 630 WABA), audience + preview, button-payload editor, send/test
+src/components/admin/niyaz/BroadcastHistory.tsx — Niyaz broadcast history + delivery results (sent/delivered/read/failed), reuses /api/admin/templates/broadcasts(/[id]) filtered by audience_key=niyaz_rsvp
+src/lib/whatsapp/interactive-responses.ts — Raw capture of inbound Flow/button responses (whatsapp_interactive_responses)
+src/lib/rsvp/niyaz-interactive.ts        — Phase 2 decode: interactive response (hof_its + day_id + lunch/dinner counts) → niyaz_rsvp via recordNiyazDayRsvp (real members + guest overflow, reconciled)
 src/lib/feedback/record.ts               — Append-only feedback capture (area→department tagged)
 src/lib/whatsapp/audience.ts             — Send-console audience resolution + free/paid window split + roster-by-phone enrichment (resolveRosterByPhone) + Niyaz reach segments (segmentCounts, segment_* audiences)
+src/lib/whatsapp/audience-filter.ts      — Custom-audience rule engine (FIELD_CATALOG, evaluate/runFilter); behavioral fields (Engagement / AI tool usage / Template history) attached in loadRoster() from the phone_message_stats / phone_tool_usage / phone_template_sends views; `set` type = recency-windowed multiselect
+src/lib/agent/tool-names.ts              — FILTERABLE_AGENT_TOOLS: curated mumineen-facing agent tools surfaced in the "AI tool usage" audience filter
+src/components/admin/RecentSetValueEditor.tsx — Custom rqb value editor for `set` fields (multiselect + "within last N hours")
 src/lib/whatsapp/audience-csv.ts         — Parse an uploaded audience CSV (export/failures format) into broadcast recipients (csv_upload)
-src/lib/whatsapp/broadcast.ts            — Throttled template broadcast engine (queue + drain; drainUntilEmpty + failure categorization)
+src/lib/whatsapp/broadcast.ts            — Throttled template broadcast engine (queue + drain; drainUntilEmpty + failure categorization); persists audience toggles (window_filter/hours, selected_user_ids)
+src/lib/whatsapp/phone.ts                — Shared normalizePhone (leaf module; re-exported from audience.ts)
+src/lib/whatsapp/undeliverable.ts        — Undeliverable-number suppression: record 131026 fails, threshold-based suppress, suppressedPhones filter, list/clear
+src/app/api/admin/whatsapp/undeliverable/route.ts — GET list + DELETE un-flag suppressed numbers (admin/leadership)
 src/app/api/admin/templates/drain/route.ts  — Manual "Send pending" — bounded drain trigger (admin/leadership)
 src/app/api/admin/templates/broadcasts/[id]/failures/route.ts — Per-recipient broadcast failure list (JSON/CSV, admin/leadership)
+src/app/api/admin/templates/broadcasts/[id]/recipients/route.ts — Full broadcast recipient list, every status (JSON/CSV, admin/leadership)
 src/lib/digest/run.ts                    — Nightly department digest: aggregate→AI→store→distribute
 src/app/api/cron/department-digest/route.ts — Nightly department digest cron (03:00 UTC (10pm Chicago, CDT))
 src/app/api/cron/broadcast-drain/route.ts   — Template broadcast drain cron (every minute)

@@ -106,6 +106,9 @@ All tools are defined in `src/lib/agent/tools.ts`.
 | `move_to_escalation` | **Last resort** — hands the conversation to the human support team. Deterministic guardrails enforced server-side in `/api/escalations` (see [escalation.md](./escalation.md)). |
 | `get_family_meal_rsvps` / `set_family_meal_rsvps` | Read/record the caller's own family's jaman (meal) RSVP (`/api/rsvp/meals`, self-scoped by `x-whatsapp-from`). |
 | `get_family_parking_passes` | **Strictly caller-scoped** parking-pass lookup (`GET /api/parking/my-passes`). Resolves the caller's phone → their family and returns ONLY that family's passes (lot, color, per-color entry guidance). No ITS/family is accepted from the request, so a caller can never query someone else's pass. Behavior is governed by the `PARKING_RULE` always-on block (ask-if-collected first, decline other-family lookups, escalate to Transport when none found). |
+
+| `report_lost_item` | Records a structured lost-item report, enriches reporter identity, and automatically escalates it to the Lost and Found department. |
+| `report_found_item` | Records a structured found-item report and directs the reporter to drop it at any help desk in the masjid complex. |
 | `create_issue` | Logs an external issue the visitor reports (`POST /api/issues` → `tasks` row with `item_type='issue'`, `origin='external'`). Shown on the Kanban with External/Internal badges. |
 
 ### Task Tools

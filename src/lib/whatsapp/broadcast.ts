@@ -1,6 +1,8 @@
-import { getInWindowPhones, previewAudience, utilityMessageCostUsd, type AudienceKey, type Recipient } from "@/lib/whatsapp/audience";
+import { getInWindowPhones, normalizePhone, previewAudience, utilityMessageCostUsd, type AudienceKey, type Recipient, type WindowFilter } from "@/lib/whatsapp/audience";
 import type { RuleGroup } from "@/lib/whatsapp/audience-filter";
+import { getAccountByPhoneNumberId, type WhatsAppAccount } from "@/lib/whatsapp/accounts";
 import { resolveApprovedTemplate, sendTemplateNotification } from "@/lib/whatsapp/send-template";
+import { suppressedPhones } from "@/lib/whatsapp/undeliverable";
 import { resolveBindings, type SendComponentInputs, type VariableBindings } from "@/lib/whatsapp/templates";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -20,6 +22,12 @@ export type CreateBroadcastInput = {
   audienceKey?: AudienceKey; // omit when passing an explicit `recipients` list
   selectedUserIds?: string[];
   rules?: RuleGroup; // for the "custom" audience
+  // Restrict the audience to one side of the 24h window (free in-window vs paid out-of-window).
+  // Defaults to "all".
+  windowFilter?: WindowFilter;
+  // Override the free-window size (hours) used to classify recipients as in/out of window.
+  // Defaults to the env-configured WHATSAPP_WINDOW_HOURS.
+  windowHours?: number;
   variableBindings?: VariableBindings;
   triggeredByUserId?: string | null;
   // Explicit recipient list (e.g. the Niyaz RSVP send). When provided, audience resolution is
@@ -27,6 +35,9 @@ export type CreateBroadcastInput = {
   recipients?: Recipient[];
   // Per-send quick-reply button payloads, frozen onto every recipient (e.g. RSVP buttons).
   quickReplyButtons?: { index: number; payload: string }[];
+  // WhatsApp account to send from. Defaults to the primary account. Determined by the WABA that
+  // owns the chosen template — a template can only be sent from the number whose WABA contains it.
+  account?: WhatsAppAccount;
 };
 
 export type CreateBroadcastResult = { broadcastId: string; total: number; free: number; paid: number; skipped: number; estCostUsd: number };
@@ -36,10 +47,11 @@ export type CreateBroadcastResult = { broadcastId: string; total: number; free: 
 export async function createBroadcast(input: CreateBroadcastInput): Promise<CreateBroadcastResult | { error: string }> {
   const supabase = getSupabaseAdmin();
 
-  // Validate the template exists & is approved before enqueuing anything.
+  // Validate the template exists & is approved before enqueuing anything. Resolve from the sending
+  // account's WABA — the template must live in the WABA we'll send it from.
   let desc;
   try {
-    desc = await resolveApprovedTemplate(input.templateCode);
+    desc = await resolveApprovedTemplate(input.templateCode, input.account);
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Template not found" };
   }
@@ -60,13 +72,22 @@ export async function createBroadcast(input: CreateBroadcastInput): Promise<Crea
   }
 
   // Recipients: an explicit list (Niyaz RSVP send) or a resolved audience. Both carry an inWindow flag.
+  const windowFilter: WindowFilter = input.windowFilter ?? "all";
   let recipients: (Recipient & { inWindow: boolean })[];
   if (input.recipients) {
-    const inWindow = await getInWindowPhones();
-    recipients = input.recipients.map((r) => ({ ...r, inWindow: inWindow.has(r.phone) }));
+    const [inWindow, suppressed] = await Promise.all([getInWindowPhones(input.windowHours), suppressedPhones()]);
+    // Drop numbers Meta flagged as undeliverable so explicit-list sends (Niyaz RSVP, CSV upload)
+    // skip them too — the audience-path recipients are already filtered by previewAudience below.
+    recipients = input.recipients
+      .filter((r) => !suppressed.has(normalizePhone(r.phone)))
+      .map((r) => ({ ...r, inWindow: inWindow.has(r.phone) }));
+    // Apply the window filter to explicit lists too. Niyaz callers omit windowFilter, so this is a
+    // no-op for them.
+    if (windowFilter === "in_window") recipients = recipients.filter((r) => r.inWindow);
+    else if (windowFilter === "out_window") recipients = recipients.filter((r) => !r.inWindow);
   } else {
     if (!input.audienceKey) return { error: "No audience specified." };
-    const preview = await previewAudience(input.audienceKey, input.selectedUserIds ?? [], input.rules);
+    const preview = await previewAudience(input.audienceKey, input.selectedUserIds ?? [], input.rules, windowFilter, input.windowHours);
     recipients = preview.recipients;
   }
   if (recipients.length === 0) return { error: "No recipients in the selected audience." };
@@ -96,6 +117,13 @@ export async function createBroadcast(input: CreateBroadcastInput): Promise<Crea
       audience_key: input.audienceKey ?? "niyaz_rsvp",
       audience_rules: input.rules ?? null,
       variable_bindings: input.variableBindings ?? null,
+      // Number this broadcast sends from; NULL = primary account.
+      phone_number_id: input.account?.phoneNumberId ?? null,
+      // Record the audience toggles so the send log can show how the audience was scoped. null
+      // window_hours means "used the configured default"; null selected_user_ids means "n/a".
+      window_filter: windowFilter,
+      window_hours: input.windowHours ?? null,
+      selected_user_ids: input.selectedUserIds?.length ? input.selectedUserIds : null,
       triggered_by_user_id: input.triggeredByUserId ?? null,
       status: "running",
       total_recipients: recipients.length,
@@ -148,7 +176,20 @@ export async function drainBroadcasts(batchSize = DEFAULT_BATCH_SIZE): Promise<D
     return { processed: 0, broadcastsTouched: 0 };
   }
 
-  // Resolve each distinct template once for this batch.
+  // Resolve which account each touched broadcast sends from (NULL phone_number_id = primary). The
+  // template is resolved from — and sent through — that account, so a higher-tier number's broadcast
+  // uses its own credentials and WABA-scoped template.
+  const broadcastIds = [...new Set(rows.map((r) => r.broadcast_id))];
+  const { data: broadcastRows } = await supabase
+    .from("template_broadcasts")
+    .select("id, phone_number_id")
+    .in("id", broadcastIds);
+  const accountByBroadcast = new Map<string, WhatsAppAccount | undefined>();
+  for (const b of (broadcastRows ?? []) as { id: string; phone_number_id: string | null }[]) {
+    accountByBroadcast.set(b.id, b.phone_number_id ? getAccountByPhoneNumberId(b.phone_number_id) : undefined);
+  }
+
+  // Resolve each distinct (account, template) once for this batch.
   const descriptors = new Map<string, Awaited<ReturnType<typeof resolveApprovedTemplate>> | null>();
   const touched = new Set<string>();
   let processed = 0;
@@ -156,10 +197,12 @@ export async function drainBroadcasts(batchSize = DEFAULT_BATCH_SIZE): Promise<D
   for (const row of rows) {
     touched.add(row.broadcast_id);
     const code = row.template_code;
-    if (!descriptors.has(code)) {
-      descriptors.set(code, await resolveApprovedTemplate(code).catch(() => null));
+    const account = accountByBroadcast.get(row.broadcast_id);
+    const descKey = `${account?.phoneNumberId ?? "primary"}:${code}`;
+    if (!descriptors.has(descKey)) {
+      descriptors.set(descKey, await resolveApprovedTemplate(code, account).catch(() => null));
     }
-    const desc = descriptors.get(code) ?? undefined;
+    const desc = descriptors.get(descKey) ?? undefined;
 
     const result = await sendTemplateNotification({
       phoneE164: row.phone_e164,
@@ -169,6 +212,7 @@ export async function drainBroadcasts(batchSize = DEFAULT_BATCH_SIZE): Promise<D
       source: "template_broadcast",
       rawPayloadExtra: { broadcast_id: row.broadcast_id, recipient_id: row.id },
       descriptor: desc,
+      account,
     });
 
     if (result.status === "sent") {

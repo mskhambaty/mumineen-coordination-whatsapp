@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
+import { getAccountByWaba } from "@/lib/whatsapp/accounts";
 import { upsertTemplateSetting } from "@/lib/whatsapp/template-settings";
 
 export const runtime = "nodejs";
@@ -10,6 +11,8 @@ export const runtime = "nodejs";
 const schema = z
   .object({
     template_name: z.string().min(1),
+    // WABA that owns the template. Omitted = the primary account (back-compat with the existing UI).
+    waba_id: z.string().min(1).optional(),
     friendly_name: z.string().max(120).nullable().optional(),
     is_active: z.boolean().optional(),
   })
@@ -28,8 +31,15 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Invalid body", details: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { template_name, friendly_name, is_active } = parsed.data;
-  const saved = await upsertTemplateSetting(template_name, {
+  const { template_name, waba_id, friendly_name, is_active } = parsed.data;
+
+  // Resolve which account's WABA this annotation belongs to. Omitted waba_id = primary account.
+  const account = waba_id ? getAccountByWaba(waba_id) : undefined;
+  if (waba_id && !account) {
+    return NextResponse.json({ error: "Unknown waba_id" }, { status: 400 });
+  }
+
+  const saved = await upsertTemplateSetting(account, template_name, {
     friendlyName: friendly_name,
     isActive: is_active,
   });

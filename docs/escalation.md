@@ -62,6 +62,8 @@ Escalate **only** when one of these holds:
 | `schedule` | waaz timings, venue, program |
 | `facilities` | thaali/food, washrooms, accessibility |
 | `complaint` | dissatisfaction, conduct |
+| `religious_followup` | Waaz/deen or personal ruling follow-up |
+| `lost_found` | Lost-item report; automatically routed to Lost and Found |
 | `other` | anything else |
 
 `escalation_priority`: `urgent` (emergency or strong frustration) or `normal`.

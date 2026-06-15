@@ -100,7 +100,7 @@ describe("sendTemplateNotification", () => {
       issue_id: "issue-1",
     });
 
-    expect(touchConversationSession).toHaveBeenCalledWith({ phoneE164: "+13125550100", userId: "user-1" });
+    expect(touchConversationSession).toHaveBeenCalledWith({ phoneE164: "+13125550100", userId: "user-1", phoneNumberId: null });
   });
 
   it("reuses a provided descriptor without re-fetching the template list", async () => {

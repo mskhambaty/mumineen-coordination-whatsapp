@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
-import { AUDIENCE_KEYS, enrichFieldsByPhone, previewAudience, previewExplicitRecipients, type AudiencePreview } from "@/lib/whatsapp/audience";
+import { AUDIENCE_KEYS, enrichFieldsByPhone, previewAudience, previewExplicitRecipients, WINDOW_FILTERS, type AudiencePreview } from "@/lib/whatsapp/audience";
 import { parseAudienceCsv } from "@/lib/whatsapp/audience-csv";
 import { validateRules, type RuleGroup } from "@/lib/whatsapp/audience-filter";
 
@@ -14,6 +14,8 @@ const schema = z.object({
   selected_user_ids: z.array(z.string().uuid()).optional(),
   rules: z.any().optional(), // react-querybuilder tree for the "custom" audience
   csv: z.string().optional(), // raw CSV text for the "csv_upload" audience (audience-export format)
+  window: z.enum(WINDOW_FILTERS).optional(), // restrict to free (in_window) / paid (out_window)
+  window_hours: z.number().positive().optional(), // override the free-window size (hours)
   include_recipients: z.boolean().optional(),
   limit: z.number().int().min(1).max(200).optional(),
   offset: z.number().int().min(0).optional(),
@@ -38,6 +40,8 @@ export async function POST(req: NextRequest) {
     if (err) return NextResponse.json({ error: err }, { status: 400 });
   }
 
+  const window = parsed.data.window ?? "all";
+  const windowHours = parsed.data.window_hours;
   let preview: AudiencePreview;
   let csvStats: { parsed: number; skipped: number; duplicates: number; corrupted: number } | null = null;
   if (parsed.data.audience_key === "csv_upload") {
@@ -47,10 +51,10 @@ export async function POST(req: NextRequest) {
     // Fill missing Name/ITS/etc. from the roster by phone so personalization resolves even when the
     // uploaded row left them blank (e.g. a failures CSV); CSV-provided values still win.
     await enrichFieldsByPhone(csv.recipients);
-    preview = await previewExplicitRecipients(csv.recipients);
+    preview = await previewExplicitRecipients(csv.recipients, window, windowHours);
     csvStats = { parsed: csv.parsed, skipped: csv.skipped, duplicates: csv.duplicates, corrupted: csv.corrupted };
   } else {
-    preview = await previewAudience(parsed.data.audience_key, parsed.data.selected_user_ids ?? [], rules);
+    preview = await previewAudience(parsed.data.audience_key, parsed.data.selected_user_ids ?? [], rules, window, windowHours);
   }
 
   const body: Record<string, unknown> = {

@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { markWordRequestAdded } from "@/lib/knowledge/lisan-word-requests";
 
 export type LisanEntry = {
   transliteration: string | null;
@@ -234,10 +235,18 @@ export type AddLisanResult =
 // Add (or update) ONE dictionary word without touching the rest of the table — the day-to-day
 // path for filling a gap. The DB is the source of truth; dedupe on `norm` so the same word can't
 // be added twice (an existing entry is updated in place instead). Returns the new total count.
-export async function addLisanWord(row: LisanImportRow): Promise<AddLisanResult> {
+export async function addLisanWord(row: LisanImportRow, actorName?: string | null): Promise<AddLisanResult> {
   const prepared = prepareLisanRow(row);
   if (!prepared) return { status: "invalid" };
   const supabase = getSupabaseAdmin();
+
+  // word now exists → close any open request for it, and (if one was waiting) email the team.
+  const closeRequest = () =>
+    markWordRequestAdded(prepared.norm, {
+      label: prepared.transliteration ?? prepared.lisan,
+      meaning: prepared.meaning,
+      addedBy: actorName ?? null,
+    });
 
   // Dedupe: a row with the same normalized word already exists → update it in place.
   const { data: existing } = await supabase
@@ -250,11 +259,13 @@ export async function addLisanWord(row: LisanImportRow): Promise<AddLisanResult>
   if (existingId != null) {
     const { error } = await supabase.from("lisan_words").update(prepared).eq("id", existingId);
     if (error) throw error;
+    await closeRequest();
     return { status: "updated", entry: pick(prepared), count: await countLisanWords() };
   }
 
   const { error } = await supabase.from("lisan_words").insert(prepared);
   if (error) throw error;
+  await closeRequest();
   return { status: "added", entry: pick(prepared), count: await countLisanWords() };
 }
 

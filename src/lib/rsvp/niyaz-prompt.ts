@@ -33,19 +33,22 @@ function dedupeByPhone(list: Recipient[]): Recipient[] {
 
 export type NiyazAudienceKind = "specific_its" | "all_mumineen" | "all_hof" | "all_adults";
 
-async function registeredFamilyIds(): Promise<string[]> {
-  const { data } = await getSupabaseAdmin()
-    .from("families")
-    .select("id")
-    .eq("roster_active", true)
-    .eq("registration_status", "submitted");
+// Family ids in scope. `requireRegistered` (default true) keeps the legacy "submitted registration"
+// filter; pass false for the double-RSVP audiences, which target every roster-active family
+// regardless of registration state (members are still filtered to roster_active + not_attending).
+async function activeFamilyIds(requireRegistered: boolean): Promise<string[]> {
+  let q = getSupabaseAdmin().from("families").select("id").eq("roster_active", true);
+  if (requireRegistered) q = q.eq("registration_status", "submitted");
+  const { data } = await q;
   return ((data ?? []) as { id: string }[]).map((f) => f.id);
 }
 
 type MuminRow = Record<string, unknown> & { id: string; family_id: string | null; whatsapp_e164: string | null; is_head?: boolean; not_attending?: boolean };
 
+// `mumin_id` is exposed as a field (not a roster column) so per-recipient button payloads can bind
+// {{Person.Id}} to it. eligible_family_count is added later, once families are aggregated.
 function toRecipient(m: MuminRow): Recipient {
-  return { phone: normalizePhone(m.whatsapp_e164 as string), familyId: m.family_id, muminId: m.id, fields: fieldsOf(m) };
+  return { phone: normalizePhone(m.whatsapp_e164 as string), familyId: m.family_id, muminId: m.id, fields: { ...fieldsOf(m), mumin_id: m.id } };
 }
 
 // Resolve the recipient list for a daily RSVP send. `ind` audiences are per-mumin (their own number);
@@ -57,6 +60,9 @@ export async function resolveNiyazAudience(opts: {
   its?: string[];
   onlyNonResponders?: boolean;
   level: NiyazLevel;
+  // Default true (legacy: only families with a submitted registration). Pass false to target every
+  // roster-active, not-attending=false family — the double-RSVP audience definition.
+  requireRegistered?: boolean;
 }): Promise<{ recipients: Recipient[]; unresolvedIts: string[] }> {
   const supabase = getSupabaseAdmin();
   const sel = `id, family_id, whatsapp_e164, is_head, is_adult, not_attending, ${MAPPABLE_COLS.join(", ")}`;
@@ -79,7 +85,7 @@ export async function resolveNiyazAudience(opts: {
     }
     recipients = dedupeByPhone(recipients);
   } else {
-    const familyIds = await registeredFamilyIds();
+    const familyIds = await activeFamilyIds(opts.requireRegistered ?? true);
     if (familyIds.length === 0) return { recipients: [], unresolvedIts: [] };
 
     if (opts.audience === "all_hof") {
@@ -111,21 +117,35 @@ export async function resolveNiyazAudience(opts: {
     }
   }
 
-  // Attach a computed `family_members` field (the family's member names) so the family template's
-  // {{family_members}} variable can be personalized per recipient.
+  // Attach computed family fields per recipient: `family_members` (the family's member names, for
+  // the {{family_members}} template variable) and `eligible_family_count` (roster-active members
+  // not marked not-attending, for the {{EligibleFamilyCount}} button token / default attending count).
   const famIds = [...new Set(recipients.map((r) => r.familyId).filter(Boolean))] as string[];
+  const namesByFam = new Map<string, string[]>();
+  const eligibleByFam = new Map<string, number>();
   if (famIds.length > 0) {
-    const { data } = await supabase.from("mumineen").select("family_id, full_name").in("family_id", famIds).eq("roster_active", true);
-    const byFam = new Map<string, string[]>();
-    for (const m of (data ?? []) as { family_id: string; full_name: string | null }[]) {
-      if (!m.full_name) continue;
-      const arr = byFam.get(m.family_id) ?? [];
-      arr.push(m.full_name);
-      byFam.set(m.family_id, arr);
+    const { data } = await supabase
+      .from("mumineen")
+      .select("family_id, full_name, not_attending")
+      .in("family_id", famIds)
+      .eq("roster_active", true);
+    for (const m of (data ?? []) as { family_id: string; full_name: string | null; not_attending: boolean | null }[]) {
+      if (m.full_name) {
+        const arr = namesByFam.get(m.family_id) ?? [];
+        arr.push(m.full_name);
+        namesByFam.set(m.family_id, arr);
+      }
+      if (m.not_attending !== true) eligibleByFam.set(m.family_id, (eligibleByFam.get(m.family_id) ?? 0) + 1);
     }
-    for (const r of recipients) {
-      if (r.familyId) r.fields = { ...(r.fields ?? {}), family_members: (byFam.get(r.familyId) ?? []).join(", ") };
-    }
+  }
+  for (const r of recipients) {
+    // No family → the recipient stands for themselves (eligible count 1).
+    const eligible = r.familyId ? eligibleByFam.get(r.familyId) ?? 0 : 1;
+    r.fields = {
+      ...(r.fields ?? {}),
+      family_members: r.familyId ? (namesByFam.get(r.familyId) ?? []).join(", ") : r.fields?.family_members ?? "",
+      eligible_family_count: String(eligible),
+    };
   }
 
   if (opts.onlyNonResponders) {

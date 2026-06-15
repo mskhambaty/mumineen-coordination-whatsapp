@@ -6,6 +6,10 @@ vi.mock("@/lib/supabase/server", () => ({
   getSupabaseAdmin: () => ({ from: mocks.from, rpc: mocks.rpc }),
 }));
 
+// addLisanWord closes any open missing-word request; stub it here so these tests stay focused on
+// the dictionary write (the close-the-loop behavior is covered in lisan-word-requests.test.ts).
+vi.mock("@/lib/knowledge/lisan-word-requests", () => ({ markWordRequestAdded: vi.fn() }));
+
 import {
   normalizeWord,
   lookupLisanWord,
