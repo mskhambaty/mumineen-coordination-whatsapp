@@ -314,7 +314,9 @@ export default function AsharaContent() {
       </button>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-        <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+       <div className="min-w-0">
+        {/* Desktop: the wide table */}
+        <div className="hidden overflow-x-auto rounded-lg border border-gray-200 bg-white shadow-sm md:block dark:border-gray-800 dark:bg-gray-900">
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-gray-50 dark:bg-gray-800/60">
               <tr>
@@ -399,6 +401,69 @@ export default function AsharaContent() {
             </tbody>
           </table>
         </div>
+
+        {/* Mobile: one card per majlis, the 6 categories as full-width rows (no sideways scroll) */}
+        <div className="space-y-3 md:hidden">
+          {loading ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
+          ) : (
+            ASHARA_ROWS.map((row, rowIdx) => {
+              const isToday = rowIdx === todayRowIdx;
+              const done = rowDone(row);
+              return (
+                <div key={row.label} className={`rounded-lg border bg-white shadow-sm dark:bg-gray-900 ${isToday ? "border-blue-300 dark:border-blue-800" : "border-gray-200 dark:border-gray-800"}`}>
+                  <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2 dark:border-gray-800">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-800 dark:text-gray-200">{row.label}</span>
+                      {isToday && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">Today</span>}
+                      <span className="text-[11px] text-gray-400">{done}/{ASHARA_CATEGORIES.length}</span>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={busyCell === `seed:${row.label}`}
+                      onClick={() => void seedRow(row)}
+                      className="text-[11px] font-medium text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
+                    >
+                      {busyCell === `seed:${row.label}` ? "Seeding…" : "Seed all 6"}
+                    </button>
+                  </div>
+                  <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+                    {ASHARA_CATEGORIES.map((cat) => {
+                      const t = cellMap.get(cellKey(cat, row));
+                      const key = cellKey(cat, row);
+                      return (
+                        <li key={cat.key}>
+                          <button
+                            type="button"
+                            disabled={busyCell === key}
+                            onClick={() => void openCell(cat, row)}
+                            className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-800/60"
+                          >
+                            <span className="text-sm text-gray-700 dark:text-gray-200">
+                              {cat.label}
+                              {cat.language === "lisan" && <span className="ml-1 text-[10px] lowercase text-amber-600">(lisan)</span>}
+                            </span>
+                            {t ? (
+                              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_STYLE[t.status] ?? ""}`}>
+                                {STATUS_LABEL[t.status] ?? t.status}
+                              </span>
+                            ) : (
+                              <span className="shrink-0 text-xs text-gray-400">{busyCell === key ? "Creating…" : "+ Add"}</span>
+                            )}
+                          </button>
+                          {t?.source_url && (
+                            <a href={t.source_url} target="_blank" rel="noopener noreferrer" className="block px-3 pb-2 text-[11px] text-blue-600 hover:underline dark:text-blue-400">↗ source</a>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              );
+            })
+          )}
+        </div>
+       </div>
 
         <aside className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <h2 className="text-sm font-semibold">Needs translation</h2>

@@ -75,9 +75,9 @@ export default function ChatsTab({ conversations, onReload }: { conversations: C
   }
 
   return (
-    <div className="grid h-[calc(100vh-21rem)] min-h-[34rem] gap-4 md:grid-cols-[300px_1fr]">
-      {/* List */}
-      <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+    <div className="grid h-[calc(100dvh-12rem)] min-h-[28rem] gap-4 md:h-[calc(100vh-21rem)] md:min-h-[34rem] md:grid-cols-[300px_1fr]">
+      {/* List — full-screen on mobile until a chat is opened (master/detail) */}
+      <div className={`min-h-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white md:flex dark:border-gray-800 dark:bg-gray-900 ${active ? "hidden" : "flex"}`}>
         <div className="space-y-2 border-b border-gray-100 p-3 dark:border-gray-800">
           <input
             value={search}
@@ -118,16 +118,26 @@ export default function ChatsTab({ conversations, onReload }: { conversations: C
         </ul>
       </div>
 
-      {/* Thread */}
-      <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+      {/* Thread — full-screen on mobile when a chat is open, with a Back button */}
+      <div className={`min-h-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white md:flex dark:border-gray-800 dark:bg-gray-900 ${active ? "flex" : "hidden"}`}>
         {!active ? (
           <div className="flex flex-1 items-center justify-center text-sm text-gray-400">Select a conversation</div>
         ) : (
           <>
-            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-gray-800">
-              <div>
-                <div className="font-medium text-gray-900 dark:text-gray-100">{active.name ?? `…${active.phone_last4}`}</div>
-                <div className="text-xs text-gray-400">{active.in_window ? "Inside 24h window" : "Outside 24h window"}</div>
+            <div className="flex items-center justify-between gap-2 border-b border-gray-100 px-4 py-3 dark:border-gray-800">
+              <div className="flex min-w-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setActivePhone(null); setNotice(null); }}
+                  className="shrink-0 rounded-md p-1 text-gray-500 hover:bg-gray-100 md:hidden dark:text-gray-400 dark:hover:bg-gray-800"
+                  aria-label="Back to conversations"
+                >
+                  ←
+                </button>
+                <div className="min-w-0">
+                  <div className="truncate font-medium text-gray-900 dark:text-gray-100">{active.name ?? `…${active.phone_last4}`}</div>
+                  <div className="text-xs text-gray-400">{active.in_window ? "Inside 24h window" : "Outside 24h window"}</div>
+                </div>
               </div>
               <ModeToggle mode={active.handling_mode} onChange={setMode} disabled={savingMode} />
             </div>

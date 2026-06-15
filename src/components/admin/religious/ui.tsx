@@ -88,7 +88,7 @@ export function KpiCard({ label, value, tone = "neutral", icon }: { label: strin
       {icon && <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${TONE_CHIP[tone]}`}>{icon}</span>}
       <div className="min-w-0">
         <div className="text-2xl font-bold tabular-nums leading-none">{value.toLocaleString()}</div>
-        <div className="mt-1 truncate text-[11px] font-medium uppercase tracking-wide opacity-70">{label}</div>
+        <div className="mt-1 text-[11px] font-medium uppercase leading-tight tracking-wide opacity-70">{label}</div>
       </div>
     </div>
   );
@@ -136,27 +136,44 @@ export function HBar({ label, count, max }: { label: string; count: number; max:
 // ─── Tabs (underline aesthetic) ───────────────────────────────────────────────────────────────
 export function Tabs({ tabs, active, onChange }: { tabs: { key: TabKey; label: string; badge?: number }[]; active: TabKey; onChange: (k: TabKey) => void }) {
   return (
-    <div className="flex gap-1 overflow-x-auto border-b border-gray-200 dark:border-gray-800">
-      {tabs.map((t) => {
-        const on = t.key === active;
-        return (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => onChange(t.key)}
-            className={`relative flex items-center gap-1.5 whitespace-nowrap px-4 py-3 text-sm font-semibold transition-colors ${
-              on ? "text-blue-700 dark:text-blue-300" : "text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-            }`}
-          >
-            {t.label}
-            {t.badge ? (
-              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">{t.badge}</span>
-            ) : null}
-            {on && <span className="absolute inset-x-2 bottom-0 h-[2.5px] rounded-t bg-blue-600 dark:bg-blue-400" />}
-          </button>
-        );
-      })}
-    </div>
+    <>
+      {/* Mobile: a dropdown (the 6 tabs don't fit a phone width). */}
+      <select
+        value={active}
+        onChange={(e) => onChange(e.target.value as TabKey)}
+        className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 sm:hidden dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+        aria-label="Section"
+      >
+        {tabs.map((t) => (
+          <option key={t.key} value={t.key}>
+            {t.label}{t.badge ? ` (${t.badge})` : ""}
+          </option>
+        ))}
+      </select>
+
+      {/* Desktop: the underline tab bar. */}
+      <div className="hidden gap-1 overflow-x-auto border-b border-gray-200 sm:flex dark:border-gray-800">
+        {tabs.map((t) => {
+          const on = t.key === active;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => onChange(t.key)}
+              className={`relative flex items-center gap-1.5 whitespace-nowrap px-4 py-3 text-sm font-semibold transition-colors ${
+                on ? "text-blue-700 dark:text-blue-300" : "text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+              }`}
+            >
+              {t.label}
+              {t.badge ? (
+                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">{t.badge}</span>
+              ) : null}
+              {on && <span className="absolute inset-x-2 bottom-0 h-[2.5px] rounded-t bg-blue-600 dark:bg-blue-400" />}
+            </button>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
