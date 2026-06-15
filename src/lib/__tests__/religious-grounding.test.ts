@@ -71,7 +71,8 @@ describe("runAgent — religious grounding guard", () => {
     m.history = [{ direction: "inbound", body: "Who is the 53rd dai?" }];
     createQueue = [content("The 53rd Dai is Syedna Mufaddal Saifuddin TUS.")]; // model tries to free-answer
     const reply = await run("Who is the 53rd dai?");
-    expect(reply).toBe(NOT_FOUND_REPLY);
+    expect(reply).toContain(NOT_FOUND_REPLY);
+    expect(reply).toContain("istibsaar/oncall"); // can't-answer → suggest the on-call Istibsaar
     expect(reply).not.toContain("Source:");
   });
 
@@ -112,7 +113,8 @@ describe("runAgent — religious grounding guard", () => {
     m.retrieve.mockResolvedValue(""); // nothing indexed for this query, any year
     createQueue = [toolCall("What did Maula say about sabr?")];
     const reply = await run("What did Maula say about sabr?");
-    expect(reply).toBe(NOT_FOUND_REPLY);
+    expect(reply).toContain(NOT_FOUND_REPLY);
+    expect(reply).toContain("istibsaar/oncall");
   });
 
   it("T11: overall theme of 1447 → answered from the indexed 1447 overview, labeled 1447H", async () => {

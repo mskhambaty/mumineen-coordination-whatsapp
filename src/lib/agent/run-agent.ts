@@ -8,6 +8,7 @@ import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
 import {
   NOT_FOUND_REPLY,
   THIS_YEAR_OFFER_LAST,
+  appendOnCallSuggestion,
   maybeSingleWordQuery,
   renderLisanReply,
   isDidYouMeanFollowUp,
@@ -511,7 +512,7 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   if (!firstMessage?.tool_calls?.length) {
     const content = sanitizeFinalReply(firstMessage?.content?.trim() || fallbackReply());
     if (isClearlySocial(input.message)) return content;
-    if (hasReligiousSignal(input.message)) return NOT_FOUND_REPLY;
+    if (hasReligiousSignal(input.message)) return appendOnCallSuggestion(NOT_FOUND_REPLY, history, { force: true });
     return content;
   }
 
@@ -568,12 +569,15 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   // the second completion. A 'declined' guardrail result falls through so the model
   // keeps assisting normally.
   if (escalationAck) {
-    return escalationAck;
+    // A deen question handed to the team → also point them to the on-call Istibsaar for now.
+    return escalationAck === RELIGIOUS_FOLLOWUP_REPLY
+      ? appendOnCallSuggestion(escalationAck, history, { force: true })
+      : escalationAck;
   }
 
   // DETERMINISTIC religious decisions — the model never narrates a refusal/offer (no citations,
   // no improvisation). Only a grounded "answer" proceeds to the (constrained) final completion.
-  if (religiousDecision === "not_found") return NOT_FOUND_REPLY;
+  if (religiousDecision === "not_found") return appendOnCallSuggestion(NOT_FOUND_REPLY, history, { force: true });
   if (religiousDecision === "offer_last") return THIS_YEAR_OFFER_LAST;
   // Word-meaning that was routed to the waaz tool → answer from the dictionary, deterministically.
   if (religiousDecision === "word_lookup" && religiousWord) return renderLisanReply(await lookupLisanWord(religiousWord));
@@ -623,7 +627,11 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   if (religiousDecision === "answer" && yearLabelMismatch(reply, groundedYear)) return NOT_FOUND_REPLY;
   // Guarantee the show-source rule: if a Waaz Talaqi / Lisan tool returned a source and the
   // model's reply didn't cite it, append the source line deterministically.
-  return ensureSourcesCited(reply, sources);
+  const finalReply = ensureSourcesCited(reply, sources);
+  // After a few back-and-forths on a religious answer, suggest the on-call Istibsaar (once).
+  return religiousDecision === "answer"
+    ? appendOnCallSuggestion(finalReply, history, { force: false })
+    : finalReply;
 }
 
 // Derive the topic a THIS_YEAR_OFFER_LAST offer was about: the inbound message immediately before

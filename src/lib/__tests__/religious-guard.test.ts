@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   NOT_FOUND_REPLY,
   THIS_YEAR_OFFER_LAST,
+  ISTIBSAAR_ONCALL_URL,
+  appendOnCallSuggestion,
   maybeSingleWordQuery,
   renderLisanReply,
   isClearlySocial,
@@ -14,6 +16,26 @@ import {
   extractHijriYears,
   yearLabelMismatch,
 } from "@/lib/agent/religious-guard";
+
+describe("appendOnCallSuggestion", () => {
+  const inbound = (n: number) => Array.from({ length: n }, () => ({ direction: "inbound", body: "q" }));
+
+  it("force=true always appends (a can't-answer dead-end)", () => {
+    const out = appendOnCallSuggestion("nope", [{ direction: "inbound", body: "q" }], { force: true });
+    expect(out).toContain("nope");
+    expect(out).toContain(ISTIBSAAR_ONCALL_URL);
+  });
+
+  it("force=false appends only after >= 3 inbound messages", () => {
+    expect(appendOnCallSuggestion("ans", inbound(2), { force: false })).toBe("ans");
+    expect(appendOnCallSuggestion("ans", inbound(3), { force: false })).toContain(ISTIBSAAR_ONCALL_URL);
+  });
+
+  it("dedupes: skips if a recent outbound already suggested it", () => {
+    const history = [...inbound(5), { direction: "outbound", body: `Earlier reply… ${ISTIBSAAR_ONCALL_URL}` }];
+    expect(appendOnCallSuggestion("ans", history, { force: true })).toBe("ans");
+  });
+});
 
 describe("maybeSingleWordQuery", () => {
   it("detects explicit word-meaning asks (force answer)", () => {

@@ -128,6 +128,14 @@ in-progress logistics flow is never disturbed. Admins manage the monitor list fr
 2. A genuine Waaz/deen/Iqtibasaat question with **no usable match**, OR a **personal fiqh/fatwa** ("should I fast on 10th Muharram"), OR sectarian/theological debate → the agent calls `move_to_escalation` with category **`religious_followup`** (priority `normal`). It must NOT give a ruling, an Aamil-Saheb redirect, or any `Source:` citation. The system then returns a **fixed reply** (`RELIGIOUS_FOLLOWUP_REPLY` in `run-agent.ts`): *"I answer only from the published Ashara reflections, and I couldn't find this there. I've shared your question with our team — if it relates to the Waaz Mubarak, someone will get back to you, Inshallah."* (subtly scopes follow-up to the Waaz Mubarak).
 3. Logistics (hotels, registration, ITS) → `get_site_content_faq`; content-free closings → `[[NO_REPLY]]`. Never escalate those.
 
+**On-call Istibsaar suggestion.** `appendOnCallSuggestion` (`religious-guard.ts`) deterministically adds
+one line — *"…ask your question on the on-call Istibsaar — sign in with your ITS: `ISTIBSAAR_ONCALL_URL`"* —
+to a religious reply when the bot **can't answer** (`NOT_FOUND_REPLY`, the no-tool religious refusal, and
+the `religious_followup` hand-off, `force:true`) or after the member has had **≥3 inbound messages** on a
+normal religious **answer**. **Not** added to a personal-ruling refusal (Aamil Saheb only) or the
+offer-last reply. Deduped with no new state: skipped if a recent outbound in the loaded history already
+carries the URL. Wired at the religious return points in `run-agent.ts`.
+
 This reuses the existing escalation queue (`POST /api/escalations` → `conversation_sessions.escalation_status='pending'` → on-call email/WhatsApp → `/admin/conversations` *Escalations* tab). `religious_followup` is **exempt from the 3-inbound-message gate** (deen questions are often the first message). Because a successful escalation returns its deterministic acknowledgment and skips the second model completion, the irrelevant-citation bug (a fatwa decline getting reflection `Source:` lines stapled on) cannot occur on this path.
 
 **Personal rulings (fatwa) → refuse + FLAG, never answer, never escalate.** A personal fiqh / halal-haram / "do I need to fast" question is *not* a Waaz-content question and is *not* something the event team can answer — it belongs with the Aamil Saheb. The model repeatedly issued its own rulings ("dragon fruit is halal", "fasting on Ashura is sunnah not wajib"), so this is now intercepted **deterministically before any model call**:
