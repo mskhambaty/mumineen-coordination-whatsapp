@@ -101,6 +101,11 @@ const DEFAULT_BUTTONS = JSON.stringify(
 const inputCls =
   "block w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-950";
 
+// Same look as inputCls but WITHOUT `block w-full`, so flex widths (w-28 / flex-1) on the inline
+// binding-row controls aren't overridden into a tiny/expanded box.
+const controlCls =
+  "rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-950";
+
 const labelCls = "text-xs uppercase tracking-wide text-gray-400";
 
 // Map the audience radio to the broadcast API params.
@@ -386,15 +391,15 @@ export default function EventRsvpComposer({
                   <select
                     value={b.kind}
                     onChange={(e) => setBinding(tok, e.target.value === "field" ? { kind: "field", field: b.kind === "field" ? b.field : MAPPABLE[0].key } : { kind: "static", value: b.kind === "static" ? b.value : "" })}
-                    className={`${inputCls} w-28`}
+                    className={`${controlCls} w-28 shrink-0`}
                   >
                     <option value="static">Static</option>
                     <option value="field">Field</option>
                   </select>
                   {b.kind === "static" ? (
-                    <input value={b.value} onChange={(e) => setBinding(tok, { kind: "static", value: e.target.value })} placeholder="value for everyone" className={`${inputCls} flex-1`} />
+                    <input value={b.value} onChange={(e) => setBinding(tok, { kind: "static", value: e.target.value })} placeholder="value for everyone" className={`${controlCls} min-w-0 flex-1`} />
                   ) : (
-                    <select value={b.field} onChange={(e) => setBinding(tok, { kind: "field", field: e.target.value })} className={`${inputCls} flex-1`}>
+                    <select value={b.field} onChange={(e) => setBinding(tok, { kind: "field", field: e.target.value })} className={`${controlCls} min-w-0 flex-1`}>
                       {MAPPABLE.map((m) => (
                         <option key={m.key} value={m.key}>{m.label}</option>
                       ))}
