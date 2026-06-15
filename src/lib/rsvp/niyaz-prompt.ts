@@ -64,16 +64,6 @@ export async function getFamilyTemplateFields(familyId: string): Promise<Record<
   return fields;
 }
 
-// Family ids in scope. `requireRegistered` (default true) keeps the legacy "submitted registration"
-// filter; pass false for the double-RSVP audiences, which target every roster-active family
-// regardless of registration state (members are still filtered to roster_active + not_attending).
-async function activeFamilyIds(requireRegistered: boolean): Promise<string[]> {
-  let q = getSupabaseAdmin().from("families").select("id").eq("roster_active", true);
-  if (requireRegistered) q = q.eq("registration_status", "submitted");
-  const { data } = await q;
-  return ((data ?? []) as { id: string }[]).map((f) => f.id);
-}
-
 type MuminRow = Record<string, unknown> & { id: string; family_id: string | null; whatsapp_e164: string | null; is_head?: boolean; not_attending?: boolean };
 
 // `mumin_id` is exposed as a field (not a roster column) so per-recipient button payloads can bind
@@ -119,17 +109,24 @@ export async function resolveNiyazAudience(opts: {
     }
     recipients = dedupeByPhone(recipients);
   } else {
-    const familyIds = await activeFamilyIds(opts.requireRegistered ?? true);
-    if (familyIds.length === 0) return { recipients: [], unresolvedIts: [] };
-
-    if (opts.audience === "all_hof") {
-      const { data } = await supabase
+    // Filter to active families via a server-side inner join instead of a huge .in(familyIds) list
+    // (1000+ family UUIDs blew past the request URL limit, returning nothing). require_registered
+    // (default true) additionally requires a submitted registration.
+    const selFam = `${sel}, families!inner(roster_active, registration_status)`;
+    const baseQuery = () => {
+      let q = supabase
         .from("mumineen")
-        .select(sel)
-        .in("family_id", familyIds)
+        .select(selFam)
         .eq("roster_active", true)
         .eq("not_attending", false)
-        .not("whatsapp_e164", "is", null);
+        .not("whatsapp_e164", "is", null)
+        .eq("families.roster_active", true);
+      if (opts.requireRegistered ?? true) q = q.eq("families.registration_status", "submitted");
+      return q;
+    };
+
+    if (opts.audience === "all_hof") {
+      const { data } = await baseQuery();
       const byFamily = new Map<string, MuminRow>();
       for (const m of (data ?? []) as unknown as MuminRow[]) {
         const existing = byFamily.get(m.family_id!);
@@ -138,13 +135,7 @@ export async function resolveNiyazAudience(opts: {
       recipients = dedupeByPhone([...byFamily.values()].map(toRecipient));
     } else {
       // all_mumineen / all_adults — every (adult) member with their own number.
-      let q = supabase
-        .from("mumineen")
-        .select(sel)
-        .in("family_id", familyIds)
-        .eq("roster_active", true)
-        .eq("not_attending", false)
-        .not("whatsapp_e164", "is", null);
+      let q = baseQuery();
       if (opts.audience === "all_adults") q = q.eq("is_adult", true);
       const { data } = await q;
       recipients = dedupeByPhone(((data ?? []) as unknown as MuminRow[]).map(toRecipient));
@@ -157,11 +148,13 @@ export async function resolveNiyazAudience(opts: {
   const famIds = [...new Set(recipients.map((r) => r.familyId).filter(Boolean))] as string[];
   const namesByFam = new Map<string, string[]>();
   const eligibleByFam = new Map<string, number>();
-  if (famIds.length > 0) {
+  // Chunk the family lookup — a single .in() over 1000+ family ids exceeds the request URL limit.
+  const CHUNK = 300;
+  for (let i = 0; i < famIds.length; i += CHUNK) {
     const { data } = await supabase
       .from("mumineen")
       .select("family_id, full_name, not_attending")
-      .in("family_id", famIds)
+      .in("family_id", famIds.slice(i, i + CHUNK))
       .eq("roster_active", true);
     for (const m of (data ?? []) as { family_id: string; full_name: string | null; not_attending: boolean | null }[]) {
       if (m.full_name) {

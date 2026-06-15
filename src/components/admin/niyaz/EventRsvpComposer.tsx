@@ -557,7 +557,7 @@ export default function EventRsvpComposer({
         <div className="mt-1 space-y-1 text-sm">
           <label className="flex items-center gap-2">
             <input type="radio" name="audience" checked={audience === "all_hof"} onChange={() => setAudience("all_hof")} />
-            All HOF (roster-active, not marked not-attending)
+            All HOF
           </label>
           <label className="flex items-center gap-2">
             <input type="radio" name="audience" checked={audience === "all_hof_unresponded"} onChange={() => setAudience("all_hof_unresponded")} />
