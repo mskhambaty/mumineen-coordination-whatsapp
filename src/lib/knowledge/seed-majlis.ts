@@ -6,7 +6,6 @@
 import {
   ASHARA_CATEGORIES,
   defaultStatus,
-  istibsaarSearchUrl,
   majlisLabel,
   topicTitle,
 } from "@/lib/knowledge/ashara-config";
@@ -40,8 +39,8 @@ export async function seedMajlisDay(
       category: cat.key,
       language: cat.language,
       status: defaultStatus(cat.language),
-      sourceUrl: istibsaarSearchUrl(target.majlisNumber, target.isAshura, year),
-      sourceLabel: `Istibsaar — ${cat.label}, ${majlisLabel(target.majlisNumber, target.isAshura)} (${year}H)`,
+      // No auto source link — the istibsaar search URL wasn't a real article; editors set a real
+      // source per block via the cell editor when they have one.
     });
     created.push(cat.key);
   }
