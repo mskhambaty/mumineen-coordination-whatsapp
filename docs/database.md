@@ -587,8 +587,8 @@ accounts can hold a same-named template without their annotations colliding.
 Uniqueness is `(coalesce(waba_id,''), template_name)`. RLS enabled (service-role access only).
 Read/written only through `GET /api/admin/templates` (merge) and `PUT /api/admin/templates/settings`.
 Migrations: `20260611041719_whatsapp_template_settings.sql` (create);
-`20260615120000_whatsapp_template_settings_add_waba_id.sql` (phase 1 — add `waba_id`, safe to apply
-ahead of the multi-account deploy); `20260615120200_whatsapp_template_settings_waba_unique.sql`
+`20260615073210_whatsapp_template_settings_add_waba_id.sql` (phase 1 — add `waba_id`, safe to apply
+ahead of the multi-account deploy); `20260615073334_whatsapp_template_settings_waba_unique.sql`
 (phase 2 — drop the `template_name` PK and add the `(waba_id, template_name)` unique index; apply
 **with** the multi-account code, since dropping the PK breaks the pre-deploy code's
 `ON CONFLICT (template_name)` upsert).

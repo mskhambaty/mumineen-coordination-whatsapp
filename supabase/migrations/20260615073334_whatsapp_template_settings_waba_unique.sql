@@ -7,7 +7,7 @@
 -- pre-multi-account code used for its upsert, so applying this before the new code is deployed would
 -- break that save. The new code's upsert is a scoped read-modify-write that doesn't rely on
 -- ON CONFLICT, so it works with this index. See phase 1
--- (20260615120000_whatsapp_template_settings_add_waba_id.sql) for the safe, pre-deployable column add.
+-- (20260615073210_whatsapp_template_settings_add_waba_id.sql) for the safe, pre-deployable column add.
 --
 -- waba_id NULL = the primary/legacy account; coalesce() collapses NULL → '' so uniqueness holds per
 -- (WABA, template) without needing a backfill.
