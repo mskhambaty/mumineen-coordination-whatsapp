@@ -72,8 +72,9 @@ All other types produce an empty `body` string; the agent handles empty bodies g
 
 ### Niyaz double-RSVP interactive responses (raw capture — phase 1)
 
-The `ashara_relay_double_rsvp` template sends a **Flow** button ("Attending") and a `not-attending-…`
-quick-reply. When either response arrives, the webhook records it raw via
+The `ashara_relay_double_rsvp` template sends a **Flow** button ("Attending") and an
+`rsvp:<hof_its>:<registration_instance_id>:not-attending` quick-reply (the button payload mirrors the
+Flow token's `rsvp:`-prefixed shape). When either response arrives, the webhook records it raw via
 `recordInteractiveResponse()` into `whatsapp_interactive_responses` (response_type `flow` | `button`,
 the `flow_token`/payload stored verbatim) and **returns early** — these are not routed to the agent
 and are **not yet decoded into RSVPs**. Decoding the stored responses into `niyaz_rsvp` is phase 2.

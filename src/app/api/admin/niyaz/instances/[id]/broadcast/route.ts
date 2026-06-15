@@ -76,7 +76,7 @@ function bindToken(token: string, ctx: BindCtx): Binding {
   const t = token.toLowerCase();
   if (t === "name" || t === "person_name" || t === "full_name") return { kind: "field", field: "full_name" };
   if (t === "family_members") return { kind: "field", field: "family_members" };
-  if (t === "rsvp_event_title") return { kind: "static", value: ctx.config?.rsvpEventTitle ?? ctx.dayLabel };
+  if (t === "rsvp_event_title" || t === "event_title") return { kind: "static", value: ctx.config?.rsvpEventTitle ?? ctx.dayLabel };
   if (t === "lunch_menu" || t === "lunch") return { kind: "static", value: ctx.config?.lunchMenu ?? "" };
   if (t === "dinner_menu" || t === "dinner") return { kind: "static", value: ctx.config?.dinnerMenu ?? "" };
   if (t === "rsvp_end_time" || t === "end_time") return { kind: "static", value: ctx.config?.rsvpEndTime ?? "" };

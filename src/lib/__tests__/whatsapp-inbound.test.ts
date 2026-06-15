@@ -196,14 +196,14 @@ describe("webhookReceive — interactive responses are captured raw (phase 1)", 
     expect(sendWhatsAppText).not.toHaveBeenCalled();
   });
 
-  it("stores a 'not-attending-…' quick-reply as a raw button response", async () => {
+  it("stores an 'rsvp:…:not-attending' quick-reply as a raw button response", async () => {
     extractIncomingMessages.mockReturnValue([
       {
         phoneE164: "+13125559999",
         whatsappMessageId: "wamid.na",
         profileName: "Tester",
         messageType: "button",
-        buttonPayload: "not-attending-m1-e1",
+        buttonPayload: "rsvp:522382:159:not-attending",
         flowResponse: null,
         body: "",
         businessPhoneNumberId: "PN_BROADCAST",
@@ -218,8 +218,8 @@ describe("webhookReceive — interactive responses are captured raw (phase 1)", 
       phoneE164: "+13125559999",
       waMessageId: "wamid.na",
       type: "button",
-      flowToken: "not-attending-m1-e1",
-      payload: { payload: "not-attending-m1-e1" },
+      flowToken: "rsvp:522382:159:not-attending",
+      payload: { payload: "rsvp:522382:159:not-attending" },
     });
     expect(recordNiyazButtonResponse).not.toHaveBeenCalled();
   });

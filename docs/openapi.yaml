@@ -2175,7 +2175,7 @@ paths:
                         properties:
                           type: { type: string, enum: [quick_reply] }
                           index: { type: integer }
-                          payload: { type: string, description: "Templated, e.g. not-attending-{{Person.Id}}-{{RegistrationInstanceId}}." }
+                          payload: { type: string, description: "Templated, e.g. rsvp:{{hof_its}}:{{RegistrationInstanceId}}:not-attending." }
                 variable_bindings:
                   type: object
                   description: "Explicit per-variable bindings (override the auto-bound defaults). Each body token (and optional header) binds to a static value or a per-recipient roster field."

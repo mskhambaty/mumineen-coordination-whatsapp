@@ -137,7 +137,7 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage, account:
   }
 
   // Double-RSVP interactive responses (ashara_relay_double_rsvp): a Flow completion (nfm_reply) or
-  // the "not-attending-…" quick-reply. Phase 1 captures the raw response for later decoding and
+  // the "rsvp:…:not-attending" quick-reply. Phase 1 captures the raw response for later decoding and
   // stops — these are NOT routed to the agent and NOT yet recorded as RSVPs (phase 2).
   if (message.flowResponse) {
     await recordInteractiveResponse({
@@ -149,7 +149,7 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage, account:
     });
     return true;
   }
-  if (message.buttonPayload && message.buttonPayload.startsWith("not-attending-")) {
+  if (message.buttonPayload && message.buttonPayload.startsWith("rsvp:")) {
     await recordInteractiveResponse({
       phoneE164: message.phoneE164,
       waMessageId: message.whatsappMessageId,

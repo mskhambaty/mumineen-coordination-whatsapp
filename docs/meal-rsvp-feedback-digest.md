@@ -155,7 +155,7 @@ the family's roster-active, not-attending=false count. `buildSendComponents` emi
 families with a `whatsapp`/`admin` `niyaz_rsvp` row for this event). Both have a **preview** (count +
 a sample list of name / ITS / masked phone), and there's a **single-ITS test send**.
 
-**Inbound (phase 1):** Flow completions (`nfm_reply`) and `not-attending-…` taps are captured raw
+**Inbound (phase 1):** Flow completions (`nfm_reply`) and `rsvp:…:not-attending` taps are captured raw
 into `whatsapp_interactive_responses` and not yet decoded into RSVPs — see
 [whatsapp-webhook.md](./whatsapp-webhook.md). Decoding is phase 2.
 

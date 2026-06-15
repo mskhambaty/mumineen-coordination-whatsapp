@@ -64,7 +64,7 @@ function extractTokens(text: string | null | undefined): string[] {
 // fields for name/family_members, else an empty static.
 function defaultBinding(token: string, config: Config): Binding {
   const t = token.toLowerCase();
-  if (t === "rsvp_event_title") return { kind: "static", value: config.rsvpEventTitle ?? "" };
+  if (t === "rsvp_event_title" || t === "event_title") return { kind: "static", value: config.rsvpEventTitle ?? "" };
   if (t === "lunch_menu" || t === "lunch") return { kind: "static", value: config.lunchMenu ?? "" };
   if (t === "dinner_menu" || t === "dinner") return { kind: "static", value: config.dinnerMenu ?? "" };
   if (t === "rsvp_end_time" || t === "end_time") return { kind: "static", value: config.rsvpEndTime ?? "" };
@@ -85,14 +85,15 @@ const DEFAULT_BUTTONS = JSON.stringify(
     {
       type: "flow",
       index: 0,
-      flow_token: "rsvp:{{Person.Id}}:{{RegistrationInstanceId}}",
+      flow_token: "rsvp:{{hof_its}}:{{RegistrationInstanceId}}",
       flow_action_data: {
-        person_id: "{{Person.Id}}",
+        lunch_attending_count: "{{EligibleFamilyCount}}",
+        dinner_attending_count: "{{EligibleFamilyCount}}",
+        hof_its: "{{hof_its}}",
         registration_instance_id: "{{RegistrationInstanceId}}",
-        attending_count: "{{EligibleFamilyCount}}",
       },
     },
-    { type: "quick_reply", index: 1, payload: "not-attending-{{Person.Id}}-{{RegistrationInstanceId}}" },
+    { type: "quick_reply", index: 1, payload: "rsvp:{{hof_its}}:{{RegistrationInstanceId}}:not-attending" },
   ],
   null,
   2,
@@ -185,6 +186,11 @@ export default function EventRsvpComposer({
 
   const selectedTemplate = templates.find((t) => t.name === config.templateCode) ?? null;
   const bodyTokens = extractTokens(selectedTemplate?.bodyText);
+  // The header text variable (e.g. {{event_title}}), if the template has a TEXT header. It binds
+  // separately (variable_bindings.header) rather than as a body param.
+  const headerToken = selectedTemplate?.header?.format === "TEXT" ? extractTokens(selectedTemplate.header.text)[0] ?? null : null;
+  // All variables shown in the binding UI: header var first (if any), then body vars.
+  const allTokens = [...(headerToken ? [headerToken] : []), ...bodyTokens.filter((t) => t !== headerToken)];
 
   // The effective binding for a token: an explicit override, else the smart default (which reads the
   // day's config live, so editing a menu above updates the preview until the binding is overridden).
@@ -287,7 +293,10 @@ export default function EventRsvpComposer({
           its: p.its,
           template_code: config.templateCode || DEFAULT_TEMPLATE,
           buttons,
-          variable_bindings: { body: Object.fromEntries(bodyTokens.map((t) => [t, effBinding(t)])) },
+          variable_bindings: {
+            body: Object.fromEntries(bodyTokens.map((t) => [t, effBinding(t)])),
+            ...(headerToken ? { header: effBinding(headerToken) } : {}),
+          },
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -379,11 +388,11 @@ export default function EventRsvpComposer({
       )}
 
       {/* Per-variable bindings */}
-      {bodyTokens.length > 0 && (
+      {allTokens.length > 0 && (
         <div className="mb-5">
           <span className={labelCls}>Variables</span>
           <div className="mt-1 space-y-2">
-            {bodyTokens.map((tok) => {
+            {allTokens.map((tok) => {
               const b = effBinding(tok);
               return (
                 <div key={tok} className="flex items-center gap-2">
