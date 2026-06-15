@@ -4,13 +4,15 @@ import { executeTool, toolDefinitionsFor } from "@/lib/agent/tools";
 import { SYSTEM_PROMPT, loadAgentSystemPrompt, loadRuleOverrides } from "@/lib/agent/prompts";
 import { AGENT_TEMPERATURE, AI_MODEL, AI_MODEL_HIGH, chatParams, getAIClient, MAX_AGENT_TOKENS, MAX_FINAL_TOKENS } from "@/lib/ai/model";
 import { isPersonalRuling, flagRulingQuestion, RULING_REFUSAL_REPLY } from "@/lib/agent/ruling-guard";
-import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
+import { lookupEnglishMeaning, lookupLisanWord } from "@/lib/knowledge/lisan-words";
 import {
   NOT_FOUND_REPLY,
   THIS_YEAR_OFFER_LAST,
   appendOnCallSuggestion,
+  maybeReverseWordQuery,
   maybeSingleWordQuery,
   renderLisanReply,
+  renderReverseLisanReply,
   isDidYouMeanFollowUp,
   pickDidYouMeanCandidate,
   isAffirmative,
@@ -438,6 +440,14 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   if (isDidYouMeanFollowUp(input.message, lastOutbound)) {
     const word = pickDidYouMeanCandidate(input.message, lastOutbound);
     if (word) return renderLisanReply(await lookupLisanWord(word));
+  }
+
+  // PRE-ROUTE (reverse dictionary): an explicit "what is the Lisan word for X" / "what is X in lisan
+  // ud dawat" goes straight to the reverse lookup. Checked BEFORE the forward single-word route since
+  // its phrasing is more specific. A reverse miss is a clean not-found (never queued as a gap).
+  if (!isClearlySocial(input.message)) {
+    const rev = maybeReverseWordQuery(input.message);
+    if (rev) return renderReverseLisanReply(rev.english, await lookupEnglishMeaning(rev.english));
   }
 
   // PRE-ROUTE (step 2): a single-word / "what does X mean" lookup goes straight to the dictionary,

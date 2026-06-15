@@ -37,9 +37,37 @@ export function splitForms(s: string | null | undefined): string[] {
   return (s ?? "").split(/\s+-\s+|[,،/;]/).map((p) => p.trim()).filter(Boolean);
 }
 
+// Words to ignore when tokenizing an English meaning into searchable gloss terms (so a reverse
+// "Lisan word for X" lookup matches on real content words, not articles/prepositions).
+const MEANING_STOPWORDS = new Set([
+  "of", "the", "an", "to", "or", "and", "in", "on", "for", "with", "at", "by", "as", "is",
+]);
+
+// Tokenize an English meaning gloss into distinct lowercased content words. Mirrors the SQL
+// backfill in 20260615220000_lisan_meaning_reverse.sql so a single add and a re-import produce the
+// same `meaning_terms`. "Painstaking, hardworking" → ["painstaking","hardworking"].
+export function meaningTerms(meaning: string | null | undefined): string[] {
+  return Array.from(
+    new Set(
+      (meaning ?? "")
+        .normalize("NFKD")
+        .replace(/[̀-ͯ]/g, "")
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((t) => t.length >= 2 && !MEANING_STOPWORDS.has(t)),
+    ),
+  );
+}
+
 export type LisanLookup =
   | { status: "ok"; matches: LisanEntry[] }
   | { status: "did_you_mean"; suggestions: LisanEntry[] }
+  | { status: "not_found" };
+
+// Reverse lookup result (English meaning → Lisan word). No "did you mean" tier — a miss is just a
+// miss (the query is an English word, not a misspelled Lisan one), so we return a clean not_found.
+export type ReverseLisanLookup =
+  | { status: "ok"; matches: LisanEntry[] }
   | { status: "not_found" };
 
 // pg_trgm-compatible trigram similarity (2 leading + 1 trailing space, Jaccard on trigrams). Pure
@@ -184,6 +212,45 @@ export async function lookupLisanWord(query: string): Promise<LisanLookup> {
   return { status: "not_found" };
 }
 
+// Reverse lookup: given an English word ("brain", "hardworking"), find the Lisan ud Dawat word(s)
+// whose meaning matches. Two recall tiers, both reusing the indexes added in
+// 20260615220000_lisan_meaning_reverse.sql:
+//   1. exact gloss-word match on `meaning_terms` (handles "hardworking" → Jafakash, "back" → Kamar);
+//   2. fuzzy word-trigram on `meaning` via the match_lisan_by_meaning RPC ("calm" → "calmness, …").
+// A miss returns a clean not_found — never a forward fuzzy guess. The dictionary is Lisan→English
+// and small, so most arbitrary English words legitimately have no entry.
+export async function lookupEnglishMeaning(query: string): Promise<ReverseLisanLookup> {
+  const supabase = getSupabaseAdmin();
+  const q = (query ?? "").trim();
+  if (!q || isTrivialLookup(q)) return { status: "not_found" };
+  const terms = meaningTerms(q);
+  if (!terms.length) return { status: "not_found" };
+
+  // 1. Exact gloss-word match. Rank the most specific entries first (fewer gloss words = the query
+  // term is a primary meaning, e.g. "back" → Kamar ["back"] over a 5-gloss entry that mentions it).
+  const { data: exactData } = await supabase
+    .from("lisan_words")
+    .select("transliteration, lisan, meaning, example, meaning_terms")
+    .overlaps("meaning_terms", terms)
+    .limit(12);
+  const exact = (exactData ?? []) as (LisanEntry & { meaning_terms?: string[] | null })[];
+  if (exact.length) {
+    const ranked = exact
+      .map((e) => ({ entry: pick(e), specificity: e.meaning_terms?.length ?? 99 }))
+      .sort((a, b) => a.specificity - b.specificity);
+    return { status: "ok", matches: dedupe(ranked.map((c) => c.entry)).slice(0, 3) };
+  }
+
+  // 2. Fuzzy word-trigram over the meaning text (recovers morphological variants).
+  const { data: trg } = await supabase.rpc("match_lisan_by_meaning", { query_text: q, match_count: 8 });
+  const ranked = ((trg ?? []) as (LisanEntry & { similarity?: number })[])
+    .map((r) => ({ entry: pick(r), score: typeof r.similarity === "number" ? r.similarity : 0 }))
+    .sort((a, b) => b.score - a.score);
+  if (ranked.length) return { status: "ok", matches: dedupe(ranked.map((c) => c.entry)).slice(0, 3) };
+
+  return { status: "not_found" };
+}
+
 export type LisanImportRow = {
   transliteration?: string | null;
   lisan?: string | null;
@@ -201,6 +268,7 @@ export type PreparedLisanRow = {
   norm_skeleton: string;
   skeleton_forms: string[];
   lisan_forms: string[];
+  meaning_terms: string[];
 };
 
 // Compute the stored match columns (norm / skeleton / per-form arrays) for ONE raw row, exactly
@@ -224,6 +292,7 @@ export function prepareLisanRow(r: LisanImportRow): PreparedLisanRow | null {
     norm_skeleton: skeleton(norm),
     skeleton_forms,
     lisan_forms,
+    meaning_terms: meaningTerms((r.meaning ?? "").trim() || null),
   };
 }
 
