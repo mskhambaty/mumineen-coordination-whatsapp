@@ -39,6 +39,7 @@ type MapField = { key: string; label: string };
 // console; family_members is the computed family-member-names field).
 const MAPPABLE: MapField[] = [
   { key: "full_name", label: "Full name" },
+  { key: "mumin_name", label: "Mumin name (= full name)" },
   { key: "family_members", label: "Family members" },
   { key: "its", label: "ITS" },
   { key: "hof_its", label: "HOF ITS" },
@@ -52,7 +53,6 @@ const MAPPABLE: MapField[] = [
 
 // Confirmation-only fields, computed per response at phase 2.
 const CONFIRMATION_FIELDS: MapField[] = [
-  { key: "mumin_name", label: "Mumin name" },
   { key: "rsvp_status", label: "RSVP status (Lunch n, Dinner n)" },
   { key: "lunch_attending_count", label: "Lunch count" },
   { key: "dinner_attending_count", label: "Dinner count" },

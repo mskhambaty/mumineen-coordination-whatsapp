@@ -79,7 +79,10 @@ type MuminRow = Record<string, unknown> & { id: string; family_id: string | null
 // `mumin_id` is exposed as a field (not a roster column) so per-recipient button payloads can bind
 // {{Person.Id}} to it. eligible_family_count is added later, once families are aggregated.
 function toRecipient(m: MuminRow): Recipient {
-  return { phone: normalizePhone(m.whatsapp_e164 as string), familyId: m.family_id, muminId: m.id, fields: { ...fieldsOf(m), mumin_id: m.id } };
+  const f = fieldsOf(m);
+  // `mumin_id` (not a roster column) for button payloads; `mumin_name` aliases full_name so a
+  // {{mumin_name}} field binding resolves (the templates use mumin_name; the roster column is full_name).
+  return { phone: normalizePhone(m.whatsapp_e164 as string), familyId: m.family_id, muminId: m.id, fields: { ...f, mumin_id: m.id, mumin_name: f.full_name } };
 }
 
 // Resolve the recipient list for a daily RSVP send. `ind` audiences are per-mumin (their own number);
