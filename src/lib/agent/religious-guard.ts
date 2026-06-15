@@ -1,3 +1,4 @@
+import { optionalEnv } from "@/lib/env";
 import { ARABIC_RE, type LisanLookup } from "@/lib/knowledge/lisan-words";
 import { isOverviewQuery, parseMajlisRef } from "@/lib/knowledge/religious-topics";
 
@@ -7,6 +8,29 @@ export const NOT_FOUND_REPLY =
 
 export const THIS_YEAR_OFFER_LAST =
   "This year's reflections (Ashara Mubaraka 1448H) aren't published yet. Would you like last year's (1447H) reflection on this instead?";
+
+// ─── On-call Istibsaar suggestion ─────────────────────────────────────────────────────────────
+// When the bot can't answer a deen question, or after a member has gone several rounds on religious
+// topics, point them to the on-call Istibsaar (login with ITS). Deterministic append — the codebase
+// never lets the model improvise religious replies. Personal rulings are excluded (Aamil Saheb only).
+export const ISTIBSAAR_ONCALL_URL =
+  optionalEnv("ISTIBSAAR_ONCALL_URL")?.trim() || "https://www.talabulilm.com/istibsaar/oncall";
+export const ON_CALL_SUGGESTION =
+  `For a more detailed answer, you can ask your question on the on-call Istibsaar — sign in with your ITS: ${ISTIBSAAR_ONCALL_URL}`;
+const ON_CALL_AFTER_INBOUND = 3;
+
+// Append the suggestion to a religious reply. `force` = always (the can't-answer dead-ends); otherwise
+// only after >= ON_CALL_AFTER_INBOUND inbound messages (the "deep engagement" trigger). Deduped with
+// no new state: skip if a recent outbound in the loaded history already suggested it.
+export function appendOnCallSuggestion(
+  reply: string,
+  history: { direction: string; body: string | null }[],
+  opts: { force: boolean },
+): string {
+  if (history.some((m) => m.direction === "outbound" && (m.body ?? "").includes(ISTIBSAAR_ONCALL_URL))) return reply;
+  if (!opts.force && history.filter((m) => m.direction === "inbound").length < ON_CALL_AFTER_INBOUND) return reply;
+  return `${reply}\n\n${ON_CALL_SUGGESTION}`;
+}
 
 // ─── Single-word dictionary pre-route detection ──────────────────────────────────────────────
 // Returns the word to look up, plus whether a not-found should still be answered deterministically
