@@ -195,9 +195,10 @@ export default function WaazTalaqqiPage() {
         </div>
       </div>
 
-      {/* KPI band — people first, tool calls last (de-emphasized) */}
+      {/* KPI band — people first, tool calls last (de-emphasized). Hidden on mobile, where the
+          team works the tabs; the headline counts live in the panels/badges anyway. */}
       {s && (
-        <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="mb-5 hidden gap-3 sm:grid sm:grid-cols-3 lg:grid-cols-6">
           <KpiCard label="Mumineen" value={s.unique_members} icon={I.member} tone="blue" />
           <KpiCard label="Waaz Qs" value={s.waaz_questions} icon={I.book} />
           <KpiCard label="Word meanings" value={s.lisan_lookups} icon={I.word} />
