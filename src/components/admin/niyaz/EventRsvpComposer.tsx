@@ -81,6 +81,7 @@ export default function EventRsvpComposer({
   const [config, setConfig] = useState<Config>({ rsvpEventTitle: "", lunchMenu: "", dinnerMenu: "", rsvpEndTime: "", hasLunch: false, hasDinner: false, templateCode: DEFAULT_TEMPLATE });
   const [savingConfig, setSavingConfig] = useState(false);
   const [configSaved, setConfigSaved] = useState(false);
+  const [templates, setTemplates] = useState<{ name: string; language: string }[]>([]);
 
   const [audience, setAudience] = useState<AudienceKey>("all_hof");
   const [testIts, setTestIts] = useState("");
@@ -110,11 +111,19 @@ export default function EventRsvpComposer({
     }
   }, [date]);
 
-  // The parent remounts this component (key={instanceId}) when the selected event changes, so state
-  // starts fresh; the effect only needs to load the saved config.
+  // The parent remounts this component (key={date}) when the selected day changes, so state starts
+  // fresh; the effect only needs to load the saved config.
   useEffect(() => {
     void loadConfig();
   }, [loadConfig]);
+
+  // Template options from the niyaz RSVP number's WABA (630 763 8963 broadcast account).
+  useEffect(() => {
+    void (async () => {
+      const res = await apiFetch("/api/admin/niyaz/templates");
+      if (res.ok) setTemplates(((await res.json()).templates as { name: string; language: string }[]) ?? []);
+    })();
+  }, []);
 
   async function saveConfig() {
     setSavingConfig(true);
@@ -245,7 +254,15 @@ export default function EventRsvpComposer({
         </label>
         <label>
           <span className={labelCls}>Template</span>
-          <input value={config.templateCode ?? ""} onChange={(e) => setConfig({ ...config, templateCode: e.target.value })} className={inputCls} placeholder={DEFAULT_TEMPLATE} />
+          <select value={config.templateCode ?? ""} onChange={(e) => setConfig({ ...config, templateCode: e.target.value })} className={inputCls}>
+            <option value="">— select a template —</option>
+            {config.templateCode && !templates.some((t) => t.name === config.templateCode) && (
+              <option value={config.templateCode}>{config.templateCode} (not in WABA)</option>
+            )}
+            {templates.map((t) => (
+              <option key={t.name} value={t.name}>{t.name}</option>
+            ))}
+          </select>
         </label>
         <div className="sm:col-span-2 flex gap-6">
           <label className="flex items-center gap-2 text-sm">

@@ -31,31 +31,39 @@ export async function GET(req: NextRequest) {
     .order("event_date", { ascending: true });
   const rows = (dayData ?? []) as DayRow[];
 
-  // A representative registration instance per date (any meal) so a day can preview/send the RSVP
-  // broadcast (the broadcast route is instance-keyed; the day maps to it by date).
-  const instByDate = new Map<string, string>();
+  // The registration instances for each date (the per-meal rows shown under the day). The first is
+  // the representative used to preview/send the RSVP broadcast (the broadcast route is instance-keyed;
+  // the day maps to it by date).
+  type Inst = { id: string; title: string | null; meal: string | null; serving_type: string | null };
+  const instByDate = new Map<string, Inst[]>();
   if (rows.length > 0) {
     const { data: instances } = await db
       .from("rsvp_registration_instance")
-      .select("id, event_date, meal")
+      .select("id, event_date, title, meal, serving_type")
       .in("event_date", rows.map((d) => d.event_date))
       .order("meal", { ascending: true });
-    for (const i of (instances ?? []) as { id: string; event_date: string }[]) {
-      if (!instByDate.has(i.event_date)) instByDate.set(i.event_date, i.id);
+    for (const i of (instances ?? []) as (Inst & { event_date: string })[]) {
+      const arr = instByDate.get(i.event_date) ?? [];
+      arr.push({ id: i.id, title: i.title, meal: i.meal, serving_type: i.serving_type });
+      instByDate.set(i.event_date, arr);
     }
   }
 
   return NextResponse.json({
-    days: rows.map((d) => ({
-      date: d.event_date,
-      title: d.rsvp_event_title,
-      lunch_menu: d.lunch_menu,
-      dinner_menu: d.dinner_menu,
-      rsvp_end_time: d.rsvp_end_time,
-      has_lunch: d.has_lunch,
-      has_dinner: d.has_dinner,
-      template_code: d.template_code,
-      instance_id: instByDate.get(d.event_date) ?? null,
-    })),
+    days: rows.map((d) => {
+      const instances = instByDate.get(d.event_date) ?? [];
+      return {
+        date: d.event_date,
+        title: d.rsvp_event_title,
+        lunch_menu: d.lunch_menu,
+        dinner_menu: d.dinner_menu,
+        rsvp_end_time: d.rsvp_end_time,
+        has_lunch: d.has_lunch,
+        has_dinner: d.has_dinner,
+        template_code: d.template_code,
+        instances,
+        instance_id: instances[0]?.id ?? null,
+      };
+    }),
   });
 }

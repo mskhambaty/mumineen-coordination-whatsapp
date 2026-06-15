@@ -22,6 +22,7 @@ type Day = {
   has_dinner: boolean;
   template_code: string | null;
   instance_id: string | null;
+  instances: { id: string; title: string | null; meal: string | null; serving_type: string | null }[];
 };
 
 function dayLabel(date: string): string {
@@ -122,6 +123,29 @@ export default function NiyazDaysPage() {
           </div>
         )}
       </div>
+
+      {selected && (
+        <div className="mt-4 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+          <h2 className="mb-2 text-base font-semibold">Registration instances — {selected.title || dayLabel(selected.date)}</h2>
+          {selected.instances.length === 0 ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              No registration instances for this date. Create one on the{" "}
+              <button type="button" onClick={() => router.push("/admin/niyaz")} className="text-blue-600 underline dark:text-blue-400">Niyaz events</button>{" "}
+              page to enable sending.
+            </p>
+          ) : (
+            <ul className="divide-y divide-gray-100 text-sm dark:divide-gray-800">
+              {selected.instances.map((inst) => (
+                <li key={inst.id} className="flex items-center gap-2 py-1.5">
+                  <span className="font-medium">{inst.title || "Niyaz"}</span>
+                  {inst.meal && <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300">{inst.meal}</span>}
+                  {inst.serving_type && <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300">{inst.serving_type}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {selected && (
         <EventRsvpComposer

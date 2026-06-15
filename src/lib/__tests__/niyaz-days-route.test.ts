@@ -61,7 +61,10 @@ describe("GET /api/admin/niyaz/days", () => {
     getSupabaseAdmin.mockReturnValue(
       supabaseStub(
         [{ event_date: "2026-06-16", rsvp_event_title: "2nd Moharram ul Haram", lunch_menu: null, dinner_menu: null, rsvp_end_time: null, has_lunch: true, has_dinner: true, template_code: "ashara_relay_double_rsvp" }],
-        [{ id: "inst-dinner", event_date: "2026-06-16", meal: "dinner" }, { id: "inst-lunch", event_date: "2026-06-16", meal: "lunch" }],
+        [
+          { id: "inst-dinner", event_date: "2026-06-16", title: "Dinner", meal: "dinner", serving_type: "packet" },
+          { id: "inst-lunch", event_date: "2026-06-16", title: "Lunch", meal: "lunch", serving_type: "thaal" },
+        ],
       ),
     );
     const res = await listGet(getReq());
@@ -70,6 +73,8 @@ describe("GET /api/admin/niyaz/days", () => {
     expect(json.days).toHaveLength(1);
     // meal ascending → "dinner" sorts before "lunch", so the first instance is the representative.
     expect(json.days[0]).toMatchObject({ date: "2026-06-16", title: "2nd Moharram ul Haram", instance_id: "inst-dinner", has_lunch: true });
+    expect(json.days[0].instances).toHaveLength(2);
+    expect(json.days[0].instances[0]).toEqual({ id: "inst-dinner", title: "Dinner", meal: "dinner", serving_type: "packet" });
   });
 });
 
