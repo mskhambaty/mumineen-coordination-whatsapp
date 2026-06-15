@@ -532,7 +532,7 @@ Per-mumin attendance for each Niyaz event, pre-seeded from arrival dates and ove
 | `mumin_id` | uuid | FK → `mumineen.id` (on delete cascade) |
 | `family_id` | uuid | FK → `families.id` (on delete set null) — denormalized for grouping |
 | `attending` | boolean | |
-| `source` | text | `default` \| `registration` \| `whatsapp` \| `admin` |
+| `source` | text | `default` \| `registration` \| `whatsapp` \| `admin` \| `roster` (on the roster, family not registered) |
 | `responded_by_phone` | text | Nullable |
 | `recorded_by` | text | Nullable (admin id) |
 | `created_at` / `updated_at` | timestamptz | `updated_at` trigger-managed |
