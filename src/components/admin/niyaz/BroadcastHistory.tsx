@@ -115,21 +115,29 @@ export default function BroadcastHistory({ refreshKey, highlightId }: { refreshK
                   {openId === b.id && (
                     <tr className="border-t border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-gray-950">
                       <td colSpan={7} className="px-3 py-2">
-                        {loadingDetail || !r ? (
-                          <span className="text-xs text-gray-500">Loading results…</span>
-                        ) : (
-                          <div className="flex flex-wrap items-center gap-4 text-sm">
-                            <span><span className="text-gray-500">Sent</span> <b>{r.sent}</b></span>
-                            <span><span className="text-gray-500">Delivered</span> <b>{r.delivered}</b></span>
-                            <span><span className="text-gray-500">Read</span> <b>{r.read}</b></span>
-                            <span className={r.failed ? "text-red-600 dark:text-red-400" : ""}><span className="text-gray-500">Failed</span> <b>{r.failed}</b></span>
-                            {r.queued > 0 && <span><span className="text-gray-500">Queued</span> <b>{r.queued}</b></span>}
-                            {r.skipped > 0 && <span><span className="text-gray-500">Skipped</span> <b>{r.skipped}</b></span>}
-                            {detail && Object.keys(detail.failure_reasons).length > 0 && (
-                              <span className="text-xs text-gray-500">· {Object.entries(detail.failure_reasons).map(([k, v]) => `${k}: ${v}`).join(", ")}</span>
-                            )}
-                          </div>
-                        )}
+                        <div className="flex flex-wrap items-center gap-4 text-sm">
+                          {loadingDetail || !r ? (
+                            <span className="text-xs text-gray-500">Loading results…</span>
+                          ) : (
+                            <>
+                              <span><span className="text-gray-500">Sent</span> <b>{r.sent}</b></span>
+                              <span><span className="text-gray-500">Delivered</span> <b>{r.delivered}</b></span>
+                              <span><span className="text-gray-500">Read</span> <b>{r.read}</b></span>
+                              <span className={r.failed ? "text-red-600 dark:text-red-400" : ""}><span className="text-gray-500">Failed</span> <b>{r.failed}</b></span>
+                              {r.queued > 0 && <span><span className="text-gray-500">Queued</span> <b>{r.queued}</b></span>}
+                              {r.skipped > 0 && <span><span className="text-gray-500">Skipped</span> <b>{r.skipped}</b></span>}
+                              {detail && Object.keys(detail.failure_reasons).length > 0 && (
+                                <span className="text-xs text-gray-500">· {Object.entries(detail.failure_reasons).map(([k, v]) => `${k}: ${v}`).join(", ")}</span>
+                              )}
+                            </>
+                          )}
+                          <a
+                            href={`/api/admin/templates/broadcasts/${b.id}/recipients?format=csv`}
+                            className="ml-auto text-xs font-medium text-blue-600 underline dark:text-blue-400"
+                          >
+                            Export CSV
+                          </a>
+                        </div>
                       </td>
                     </tr>
                   )}

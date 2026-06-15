@@ -24,6 +24,31 @@ type Config = {
 
 type SampleRow = { name: string | null; its: string | null; phone_masked: string };
 
+type TemplatePreview = {
+  name: string;
+  language: string;
+  bodyText: string | null;
+  footerText: string | null;
+  header: { format: string; text: string | null } | null;
+  buttons: { type: string; text: string | null }[];
+};
+
+// Substitute {{tokens}} in template text for the preview: the day's config values for the static
+// fields, and bracketed placeholders for per-recipient fields (resolved at send time).
+function renderPreview(text: string, config: Config): string {
+  return text.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, tok: string) => {
+    const t = tok.toLowerCase();
+    if (t === "rsvp_event_title") return config.rsvpEventTitle || `{{${tok}}}`;
+    if (t === "lunch_menu" || t === "lunch") return config.lunchMenu || `{{${tok}}}`;
+    if (t === "dinner_menu" || t === "dinner") return config.dinnerMenu || `{{${tok}}}`;
+    if (t === "rsvp_end_time" || t === "end_time") return config.rsvpEndTime || `{{${tok}}}`;
+    if (["name", "person_name", "full_name"].includes(t)) return "[name]";
+    if (t === "family_members") return "[family members]";
+    if (t === "eligiblefamilycount") return "[# attending]";
+    return `{{${tok}}}`;
+  });
+}
+
 type AudienceKey = "all_hof" | "all_hof_unresponded" | "specific_its";
 
 const DEFAULT_TEMPLATE = "ashara_relay_double_rsvp";
@@ -82,7 +107,7 @@ export default function EventRsvpComposer({
   const [config, setConfig] = useState<Config>({ rsvpEventTitle: "", lunchMenu: "", dinnerMenu: "", rsvpEndTime: "", hasLunch: false, hasDinner: false, templateCode: DEFAULT_TEMPLATE });
   const [savingConfig, setSavingConfig] = useState(false);
   const [configSaved, setConfigSaved] = useState(false);
-  const [templates, setTemplates] = useState<{ name: string; language: string }[]>([]);
+  const [templates, setTemplates] = useState<TemplatePreview[]>([]);
 
   const [audience, setAudience] = useState<AudienceKey>("all_hof");
   const [testIts, setTestIts] = useState("");
@@ -124,9 +149,11 @@ export default function EventRsvpComposer({
   useEffect(() => {
     void (async () => {
       const res = await apiFetch("/api/admin/niyaz/templates");
-      if (res.ok) setTemplates(((await res.json()).templates as { name: string; language: string }[]) ?? []);
+      if (res.ok) setTemplates(((await res.json()).templates as TemplatePreview[]) ?? []);
     })();
   }, []);
+
+  const selectedTemplate = templates.find((t) => t.name === config.templateCode) ?? null;
 
   async function saveConfig() {
     setSavingConfig(true);
@@ -283,6 +310,32 @@ export default function EventRsvpComposer({
           </button>
         </div>
       </div>
+
+      {/* Template preview */}
+      {selectedTemplate && (selectedTemplate.bodyText || selectedTemplate.header?.text) && (
+        <div className="mb-5">
+          <span className={labelCls}>Template preview</span>
+          <div className="mt-1 max-w-md whitespace-pre-wrap rounded-lg border border-green-200 bg-green-50 p-3 text-sm shadow-sm dark:border-green-900 dark:bg-green-950/40">
+            {selectedTemplate.header?.text && (
+              <p className="mb-1 font-semibold">{renderPreview(selectedTemplate.header.text, config)}</p>
+            )}
+            {selectedTemplate.bodyText && <p>{renderPreview(selectedTemplate.bodyText, config)}</p>}
+            {selectedTemplate.footerText && (
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{renderPreview(selectedTemplate.footerText, config)}</p>
+            )}
+            {selectedTemplate.buttons.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1 border-t border-green-200 pt-2 dark:border-green-900">
+                {selectedTemplate.buttons.map((b, i) => (
+                  <span key={i} className="rounded border border-gray-300 bg-white px-2 py-0.5 text-xs text-blue-600 dark:border-gray-700 dark:bg-gray-900 dark:text-blue-400">
+                    {b.text || b.type}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-gray-400">Menus, title and end time fill in from this day&apos;s config; [name]/[family members]/[# attending] resolve per recipient at send time.</p>
+        </div>
+      )}
 
       {/* Audience */}
       <div className="mb-4">

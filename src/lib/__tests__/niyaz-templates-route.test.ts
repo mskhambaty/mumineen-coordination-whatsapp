@@ -34,21 +34,28 @@ describe("GET /api/admin/niyaz/templates", () => {
     expect(listMessageTemplates).not.toHaveBeenCalled();
   });
 
-  it("returns approved templates from the broadcast (630) account, sorted", async () => {
+  it("returns approved templates (sorted) with body/header/button preview fields", async () => {
     requirePortalCaller.mockResolvedValue(allow());
     listMessageTemplates.mockResolvedValue([
       { name: "zz_old", language: "en_US", status: "APPROVED" },
-      { name: "ashara_relay_double_rsvp", language: "en_US", status: "APPROVED" },
+      {
+        name: "ashara_relay_double_rsvp",
+        language: "en_US",
+        status: "APPROVED",
+        components: [
+          { type: "BODY", text: "Salaam {{name}}, RSVP for {{rsvp_event_title}}" },
+          { type: "BUTTONS", buttons: [{ type: "FLOW", text: "Attending" }, { type: "QUICK_REPLY", text: "Not attending" }] },
+        ],
+      },
       { name: "draft_one", language: "en_US", status: "PENDING" },
     ]);
     const res = await GET(req());
     expect(res.status).toBe(200);
     const json = await res.json();
     // Only APPROVED, sorted by name, from the broadcast account.
-    expect(json.templates).toEqual([
-      { name: "ashara_relay_double_rsvp", language: "en_US" },
-      { name: "zz_old", language: "en_US" },
-    ]);
+    expect(json.templates.map((t: { name: string }) => t.name)).toEqual(["ashara_relay_double_rsvp", "zz_old"]);
+    expect(json.templates[0]).toMatchObject({ name: "ashara_relay_double_rsvp", bodyText: "Salaam {{name}}, RSVP for {{rsvp_event_title}}" });
+    expect(json.templates[0].buttons).toEqual([{ type: "FLOW", text: "Attending" }, { type: "QUICK_REPLY", text: "Not attending" }]);
     expect(json.account).toBe("+16307638963");
     expect(listMessageTemplates).toHaveBeenCalledWith(expect.objectContaining({ label: "broadcast" }));
   });
