@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/admin/client";
+import BroadcastHistory from "@/components/admin/niyaz/BroadcastHistory";
 
 // Day-level RSVP config + broadcast composer for one Niyaz day. Config (event title, lunch/dinner
 // menus, RSVP cutoff, which meals, which template) is keyed by date (niyaz_event_config); the
@@ -92,6 +93,8 @@ export default function EventRsvpComposer({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
+  const [historyRefresh, setHistoryRefresh] = useState(0);
+  const [lastBroadcastId, setLastBroadcastId] = useState<string | null>(null);
 
   const loadConfig = useCallback(async () => {
     const res = await apiFetch(`/api/admin/niyaz/days/${date}`);
@@ -219,6 +222,8 @@ export default function EventRsvpComposer({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Send failed");
       setResult(`Started: ${data.total} recipient(s), ${data.skipped} skipped, est $${data.estCostUsd ?? 0}.`);
+      if (data.broadcastId) setLastBroadcastId(data.broadcastId as string);
+      setHistoryRefresh((n) => n + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Send failed");
     } finally {
@@ -352,6 +357,8 @@ export default function EventRsvpComposer({
           )}
         </div>
       )}
+
+      <BroadcastHistory refreshKey={historyRefresh} highlightId={lastBroadcastId} />
     </div>
   );
 }

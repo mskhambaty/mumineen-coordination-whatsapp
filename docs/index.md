@@ -104,7 +104,8 @@ src/app/api/admin/niyaz/days/route.ts    — GET list of Niyaz days (config + re
 src/app/api/admin/niyaz/days/[date]/route.ts — GET/PUT day-level config by date
 src/app/api/admin/niyaz/instances/[id]/config/route.ts — GET/PUT day-level event config (by instance id)
 src/app/api/admin/niyaz/instances/[id]/broadcast/route.ts — Send Niyaz RSVP: audience + preview (count/sample), event-config body bindings, custom per-recipient Flow/quick-reply button payloads, single-ITS test
-src/components/admin/niyaz/EventRsvpComposer.tsx — Admin composer: event config, audience + preview, button-payload editor, send/test
+src/components/admin/niyaz/EventRsvpComposer.tsx — Admin composer: event config (template dropdown from the 630 WABA), audience + preview, button-payload editor, send/test
+src/components/admin/niyaz/BroadcastHistory.tsx — Niyaz broadcast history + delivery results (sent/delivered/read/failed), reuses /api/admin/templates/broadcasts(/[id]) filtered by audience_key=niyaz_rsvp
 src/lib/whatsapp/interactive-responses.ts — Raw capture of inbound Flow/button responses (whatsapp_interactive_responses); decoding is phase 2
 src/lib/feedback/record.ts               — Append-only feedback capture (area→department tagged)
 src/lib/whatsapp/audience.ts             — Send-console audience resolution + free/paid window split + roster-by-phone enrichment (resolveRosterByPhone) + Niyaz reach segments (segmentCounts, segment_* audiences)

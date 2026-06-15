@@ -2361,7 +2361,9 @@ paths:
     get:
       tags: [admin, templates]
       summary: Broadcast send log with metrics
-      description: Admin/leadership only.
+      description: Admin/leadership only. Optionally filter by audience_key (e.g. niyaz_rsvp for the Niyaz RSVP sends).
+      parameters:
+        - { name: audience_key, in: query, required: false, schema: { type: string }, description: "Filter to broadcasts with this audience_key (e.g. niyaz_rsvp)." }
       responses:
         "200": { description: "broadcasts[] (most recent first)." }
         "401": { $ref: "#/components/responses/Unauthorized" }
