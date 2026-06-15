@@ -88,6 +88,8 @@ src/lib/env.ts                           — Env var lookup with alias support
 public/templates/mumineen-roster-template.xlsx — Downloadable Mumineen roster import template
 supabase/migrations/                     — All database migrations
 src/app/api/relay-updates/route.ts       — Public relay updates JSON feed
+src/app/api/parking/my-passes/route.ts   — Caller-scoped parking-pass lookup (phone→own family's passes only); backs get_family_parking_passes
+src/lib/parking/entry-info.ts            — Authoritative per-color parking entry guidance + rideshare drop-off (shared by the route + agent)
 src/lib/rsvp/meal-rsvp.ts                — Per-mumin Niyaz RSVP (niyaz_rsvp): grids, family/individual set-cascade, tallies (max/min), unregistered RSVP helpers, daily-button recording
 src/lib/rsvp/niyaz-prompt.ts             — Daily RSVP-template audiences (ITS/mumineen/HOF/adults) + button payloads + single-prompt creation for unregistered callers
 src/lib/feedback/record.ts               — Append-only feedback capture (area→department tagged)

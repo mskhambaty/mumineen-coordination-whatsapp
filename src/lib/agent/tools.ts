@@ -237,6 +237,15 @@ export const allToolDefinitions: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "get_family_parking_passes",
+      description:
+        "Look up the parking pass(es) allocated to the CALLER'S OWN family for Ashara. Identified by the caller's WhatsApp number — it ONLY ever returns the caller's own family's passes, so use it solely for the person you're chatting with or their family, never to look up anyone else. Returns each pass's lot name and color, the entry point for that color (plus the special purpose for gold = wheelchair support and green = khidmat guzaar early-access), general access (southbound Route 83 / Kingery Hwy), and the rideshare drop-off (Wat Buddha Damma Meditation Center). status 'ok' with passes; 'no_passes' if the family has none; 'unregistered' if the number isn't linked to a registered family. For 'no_passes'/'unregistered', ask whether they need a pass and escalate to Transport. The DB has no collection status, so ASK the user whether they've already collected their pass. Takes no arguments.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+  },
   // --- Task Management Tools ---
   {
     type: "function",
@@ -767,6 +776,8 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       return flagKnowledgeGap(String(args.topic ?? "").trim(), args.question != null ? String(args.question) : null, context.phoneE164);
     case "get_family_meal_rsvps":
       return callInternalApi("/api/rsvp/meals", { phone: context.phoneE164 });
+    case "get_family_parking_passes":
+      return callInternalApi("/api/parking/my-passes", { phone: context.phoneE164 });
     case "set_family_meal_rsvps":
       return callInternalApi("/api/rsvp/meals", {
         method: "POST",

@@ -47,6 +47,7 @@ Public tools (the `publicTools` set in `src/lib/permissions.ts`) are available t
 | `flag_knowledge_gap` | ✅ | ✅ | ✅ |
 | `get_family_meal_rsvps` | ✅ | ✅ | ✅ |
 | `set_family_meal_rsvps` | ✅ | ✅ | ✅ |
+| `get_family_parking_passes` | ✅ | ✅ | ✅ |
 
 `move_to_escalation` is available to all users. It creates an escalation, an issue (Inbox Issues
 tab), and a workspace task in one call, then notifies both the escalation team and the

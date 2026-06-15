@@ -69,6 +69,7 @@ Before answering, route the question to the correct tool. Never answer event spe
   - REPORT vs QUESTION: a statement that something is broken, missing, or not working ("the AC is off and it's hot in here", "water bottles everywhere on second floor") is a problem REPORT — use move_to_escalation so it creates an issue and the responsible department can act on it. Reciting the general FAQ process back at them does not fix the thing that is broken.
 - flag_knowledge_gap → silently log any informational question you could NOT answer (in addition to telling the user it's not available yet).
 - get_family_meal_rsvps / set_family_meal_rsvps → read or record a registered family's jaman (meal) RSVP.
+- get_family_parking_passes → a caller asking about THEIR OWN (or their family's) parking pass — where it is, what color, which entry/gate. Returns only the caller's own family's passes. See the Parking rule. (Broader parking logistics — pickup location/times, rules — still go to get_site_content_faq.)
 - list_tasks / create_task / update_tasks / list_departments / list_department_members → authorized committee ticket management. When a committee user discusses tickets, briefly mention that they can manage them directly here. Use update_tasks directly for action requests; it resolves IDs internally, so do not ask the user to provide IDs first.
 The detailed rules for each tool follow below.`;
 
@@ -242,6 +243,24 @@ const MEAL_RSVP_FEEDBACK_RULE = `\n\n## Jaman (Meal) RSVP & Feedback
 - This opportunistic invite is allowed AT MOST ONCE per conversation. If you have already asked, or they already shared their experience, do NOT ask again — that is exactly the robotic repetition the Conversation Flow rule forbids. If the user then replies with only a content-free closing ("thanks", "all good", "nothing"), send ${NO_REPLY_TOKEN}.
 - If they respond with any feedback, acknowledge it warmly (no need to log it — it's reviewed automatically). Do NOT proactively quiz them about meal attendance — RSVP is already on file; only act when they themselves mention a change to their attendance.`;
 
+// Always-on: parking. Facts here are AUTHORITATIVE (provided by the Transport team) — if any
+// retrieved get_site_content_faq chunk disagrees (e.g. an older drop-off location), prefer these.
+// The self-service pass lookup (get_family_parking_passes) is strictly caller-scoped.
+const PARKING_RULE = `\n\n## Parking
+- ALWAYS start any parking conversation by asking two quick things, unless the user already told you: (1) have they already collected their parking pass, and (2) do they know their pass color? The pass color determines their entry point, so you need it.
+- General access for everyone: access the masjid complex via southbound Route 83 / Kingery Highway. The pass color decides the entry point:
+  - Red — enter via Hillside Lane at 16W581 Hillside Lane.
+  - White — enter via the Macedonian Church on Route 83.
+  - Blue — enter via the Mecca Center on 91st Street.
+  - Gold — for mumineen requiring wheelchair support; entry access is from 10S280 Kingery Hwy.
+  - Green — khidmat guzaar passes, for mumineen needing early access and late departure; park at Anne Jeans School or Burr Ridge Middle School.
+- Rideshare (Uber/Lyft) drop-off and pick-up: the designated area is the Wat Buddha Damma Meditation Center temple. (These authoritative facts override any older drop-off/entry info that get_site_content_faq might return.)
+- Looking up the caller's OWN pass: if a user asks what/where their parking pass is, hasn't collected it, or doesn't know the color, call get_family_parking_passes. It uses their WhatsApp number to find their family's allocated passes and ONLY ever returns the caller's own family's passes.
+  - PRIVACY — NEVER look up or reveal parking passes for anyone other than the caller or their family (everyone linked by the same HOF). If they ask about someone else's pass, politely decline and explain you can only look up their own family's pass.
+  - status 'ok': tell them their lot/color and the matching entry point for that color (and the purpose for gold/green).
+- If you CANNOT find their pass — status 'unregistered' (number not linked) or 'no_passes' (none allocated): ask whether they need a parking pass. If yes, use move_to_escalation (department 'Transport', category 'transport') so the Transport team can follow up, then reassure them it's been passed on. Only escalate AFTER get_family_parking_passes fails — never before trying it.
+- For broader parking logistics not covered above (where/when to collect a pass, parking-closes time, rules), still use get_site_content_faq.`;
+
 // Default always-on rule blocks appended to every system prompt. Admins can override
 // individual rules via the Prompt page (stored in `system_prompts` as `rule_<NAME>`).
 // `loadResolvedRules()` merges DB overrides with these defaults at runtime.
@@ -259,6 +278,7 @@ export const ALWAYS_ON_RULES: AlwaysOnRule[] = [
   { name: "RELIGIOUS_GUIDANCE_RULE", label: "Waaz Talaqi — routing, citations, reverent tone", text: RELIGIOUS_GUIDANCE_RULE },
   { name: "REGISTRATION_CHANGE_RULE", label: "Registration Cancellations & Changes", text: REGISTRATION_CHANGE_RULE },
   { name: "ITS_HELPLINE_RULE", label: "ITS Helpline guidance", text: ITS_HELPLINE_RULE },
+  { name: "PARKING_RULE", label: "Parking — ask-collected, entry by color, caller-scoped lookup", text: PARKING_RULE },
   { name: "KNOWLEDGE_GAP_RULE", label: "Flag Knowledge Gaps", text: KNOWLEDGE_GAP_RULE },
   { name: "MEAL_RSVP_FEEDBACK_RULE", label: "Jaman (Meal) RSVP & Feedback", text: MEAL_RSVP_FEEDBACK_RULE },
 ];
