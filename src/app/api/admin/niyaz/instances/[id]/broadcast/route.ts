@@ -28,6 +28,13 @@ const quickReplyButtonSchema = z.object({
 });
 const buttonSchema = z.discriminatedUnion("type", [flowButtonSchema, quickReplyButtonSchema]);
 
+// Per-variable binding (static value, or a per-recipient roster field) — the same shape the Send
+// Templates console uses. When supplied, these override the auto-bound defaults below.
+const bindingValueSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("static"), value: z.string() }),
+  z.object({ kind: z.literal("field"), field: z.string().min(1) }),
+]);
+
 const bodySchema = z.object({
   audience: z.enum(AUDIENCES),
   its: z.array(z.string()).optional(),
@@ -43,6 +50,14 @@ const bodySchema = z.object({
   // Custom per-recipient button payloads (e.g. ashara_relay_double_rsvp's Flow + quick-reply
   // buttons). When provided, these replace the auto-generated niyaz quick-reply buttons.
   buttons: z.array(buttonSchema).optional(),
+  // Explicit per-variable bindings from the composer (static value or roster field). Override the
+  // auto-bound defaults per body token; an optional header binding too.
+  variable_bindings: z
+    .object({
+      body: z.record(z.string(), bindingValueSchema).optional(),
+      header: bindingValueSchema.optional(),
+    })
+    .optional(),
 });
 
 const FIELD_KEYS = new Set(MAPPABLE_FIELDS.map((f) => f.key));
@@ -159,9 +174,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     exampleResponse: parsed.data.example_response?.trim() || "4",
     config,
   };
+  // Each body variable binds to the explicit composer binding when provided, else the auto-bound
+  // default (event-config value / person field).
+  const clientBindings = parsed.data.variable_bindings;
   const bindings: VariableBindings = { body: {} };
-  for (const tok of desc.bodyVars) bindings.body![tok] = bindToken(tok, ctx);
-  if (desc.header?.format === "TEXT" && desc.headerVar) bindings.header = bindToken(desc.headerVar, ctx);
+  for (const tok of desc.bodyVars) bindings.body![tok] = clientBindings?.body?.[tok] ?? bindToken(tok, ctx);
+  if (clientBindings?.header) bindings.header = clientBindings.header;
+  else if (desc.header?.format === "TEXT" && desc.headerVar) bindings.header = bindToken(desc.headerVar, ctx);
 
   // Custom button payloads (ashara double-RSVP). Resolved per recipient; {{RegistrationInstanceId}}
   // is this instance's id.

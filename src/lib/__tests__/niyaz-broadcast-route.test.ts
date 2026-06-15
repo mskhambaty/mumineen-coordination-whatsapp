@@ -135,6 +135,25 @@ describe("POST niyaz broadcast", () => {
     expect(resolveNiyazAudience.mock.calls[0][0]).toMatchObject({ requireRegistered: false });
   });
 
+  it("applies explicit variable_bindings over the auto-bound defaults", async () => {
+    requirePortalCaller.mockResolvedValue(allow());
+    resolveNiyazAudience.mockResolvedValue({ recipients: [{ phone: "+15551234567", familyId: "f1", muminId: "m1", fields: { full_name: "Test" } }], unresolvedIts: [] });
+    createBroadcast.mockResolvedValue({ broadcastId: "b4", total: 1, free: 0, paid: 1, skipped: 0, estCostUsd: 0 });
+
+    const body = {
+      ...validBody,
+      variable_bindings: { body: { day: { kind: "static", value: "CUSTOM DAY" }, name: { kind: "field", field: "its" } } },
+    };
+    const res = await POST(postReq(body), { params });
+    expect(res.status).toBe(200);
+    const arg = createBroadcast.mock.calls[0][0] as { variableBindings: { body: Record<string, { kind: string; field?: string; value?: string }> } };
+    // Explicit overrides win…
+    expect(arg.variableBindings.body.day).toEqual({ kind: "static", value: "CUSTOM DAY" });
+    expect(arg.variableBindings.body.name).toEqual({ kind: "field", field: "its" });
+    // …and an un-overridden token keeps its auto-bound default (meal → static mealLabel).
+    expect(arg.variableBindings.body.meal).toEqual({ kind: "static", value: "lunch & dinner" });
+  });
+
   it("head-count mode: no quick-reply payloads, logs prompts, binds family_members/message/example", async () => {
     requirePortalCaller.mockResolvedValue(allow());
     resolveApprovedTemplateForAnyAccount.mockResolvedValue(resolved({ name: "niyaz_rsvp_family_count", language: "en_US", bodyVars: ["person_name", "registration_message", "family_members", "example_response"], header: null, headerVar: null, urlButtons: [] }));

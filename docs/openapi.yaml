@@ -2176,6 +2176,20 @@ paths:
                           type: { type: string, enum: [quick_reply] }
                           index: { type: integer }
                           payload: { type: string, description: "Templated, e.g. not-attending-{{Person.Id}}-{{RegistrationInstanceId}}." }
+                variable_bindings:
+                  type: object
+                  description: "Explicit per-variable bindings (override the auto-bound defaults). Each body token (and optional header) binds to a static value or a per-recipient roster field."
+                  properties:
+                    body:
+                      type: object
+                      additionalProperties:
+                        oneOf:
+                          - { type: object, required: [kind, value], properties: { kind: { type: string, enum: [static] }, value: { type: string } } }
+                          - { type: object, required: [kind, field], properties: { kind: { type: string, enum: [field] }, field: { type: string } } }
+                    header:
+                      oneOf:
+                        - { type: object, required: [kind, value], properties: { kind: { type: string, enum: [static] }, value: { type: string } } }
+                        - { type: object, required: [kind, field], properties: { kind: { type: string, enum: [field] }, field: { type: string } } }
       responses:
         "200": { description: "{ status: started, broadcastId, total, … }." }
         "400": { $ref: "#/components/responses/BadRequest" }

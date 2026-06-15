@@ -33,20 +33,44 @@ type TemplatePreview = {
   buttons: { type: string; text: string | null }[];
 };
 
-// Substitute {{tokens}} in template text for the preview: the day's config values for the static
-// fields, and bracketed placeholders for per-recipient fields (resolved at send time).
-function renderPreview(text: string, config: Config): string {
-  return text.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, tok: string) => {
-    const t = tok.toLowerCase();
-    if (t === "rsvp_event_title") return config.rsvpEventTitle || `{{${tok}}}`;
-    if (t === "lunch_menu" || t === "lunch") return config.lunchMenu || `{{${tok}}}`;
-    if (t === "dinner_menu" || t === "dinner") return config.dinnerMenu || `{{${tok}}}`;
-    if (t === "rsvp_end_time" || t === "end_time") return config.rsvpEndTime || `{{${tok}}}`;
-    if (["name", "person_name", "full_name"].includes(t)) return "[name]";
-    if (t === "family_members") return "[family members]";
-    if (t === "eligiblefamilycount") return "[# attending]";
-    return `{{${tok}}}`;
-  });
+type Binding = { kind: "static"; value: string } | { kind: "field"; field: string };
+
+// Roster fields offered for per-recipient ("Field") variable bindings (mirrors the Send Templates
+// console; family_members is the computed family-member-names field).
+const MAPPABLE: { key: string; label: string }[] = [
+  { key: "full_name", label: "Full name" },
+  { key: "family_members", label: "Family members" },
+  { key: "its", label: "ITS" },
+  { key: "hof_its", label: "HOF ITS" },
+  { key: "jamaat", label: "Jamaat" },
+  { key: "city", label: "City" },
+  { key: "category", label: "Category" },
+  { key: "venue", label: "Venue" },
+  { key: "gender", label: "Gender" },
+  { key: "local_mehman", label: "Local / Mehman" },
+];
+
+// Ordered, de-duped {{tokens}} in a template string.
+function extractTokens(text: string | null | undefined): string[] {
+  if (!text) return [];
+  const seen: string[] = [];
+  const re = /\{\{\s*([\w.]+)\s*\}\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) if (!seen.includes(m[1])) seen.push(m[1]);
+  return seen;
+}
+
+// Smart default binding for a token (mirrors the server's bindToken): event-config statics, person
+// fields for name/family_members, else an empty static.
+function defaultBinding(token: string, config: Config): Binding {
+  const t = token.toLowerCase();
+  if (t === "rsvp_event_title") return { kind: "static", value: config.rsvpEventTitle ?? "" };
+  if (t === "lunch_menu" || t === "lunch") return { kind: "static", value: config.lunchMenu ?? "" };
+  if (t === "dinner_menu" || t === "dinner") return { kind: "static", value: config.dinnerMenu ?? "" };
+  if (t === "rsvp_end_time" || t === "end_time") return { kind: "static", value: config.rsvpEndTime ?? "" };
+  if (["name", "person_name", "full_name"].includes(t)) return { kind: "field", field: "full_name" };
+  if (t === "family_members") return { kind: "field", field: "family_members" };
+  return { kind: "static", value: "" };
 }
 
 type AudienceKey = "all_hof" | "all_hof_unresponded" | "specific_its";
@@ -108,6 +132,7 @@ export default function EventRsvpComposer({
   const [savingConfig, setSavingConfig] = useState(false);
   const [configSaved, setConfigSaved] = useState(false);
   const [templates, setTemplates] = useState<TemplatePreview[]>([]);
+  const [bindings, setBindings] = useState<Record<string, Binding>>({});
 
   const [audience, setAudience] = useState<AudienceKey>("all_hof");
   const [testIts, setTestIts] = useState("");
@@ -154,6 +179,19 @@ export default function EventRsvpComposer({
   }, []);
 
   const selectedTemplate = templates.find((t) => t.name === config.templateCode) ?? null;
+  const bodyTokens = extractTokens(selectedTemplate?.bodyText);
+
+  // The effective binding for a token: an explicit override, else the smart default (which reads the
+  // day's config live, so editing a menu above updates the preview until the binding is overridden).
+  const effBinding = (tok: string): Binding => bindings[tok] ?? defaultBinding(tok, config);
+  const setBinding = (tok: string, b: Binding) => setBindings((prev) => ({ ...prev, [tok]: b }));
+
+  function previewText(text: string): string {
+    return text.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, tok: string) => {
+      const b = effBinding(tok);
+      return b.kind === "static" ? b.value || `{{${tok}}}` : `[${MAPPABLE.find((m) => m.key === b.field)?.label ?? b.field}]`;
+    });
+  }
 
   async function saveConfig() {
     setSavingConfig(true);
@@ -244,6 +282,7 @@ export default function EventRsvpComposer({
           its: p.its,
           template_code: config.templateCode || DEFAULT_TEMPLATE,
           buttons,
+          variable_bindings: { body: Object.fromEntries(bodyTokens.map((t) => [t, effBinding(t)])) },
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -316,12 +355,10 @@ export default function EventRsvpComposer({
         <div className="mb-5">
           <span className={labelCls}>Template preview</span>
           <div className="mt-1 max-w-md whitespace-pre-wrap rounded-lg border border-green-200 bg-green-50 p-3 text-sm shadow-sm dark:border-green-900 dark:bg-green-950/40">
-            {selectedTemplate.header?.text && (
-              <p className="mb-1 font-semibold">{renderPreview(selectedTemplate.header.text, config)}</p>
-            )}
-            {selectedTemplate.bodyText && <p>{renderPreview(selectedTemplate.bodyText, config)}</p>}
+            {selectedTemplate.header?.text && <p className="mb-1 font-semibold">{previewText(selectedTemplate.header.text)}</p>}
+            {selectedTemplate.bodyText && <p>{previewText(selectedTemplate.bodyText)}</p>}
             {selectedTemplate.footerText && (
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{renderPreview(selectedTemplate.footerText, config)}</p>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{previewText(selectedTemplate.footerText)}</p>
             )}
             {selectedTemplate.buttons.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1 border-t border-green-200 pt-2 dark:border-green-900">
@@ -333,7 +370,41 @@ export default function EventRsvpComposer({
               </div>
             )}
           </div>
-          <p className="mt-1 text-xs text-gray-400">Menus, title and end time fill in from this day&apos;s config; [name]/[family members]/[# attending] resolve per recipient at send time.</p>
+        </div>
+      )}
+
+      {/* Per-variable bindings */}
+      {bodyTokens.length > 0 && (
+        <div className="mb-5">
+          <span className={labelCls}>Variables</span>
+          <div className="mt-1 space-y-2">
+            {bodyTokens.map((tok) => {
+              const b = effBinding(tok);
+              return (
+                <div key={tok} className="flex items-center gap-2">
+                  <span className="w-44 shrink-0 truncate font-mono text-xs text-gray-600 dark:text-gray-300" title={tok}>{tok}</span>
+                  <select
+                    value={b.kind}
+                    onChange={(e) => setBinding(tok, e.target.value === "field" ? { kind: "field", field: b.kind === "field" ? b.field : MAPPABLE[0].key } : { kind: "static", value: b.kind === "static" ? b.value : "" })}
+                    className={`${inputCls} w-28`}
+                  >
+                    <option value="static">Static</option>
+                    <option value="field">Field</option>
+                  </select>
+                  {b.kind === "static" ? (
+                    <input value={b.value} onChange={(e) => setBinding(tok, { kind: "static", value: e.target.value })} placeholder="value for everyone" className={`${inputCls} flex-1`} />
+                  ) : (
+                    <select value={b.field} onChange={(e) => setBinding(tok, { kind: "field", field: e.target.value })} className={`${inputCls} flex-1`}>
+                      {MAPPABLE.map((m) => (
+                        <option key={m.key} value={m.key}>{m.label}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Static = same for everyone. Field = each recipient&apos;s value; recipients missing that field are skipped &amp; reported.</p>
         </div>
       )}
 
