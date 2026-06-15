@@ -5,6 +5,30 @@
 The webhook lives at `/api/whatsapp/webhook` and handles all communication between the Meta WhatsApp Cloud API and this application.  
 Source: `src/app/api/whatsapp/webhook/route.ts`
 
+The route is a thin binding to the shared handlers in `src/lib/whatsapp/inbound.ts` (`webhookVerify`,
+`webhookReceive`). All verification, parsing, account-routing, and processing logic described below
+lives there. This one URL serves **every** WhatsApp number.
+
+### Multiple accounts (one shared URL)
+
+Every WhatsApp number is served by this **single** callback URL — including a second number in its
+own Meta App. There is no per-number route. On each POST, the handler reads
+`metadata.phone_number_id` from the payload to resolve which **account** the delivery belongs to,
+then:
+
+- verifies the POST signature with **that account's** app secret (`META_APP_SECRET` for the primary,
+  `META_APP_SECRET_BROADCAST` for the broadcast number),
+- processes the message and sends every reply **from that account's number**,
+- ignores (acks `200`) deliveries whose `phone_number_id` matches no configured account.
+
+The `phone_number_id` is read from the not-yet-verified body, but it only *selects* which secret to
+check — the HMAC signature check still authenticates the payload, so a forged number can't bypass
+verification. The GET handshake accepts the challenge if `hub.verify_token` matches **any** configured
+account's verify token (each Meta App sends its own during "Verify and Save").
+
+**Adding another number is env-only:** configure its account (`accounts.ts` registry) and point its
+Meta App's callback at this same URL — no new route or callback URL.
+
 ## GET — Webhook Verification
 
 Meta calls this once when you register the callback URL.
@@ -84,6 +108,10 @@ Subscribe the app to the WABA:
 POST https://graph.facebook.com/{META_GRAPH_API_VERSION}/{WABA_ID}/subscribed_apps
 Authorization: ******
 ```
+
+For the **second number**, repeat the subscription in its own Meta App, but point its callback at the
+**same** URL (`/api/whatsapp/webhook`) with its own verify token (`META_WEBHOOK_VERIFY_TOKEN_BROADCAST`).
+No separate route is needed — the handler routes by `metadata.phone_number_id`.
 
 ## Local Testing
 

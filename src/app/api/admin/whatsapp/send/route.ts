@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import {
-  listMessageTemplates,
   sendWhatsAppTemplateComponents,
   sendWhatsAppText,
 } from "@/lib/meta/whatsapp";
 import { str } from "@/lib/registration/normalize";
 import { getSupabaseAdmin, recordOutboundMessage } from "@/lib/supabase/server";
-import { buildSendComponents, describeTemplate, previewBody } from "@/lib/whatsapp/templates";
+import { resolveApprovedTemplateForAnyAccount } from "@/lib/whatsapp/send-template";
+import { buildSendComponents, previewBody } from "@/lib/whatsapp/templates";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 
 export const runtime = "nodejs";
@@ -87,11 +87,15 @@ export async function POST(req: NextRequest) {
     const language = str(t.language);
     if (!name || !language) return NextResponse.json({ error: "Template name and language are required." }, { status: 400 });
 
-    // Re-fetch + describe the template so we build a payload that matches its real components.
-    const all = await listMessageTemplates();
-    const raw = all.find((x) => x.name === name && x.language === language && x.status?.toUpperCase() === "APPROVED");
-    if (!raw) return NextResponse.json({ error: `Approved template ${name} (${language}) not found.` }, { status: 404 });
-    const desc = describeTemplate(raw);
+    // Re-fetch + describe the template (across all accounts) so we build a payload that matches its
+    // real components and send it from the number whose WABA owns it.
+    let account;
+    let desc;
+    try {
+      ({ account, descriptor: desc } = await resolveApprovedTemplateForAnyAccount(name, language));
+    } catch {
+      return NextResponse.json({ error: `Approved template ${name} (${language}) not found.` }, { status: 404 });
+    }
 
     const bodyParams = Array.isArray(t.bodyParams) ? (t.bodyParams as unknown[]).map((v) => String(v ?? "")) : [];
     if (bodyParams.filter((v) => v.trim()).length < desc.bodyVarCount) {
@@ -108,12 +112,12 @@ export async function POST(req: NextRequest) {
       desc,
     );
 
-    const res = await sendWhatsAppTemplateComponents(to.phone, name, language, components);
+    const res = await sendWhatsAppTemplateComponents(to.phone, name, language, components, account);
     await recordOutboundMessage({
       phoneE164: to.phone,
       body: `[template:${name}] ${previewBody(desc.bodyText, bodyParams)}`.trim(),
       whatsappMessageId: res.messages?.[0]?.id,
-      rawPayload: { source: "whatsapp_composer", kind: "template", template: name, meta_response: res },
+      rawPayload: { source: "whatsapp_composer", kind: "template", template: name, account: account.label, meta_response: res },
     });
     return NextResponse.json({ ok: true, to: to.phone, name: to.name, kind, template: name });
   } catch (err) {

@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 
-import { optionalEnv, requireEnv } from "@/lib/env";
+import { optionalEnv } from "@/lib/env";
+import { getPrimaryAccount, type WhatsAppAccount } from "@/lib/whatsapp/accounts";
 
 type MetaMessageResponse = {
   messages?: Array<{
@@ -8,8 +9,16 @@ type MetaMessageResponse = {
   }>;
 };
 
-export function verifyMetaSignature(rawBody: string, signatureHeader: string | null) {
-  const appSecret = optionalEnv("META_APP_SECRET");
+// Validate the X-Hub-Signature-256 on an inbound webhook POST. The app secret is App-scoped, so
+// for multi-account each route passes the account whose Meta App owns its callback URL; omitting
+// the account falls back to the primary's secret (preserves single-account behavior). A missing
+// secret means verification is disabled for that account (useful for local dev).
+export function verifyMetaSignature(
+  rawBody: string,
+  signatureHeader: string | null,
+  account?: WhatsAppAccount,
+) {
+  const appSecret = account ? account.appSecret : optionalEnv("META_APP_SECRET");
 
   if (!appSecret) {
     return true;
@@ -29,10 +38,13 @@ export function verifyMetaSignature(rawBody: string, signatureHeader: string | n
   return timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(received, "hex"));
 }
 
-export async function sendWhatsAppText(to: string, body: string): Promise<MetaMessageResponse> {
+export async function sendWhatsAppText(
+  to: string,
+  body: string,
+  account: WhatsAppAccount = getPrimaryAccount(),
+): Promise<MetaMessageResponse> {
   const apiVersion = optionalEnv("META_GRAPH_API_VERSION") || "v25.0";
-  const phoneNumberId = requireEnv("WHATSAPP_PHONE_NUMBER_ID");
-  const accessToken = requireEnv("WHATSAPP_ACCESS_TOKEN");
+  const { phoneNumberId, accessToken } = account;
 
   const response = await fetch(
     `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`,
@@ -82,13 +94,17 @@ export type WaTemplate = {
   components?: WaTemplateComponent[];
 };
 
-// List the WhatsApp Business Account's message templates (live from Meta). Caller filters status.
-export async function listMessageTemplates(): Promise<WaTemplate[]> {
-  const waba = optionalEnv("WHATSAPP_BUSINESS_ACCOUNT_ID");
+// List the WhatsApp Business Account's message templates (live from Meta). Templates are
+// WABA-scoped, so this lists the templates owned by the given account's WABA; caller filters
+// status. Defaults to the primary account when none is supplied.
+export async function listMessageTemplates(
+  account: WhatsAppAccount = getPrimaryAccount(),
+): Promise<WaTemplate[]> {
+  const waba = account.wabaId;
   if (!waba) {
-    throw new Error("WHATSAPP_BUSINESS_ACCOUNT_ID is not configured.");
+    throw new Error(`WHATSAPP_BUSINESS_ACCOUNT_ID is not configured for the "${account.label}" account.`);
   }
-  const accessToken = requireEnv("WHATSAPP_ACCESS_TOKEN");
+  const accessToken = account.accessToken;
   const response = await fetch(
     `${graphBase()}/${waba}/message_templates?fields=name,language,status,category,components&limit=200`,
     { headers: { Authorization: `Bearer ${accessToken}` } },
@@ -107,9 +123,9 @@ export async function sendWhatsAppTemplateComponents(
   templateName: string,
   language: string,
   components: unknown[],
+  account: WhatsAppAccount = getPrimaryAccount(),
 ): Promise<MetaMessageResponse> {
-  const phoneNumberId = requireEnv("WHATSAPP_PHONE_NUMBER_ID");
-  const accessToken = requireEnv("WHATSAPP_ACCESS_TOKEN");
+  const { phoneNumberId, accessToken } = account;
 
   const template: Record<string, unknown> = { name: templateName, language: { code: language } };
   if (components.length > 0) template.components = components;
@@ -135,8 +151,11 @@ function graphBase() {
 
 // Download an inbound media object (e.g. a user's image) by its Meta media id.
 // Two hops: resolve the media id to a short-lived URL, then fetch the bytes with the token.
-export async function fetchWhatsAppMedia(mediaId: string): Promise<{ buffer: Buffer; mimeType: string }> {
-  const accessToken = requireEnv("WHATSAPP_ACCESS_TOKEN");
+export async function fetchWhatsAppMedia(
+  mediaId: string,
+  account: WhatsAppAccount = getPrimaryAccount(),
+): Promise<{ buffer: Buffer; mimeType: string }> {
+  const accessToken = account.accessToken;
   const headers = { Authorization: `Bearer ${accessToken}` };
 
   const metaRes = await fetch(`${graphBase()}/${mediaId}`, { headers });
@@ -157,9 +176,13 @@ export async function fetchWhatsAppMedia(mediaId: string): Promise<{ buffer: Buf
 }
 
 // Upload media (e.g. an admin-attached image) and return its media id for sending.
-export async function uploadWhatsAppMedia(buffer: Buffer, mimeType: string, filename: string): Promise<string> {
-  const phoneNumberId = requireEnv("WHATSAPP_PHONE_NUMBER_ID");
-  const accessToken = requireEnv("WHATSAPP_ACCESS_TOKEN");
+export async function uploadWhatsAppMedia(
+  buffer: Buffer,
+  mimeType: string,
+  filename: string,
+  account: WhatsAppAccount = getPrimaryAccount(),
+): Promise<string> {
+  const { phoneNumberId, accessToken } = account;
 
   const form = new FormData();
   form.append("messaging_product", "whatsapp");
@@ -179,9 +202,13 @@ export async function uploadWhatsAppMedia(buffer: Buffer, mimeType: string, file
 }
 
 // Send an image message (by uploaded media id) with an optional caption.
-export async function sendWhatsAppImage(to: string, mediaId: string, caption?: string): Promise<MetaMessageResponse> {
-  const phoneNumberId = requireEnv("WHATSAPP_PHONE_NUMBER_ID");
-  const accessToken = requireEnv("WHATSAPP_ACCESS_TOKEN");
+export async function sendWhatsAppImage(
+  to: string,
+  mediaId: string,
+  caption?: string,
+  account: WhatsAppAccount = getPrimaryAccount(),
+): Promise<MetaMessageResponse> {
+  const { phoneNumberId, accessToken } = account;
 
   const response = await fetch(`${graphBase()}/${phoneNumberId}/messages`, {
     method: "POST",

@@ -6,7 +6,7 @@ import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getEvents } from "@/lib/rsvp/meal-rsvp";
 import { buildNiyazSend, createHeadCountPrompts, resolveNiyazAudience, type NiyazAudienceKind } from "@/lib/rsvp/niyaz-prompt";
 import { createBroadcast } from "@/lib/whatsapp/broadcast";
-import { resolveApprovedTemplate } from "@/lib/whatsapp/send-template";
+import { resolveApprovedTemplateForAnyAccount } from "@/lib/whatsapp/send-template";
 import { MAPPABLE_FIELDS, type Binding, type VariableBindings } from "@/lib/whatsapp/templates";
 
 export const runtime = "nodejs";
@@ -89,8 +89,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   let desc;
+  let account;
   try {
-    desc = await resolveApprovedTemplate(template_code);
+    ({ descriptor: desc, account } = await resolveApprovedTemplateForAnyAccount(template_code));
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Template not found" }, { status: 400 });
   }
@@ -109,6 +110,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const result = await createBroadcast({
     templateCode: template_code,
     templateLanguage: desc.language,
+    account,
     recipients,
     variableBindings: bindings,
     // Buttons mode stamps the date into quick-reply payloads; head-count mode is a free-text template

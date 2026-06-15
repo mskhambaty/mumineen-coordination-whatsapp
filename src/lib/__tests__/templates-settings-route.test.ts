@@ -58,7 +58,8 @@ describe("PUT /api/admin/templates/settings", () => {
     upsertTemplateSetting.mockResolvedValue({ friendlyName: "Daily RSVP", isActive: false });
     const res = await settingsPut(jsonReq({ template_name: "daily_niyaz", friendly_name: "Daily RSVP", is_active: false }));
     expect(res.status).toBe(200);
-    expect(upsertTemplateSetting).toHaveBeenCalledWith("daily_niyaz", { friendlyName: "Daily RSVP", isActive: false });
+    // No waba_id in the body → primary account (passed as undefined; the lib defaults it).
+    expect(upsertTemplateSetting).toHaveBeenCalledWith(undefined, "daily_niyaz", { friendlyName: "Daily RSVP", isActive: false });
     const json = await res.json();
     expect(json).toMatchObject({ template_name: "daily_niyaz", friendlyName: "Daily RSVP", isActive: false });
   });

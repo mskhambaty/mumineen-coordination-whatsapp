@@ -4,6 +4,7 @@ import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { listMessageTemplates } from "@/lib/meta/whatsapp";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { getAccounts } from "@/lib/whatsapp/accounts";
 import { getTemplateSettings } from "@/lib/whatsapp/template-settings";
 import { describeTemplate } from "@/lib/whatsapp/templates";
 
@@ -18,14 +19,32 @@ export async function GET(req: NextRequest) {
   const auth = await requirePortalCaller(req, isAdminOrLeadership);
   if (auth instanceof NextResponse) return auth;
 
-  const [all, settings] = await Promise.all([listMessageTemplates().catch(() => []), getTemplateSettings()]);
-  const templates = all
-    .filter((t) => t.status?.toUpperCase() === "APPROVED")
-    .map((t) => {
-      const desc = describeTemplate(t);
-      const s = settings.get(desc.name);
-      return { ...desc, friendlyName: s?.friendlyName ?? null, isActive: s?.isActive ?? true };
-    });
+  // Across every WhatsApp account: its approved templates, tagged with the account/WABA/number that
+  // owns them and merged with that account's own friendly-name / active settings (keyed per WABA).
+  const perAccount = await Promise.all(
+    getAccounts().map(async (account) => {
+      const [tpls, settings] = await Promise.all([
+        listMessageTemplates(account).catch(() => []),
+        getTemplateSettings(account),
+      ]);
+      return tpls
+        .filter((t) => t.status?.toUpperCase() === "APPROVED")
+        .map((t) => {
+          const desc = describeTemplate(t);
+          const s = settings.get(desc.name);
+          return {
+            ...desc,
+            friendlyName: s?.friendlyName ?? null,
+            isActive: s?.isActive ?? true,
+            accountLabel: account.label,
+            wabaId: account.wabaId ?? null,
+            phoneNumberId: account.phoneNumberId,
+            displayNumber: account.displayNumber ?? null,
+          };
+        });
+    }),
+  );
+  const templates = perAccount.flat();
 
   const { data: users } = await getSupabaseAdmin()
     .from("whatsapp_users")

@@ -40,7 +40,7 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 ## Key File Locations
 
 ```
-src/app/api/whatsapp/webhook/route.ts    — Meta webhook handler (GET + POST)
+src/app/api/whatsapp/webhook/route.ts    — Single shared Meta webhook for ALL numbers (GET + POST); routes each delivery to its account by metadata.phone_number_id
 src/app/api/ollama/models/route.ts       — Ollama model list proxy
 src/app/api/ollama/chat/route.ts         — Ollama A/B chat completion endpoint
 src/app/api/auth/forgot-password/route.ts — Password reset email endpoint (any non-visitor user, via canAccessPortal)
@@ -56,10 +56,12 @@ src/lib/permissions.ts                   — Agent tool roles + canUseTool()
 src/lib/admin/access.ts                  — Portal page/route access predicates (see docs/access-control.md)
 src/components/admin/AdminNav.tsx        — Portal nav + per-link access tiers
 src/lib/supabase/server.ts               — All Supabase operations
-src/lib/meta/whatsapp.ts                 — Meta Graph API calls + signature verification
-src/lib/whatsapp/send-template.ts        — Standardized template-send pipeline (resolve→validate→send→log) for all notifications
+src/lib/whatsapp/accounts.ts             — WhatsApp account registry (primary + optional *_BROADCAST account; lookups by phone-number-id / WABA / label)
+src/lib/whatsapp/inbound.ts              — Shared inbound webhook logic (verify/parse/process); resolves the account per delivery from metadata.phone_number_id
+src/lib/meta/whatsapp.ts                 — Meta Graph API calls + signature verification (account-aware; defaults to the primary account)
+src/lib/whatsapp/send-template.ts        — Standardized template-send pipeline (resolve→validate→send→log); cross-account template resolution (resolveApprovedTemplateForAnyAccount, listApprovedTemplatesForAllAccounts)
 src/lib/whatsapp/templates.ts            — Template descriptor + components builder + body preview
-src/lib/whatsapp/template-settings.ts    — Per-template friendly-name + active flag (get/upsert) for the send console
+src/lib/whatsapp/template-settings.ts    — Per-template friendly-name + active flag (get/upsert) for the send console, keyed by (WABA, template name)
 src/app/api/admin/templates/settings/route.ts — PUT template friendly-name / active flag (admin/leadership)
 src/app/api/admin/templates/segments/route.ts — GET Niyaz reach-segment sizes (free/paid split) for the console header
 src/lib/escalation/notify.ts             — On-call escalation email + WhatsApp template notifications

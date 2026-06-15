@@ -10,7 +10,10 @@ const resolveNiyazAudience = vi.fn();
 const buildNiyazSend = vi.fn();
 const createHeadCountPrompts = vi.fn(async () => undefined);
 const createBroadcast = vi.fn();
-const resolveApprovedTemplate = vi.fn();
+const resolveApprovedTemplateForAnyAccount = vi.fn();
+const ACCOUNT = { label: "primary", phoneNumberId: "PN1", accessToken: "t", wabaId: "WABA1" };
+// Wrap a bare descriptor in the { account, descriptor } shape the cross-account resolver returns.
+const resolved = (descriptor: unknown) => ({ account: ACCOUNT, descriptor });
 
 vi.mock("@/lib/api/portal-auth", () => ({ requirePortalCaller: (...a: unknown[]) => requirePortalCaller(...a) }));
 vi.mock("@/lib/admin/access", () => ({ canAccessPortal: () => true, isAdminOrLeadership: () => true }));
@@ -21,7 +24,7 @@ vi.mock("@/lib/rsvp/niyaz-prompt", () => ({
   createHeadCountPrompts: (...a: unknown[]) => createHeadCountPrompts(...a),
 }));
 vi.mock("@/lib/whatsapp/broadcast", () => ({ createBroadcast: (...a: unknown[]) => createBroadcast(...a) }));
-vi.mock("@/lib/whatsapp/send-template", () => ({ resolveApprovedTemplate: (...a: unknown[]) => resolveApprovedTemplate(...a) }));
+vi.mock("@/lib/whatsapp/send-template", () => ({ resolveApprovedTemplateForAnyAccount: (...a: unknown[]) => resolveApprovedTemplateForAnyAccount(...a) }));
 
 import { GET, POST } from "@/app/api/admin/niyaz/instances/[id]/broadcast/route";
 
@@ -39,7 +42,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   getEvents.mockResolvedValue([{ id: "e1", title: "Lunch — Jun 16", eventDate: "2026-06-16", meal: "lunch", servingType: "thaal", description: null }]);
   buildNiyazSend.mockResolvedValue({ dayLabel: "Tue, Jun 16", mealLabel: "lunch & dinner", quickReplyButtons: [{ index: 0, payload: "niyaz|ind|both|2026-06-16" }] });
-  resolveApprovedTemplate.mockResolvedValue({ name: "niyaz_rsvp", language: "en_US", bodyVars: ["name", "day", "meal"], header: null, headerVar: null, urlButtons: [] });
+  resolveApprovedTemplateForAnyAccount.mockResolvedValue(resolved({ name: "niyaz_rsvp", language: "en_US", bodyVars: ["name", "day", "meal"], header: null, headerVar: null, urlButtons: [] }));
 });
 
 const validBody = { audience: "all_adults", level: "ind", only_non_responders: true, template_code: "niyaz_rsvp" };
@@ -85,7 +88,7 @@ describe("POST niyaz broadcast", () => {
 
   it("head-count mode: no quick-reply payloads, logs prompts, binds family_members/message/example", async () => {
     requirePortalCaller.mockResolvedValue(allow());
-    resolveApprovedTemplate.mockResolvedValue({ name: "niyaz_rsvp_family_count", language: "en_US", bodyVars: ["person_name", "registration_message", "family_members", "example_response"], header: null, headerVar: null, urlButtons: [] });
+    resolveApprovedTemplateForAnyAccount.mockResolvedValue(resolved({ name: "niyaz_rsvp_family_count", language: "en_US", bodyVars: ["person_name", "registration_message", "family_members", "example_response"], header: null, headerVar: null, urlButtons: [] }));
     resolveNiyazAudience.mockResolvedValue({ recipients: [{ phone: "+15551234567", familyId: "f1", muminId: "m1", fields: { full_name: "Test", family_members: "A, B" } }], unresolvedIts: [] });
     createBroadcast.mockResolvedValue({ broadcastId: "b2", total: 1, free: 0, paid: 1, skipped: 0, estCostUsd: 0 });
     const res = await POST(postReq({ audience: "all_hof", level: "fam", template_code: "niyaz_rsvp_family_count", mode: "headcount" }), { params });

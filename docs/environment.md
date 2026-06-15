@@ -44,6 +44,33 @@ All env var lookups go through `src/lib/env.ts`, which supports mixed-case alias
 | `SESSION_SECRET` | — | falls back to `ADMIN_API_KEY` | Signs portal session cookies (HMAC-SHA256). Set a dedicated random value in production to isolate cookie signing from the server-to-server API key. |
 | `ISTIBSAAR_ONCALL_URL` | — | `https://www.talabulilm.com/istibsaar/oncall` | Link the agent suggests for deeper guidance when it can't answer a deen question or after a few religious back-and-forths. Override only if the on-call URL changes. |
 
+## Multiple WhatsApp numbers (accounts)
+
+The app can serve more than one WhatsApp number — e.g. a higher-tier **broadcast** number for sending
+templates. Each number is a separate "account": its own phone number id, access token, WABA, Meta App
+secret, and webhook verify token. The registry lives in [`src/lib/whatsapp/accounts.ts`](../src/lib/whatsapp/accounts.ts).
+
+- The **primary** account is the existing unsuffixed configuration (`WHATSAPP_PHONE_NUMBER_ID`, …).
+- A **broadcast** account is configured with the suffixed `*_BROADCAST` variables below. If
+  `WHATSAPP_PHONE_NUMBER_ID_BROADCAST` is unset, only the primary account exists and behavior is
+  unchanged.
+
+Because the two numbers live under separate Meta Apps, each has its **own** app secret and webhook
+verify token. All Meta Apps point at the **same** callback URL (`/api/whatsapp/webhook`); the handler
+routes each delivery to the right account by `metadata.phone_number_id` (see
+[`whatsapp-webhook.md`](./whatsapp-webhook.md)), so adding a number never adds a route. A template
+lives in exactly one WABA, so the chosen template determines which number a broadcast/send goes out
+from; replies are always sent from the number the message arrived on.
+
+| Name | Accepted Aliases | Default | Notes |
+|------|-----------------|---------|-------|
+| `WHATSAPP_PHONE_NUMBER_ID_BROADCAST` | `Whatsapp_phone_number_id_broadcast` | (unset) | Phone number id of the second number. Presence of this var is what enables the broadcast account. |
+| `WHATSAPP_ACCESS_TOKEN_BROADCAST` | `Whatsapp_access_token_broadcast` | (unset) | Access token for the second number's Meta App. Required when the broadcast account is enabled. |
+| `WHATSAPP_BUSINESS_ACCOUNT_ID_BROADCAST` | `Whatsapp_business_account_id_broadcast` | (unset) | WABA id that owns the second number's templates. |
+| `META_APP_SECRET_BROADCAST` | `Meta_app_secret_broadcast` | (unset) | App secret of the second Meta App; validates `X-Hub-Signature-256` on the broadcast webhook route. |
+| `META_WEBHOOK_VERIFY_TOKEN_BROADCAST` | `Meta_webhook_verify_token_broadcast` | (unset) | Verify token for the second Meta App's GET handshake. Its webhook points at the shared `/api/whatsapp/webhook` URL (the handshake accepts any account's token). |
+| `WHATSAPP_DISPLAY_PHONE_NUMBER_BROADCAST` | `Whatsapp_display_phone_number_broadcast` | (unset) | Optional display number for labeling / inbound allow-checks. |
+
 > **Model compatibility (GPT-5.x / o-series).** These are reasoning models: they reject a custom
 > `temperature` and the deprecated `max_tokens`, requiring `max_completion_tokens` instead. All
 > chat calls go through `chatParams()` in [`src/lib/ai/model.ts`](../src/lib/ai/model.ts), which

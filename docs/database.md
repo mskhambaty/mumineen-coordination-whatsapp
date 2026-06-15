@@ -573,18 +573,25 @@ head-count template is sent; the next numeric reply consumes the most recent ope
 ### `whatsapp_template_settings`
 
 Admin annotations on the Meta message templates for the Send Templates console. Meta owns the
-templates; this table only decorates them. Keyed by Meta template name.
+templates; this table only decorates them. Keyed by **(WABA, template name)** so two WhatsApp
+accounts can hold a same-named template without their annotations colliding.
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `template_name` | text | PK (Meta template name) |
+| `template_name` | text | Meta template name |
+| `waba_id` | text | Nullable — the WhatsApp Business Account that owns the template. NULL = the primary/legacy account (rows created before multi-account support) |
 | `friendly_name` | text | Nullable — display label in the console pickers |
 | `is_active` | boolean | Default `true`; `false` hides the template from the console's Template dropdowns |
 | `created_at` / `updated_at` | timestamptz | `updated_at` trigger-managed |
 
-RLS enabled (service-role access only). Read/written only through `GET /api/admin/templates`
-(merge) and `PUT /api/admin/templates/settings`. Migration
-`20260611041719_whatsapp_template_settings.sql`.
+Uniqueness is `(coalesce(waba_id,''), template_name)`. RLS enabled (service-role access only).
+Read/written only through `GET /api/admin/templates` (merge) and `PUT /api/admin/templates/settings`.
+Migrations: `20260611041719_whatsapp_template_settings.sql` (create);
+`20260615120000_whatsapp_template_settings_add_waba_id.sql` (phase 1 — add `waba_id`, safe to apply
+ahead of the multi-account deploy); `20260615120200_whatsapp_template_settings_waba_unique.sql`
+(phase 2 — drop the `template_name` PK and add the `(waba_id, template_name)` unique index; apply
+**with** the multi-account code, since dropping the PK breaks the pre-deploy code's
+`ON CONFLICT (template_name)` upsert).
 
 ### `whatsapp_undeliverable`
 

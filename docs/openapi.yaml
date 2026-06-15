@@ -1542,17 +1542,26 @@ paths:
   /whatsapp/webhook:
     get:
       tags: [conversations]
-      summary: Verify Meta WhatsApp webhook subscription.
+      summary: Verify Meta WhatsApp webhook subscription (all numbers).
+      description: >-
+        Single shared callback URL for every WhatsApp account. The GET handshake echoes the challenge
+        when hub.verify_token matches ANY configured account's verify token (e.g.
+        META_WEBHOOK_VERIFY_TOKEN or META_WEBHOOK_VERIFY_TOKEN_BROADCAST).
       security: []
       responses:
         "200": { description: Challenge response. }
         "403": { $ref: "#/components/responses/Forbidden" }
     post:
       tags: [conversations]
-      summary: Receive inbound WhatsApp webhook messages.
+      summary: Receive inbound WhatsApp webhook messages (all numbers).
+      description: >-
+        Single shared endpoint for every WhatsApp account. The handler resolves the account from the
+        payload's metadata.phone_number_id, verifies the X-Hub-Signature-256 with THAT account's app
+        secret, and sends any reply from that number. Deliveries for an unconfigured number are acked
+        with 200 and ignored.
       security: []
       responses:
-        "200": { description: Webhook processed. }
+        "200": { description: Webhook processed (or ignored for an unknown number). }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
   /relay-updates:
@@ -2095,16 +2104,22 @@ paths:
         x-portal-user-id). Returns the FULL catalog (active + inactive); each template carries
         friendlyName (string|null) and isActive (boolean) merged from whatsapp_template_settings.
         The console filters its dropdowns to isActive and drives the cleanup popup from the full
-        list. No phone numbers returned.
+        list. No phone numbers returned. Spans ALL configured WhatsApp accounts: each template is
+        tagged with accountLabel (string), wabaId (string|null), and phoneNumberId (string) of the
+        account/WABA that owns it, and its friendlyName/isActive are scoped to that WABA.
       responses:
-        "200": { description: "templates[] (each + friendlyName, isActive) + selectable_users[] (id + name only)." }
+        "200": { description: "templates[] (each + friendlyName, isActive, accountLabel, wabaId, phoneNumberId) + selectable_users[] (id + name only)." }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
   /api/admin/templates/settings:
     put:
       tags: [admin, templates]
       summary: Set a template's friendly name and/or active flag
-      description: Admin/leadership only. Upserts whatsapp_template_settings for one Meta template. Inactive templates are hidden from the console's Template dropdowns.
+      description: >-
+        Admin/leadership only. Upserts whatsapp_template_settings for one Meta template, scoped to a
+        WABA. Inactive templates are hidden from the console's Template dropdowns. Pass waba_id to
+        annotate a non-primary account's template; omit it for the primary account. An unknown
+        waba_id returns 400.
       requestBody:
         required: true
         content:
@@ -2114,6 +2129,7 @@ paths:
               required: [template_name]
               properties:
                 template_name: { type: string }
+                waba_id: { type: string, description: "WABA that owns the template; omit for the primary account." }
                 friendly_name: { type: string, nullable: true, maxLength: 120 }
                 is_active: { type: boolean }
       responses:

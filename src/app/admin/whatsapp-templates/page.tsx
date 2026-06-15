@@ -20,6 +20,11 @@ type TemplateDescriptor = {
   category?: string;
   friendlyName: string | null;
   isActive: boolean;
+  // The WhatsApp account/WABA/number this template belongs to (and is sent from).
+  accountLabel: string;
+  wabaId: string | null;
+  phoneNumberId: string;
+  displayNumber: string | null;
 };
 type SegmentCount = { key: string; label: string; total: number; in_window: number; out_window: number };
 type SelectableUser = { id: string; name: string; role: string };
@@ -71,6 +76,18 @@ const AUDIENCES: { key: string; label: string }[] = [
 // Display label for a template in the pickers: friendly name when set, else the raw Meta name.
 function tplLabel(t: TemplateDescriptor): string {
   return t.friendlyName?.trim() || t.name;
+}
+
+// Human-readable handle for the number a template sends from: its display number when known, else
+// the account label. Shown only when more than one WhatsApp account is configured.
+function accountTag(t: TemplateDescriptor): string {
+  return t.displayNumber?.trim() || t.accountLabel;
+}
+
+// Stable identity for a template across accounts. Two WABAs can hold a same-named template, so name
+// alone isn't unique — key React lists and per-row state by (account, name, language).
+function tplKey(t: TemplateDescriptor): string {
+  return `${t.accountLabel}/${t.name}/${t.language}`;
 }
 
 const OP_LABELS: Record<string, string> = {
@@ -244,6 +261,9 @@ export default function SendTemplatesPage() {
 
   // Templates offered in the pickers: active only (deactivated ones are managed in the popup).
   const activeTemplates = useMemo(() => templates.filter((t) => t.isActive), [templates]);
+  // Only surface the sending number when more than one WhatsApp account exists — keeps the
+  // single-number deployment's UI unchanged.
+  const multiAccount = useMemo(() => new Set(templates.map((t) => t.accountLabel)).size > 1, [templates]);
 
   const selectedTpl = templates.find((t) => t.name === tpl) ?? null;
   const selectedSingleTpl = templates.find((t) => t.name === singleTpl) ?? null;
@@ -522,8 +542,8 @@ export default function SendTemplatesPage() {
               <select value={tpl} onChange={(e) => selectBroadcastTemplate(e.target.value)} className={`${input} mt-1 block w-full`}>
                 <option value="">Select a template…</option>
                 {activeTemplates.map((t) => (
-                  <option key={`${t.name}/${t.language}`} value={t.name}>
-                    {tplLabel(t)} ({t.language}){t.bodyVarCount > 0 ? " — has variables" : ""}
+                  <option key={tplKey(t)} value={t.name}>
+                    {tplLabel(t)} ({t.language}){multiAccount ? ` · ${accountTag(t)}` : ""}{t.bodyVarCount > 0 ? " — has variables" : ""}
                   </option>
                 ))}
               </select>
@@ -532,6 +552,10 @@ export default function SendTemplatesPage() {
               Manage templates
             </button>
           </div>
+
+          {selectedTpl && multiAccount && (
+            <p className="text-xs text-gray-500">Broadcasts from {accountTag(selectedTpl)}.</p>
+          )}
 
           {selectedTpl && <div className="rounded-md bg-gray-50 p-3 text-sm whitespace-pre-wrap dark:bg-gray-900">{previewText() || selectedTpl.bodyText || "(no body preview)"}</div>}
 
@@ -744,9 +768,12 @@ export default function SendTemplatesPage() {
               >
                 <option value="">Select a template…</option>
                 {activeTemplates.map((t) => (
-                  <option key={`${t.name}/${t.language}`} value={t.name}>{tplLabel(t)} ({t.language})</option>
+                  <option key={tplKey(t)} value={t.name}>{tplLabel(t)} ({t.language}){multiAccount ? ` · ${accountTag(t)}` : ""}</option>
                 ))}
               </select>
+              {selectedSingleTpl && multiAccount && (
+                <p className="text-xs text-gray-500">Sends from {accountTag(selectedSingleTpl)}.</p>
+              )}
               {selectedSingleTpl && <div className="rounded-md bg-gray-50 p-3 text-sm whitespace-pre-wrap dark:bg-gray-900">{selectedSingleTpl.bodyText ?? "(no body preview)"}</div>}
               {(selectedSingleTpl?.bodyVars ?? bodyParams.map((_, i) => String(i + 1))).map((tok, i) => (
                 <input
@@ -1102,36 +1129,41 @@ function ManageTemplatesModal({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  // Keyed by tplKey so same-named templates in different WABAs keep independent drafts.
   const [drafts, setDrafts] = useState<Record<string, { friendlyName: string; isActive: boolean }>>(() =>
-    Object.fromEntries(templates.map((t) => [t.name, { friendlyName: t.friendlyName ?? "", isActive: t.isActive }])),
+    Object.fromEntries(templates.map((t) => [tplKey(t), { friendlyName: t.friendlyName ?? "", isActive: t.isActive }])),
   );
-  const [savingName, setSavingName] = useState<string | null>(null);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
+  const multiAccount = new Set(templates.map((t) => t.accountLabel)).size > 1;
 
-  function setDraft(name: string, patch: Partial<{ friendlyName: string; isActive: boolean }>) {
-    setDrafts((prev) => ({ ...prev, [name]: { ...prev[name], ...patch } }));
+  function setDraft(key: string, patch: Partial<{ friendlyName: string; isActive: boolean }>) {
+    setDrafts((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
   }
 
   async function save(t: TemplateDescriptor) {
-    const d = drafts[t.name];
-    setSavingName(t.name);
+    const key = tplKey(t);
+    const d = drafts[key];
+    setSavingKey(key);
     setModalError(null);
     try {
       const res = await apiFetch("/api/admin/templates/settings", {
         method: "PUT",
-        body: JSON.stringify({ template_name: t.name, friendly_name: d.friendlyName.trim() || null, is_active: d.isActive }),
+        // Scope the annotation to the template's WABA so a same-named template on the other account
+        // isn't overwritten. Omitted/primary WABA resolves to the primary account server-side.
+        body: JSON.stringify({ template_name: t.name, waba_id: t.wabaId ?? undefined, friendly_name: d.friendlyName.trim() || null, is_active: d.isActive }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Save failed");
       await onSaved();
     } catch (e) {
       setModalError(e instanceof Error ? e.message : "Save failed");
     } finally {
-      setSavingName(null);
+      setSavingKey(null);
     }
   }
 
   const dirty = (t: TemplateDescriptor) =>
-    drafts[t.name].friendlyName !== (t.friendlyName ?? "") || drafts[t.name].isActive !== t.isActive;
+    drafts[tplKey(t)].friendlyName !== (t.friendlyName ?? "") || drafts[tplKey(t)].isActive !== t.isActive;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
@@ -1149,6 +1181,7 @@ function ManageTemplatesModal({
             <thead className="bg-gray-50 text-xs uppercase text-gray-500 dark:bg-gray-900">
               <tr>
                 <th className="px-2 py-1.5">Template (Meta name)</th>
+                {multiAccount && <th className="px-2 py-1.5">Number</th>}
                 <th className="px-2 py-1.5">Friendly name</th>
                 <th className="px-2 py-1.5">Active</th>
                 <th className="px-2 py-1.5"></th>
@@ -1156,32 +1189,33 @@ function ManageTemplatesModal({
             </thead>
             <tbody>
               {templates.map((t) => (
-                <tr key={`${t.name}/${t.language}`} className="border-t border-gray-100 dark:border-gray-800">
+                <tr key={tplKey(t)} className="border-t border-gray-100 dark:border-gray-800">
                   <td className="px-2 py-1.5 font-mono text-xs">{t.name} <span className="text-gray-400">({t.language})</span></td>
+                  {multiAccount && <td className="px-2 py-1.5 text-xs text-gray-500">{accountTag(t)}</td>}
                   <td className="px-2 py-1.5">
                     <input
-                      value={drafts[t.name].friendlyName}
-                      onChange={(e) => setDraft(t.name, { friendlyName: e.target.value })}
+                      value={drafts[tplKey(t)].friendlyName}
+                      onChange={(e) => setDraft(tplKey(t), { friendlyName: e.target.value })}
                       placeholder="e.g. Daily Niyaz RSVP"
                       className={`${input} w-full`}
                     />
                   </td>
                   <td className="px-2 py-1.5">
-                    <input type="checkbox" checked={drafts[t.name].isActive} onChange={(e) => setDraft(t.name, { isActive: e.target.checked })} />
+                    <input type="checkbox" checked={drafts[tplKey(t)].isActive} onChange={(e) => setDraft(tplKey(t), { isActive: e.target.checked })} />
                   </td>
                   <td className="px-2 py-1.5">
                     <button
                       type="button"
                       onClick={() => save(t)}
-                      disabled={!dirty(t) || savingName === t.name}
+                      disabled={!dirty(t) || savingKey === tplKey(t)}
                       className="rounded-md bg-blue-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-40"
                     >
-                      {savingName === t.name ? "Saving…" : "Save"}
+                      {savingKey === tplKey(t) ? "Saving…" : "Save"}
                     </button>
                   </td>
                 </tr>
               ))}
-              {templates.length === 0 && <tr><td colSpan={4} className="px-2 py-3 text-center text-gray-400">No templates.</td></tr>}
+              {templates.length === 0 && <tr><td colSpan={multiAccount ? 5 : 4} className="px-2 py-3 text-center text-gray-400">No templates.</td></tr>}
             </tbody>
           </table>
         </div>

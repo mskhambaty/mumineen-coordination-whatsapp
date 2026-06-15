@@ -25,6 +25,14 @@ const envAliases: Record<string, string[]> = {
   WHATSAPP_PHONE_NUMBER_ID: ["WHATSAPP_PHONE_NUMBER_ID", "Whatsapp_phone_number_id"],
   WHATSAPP_BUSINESS_ACCOUNT_ID: ["WHATSAPP_BUSINESS_ACCOUNT_ID", "Whatsapp_business_account_id"],
   WHATSAPP_TEMPLATE_LANGUAGE: ["WHATSAPP_TEMPLATE_LANGUAGE", "Whatsapp_template_language"],
+  // Second WhatsApp account (the higher-tier broadcast number). Its own Meta App, so its own
+  // access token, app secret, and webhook verify token. Absent = single-number deployment.
+  WHATSAPP_PHONE_NUMBER_ID_BROADCAST: ["WHATSAPP_PHONE_NUMBER_ID_BROADCAST", "Whatsapp_phone_number_id_broadcast"],
+  WHATSAPP_ACCESS_TOKEN_BROADCAST: ["WHATSAPP_ACCESS_TOKEN_BROADCAST", "Whatsapp_access_token_broadcast"],
+  WHATSAPP_BUSINESS_ACCOUNT_ID_BROADCAST: ["WHATSAPP_BUSINESS_ACCOUNT_ID_BROADCAST", "Whatsapp_business_account_id_broadcast"],
+  META_APP_SECRET_BROADCAST: ["META_APP_SECRET_BROADCAST", "Meta_app_secret_broadcast"],
+  META_WEBHOOK_VERIFY_TOKEN_BROADCAST: ["META_WEBHOOK_VERIFY_TOKEN_BROADCAST", "Meta_webhook_verify_token_broadcast"],
+  WHATSAPP_DISPLAY_PHONE_NUMBER_BROADCAST: ["WHATSAPP_DISPLAY_PHONE_NUMBER_BROADCAST", "Whatsapp_display_phone_number_broadcast"],
 };
 
 export function requireEnv(name: string): string {
