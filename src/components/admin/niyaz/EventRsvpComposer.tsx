@@ -39,7 +39,6 @@ type MapField = { key: string; label: string };
 // console; family_members is the computed family-member-names field).
 const MAPPABLE: MapField[] = [
   { key: "full_name", label: "Full name" },
-  { key: "mumin_name", label: "Mumin name (= full name)" },
   { key: "family_members", label: "Family members" },
   { key: "its", label: "ITS" },
   { key: "hof_its", label: "HOF ITS" },
@@ -76,7 +75,7 @@ function defaultBinding(token: string, config: Config): Binding {
   if (t === "lunch_menu" || t === "lunch") return { kind: "static", value: config.lunchMenu ?? "" };
   if (t === "dinner_menu" || t === "dinner") return { kind: "static", value: config.dinnerMenu ?? "" };
   if (t === "rsvp_end_time" || t === "end_time") return { kind: "static", value: config.rsvpEndTime ?? "" };
-  if (["name", "person_name", "full_name", "mumin_name"].includes(t)) return { kind: "field", field: t === "mumin_name" ? "mumin_name" : "full_name" };
+  if (["name", "person_name", "full_name", "mumin_name"].includes(t)) return { kind: "field", field: "full_name" };
   if (t === "family_members") return { kind: "field", field: "family_members" };
   if (t === "rsvp_status") return { kind: "field", field: "rsvp_status" };
   return { kind: "static", value: "" };
