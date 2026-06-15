@@ -170,7 +170,9 @@ in `department_daily_summaries` (`ai_briefing` = long, `ai_briefing_short` = sho
   `{{2}}` short summary) — `DEPARTMENT_SUMMARY_WA_TEMPLATE`. Gated by `DIGEST_WHATSAPP_ENABLED=true`
   (default off) to control Meta template quota. When enabled, a summary `template_broadcasts` row
   (`audience_key = 'department_digest'`) is logged for visibility on the `/admin/whatsapp-templates`
-  broadcasts page.
+  broadcasts page. For the **All Departments** send, `{{2}}` is now a richer multi-line payload:
+  headline + a few per-department lines (only departments with issues/open tickets/escalations),
+  plus untriaged issue count when present.
 - **Email** via the Postmark `daily-department-summary` template (`department_name`, `feedback_html`
   bullet list, `feedback_text`) — `POSTMARK_DEPARTMENT_SUMMARY_TEMPLATE`.
 
