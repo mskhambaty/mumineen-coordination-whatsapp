@@ -104,16 +104,6 @@ export function majlisLabel(majlisNumber: number | null, isAshura: boolean): str
   return isAshura ? "Majlis 9/10 (Ashura)" : `Majlis ${majlisNumber}`;
 }
 
-// "Start here" istibsaar search link for a majlis (delegates click through to read the
-// original; also used as the citation source until an exact item URL is known).
-export function istibsaarSearchUrl(majlisNumber: number | null, isAshura: boolean, year: string): string {
-  const yy = year.slice(-2); // 1448 -> 48
-  const miqaat = isAshura
-    ? "Majlis 9 & 10 - Ashara Mubarak"
-    : `Majlis ${majlisNumber} - Ashara Mubaraka ${yy}H`;
-  return `https://www.talabulilm.com/istibsaar/search?miqaat=${encodeURIComponent(miqaat)}`;
-}
-
 // Canonical title for a per-majlis topic block, e.g. "Al-Dars — Ashara 1448H, Majlis 2".
 export function topicTitle(categoryLabel: string, year: string, majlisNumber: number | null, isAshura: boolean): string {
   return `${categoryLabel} — Ashara ${year}H, ${majlisLabel(majlisNumber, isAshura)}`;

@@ -9,8 +9,6 @@ import {
   ASHARA_ROWS,
   DEFAULT_ACTIVE_YEAR,
   defaultStatus,
-  istibsaarSearchUrl,
-  majlisLabel,
   majlisRowForToday,
   topicTitle,
   type AsharaCategory,
@@ -173,8 +171,7 @@ export default function AsharaContent() {
           category: cat.key,
           language: cat.language,
           status: defaultStatus(cat.language),
-          source_url: istibsaarSearchUrl(row.majlisNumber, row.isAshura, year),
-          source_label: `Istibsaar — ${cat.label}, ${majlisLabel(row.majlisNumber, row.isAshura)} (${year}H)`,
+          // No auto source link — editors set a real source per block in the cell editor.
         }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to create");
@@ -260,8 +257,8 @@ export default function AsharaContent() {
           <div>
             <p className="font-medium">How to fill this in</p>
             <ul className="mt-1 list-disc space-y-0.5 pl-5 text-gray-600 dark:text-gray-400">
-              <li><span className="font-medium text-gray-800 dark:text-gray-200">English</span> (Reflections, Tazyeen, Al-Dars): open the cell, click <span className="font-medium">↗ source</span> to read the article, paste it in, Save.</li>
-              <li><span className="font-medium text-gray-800 dark:text-gray-200">Lisan</span> (Jumla, Kalema, Unwaan): open the cell, read the original via <span className="font-medium">↗ source</span>, type the <span className="font-medium">English translation</span>, Save.</li>
+              <li><span className="font-medium text-gray-800 dark:text-gray-200">English</span> (Reflections, Tazyeen, Al-Dars): open the cell, paste the article, Save. Add a source link if you have one.</li>
+              <li><span className="font-medium text-gray-800 dark:text-gray-200">Lisan</span> (Jumla, Kalema, Unwaan): open the cell, type the <span className="font-medium">English translation</span>, Save.</li>
               <li>Saving indexes it for the WhatsApp agent and turns the chip green.</li>
             </ul>
           </div>
