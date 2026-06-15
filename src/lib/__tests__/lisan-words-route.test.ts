@@ -23,7 +23,7 @@ vi.mock("@/lib/util/csv", () => ({ parseCsv: vi.fn() }));
 
 import { GET, PUT } from "@/app/api/admin/lisan-words/route";
 
-const CALLER = { id: "admin1", role: "admin" };
+const CALLER = { caller: { id: "admin1", role: "admin", display_name: "Admin" } };
 const req = (url: string, init?: RequestInit) => new NextRequest(url, init);
 const putReq = (body: unknown) =>
   req("http://localhost/api/admin/lisan-words", {
@@ -52,6 +52,7 @@ describe("PUT /api/admin/lisan-words (single add)", () => {
     expect(await res.json()).toMatchObject({ status: "added", count: 42 });
     expect(mocks.addLisanWord).toHaveBeenCalledWith(
       expect.objectContaining({ transliteration: "Aflaak", lisan: "افلاك", meaning: "Celestial spheres" }),
+      "Admin", // caller display name, for the "word added" email
     );
   });
 

@@ -75,7 +75,7 @@ export async function PUT(req: NextRequest) {
   }
 
   try {
-    const result = await addLisanWord(parsed.data);
+    const result = await addLisanWord(parsed.data, auth.caller.display_name ?? null);
     if (result.status === "invalid") {
       return NextResponse.json({ error: "Word has no usable text." }, { status: 422 });
     }

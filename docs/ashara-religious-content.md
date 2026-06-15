@@ -78,11 +78,14 @@ survives until the next full CSV re-upload, so export before replacing if the ma
 trivial reply and not a "did you mean"), the agent fire-and-forget calls `recordMissingLisanWord`
 ([src/lib/knowledge/lisan-word-requests.ts](../src/lib/knowledge/lisan-word-requests.ts)), which
 queues the word in `lisan_word_requests` (one open row per `normalized_word`, repeat asks bump
-`times_seen`) and — only on the **first** sighting — emails the single `LISAN_ALERT_EMAIL`
-recipient (Postmark `sendRawEmail`) with the word + asker so they can add it and reply. Adding the
-word via `addLisanWord` calls `markWordRequestAdded`, which flips the matching open row to `added`
-so it leaves the queue automatically. If `LISAN_ALERT_EMAIL` is unset the word is still queued, just
-no email. Never throws into the agent.
+`times_seen`) and — only on the **first** sighting — emails the **whole religious-monitor team**
+(`getReligiousMonitorEmails` + the optional `LISAN_ALERT_EMAIL`, deduped, one Postmark `sendRawEmail`
+per recipient) with the word + asker so any of them can add it. Adding the word via `addLisanWord`
+calls `markWordRequestAdded`, which flips the matching open row to `added` and — when it actually
+**closed** a waiting request — emails the same team again ("‘<word>’ added by <name>") so nobody
+double-works it (a proactive add of a never-requested word sends nothing; bulk CSV import doesn't
+notify). If there are no monitors and no `LISAN_ALERT_EMAIL`, the word is still queued, just no email.
+Never throws into the agent or the admin add flow.
 
 **Waaz Talaqqi hub (`/admin/religious`, nav label "Waaz Talaqqi").** A single **tabbed** page
 (`src/app/admin/religious/page.tsx` shell + `src/components/admin/religious/*` tabs) — a KPI band over

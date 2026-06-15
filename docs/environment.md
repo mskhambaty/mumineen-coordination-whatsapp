@@ -20,7 +20,7 @@ All env var lookups go through `src/lib/env.ts`, which supports mixed-case alias
 | `ADMIN_API_KEY` | — | Server-to-server auth for agent tools and cron jobs. Never sent to the browser. Rotate after deploying the session-auth migration (see Security Notes). |
 | `POSTMARK_API_TOKEN` | `Postmark_api_token` | Postmark server API token; rotate if exposed |
 | `POSTMARK_FROM_EMAIL` | `Postmark_from_email` | Verified Postmark sender address |
-| `LISAN_ALERT_EMAIL` | — | Single recipient for "missing Lisan word" alerts (one address, not all admins). Optional — unset means the word is still queued in `lisan_word_requests` but no email is sent. |
+| `LISAN_ALERT_EMAIL` | — | **Additional** recipient for Lisan missing-word / word-added alerts, on top of the religious-monitor team (managed on Waaz Talaqqi → Team). Optional — unset means only the monitors are emailed; if there are also no monitors, the word is still queued in `lisan_word_requests` but no email is sent. |
 | `POSTMARK_PASSWORD_RESET_TEMPLATE` | `Postmark_password_reset_template` | Postmark template alias for password reset (default `password-reset`) |
 | `POSTMARK_WELCOME_ADMIN_TEMPLATE` | `Postmark_welcome_admin_template` | Postmark template alias for new portal user welcome invites (default `welcome-admin-email`) |
 | `POSTMARK_ASSIGNMENT_TEMPLATE` | `Postmark_assignment_template` | Postmark template alias for assignment and department issue-contact alerts (default `assignment-notification`) |
