@@ -2078,6 +2078,9 @@ paths:
                 has_lunch: { type: boolean }
                 has_dinner: { type: boolean }
                 template_code: { type: string, nullable: true }
+                confirmation_template_code: { type: string, nullable: true, description: "Template sent back to a family after they respond (e.g. ashara_relay_double_rsvp_confirmation)." }
+                confirmation_variable_bindings: { type: object, nullable: true, description: "Flat token→binding map for the confirmation template." }
+                confirmation_buttons: { type: array, nullable: true, items: { type: object }, description: "Per-recipient button spec for the confirmation template." }
       responses:
         "200": { description: "{ date, config }." }
         "400": { $ref: "#/components/responses/BadRequest" }

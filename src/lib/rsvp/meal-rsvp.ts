@@ -501,6 +501,26 @@ export async function recordNiyazDayRsvp(
   }
 }
 
+// The authoritative `rsvp_status` string for a family + day, recomputed from niyaz_rsvp (so it
+// reflects the saved attendance incl. guests): `Lunch {n}, Dinner {n}` for the meals the day offers.
+export async function getNiyazRsvpStatus(familyId: string, date: string): Promise<string> {
+  const supabase = getSupabaseAdmin();
+  const dayEvents = (await getEvents()).filter((e) => e.eventDate === date);
+  const parts: string[] = [];
+  for (const meal of ["lunch", "dinner"] as Meal[]) {
+    const inst = dayEvents.find((e) => e.meal === meal);
+    if (!inst) continue;
+    const { count } = await supabase
+      .from("niyaz_rsvp")
+      .select("id", { count: "exact", head: true })
+      .eq("registration_instance_id", inst.id)
+      .eq("family_id", familyId)
+      .eq("attending", true);
+    parts.push(`${meal === "lunch" ? "Lunch" : "Dinner"} ${count ?? 0}`);
+  }
+  return parts.join(", ");
+}
+
 export type EventTally = NiyazEvent & {
   yesAdults: number;
   yesKids: number;

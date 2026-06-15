@@ -168,6 +168,18 @@ captured raw into `whatsapp_interactive_responses` AND decoded into `niyaz_rsvp`
 `00000-…`, `full_name='Guest'`) that still count in the tallies. Re-submissions reconcile (idempotent;
 guests walk down on a lower count). See [whatsapp-webhook.md](./whatsapp-webhook.md).
 
+**Confirmation template (sent after a response):** each niyaz day also configures a **second**
+template — the RSVP confirmation (`ashara_relay_double_rsvp_confirmation`, body vars `{{mumin_name}}`
++ `{{rsvp_status}}`) — with its own variable bindings + button payloads, persisted on
+`niyaz_event_config` (`confirmation_template_code` / `confirmation_variable_bindings` /
+`confirmation_buttons`). After phase 2 records a response, `sendNiyazConfirmation`
+(`src/lib/rsvp/niyaz-interactive.ts`) sends it back to the responder via the single-recipient pipeline:
+`mumin_name` ← family head name, `rsvp_status` ← `getNiyazRsvpStatus` (recomputed `Lunch n, Dinner n`
+from `niyaz_rsvp`, guests included), and the change-button reopens the RSVP Flow pre-filled with the
+current lunch/dinner counts. Fires for both attending and not-attending responses; best-effort (never
+blocks the record). Both templates are configured per day in the composer's two
+`TemplateBindingEditor` sections; Send saves config first so the confirmation is ready.
+
 **Niyaz inbox:** conversations on the niyaz number are attributed via
 `conversation_sessions.phone_number_id` (and `messages.phone_number_id`) and kept **out of the main
 inbox**; view them via the **Niyaz inbox** button on `/admin/niyaz` (→ `/admin/conversations?scope=niyaz`).

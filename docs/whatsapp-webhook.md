@@ -81,7 +81,8 @@ the `flow_token`/payload stored verbatim) and **returns early** (not routed to t
 `hof_its` → family, `registration_instance_id` → the day's `niyaz_event_config.day_id`, and the
 lunch/dinner counts are written per meal instance (real members allocated head→adults→kids; overflow
 beyond the roster recorded as **guest** rows — see `recordNiyazDayRsvp` / `recordNiyazRsvpFromInteractive`
-in `src/lib/rsvp/`). Re-submissions reconcile (idempotent on `(instance, mumin)`).
+in `src/lib/rsvp/`). Re-submissions reconcile (idempotent on `(instance, mumin)`). After recording,
+`sendNiyazConfirmation` sends the day's confirmation template back to the responder (best-effort).
 This branch runs ahead of the legacy `niyaz|level|scope|date` quick-reply handler (`handleNiyazButton`),
 which still records its taps directly. Source: `src/lib/whatsapp/interactive-responses.ts`.
 

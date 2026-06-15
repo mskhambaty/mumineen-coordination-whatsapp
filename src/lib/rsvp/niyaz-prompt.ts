@@ -33,6 +33,37 @@ function dedupeByPhone(list: Recipient[]): Recipient[] {
 
 export type NiyazAudienceKind = "specific_its" | "all_mumineen" | "all_hof" | "all_adults";
 
+// The per-recipient template field map for ONE family (its head) — used to resolve the confirmation
+// template's variable/button bindings in phase 2. Mirrors the recipient fields built by
+// resolveNiyazAudience: roster MAPPABLE columns + mumin_id, mumin_name, family_members,
+// eligible_family_count.
+export async function getFamilyTemplateFields(familyId: string): Promise<Record<string, string | null>> {
+  const supabase = getSupabaseAdmin();
+  const head = await supabase
+    .from("mumineen")
+    .select(`id, full_name, ${MAPPABLE_COLS.join(", ")}`)
+    .eq("family_id", familyId)
+    .eq("roster_active", true)
+    .order("is_head", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const headRow = (head.data ?? null) as (Record<string, unknown> & { id?: string; full_name?: string | null }) | null;
+
+  const fields: Record<string, string | null> = headRow ? fieldsOf(headRow) : {};
+  if (headRow?.id) fields.mumin_id = String(headRow.id);
+  fields.mumin_name = headRow?.full_name != null ? String(headRow.full_name) : null;
+
+  const { data: members } = await supabase
+    .from("mumineen")
+    .select("full_name, not_attending")
+    .eq("family_id", familyId)
+    .eq("roster_active", true);
+  const rows = (members ?? []) as { full_name: string | null; not_attending: boolean | null }[];
+  fields.family_members = rows.map((m) => m.full_name).filter(Boolean).join(", ");
+  fields.eligible_family_count = String(rows.filter((m) => m.not_attending !== true).length);
+  return fields;
+}
+
 // Family ids in scope. `requireRegistered` (default true) keeps the legacy "submitted registration"
 // filter; pass false for the double-RSVP audiences, which target every roster-active family
 // regardless of registration state (members are still filtered to roster_active + not_attending).

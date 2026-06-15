@@ -7,6 +7,11 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 // menus, RSVP cutoff time, which meals are offered, and which template to send. The per-meal
 // rsvp_registration_instance rows stay the RSVP/tally source of truth; this only decorates a day.
 
+// Per-variable binding (static value or roster field) — mirrors @/lib/whatsapp/templates Binding.
+type BindingJson = { kind: "static"; value: string } | { kind: "field"; field: string };
+// Flat token → binding map (incl. the header token, if any); split into body/header at resolve time.
+export type NiyazVariableBindings = Record<string, BindingJson> | null;
+
 export type NiyazEventConfig = {
   eventDate: string;
   dayId: number | null;
@@ -17,6 +22,9 @@ export type NiyazEventConfig = {
   hasLunch: boolean;
   hasDinner: boolean;
   templateCode: string | null;
+  confirmationTemplateCode: string | null;
+  confirmationVariableBindings: NiyazVariableBindings;
+  confirmationButtons: unknown[] | null;
 };
 
 type Row = {
@@ -29,9 +37,13 @@ type Row = {
   has_lunch: boolean;
   has_dinner: boolean;
   template_code: string | null;
+  confirmation_template_code: string | null;
+  confirmation_variable_bindings: NiyazVariableBindings;
+  confirmation_buttons: unknown[] | null;
 };
 
-const COLS = "event_date, day_id, rsvp_event_title, lunch_menu, dinner_menu, rsvp_end_time, has_lunch, has_dinner, template_code";
+const COLS =
+  "event_date, day_id, rsvp_event_title, lunch_menu, dinner_menu, rsvp_end_time, has_lunch, has_dinner, template_code, confirmation_template_code, confirmation_variable_bindings, confirmation_buttons";
 
 const toConfig = (r: Row): NiyazEventConfig => ({
   eventDate: r.event_date,
@@ -43,6 +55,9 @@ const toConfig = (r: Row): NiyazEventConfig => ({
   hasLunch: r.has_lunch,
   hasDinner: r.has_dinner,
   templateCode: r.template_code,
+  confirmationTemplateCode: r.confirmation_template_code,
+  confirmationVariableBindings: r.confirmation_variable_bindings ?? null,
+  confirmationButtons: r.confirmation_buttons ?? null,
 });
 
 export const eventConfigPatchSchema = z.object({
@@ -53,6 +68,10 @@ export const eventConfigPatchSchema = z.object({
   has_lunch: z.boolean().optional(),
   has_dinner: z.boolean().optional(),
   template_code: z.string().nullable().optional(),
+  confirmation_template_code: z.string().nullable().optional(),
+  // jsonb passthrough (validated structurally at resolve time).
+  confirmation_variable_bindings: z.any().nullable().optional(),
+  confirmation_buttons: z.array(z.any()).nullable().optional(),
 });
 export type EventConfigPatch = z.infer<typeof eventConfigPatchSchema>;
 
@@ -90,6 +109,9 @@ export async function upsertEventConfig(date: string, patch: EventConfigPatch): 
   if (patch.has_lunch !== undefined) fields.has_lunch = patch.has_lunch;
   if (patch.has_dinner !== undefined) fields.has_dinner = patch.has_dinner;
   if (patch.template_code !== undefined) fields.template_code = patch.template_code;
+  if (patch.confirmation_template_code !== undefined) fields.confirmation_template_code = patch.confirmation_template_code;
+  if (patch.confirmation_variable_bindings !== undefined) fields.confirmation_variable_bindings = patch.confirmation_variable_bindings;
+  if (patch.confirmation_buttons !== undefined) fields.confirmation_buttons = patch.confirmation_buttons;
 
   const existing = await db.from("niyaz_event_config").select("event_date").eq("event_date", date).maybeSingle();
   if (existing.data) {

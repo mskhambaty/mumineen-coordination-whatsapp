@@ -101,6 +101,19 @@ describe("PUT /api/admin/niyaz/days/[date]", () => {
     expect(upsertEventConfig).toHaveBeenCalledWith("2026-06-16", { rsvp_event_title: "2nd Moharram", lunch_menu: "Dal", has_lunch: true, has_dinner: false });
   });
 
+  it("round-trips the confirmation template config (template + bindings + buttons)", async () => {
+    requirePortalCaller.mockResolvedValue(allow());
+    upsertEventConfig.mockResolvedValue({ eventDate: "2026-06-16" });
+    const patch = {
+      confirmation_template_code: "ashara_relay_double_rsvp_confirmation",
+      confirmation_variable_bindings: { mumin_name: { kind: "field", field: "full_name" }, rsvp_status: { kind: "field", field: "rsvp_status" } },
+      confirmation_buttons: [{ type: "flow", index: 0, flow_token: "rsvp:{{hof_its}}:{{RegistrationInstanceId}}", flow_action_data: {} }],
+    };
+    const res = await dayPut(putReq(patch), { params: Promise.resolve({ date: "2026-06-16" }) });
+    expect(res.status).toBe(200);
+    expect(upsertEventConfig).toHaveBeenCalledWith("2026-06-16", patch);
+  });
+
   it("returns the day config on GET", async () => {
     requirePortalCaller.mockResolvedValue(allow());
     getEventConfig.mockResolvedValue({ eventDate: "2026-06-16", rsvpEventTitle: "2nd Moharram", lunchMenu: null, dinnerMenu: null, rsvpEndTime: null, hasLunch: true, hasDinner: true, templateCode: null });

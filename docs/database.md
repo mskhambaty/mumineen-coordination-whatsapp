@@ -551,7 +551,10 @@ the RSVP/tally source of truth. Source: `src/lib/rsvp/event-config.ts`.
 | `lunch_menu` / `dinner_menu` | text | `{{lunch_menu}}` / `{{dinner_menu}}` |
 | `rsvp_end_time` | text | `{{rsvp_end_time}}` |
 | `has_lunch` / `has_dinner` | boolean | Which meals this event offers |
-| `template_code` | text | Template to send (e.g. `ashara_relay_double_rsvp`) |
+| `template_code` | text | RSVP template to send (e.g. `ashara_relay_double_rsvp`) |
+| `confirmation_template_code` | text | Confirmation template sent back after a response (e.g. `ashara_relay_double_rsvp_confirmation`) |
+| `confirmation_variable_bindings` | jsonb | Flat `{token → {kind:static\|field, …}}` map for the confirmation template |
+| `confirmation_buttons` | jsonb | Per-recipient button spec (flow/quick-reply) for the confirmation template |
 
 ### `whatsapp_interactive_responses` (raw inbound interactive capture)
 
