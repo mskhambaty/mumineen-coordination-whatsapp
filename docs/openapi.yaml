@@ -2011,6 +2011,45 @@ paths:
         "201": { description: "{ instance: { id } }." }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /api/admin/niyaz/instances/{id}/config:
+    get:
+      tags: [admin]
+      summary: Day-level Niyaz event config
+      description: >-
+        Admin/leadership (portal). The day-level config (keyed by the instance's event_date) holding
+        the template-facing fields the RSVP broadcast needs: rsvp_event_title, lunch/dinner menus,
+        rsvp_end_time, which meals are offered, and the template to send. The per-meal
+        rsvp_registration_instance rows remain the RSVP/tally source of truth.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ date, config }. config is null if not configured yet." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [admin]
+      summary: Upsert day-level Niyaz event config
+      description: Admin/leadership (portal). Partial patch — only provided fields are written.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rsvp_event_title: { type: string, nullable: true }
+                lunch_menu: { type: string, nullable: true }
+                dinner_menu: { type: string, nullable: true }
+                rsvp_end_time: { type: string, nullable: true }
+                has_lunch: { type: boolean }
+                has_dinner: { type: boolean }
+                template_code: { type: string, nullable: true }
+      responses:
+        "200": { description: "{ date, config }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /api/admin/niyaz/instances/{id}/responses:
     get:
       tags: [admin]
@@ -2025,24 +2064,33 @@ paths:
   /api/admin/niyaz/instances/{id}/broadcast:
     get:
       tags: [admin]
-      summary: Preview recipient count for a Niyaz RSVP send
-      description: Admin (portal). Returns the recipient count (and any unresolved ITS) for the chosen audience/level/filter.
+      summary: Preview the audience for a Niyaz RSVP send
+      description: >-
+        Admin (portal). Returns the recipient count, any unresolved ITS, and a sample list
+        (name / ITS / masked phone, first 100) for the chosen audience/level/filter so the composer
+        can preview who will receive the broadcast.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: audience, in: query, required: true, schema: { type: string, enum: [specific_its, all_mumineen, all_hof, all_adults] } }
         - { name: level, in: query, schema: { type: string, enum: [ind, fam] } }
         - { name: only_non_responders, in: query, schema: { type: boolean } }
+        - { name: require_registered, in: query, schema: { type: boolean, default: true }, description: "false targets every roster-active, not-attending=false family (drops the submitted-registration filter)." }
         - { name: its, in: query, schema: { type: string }, description: Comma/space-separated ITS for the test audience. }
       responses:
-        "200": { description: "{ count, unresolved_its }." }
+        "200": { description: "{ count, unresolved_its, sample: [{ name, its, phone_masked }] }." }
         "403": { $ref: "#/components/responses/Forbidden" }
     post:
       tags: [admin]
-      summary: Send the daily Niyaz RSVP template (quick-reply buttons)
+      summary: Send a Niyaz RSVP template (quick-reply or custom Flow/quick-reply buttons)
       description: >-
         Admin/leadership (portal). Sends an approved template to the chosen audience for the event's
-        date, stamping each quick-reply button with a niyaz|level|scope|date payload, via the
-        broadcast queue. Taps are recorded by the WhatsApp webhook.
+        date via the broadcast queue. Body variables auto-bind to person fields, family_members, or
+        the day's event-config values (rsvp_event_title / lunch_menu / dinner_menu / rsvp_end_time).
+        When `buttons` is supplied (ashara_relay_double_rsvp), each button's payload templates are
+        resolved per recipient — {{Person.Id}} (mumin id), {{RegistrationInstanceId}} (this instance),
+        {{EligibleFamilyCount}} — replacing the legacy niyaz|level|scope|date quick-reply buttons.
+        Phase 1: inbound Flow/button responses are captured raw by the webhook; decoding into RSVPs
+        is phase 2.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       requestBody:
@@ -2056,11 +2104,30 @@ paths:
                 audience: { type: string, enum: [specific_its, all_mumineen, all_hof, all_adults] }
                 its: { type: array, items: { type: string } }
                 only_non_responders: { type: boolean }
+                require_registered: { type: boolean, default: true, description: "false targets every roster-active, not-attending=false family." }
                 level: { type: string, enum: [ind, fam] }
                 template_code: { type: string }
-                mode: { type: string, enum: [buttons, headcount], description: "buttons = quick-reply RSVP; headcount = free-text family head count (logs a prompt for the numeric reply)." }
+                mode: { type: string, enum: [buttons, headcount], description: "buttons = quick-reply RSVP; headcount = free-text family head count (logs a prompt for the numeric reply). Ignored when `buttons` is supplied." }
                 registration_message: { type: string, description: "Head-count mode: {{registration_message}} (auto-generated if omitted)." }
                 example_response: { type: string, description: "Head-count mode: {{example_response}} (default 4)." }
+                buttons:
+                  type: array
+                  description: "Custom per-recipient button payloads (Flow + quick-reply). Replaces the legacy niyaz buttons."
+                  items:
+                    oneOf:
+                      - type: object
+                        required: [type, index, flow_token]
+                        properties:
+                          type: { type: string, enum: [flow] }
+                          index: { type: integer }
+                          flow_token: { type: string, description: "Templated, e.g. rsvp:{{Person.Id}}:{{RegistrationInstanceId}}." }
+                          flow_action_data: { type: object, additionalProperties: { type: string }, description: "Templated values; integer-looking values are coerced to numbers." }
+                      - type: object
+                        required: [type, index, payload]
+                        properties:
+                          type: { type: string, enum: [quick_reply] }
+                          index: { type: integer }
+                          payload: { type: string, description: "Templated, e.g. not-attending-{{Person.Id}}-{{RegistrationInstanceId}}." }
       responses:
         "200": { description: "{ status: started, broadcastId, total, … }." }
         "400": { $ref: "#/components/responses/BadRequest" }

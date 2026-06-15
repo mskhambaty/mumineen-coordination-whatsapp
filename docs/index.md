@@ -97,7 +97,12 @@ src/app/api/admin/lost-found/route.ts    — Portal-member lost/found report lis
 src/app/api/admin/lost-found/[id]/route.ts — Edit (PUT) / Delete (DELETE) a lost/found item
 src/app/api/admin/lost-found/[id]/resolve/route.ts — Mark item resolved with history tracking
 src/lib/rsvp/meal-rsvp.ts                — Per-mumin Niyaz RSVP (niyaz_rsvp): grids, family/individual set-cascade, tallies (max/min), unregistered RSVP helpers, daily-button recording
-src/lib/rsvp/niyaz-prompt.ts             — Daily RSVP-template audiences (ITS/mumineen/HOF/adults) + button payloads + single-prompt creation for unregistered callers
+src/lib/rsvp/niyaz-prompt.ts             — Daily RSVP-template audiences (ITS/mumineen/HOF/adults, requireRegistered) + button payloads + per-recipient fields (mumin_id, family_members, eligible_family_count) + single-prompt creation for unregistered callers
+src/lib/rsvp/event-config.ts             — Day-level Niyaz event config (niyaz_event_config): rsvp_event_title, lunch/dinner menus, rsvp_end_time, meals, template_code
+src/app/api/admin/niyaz/instances/[id]/config/route.ts — GET/PUT day-level event config
+src/app/api/admin/niyaz/instances/[id]/broadcast/route.ts — Send Niyaz RSVP: audience + preview (count/sample), event-config body bindings, custom per-recipient Flow/quick-reply button payloads, single-ITS test
+src/components/admin/niyaz/EventRsvpComposer.tsx — Admin composer: event config, audience + preview, button-payload editor, send/test
+src/lib/whatsapp/interactive-responses.ts — Raw capture of inbound Flow/button responses (whatsapp_interactive_responses); decoding is phase 2
 src/lib/feedback/record.ts               — Append-only feedback capture (area→department tagged)
 src/lib/whatsapp/audience.ts             — Send-console audience resolution + free/paid window split + roster-by-phone enrichment (resolveRosterByPhone) + Niyaz reach segments (segmentCounts, segment_* audiences)
 src/lib/whatsapp/audience-filter.ts      — Custom-audience rule engine (FIELD_CATALOG, evaluate/runFilter); behavioral fields (Engagement / AI tool usage / Template history) attached in loadRoster() from the phone_message_stats / phone_tool_usage / phone_template_sends views; `set` type = recency-windowed multiselect

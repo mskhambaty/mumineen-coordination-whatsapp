@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { canAccessPortal } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
+import EventRsvpComposer from "@/components/admin/niyaz/EventRsvpComposer";
 
 type Meal = "lunch" | "dinner";
 type ServingType = "thaal" | "packet";
@@ -385,6 +386,10 @@ export default function NiyazPage() {
           </div>
         )}
       </div>
+
+      {selected && selected.eventDate && (
+        <EventRsvpComposer key={selected.id} instanceId={selected.id} title={selected.title || dayLabel(selected.eventDate)} />
+      )}
 
       {selected && (
         <div className="mt-6">

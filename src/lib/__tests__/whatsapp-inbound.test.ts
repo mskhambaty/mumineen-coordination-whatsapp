@@ -32,6 +32,8 @@ const extractIncomingMessages = vi.fn();
 const extractStatusUpdates = vi.fn(() => []);
 const recordNiyazButtonResponse = vi.fn(async () => undefined);
 const resolveFamilyForPhone = vi.fn(async () => ({ muminId: "m1", familyId: "f1" }));
+const recordInteractiveResponse = vi.fn(async () => undefined);
+const insertPendingMessage = vi.fn(async () => undefined);
 
 vi.mock("@/lib/whatsapp/accounts", () => ({
   getAccounts: () => ACCOUNTS,
@@ -80,8 +82,11 @@ vi.mock("@/lib/mumineen/registration", () => ({
   getRegistrationStatus: vi.fn(async () => ({ registered: true })),
 }));
 vi.mock("@/lib/whatsapp/coalesce", () => ({
-  insertPendingMessage: vi.fn(async () => undefined),
+  insertPendingMessage: (...args: unknown[]) => insertPendingMessage(...args),
   runCoalescedInbound: vi.fn(async () => undefined),
+}));
+vi.mock("@/lib/whatsapp/interactive-responses", () => ({
+  recordInteractiveResponse: (...args: unknown[]) => recordInteractiveResponse(...args),
 }));
 
 import { webhookReceive, webhookVerify } from "@/lib/whatsapp/inbound";
@@ -157,5 +162,65 @@ describe("webhookReceive (shared URL) — reply echoes the receiving number", ()
     expect(await res.json()).toMatchObject({ processed: 0, ignored: "unknown_business_phone" });
     expect(sendWhatsAppText).not.toHaveBeenCalled();
     expect(verifyMetaSignature).not.toHaveBeenCalled();
+  });
+});
+
+describe("webhookReceive — interactive responses are captured raw (phase 1)", () => {
+  it("stores a Flow completion and does NOT route it to the agent or record an RSVP", async () => {
+    extractIncomingMessages.mockReturnValue([
+      {
+        phoneE164: "+13125559999",
+        whatsappMessageId: "wamid.flow",
+        profileName: "Tester",
+        messageType: "interactive",
+        buttonPayload: null,
+        flowResponse: { flowToken: "rsvp:m1:e1", responseJson: { flow_token: "rsvp:m1:e1", attending_count: 3 } },
+        body: "",
+        businessPhoneNumberId: "PN_BROADCAST",
+        businessDisplayPhoneNumber: "+13120000002",
+        media: undefined,
+      },
+    ]);
+
+    const res = await webhookReceive(postReq("PN_BROADCAST"));
+    expect(await res.json()).toMatchObject({ processed: 1 });
+    expect(recordInteractiveResponse).toHaveBeenCalledWith({
+      phoneE164: "+13125559999",
+      waMessageId: "wamid.flow",
+      type: "flow",
+      flowToken: "rsvp:m1:e1",
+      payload: { flow_token: "rsvp:m1:e1", attending_count: 3 },
+    });
+    expect(recordNiyazButtonResponse).not.toHaveBeenCalled();
+    expect(insertPendingMessage).not.toHaveBeenCalled();
+    expect(sendWhatsAppText).not.toHaveBeenCalled();
+  });
+
+  it("stores a 'not-attending-…' quick-reply as a raw button response", async () => {
+    extractIncomingMessages.mockReturnValue([
+      {
+        phoneE164: "+13125559999",
+        whatsappMessageId: "wamid.na",
+        profileName: "Tester",
+        messageType: "button",
+        buttonPayload: "not-attending-m1-e1",
+        flowResponse: null,
+        body: "",
+        businessPhoneNumberId: "PN_BROADCAST",
+        businessDisplayPhoneNumber: "+13120000002",
+        media: undefined,
+      },
+    ]);
+
+    const res = await webhookReceive(postReq("PN_BROADCAST"));
+    expect(await res.json()).toMatchObject({ processed: 1 });
+    expect(recordInteractiveResponse).toHaveBeenCalledWith({
+      phoneE164: "+13125559999",
+      waMessageId: "wamid.na",
+      type: "button",
+      flowToken: "not-attending-m1-e1",
+      payload: { payload: "not-attending-m1-e1" },
+    });
+    expect(recordNiyazButtonResponse).not.toHaveBeenCalled();
   });
 });

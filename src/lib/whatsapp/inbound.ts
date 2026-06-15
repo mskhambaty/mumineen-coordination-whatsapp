@@ -18,6 +18,7 @@ import {
 import { insertPendingMessage, runCoalescedInbound } from "@/lib/whatsapp/coalesce";
 import { extractIncomingMessages, type IncomingWhatsAppMessage } from "@/lib/whatsapp/parser";
 import { applyBroadcastStatuses, extractStatusUpdates, markBroadcastReplied } from "@/lib/whatsapp/broadcast-status";
+import { recordInteractiveResponse } from "@/lib/whatsapp/interactive-responses";
 import { resolveFamilyForPhone } from "@/lib/rsvp/family";
 import { recordFamilyHeadCount, recordNiyazButtonResponse, recordUnregisteredRsvp, recordUnregisteredHeadCount, scopeToEntries, type ClampNotice, type NiyazLevel, type NiyazScope } from "@/lib/rsvp/meal-rsvp";
 import { consumePrompt, createPrompt, findOpenPrompt } from "@/lib/rsvp/niyaz-prompt";
@@ -132,6 +133,30 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage, account:
   });
 
   if (message.messageType === "reaction") {
+    return true;
+  }
+
+  // Double-RSVP interactive responses (ashara_relay_double_rsvp): a Flow completion (nfm_reply) or
+  // the "not-attending-…" quick-reply. Phase 1 captures the raw response for later decoding and
+  // stops — these are NOT routed to the agent and NOT yet recorded as RSVPs (phase 2).
+  if (message.flowResponse) {
+    await recordInteractiveResponse({
+      phoneE164: message.phoneE164,
+      waMessageId: message.whatsappMessageId,
+      type: "flow",
+      flowToken: message.flowResponse.flowToken,
+      payload: message.flowResponse.responseJson,
+    });
+    return true;
+  }
+  if (message.buttonPayload && message.buttonPayload.startsWith("not-attending-")) {
+    await recordInteractiveResponse({
+      phoneE164: message.phoneE164,
+      waMessageId: message.whatsappMessageId,
+      type: "button",
+      flowToken: message.buttonPayload,
+      payload: { payload: message.buttonPayload },
+    });
     return true;
   }
 

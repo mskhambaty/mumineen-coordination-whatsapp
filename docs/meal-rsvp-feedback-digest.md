@@ -127,6 +127,33 @@ that table is display-only (`getFamilyHeadCounts`) and is **never summed into th
 the attendance it represents is already counted in `niyaz_rsvp`, so adding it would double-count.
 (`niyaz_rsvp_prompts` + `niyaz_family_headcount`: `supabase/migrations/20260609120000_*`.)
 
+### 1b. Double-RSVP via WhatsApp Flow (`ashara_relay_double_rsvp`)
+
+A "niyaz event" (a day) has a **day-level config** in `niyaz_event_config` (keyed by `event_date`):
+`rsvp_event_title`, `lunch_menu`, `dinner_menu`, `rsvp_end_time`, `has_lunch`/`has_dinner` checkboxes,
+and the `template_code`. The per-meal `rsvp_registration_instance` rows stay the RSVP/tally source of
+truth — this config only supplies the template-facing fields. Edited via
+`GET/PUT /api/admin/niyaz/instances/[id]/config` (`src/lib/rsvp/event-config.ts`) from the
+`EventRsvpComposer` on `/admin/niyaz`.
+
+The composer sends `ashara_relay_double_rsvp` (a **Flow** button "Attending" + a "Not attending"
+quick-reply) from the niyaz RSVP number (the broadcast WhatsApp account that owns the template).
+Body variables auto-bind to the event-config values (`rsvp_event_title` / `lunch_menu` /
+`dinner_menu` / `rsvp_end_time`), person fields, or `family_members`. The **button payloads are
+specified in the composer** and resolved **per recipient** at send time via `resolveBindings` —
+`{{Person.Id}}` → mumin id, `{{RegistrationInstanceId}}` → this instance, `{{EligibleFamilyCount}}` →
+the family's roster-active, not-attending=false count. `buildSendComponents` emits the Flow button as
+`{ sub_type: "flow", parameters: [{ type: "action", action: { flow_token, flow_action_data } }] }`.
+
+**Audiences** (the composer): *All HOF* (one reachable number per family, `roster_active` +
+`not_attending=false`, `require_registered=false`) and *All HOF — not yet responded* (the same, minus
+families with a `whatsapp`/`admin` `niyaz_rsvp` row for this event). Both have a **preview** (count +
+a sample list of name / ITS / masked phone), and there's a **single-ITS test send**.
+
+**Inbound (phase 1):** Flow completions (`nfm_reply`) and `not-attending-…` taps are captured raw
+into `whatsapp_interactive_responses` and not yet decoded into RSVPs — see
+[whatsapp-webhook.md](./whatsapp-webhook.md). Decoding is phase 2.
+
 ## 2. Feedback
 
 Append-only, department-tagged, sentiment-scored — `feedback_entries`

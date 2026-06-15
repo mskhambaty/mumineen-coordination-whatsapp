@@ -11,6 +11,9 @@ export type IncomingWhatsAppMessage = {
   // Present for quick-reply button taps: the button's payload (template quick_reply) or the
   // interactive button_reply id. Carries our send-time RSVP encoding (e.g. "niyaz|ind|lunch|2026-06-16").
   buttonPayload?: string | null;
+  // Present for a WhatsApp Flow completion (interactive nfm_reply): the Flow's parsed response_json
+  // and the echoed flow_token (e.g. "rsvp:<muminId>:<instanceId>"). Captured raw in phase 1.
+  flowResponse?: { flowToken: string | null; responseJson: unknown } | null;
   rawMessage: unknown;
 };
 
@@ -33,6 +36,7 @@ type WhatsAppMessage = {
     payload?: string;
   };
   interactive?: {
+    type?: string;
     button_reply?: {
       id?: string;
       title?: string;
@@ -40,6 +44,13 @@ type WhatsAppMessage = {
     list_reply?: {
       id?: string;
       title?: string;
+    };
+    // WhatsApp Flow completion. response_json is a stringified JSON blob of the Flow's collected
+    // data; Meta echoes our flow_token inside it.
+    nfm_reply?: {
+      name?: string;
+      body?: string;
+      response_json?: string;
     };
   };
   image?: {
@@ -97,6 +108,8 @@ export function extractIncomingMessages(payload: unknown): IncomingWhatsAppMessa
             ? { id: message.image.id, mimeType: message.image.mime_type, caption: message.image.caption?.trim() }
             : undefined;
 
+        const flowResponse = parseFlowResponse(message);
+
         return [
           {
             businessPhoneNumberId: metadata?.phone_number_id,
@@ -114,6 +127,7 @@ export function extractIncomingMessages(payload: unknown): IncomingWhatsAppMessa
               message.interactive?.button_reply?.id ??
               message.interactive?.list_reply?.id ??
               null,
+            flowResponse,
             rawMessage: {
               metadata: metadata ?? null,
               message,
@@ -123,6 +137,24 @@ export function extractIncomingMessages(payload: unknown): IncomingWhatsAppMessa
       });
     }),
   );
+}
+
+// Parse a WhatsApp Flow completion (interactive nfm_reply) into its decoded response_json + the
+// echoed flow_token. Returns null when the message isn't a Flow completion.
+function parseFlowResponse(message: WhatsAppMessage): { flowToken: string | null; responseJson: unknown } | null {
+  const raw = message.interactive?.nfm_reply?.response_json;
+  if (!raw) return null;
+  let responseJson: unknown = raw;
+  try {
+    responseJson = JSON.parse(raw);
+  } catch {
+    // leave as the raw string if it isn't valid JSON
+  }
+  const flowToken =
+    responseJson && typeof responseJson === "object" && "flow_token" in responseJson
+      ? String((responseJson as { flow_token?: unknown }).flow_token ?? "")
+      : null;
+  return { flowToken: flowToken || null, responseJson };
 }
 
 function getMessageBody(message: WhatsAppMessage) {

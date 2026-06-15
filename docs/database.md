@@ -521,6 +521,37 @@ One row per Niyaz meal occasion. See [meal-rsvp-feedback-digest.md](./meal-rsvp-
 
 Unique `(event_date, meal)`. Ashara 1448H = 19 events (Pehli Raat Jun 14 dinner; 1st Moharram Jun 15 dinner only; 2nd–9th Moharram Jun 16–23 lunch+dinner; 10th Moharram Jun 24 dinner only).
 
+### `niyaz_event_config` (day-level RSVP config)
+
+Day-level config keyed by `event_date` (a "niyaz event" = one day). Holds the template-facing,
+admin-editable fields the RSVP broadcast needs; the per-meal `rsvp_registration_instance` rows stay
+the RSVP/tally source of truth. Source: `src/lib/rsvp/event-config.ts`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `event_date` | date | PK |
+| `rsvp_event_title` | text | `{{rsvp_event_title}}` |
+| `lunch_menu` / `dinner_menu` | text | `{{lunch_menu}}` / `{{dinner_menu}}` |
+| `rsvp_end_time` | text | `{{rsvp_end_time}}` |
+| `has_lunch` / `has_dinner` | boolean | Which meals this event offers |
+| `template_code` | text | Template to send (e.g. `ashara_relay_double_rsvp`) |
+
+### `whatsapp_interactive_responses` (raw inbound interactive capture)
+
+Raw capture of inbound Flow completions (`nfm_reply`) and button taps for the double-RSVP flow.
+Phase 1 only stores them; decoding into `niyaz_rsvp` is phase 2. Source:
+`src/lib/whatsapp/interactive-responses.ts`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `phone_e164` | text | Sender |
+| `wa_message_id` | text | Inbound message id (nullable) |
+| `response_type` | text | `flow` \| `button` |
+| `flow_token` | text | Self-describing token sent at broadcast time (nullable) |
+| `payload` | jsonb | The Flow's `response_json` or the quick-reply payload |
+| `received_at` | timestamptz | |
+
 ### `niyaz_rsvp`
 
 Per-mumin attendance for each Niyaz event, pre-seeded from arrival dates and overridden by the bot/admin.

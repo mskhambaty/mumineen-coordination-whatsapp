@@ -63,7 +63,22 @@ Supported message types:
 - `button` — `message.button.text`
 - `interactive` — `button_reply.title` or `list_reply.title`
 
+It also surfaces:
+- `buttonPayload` — the quick-reply payload (template `quick_reply`) or interactive reply id.
+- `flowResponse` — for a WhatsApp **Flow** completion (`interactive.nfm_reply`): the parsed
+  `response_json` and the echoed `flow_token` (e.g. `rsvp:<muminId>:<instanceId>`).
+
 All other types produce an empty `body` string; the agent handles empty bodies gracefully.
+
+### Niyaz double-RSVP interactive responses (raw capture — phase 1)
+
+The `ashara_relay_double_rsvp` template sends a **Flow** button ("Attending") and a `not-attending-…`
+quick-reply. When either response arrives, the webhook records it raw via
+`recordInteractiveResponse()` into `whatsapp_interactive_responses` (response_type `flow` | `button`,
+the `flow_token`/payload stored verbatim) and **returns early** — these are not routed to the agent
+and are **not yet decoded into RSVPs**. Decoding the stored responses into `niyaz_rsvp` is phase 2.
+This branch runs ahead of the legacy `niyaz|level|scope|date` quick-reply handler (`handleNiyazButton`),
+which still records its taps directly. Source: `src/lib/whatsapp/interactive-responses.ts`.
 
 ### Processing Pipeline
 
