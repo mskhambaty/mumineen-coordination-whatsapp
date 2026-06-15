@@ -92,6 +92,8 @@ src/lib/env.ts                           — Env var lookup with alias support
 public/templates/mumineen-roster-template.xlsx — Downloadable Mumineen roster import template
 supabase/migrations/                     — All database migrations
 src/app/api/relay-updates/route.ts       — Public relay updates JSON feed
+src/app/api/parking/my-passes/route.ts   — Caller-scoped parking-pass lookup (phone→own family's passes only); backs get_family_parking_passes
+src/lib/parking/entry-info.ts            — Authoritative per-color parking entry guidance + rideshare drop-off (shared by the route + agent)
 src/app/api/lost-found/route.ts          — Agent intake for lost/found reports; lost reports auto-escalate
 src/app/api/admin/lost-found/route.ts    — Portal-member lost/found report list + manual add (POST)
 src/app/api/admin/lost-found/[id]/route.ts — Edit (PUT) / Delete (DELETE) a lost/found item

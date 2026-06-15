@@ -1974,6 +1974,26 @@ paths:
         "200": { description: "Updated row count + refreshed grid. When the requested counts exceeded the family size, also returns clamped {requestedAdults, requestedKids, requestedTotal, maxAdults, maxKids, maxTotal, message} so the agent tells the user the count was capped and extras must register separately. requestedTotal/maxTotal carry the single-number (head-count) case; adults/kids the split case. (Or status=unregistered for unlinked phones — upserts into unregistered_rsvps.)" }
         "400": { $ref: "#/components/responses/BadRequest" }
 
+  /api/parking/my-passes:
+    get:
+      tags: [rsvp]
+      summary: Get the caller's own family's parking pass(es)
+      description: >-
+        Strictly self-scoped via x-whatsapp-from — resolves the caller's phone to their family
+        (mumin_phone_links, falling back to the member's own whatsapp_e164) and returns ONLY that
+        family's allocated parking passes. No ITS or family identifier is accepted from the request,
+        so a caller can never query another person's pass. Each pass carries lot_name, color, the
+        per-color entry guidance (entry; plus purpose for gold=wheelchair support and
+        green=khidmat-guzaar early access), general_access (southbound Route 83 / Kingery Hwy) and
+        rideshare_dropoff (Wat Buddha Damma Meditation Center). status=ok with passes; status=no_passes
+        when the family has none; status=unregistered when the number isn't linked (the agent then asks
+        if they need a pass and escalates to Transport). The DB has no "collected" flag, so collection
+        status is asked of the user, not returned. Used by the get_family_parking_passes agent tool.
+      responses:
+        "200": { description: "{ status: ok|no_passes|unregistered, head_name, general_access, rideshare_dropoff, passes: [{ lot_name, color, purpose, entry }] }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { description: "Pass lookup failed." }
+
   /api/admin/niyaz/instances:
     get:
       tags: [admin]
