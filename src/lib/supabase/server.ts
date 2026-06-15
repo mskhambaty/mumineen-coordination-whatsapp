@@ -242,6 +242,18 @@ export async function isEscalationSupportMember(userId: string): Promise<boolean
   return Boolean(data);
 }
 
+// On the religious-monitor team (Waaz Talaqqi) — gates the /admin/religious page + nav.
+export async function isReligiousMonitor(userId: string): Promise<boolean> {
+  if (!userId) return false;
+  const { data, error } = await getSupabaseAdmin()
+    .from("religious_monitors")
+    .select("id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) return false;
+  return Boolean(data);
+}
+
 export type ConversationTurn = {
   direction: "inbound" | "outbound";
   body: string | null;

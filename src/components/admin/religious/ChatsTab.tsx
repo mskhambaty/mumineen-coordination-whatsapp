@@ -16,6 +16,10 @@ export default function ChatsTab({ conversations, onReload }: { conversations: C
   const [sending, setSending] = useState(false);
   const [savingMode, setSavingMode] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // Optimistically-shown sent messages per phone, so a reply appears instantly instead of waiting
+  // for the heavy full reload (loadAll re-fetches every conversation). Cleared once the real data
+  // lands; deduped against the fetched thread so there's never a flicker of a doubled bubble.
+  const [pendingSent, setPendingSent] = useState<Record<string, { body: string; created_at: string }[]>>({});
 
   const q = search.trim().toLowerCase();
   const list = conversations.filter((c) => {
@@ -30,10 +34,21 @@ export default function ChatsTab({ conversations, onReload }: { conversations: C
   const active = conversations.find((c) => c.phone === activePhone) ?? null;
   const canReply = !!active && active.handling_mode === "manual" && active.in_window;
 
+  // The thread to render = the fetched messages plus any optimistic sends not yet reflected in them
+  // (dedup by body, so once the reload includes the real outbound the optimistic copy drops out).
+  const threadMessages = (() => {
+    if (!active) return [];
+    const seen = new Set(active.messages.map((m) => `${m.direction}:${m.body}`));
+    const extra = (pendingSent[active.phone] ?? [])
+      .filter((m) => !seen.has(`outbound:${m.body}`))
+      .map((m) => ({ direction: "outbound" as const, body: m.body, created_at: m.created_at }));
+    return [...active.messages, ...extra];
+  })();
+
   // Auto-scroll the thread to the newest message when a conversation opens or a message arrives
   // (mirrors the general Inbox).
   const messagePaneRef = useRef<HTMLDivElement>(null);
-  const lastAt = active?.messages[active.messages.length - 1]?.created_at;
+  const lastAt = threadMessages[threadMessages.length - 1]?.created_at;
   useEffect(() => {
     const pane = messagePaneRef.current;
     if (!pane) return;
@@ -58,18 +73,29 @@ export default function ChatsTab({ conversations, onReload }: { conversations: C
 
   async function sendReply() {
     if (!active || !reply.trim()) return;
+    const phone = active.phone;
+    const text = reply.trim();
     setSending(true);
     setNotice(null);
     try {
-      const res = await apiFetch("/api/admin/religious/reply", { method: "POST", body: JSON.stringify({ phone: active.phone, text: reply.trim() }) });
+      const res = await apiFetch("/api/admin/religious/reply", { method: "POST", body: JSON.stringify({ phone, text }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Send failed");
+      // Show it instantly, then refresh in the background and drop the optimistic copy once the
+      // real message is in the fetched thread.
       setReply("");
       setNotice("Reply sent.");
+      setPendingSent((p) => ({ ...p, [phone]: [...(p[phone] ?? []), { body: text, created_at: new Date().toISOString() }] }));
+      setSending(false);
       await onReload();
+      setPendingSent((p) => {
+        if (!p[phone]) return p;
+        const next = { ...p };
+        delete next[phone];
+        return next;
+      });
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "Send failed");
-    } finally {
       setSending(false);
     }
   }
@@ -143,7 +169,7 @@ export default function ChatsTab({ conversations, onReload }: { conversations: C
             </div>
 
             <div ref={messagePaneRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-gray-50 p-5 dark:bg-gray-950/40">
-              {active.messages.map((m, i) => (
+              {threadMessages.map((m, i) => (
                 <MessageBubble key={i} direction={m.direction} body={m.body} at={m.created_at} />
               ))}
             </div>
