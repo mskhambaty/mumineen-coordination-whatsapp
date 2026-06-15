@@ -192,9 +192,17 @@ This reuses the existing escalation queue (`POST /api/escalations` → `conversa
   "thanks" still yields the no-reply token.
 - **Formatting:** WhatsApp markup (single-asterisk bold, underscore italics for transliterations,
   bullet/numbered lists), reverent tone, honorifics (SA/AS/TUS/RA), no emojis.
-- **Citations:** every answer ends with a plain `Source: <title> — <url>` line, enforced
-  server-side by `collectSources` / `ensureSourcesCited`. blogs.jameasaifiyah.edu reflection /
-  tazyeen links are a permitted exception to the "official site only" URL rule.
+- **Citations:** an answer ends with **at most ONE** `Source:` line, enforced server-side by
+  `collectSources` / `finalizeSources` (`run-agent.ts`) — never a stack of links. The line is
+  derived from the trustworthy tool-result provenance (any `Source:` the model wrote is stripped
+  first). A single-majlis answer keeps its precise per-majlis link; an answer spanning
+  `SOURCE_COLLAPSE_THRESHOLD` (2) or more **distinct majalis** (grouped by majlis number, so
+  reflection + al-Dars of the same majlis count as one) collapses to a **single year-archive
+  link** from `resolveArchiveUrl(year)` (the year's overview-block `source_url` if pinned, else the
+  derived `reflection-category/<year>h/` index, else the Ashara landing page). Hand-off / non-answer
+  replies (`looksLikeHandoff`, `not_found`, `offer_last`) get **no** `Source:` line.
+  blogs.jameasaifiyah.edu reflection / tazyeen links are a permitted exception to the "official
+  site only" URL rule.
 
 Prompt changes here must be validated on the Ollama A/B page before shipping
 (see [ollama-ab-testing.md](./ollama-ab-testing.md) and AGENTS.md §6).
