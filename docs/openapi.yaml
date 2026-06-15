@@ -2135,8 +2135,9 @@ paths:
         date via the broadcast queue. Body variables auto-bind to person fields, family_members, or
         the day's event-config values (rsvp_event_title / lunch_menu / dinner_menu / rsvp_end_time).
         When `buttons` is supplied (ashara_relay_double_rsvp), each button's payload templates are
-        resolved per recipient — {{Person.Id}} (mumin id), {{RegistrationInstanceId}} (this instance),
-        {{EligibleFamilyCount}} — replacing the legacy niyaz|level|scope|date quick-reply buttons.
+        resolved per recipient — {{hof_its}}, {{RegistrationInstanceId}} (the day's numeric
+        niyaz_event_config.day_id), {{EligibleFamilyCount}} — replacing the legacy
+        niyaz|level|scope|date quick-reply buttons.
         Phase 1: inbound Flow/button responses are captured raw by the webhook; decoding into RSVPs
         is phase 2.
       parameters:

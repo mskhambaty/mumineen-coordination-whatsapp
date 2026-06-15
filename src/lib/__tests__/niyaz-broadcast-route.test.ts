@@ -93,6 +93,7 @@ describe("POST niyaz broadcast", () => {
     requirePortalCaller.mockResolvedValue(allow());
     getEventConfig.mockResolvedValue({
       eventDate: "2026-06-16",
+      dayId: 2,
       rsvpEventTitle: "2nd Moharram",
       lunchMenu: "Dal Chawal",
       dinnerMenu: "Biryani",
@@ -126,7 +127,8 @@ describe("POST niyaz broadcast", () => {
     // Legacy quick-reply buttons are not sent when a custom spec is supplied.
     expect(arg.quickReplyButtons).toBeUndefined();
     expect(arg.variableBindings.buttons).toHaveLength(2);
-    expect(arg.variableBindings.buttonTokens).toEqual({ RegistrationInstanceId: "e1" });
+    // {{RegistrationInstanceId}} resolves to the day's numeric day_id, not the instance UUID.
+    expect(arg.variableBindings.buttonTokens).toEqual({ RegistrationInstanceId: "2" });
     // Event-config values bind as statics for the day.
     expect(arg.variableBindings.body.lunch_menu).toEqual({ kind: "static", value: "Dal Chawal" });
     expect(arg.variableBindings.body.dinner_menu).toEqual({ kind: "static", value: "Biryani" });

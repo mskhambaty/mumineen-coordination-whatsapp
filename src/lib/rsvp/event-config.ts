@@ -9,6 +9,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export type NiyazEventConfig = {
   eventDate: string;
+  dayId: number | null;
   rsvpEventTitle: string | null;
   lunchMenu: string | null;
   dinnerMenu: string | null;
@@ -20,6 +21,7 @@ export type NiyazEventConfig = {
 
 type Row = {
   event_date: string;
+  day_id: number | null;
   rsvp_event_title: string | null;
   lunch_menu: string | null;
   dinner_menu: string | null;
@@ -29,10 +31,11 @@ type Row = {
   template_code: string | null;
 };
 
-const COLS = "event_date, rsvp_event_title, lunch_menu, dinner_menu, rsvp_end_time, has_lunch, has_dinner, template_code";
+const COLS = "event_date, day_id, rsvp_event_title, lunch_menu, dinner_menu, rsvp_end_time, has_lunch, has_dinner, template_code";
 
 const toConfig = (r: Row): NiyazEventConfig => ({
   eventDate: r.event_date,
+  dayId: r.day_id,
   rsvpEventTitle: r.rsvp_event_title,
   lunchMenu: r.lunch_menu,
   dinnerMenu: r.dinner_menu,

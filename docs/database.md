@@ -530,7 +530,8 @@ the RSVP/tally source of truth. Source: `src/lib/rsvp/event-config.ts`.
 | Column | Type | Notes |
 |--------|------|-------|
 | `event_date` | date | PK |
-| `rsvp_event_title` | text | `{{rsvp_event_title}}` |
+| `day_id` | bigint identity | Stable numeric per-day id (1..N by date). Passed as `registration_instance_id` into the day-level Flow/button payloads. |
+| `rsvp_event_title` | text | `{{rsvp_event_title}}` / `{{event_title}}` |
 | `lunch_menu` / `dinner_menu` | text | `{{lunch_menu}}` / `{{dinner_menu}}` |
 | `rsvp_end_time` | text | `{{rsvp_end_time}}` |
 | `has_lunch` / `has_dinner` | boolean | Which meals this event offers |

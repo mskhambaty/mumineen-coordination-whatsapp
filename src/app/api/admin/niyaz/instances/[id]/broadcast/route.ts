@@ -191,7 +191,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   );
   if (customButtons && customButtons.length > 0) {
     bindings.buttons = customButtons;
-    bindings.buttonTokens = { RegistrationInstanceId: id };
+    // The Flow is day-level, so {{RegistrationInstanceId}} resolves to the stable numeric day id
+    // (niyaz_event_config.day_id), not the per-meal instance UUID. Falls back to the instance id if
+    // the day isn't configured.
+    bindings.buttonTokens = { RegistrationInstanceId: config?.dayId != null ? String(config.dayId) : id };
   }
 
   const result = await createBroadcast({
