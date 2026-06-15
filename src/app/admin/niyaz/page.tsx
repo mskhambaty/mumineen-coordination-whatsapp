@@ -335,6 +335,7 @@ export default function NiyazPage() {
               <thead className="text-xs uppercase text-gray-400">
                 <tr>
                   <th className="px-2 py-1.5">Event</th>
+                  <th className="px-2 py-1.5 text-right" title="Total attending (adults + kids)">Yes count</th>
                   <th className="px-2 py-1.5 text-right">Yes adults</th>
                   <th className="px-2 py-1.5 text-right">Yes kids</th>
                   <th className="px-2 py-1.5 text-right">Yes families</th>
@@ -362,6 +363,7 @@ export default function NiyazPage() {
                         {e.servingType ? ` · ${e.servingType}` : ""}
                       </div>
                     </td>
+                    <td className={`${num} font-semibold`}>{e.yesAdults + e.yesKids}</td>
                     <td className={num}>{e.yesAdults}</td>
                     <td className={num}>{e.yesKids}</td>
                     <td className={num}>{e.yesFamilies}</td>
