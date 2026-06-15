@@ -1,0 +1,33 @@
+"use client";
+
+import { Badge, Empty, RulingFlag, SectionCard, fmt } from "./ui";
+
+// Awareness feed of personal-ruling (fatwa) questions the bot refused and flagged. Read-only.
+export default function FlagsTab({ flags }: { flags: RulingFlag[] }) {
+  return (
+    <SectionCard title={`Ruling flags (${flags.length})`}>
+      <p className="mb-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-800/40 dark:text-gray-400">
+        When a member asks a <strong>personal ruling</strong> (halal/haram, wajib/farz, “do I need to…”), the bot
+        refuses and logs it here for awareness — caught by a <em>keyword</em> match or a <em>classifier</em>. This is
+        not an escalation; no one is paged.
+      </p>
+      {flags.length === 0 ? (
+        <Empty>No flagged ruling questions in this range.</Empty>
+      ) : (
+        <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+          {flags.map((f, i) => (
+            <li key={i} className="py-3">
+              <p className="text-sm text-gray-800 dark:text-gray-200">{f.message}</p>
+              <p className="mt-1 flex items-center gap-2 text-xs text-gray-400">
+                <span>…{f.phone_last4}</span>
+                <Badge tone={f.detected_by === "classifier" ? "blue" : "neutral"}>{f.detected_by}</Badge>
+                <span>{fmt(f.created_at)}</span>
+                {!f.reviewed && <Badge tone="amber">new</Badge>}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </SectionCard>
+  );
+}
