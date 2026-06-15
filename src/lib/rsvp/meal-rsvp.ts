@@ -402,6 +402,105 @@ export async function recordNiyazButtonResponse(input: {
     : setMuminNiyazRsvp(input.muminId, input.familyId, entries, opts);
 }
 
+// --- Double-RSVP (ashara_relay_double_rsvp) decode → niyaz_rsvp ---
+
+// Resolve a family by its head-of-family ITS (families.hof_its is unique). Returns null if unknown.
+export async function getFamilyByHofIts(hofIts: string): Promise<{ familyId: string; hofIts: string } | null> {
+  const its = String(hofIts).trim();
+  if (!its) return null;
+  const { data } = await getSupabaseAdmin().from("families").select("id, hof_its").eq("hof_its", its).maybeSingle();
+  return data ? { familyId: (data as { id: string }).id, hofIts: (data as { hof_its: string }).hof_its } : null;
+}
+
+// Guest mumineen rows let a family RSVP MORE attendees than its roster (extra heads for food
+// planning). Guests are plain mumineen rows with roster_active=false (so they're excluded from every
+// member-list/audience query but still counted in the niyaz tallies), family_id set, a sentinel ITS
+// `00000-<uuid>` (the `00000-` prefix marks a guest and can't collide with a real numeric ITS), and
+// age null (counts as an adult in tallies). Returns the family's full guest pool (existing + any newly
+// created), so callers can reconcile a lowered count by marking surplus guests not-attending.
+export async function ensureFamilyGuests(familyId: string, hofIts: string, needed: number): Promise<string[]> {
+  const supabase = getSupabaseAdmin();
+  const { data } = await supabase
+    .from("mumineen")
+    .select("id")
+    .eq("family_id", familyId)
+    .like("its", "00000-%")
+    .order("created_at", { ascending: true });
+  const ids = ((data ?? []) as { id: string }[]).map((r) => r.id);
+
+  if (ids.length >= needed) return ids;
+
+  const toCreate = needed - ids.length;
+  const rows = Array.from({ length: toCreate }, () => ({
+    its: `00000-${crypto.randomUUID()}`,
+    hof_its: String(hofIts),
+    family_id: familyId,
+    is_head: false,
+    roster_active: false,
+    full_name: "Guest",
+  }));
+  const { data: created, error } = await supabase.from("mumineen").insert(rows).select("id");
+  if (error) throw new Error(error.message);
+  return [...ids, ...((created ?? []) as { id: string }[]).map((r) => r.id)];
+}
+
+// Record a day-level double-RSVP (separate lunch/dinner counts) into niyaz_rsvp, RECONCILING on
+// re-submission. Per meal instance for the date:
+//   • real members: min(count, rosterEligible) marked attending (head→adults→kids), the rest not —
+//     via setFamilyNiyazRsvp (idempotent), so a changed count re-allocates cleanly.
+//   • overflow: max(0, count - rosterEligible) guest rows attending, the rest of the family's guest
+//     pool marked not-attending (so a later lower count walks guests back down).
+// count 0 ⇒ everyone (members + guests) not attending for that meal — the "not attending" tap path.
+export async function recordNiyazDayRsvp(
+  familyId: string,
+  hofIts: string,
+  date: string,
+  lunchCount: number,
+  dinnerCount: number,
+  phone?: string | null,
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const dayEvents = (await getEvents()).filter((e) => e.eventDate === date);
+  const meals: { meal: Meal; count: number }[] = [
+    { meal: "lunch", count: Math.max(0, lunchCount) },
+    { meal: "dinner", count: Math.max(0, dinnerCount) },
+  ];
+
+  // Eligible roster members (the cap for "real" attendees).
+  const { data: members } = await supabase
+    .from("mumineen")
+    .select("not_attending")
+    .eq("family_id", familyId)
+    .eq("roster_active", true);
+  const rosterEligible = ((members ?? []) as { not_attending: boolean }[]).filter((m) => !m.not_attending).length;
+
+  // Guest pool sized to the largest overflow across meals; always fetched so surplus reconciles down.
+  const maxGuestNeeded = Math.max(0, meals[0].count - rosterEligible, meals[1].count - rosterEligible);
+  const guestIds = await ensureFamilyGuests(familyId, hofIts, maxGuestNeeded);
+
+  for (const { meal, count } of meals) {
+    const inst = dayEvents.find((e) => e.meal === meal);
+    if (!inst) continue;
+
+    const realAttending = Math.min(count, rosterEligible);
+    await setFamilyNiyazRsvp(familyId, [{ attending: true, meal, dates: [date] }], { source: "whatsapp", phone }, { total: realAttending });
+
+    if (guestIds.length > 0) {
+      const guestNeeded = Math.max(0, count - rosterEligible);
+      const rows = guestIds.map((id, idx) => ({
+        registration_instance_id: inst.id,
+        mumin_id: id,
+        family_id: familyId,
+        attending: idx < guestNeeded,
+        source: "whatsapp",
+        responded_by_phone: phone ?? null,
+      }));
+      const { error } = await supabase.from("niyaz_rsvp").upsert(rows, { onConflict: "registration_instance_id,mumin_id" });
+      if (error) throw new Error(error.message);
+    }
+  }
+}
+
 export type EventTally = NiyazEvent & {
   yesAdults: number;
   yesKids: number;

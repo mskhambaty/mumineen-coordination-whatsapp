@@ -195,6 +195,17 @@ function loadSavedFilters(): EscalationFilters {
 
 export default function ConversationsPage() {
   const router = useRouter();
+  // Inbox scope: ?scope=niyaz shows only the niyaz RSVP number's conversations; default 'main'
+  // excludes them. Read from the URL at fetch time (client only) so the page needs no Suspense
+  // boundary / search-params hook.
+  const convListUrl = (religious: boolean) => {
+    const isNiyaz = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("scope") === "niyaz";
+    const p = new URLSearchParams();
+    if (religious) p.set("religious", "1");
+    if (isNiyaz) p.set("scope", "niyaz");
+    const qs = p.toString();
+    return `/api/admin/conversations${qs ? `?${qs}` : ""}`;
+  };
   const [conversations, setConversations] = useState<Conversation[]>([]);
   // Initialize selection/tab from the URL so escalation email deep links land
   // directly on the right thread (?phone=...&tab=escalations).
@@ -534,7 +545,7 @@ export default function ConversationsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch(religious ? "/api/admin/conversations?religious=1" : "/api/admin/conversations");
+      const res = await apiFetch(convListUrl(religious));
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data.error ?? "Failed to load conversations");
@@ -553,7 +564,7 @@ export default function ConversationsPage() {
   // loading spinner, surface errors, or change the selected conversation.
   async function refreshConversationsSilently() {
     try {
-      const res = await apiFetch(religiousOnly ? "/api/admin/conversations?religious=1" : "/api/admin/conversations");
+      const res = await apiFetch(convListUrl(religiousOnly));
       if (!res.ok) return;
       const data = await res.json().catch(() => ({}));
       setConversations((data.conversations ?? []) as Conversation[]);

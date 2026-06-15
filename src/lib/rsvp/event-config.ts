@@ -66,6 +66,17 @@ export async function getEventConfig(date: string): Promise<NiyazEventConfig | n
   return data ? toConfig(data as Row) : null;
 }
 
+// The day's config by its stable numeric day_id (used to decode the Flow's registration_instance_id).
+export async function getEventConfigByDayId(dayId: number): Promise<NiyazEventConfig | null> {
+  if (!Number.isFinite(dayId)) return null;
+  const { data } = await getSupabaseAdmin()
+    .from("niyaz_event_config")
+    .select(COLS)
+    .eq("day_id", dayId)
+    .maybeSingle();
+  return data ? toConfig(data as Row) : null;
+}
+
 // Upsert a day's config. Only provided fields are written (partial patch) so a single-field edit
 // doesn't clobber the others.
 export async function upsertEventConfig(date: string, patch: EventConfigPatch): Promise<NiyazEventConfig> {

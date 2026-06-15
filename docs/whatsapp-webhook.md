@@ -76,8 +76,12 @@ The `ashara_relay_double_rsvp` template sends a **Flow** button ("Attending") an
 `rsvp:<hof_its>:<registration_instance_id>:not-attending` quick-reply (the button payload mirrors the
 Flow token's `rsvp:`-prefixed shape). When either response arrives, the webhook records it raw via
 `recordInteractiveResponse()` into `whatsapp_interactive_responses` (response_type `flow` | `button`,
-the `flow_token`/payload stored verbatim) and **returns early** — these are not routed to the agent
-and are **not yet decoded into RSVPs**. Decoding the stored responses into `niyaz_rsvp` is phase 2.
+the `flow_token`/payload stored verbatim) and **returns early** (not routed to the agent). It then
+**decodes** the response into `niyaz_rsvp` (phase 2, best-effort — the raw row is kept regardless):
+`hof_its` → family, `registration_instance_id` → the day's `niyaz_event_config.day_id`, and the
+lunch/dinner counts are written per meal instance (real members allocated head→adults→kids; overflow
+beyond the roster recorded as **guest** rows — see `recordNiyazDayRsvp` / `recordNiyazRsvpFromInteractive`
+in `src/lib/rsvp/`). Re-submissions reconcile (idempotent on `(instance, mumin)`).
 This branch runs ahead of the legacy `niyaz|level|scope|date` quick-reply handler (`handleNiyazButton`),
 which still records its taps directly. Source: `src/lib/whatsapp/interactive-responses.ts`.
 

@@ -141,8 +141,9 @@ export async function sendTemplateNotification(input: SendTemplateNotificationIn
         ...input.rawPayloadExtra,
         meta_response: metaResponse,
       },
+      phoneNumberId: input.account?.phoneNumberId ?? null,
     });
-    await touchConversationSession({ phoneE164: input.phoneE164, userId: input.userId ?? undefined });
+    await touchConversationSession({ phoneE164: input.phoneE164, userId: input.userId ?? undefined, phoneNumberId: input.account?.phoneNumberId ?? null });
 
     return { status: "sent", waMessageId };
   } catch (err) {

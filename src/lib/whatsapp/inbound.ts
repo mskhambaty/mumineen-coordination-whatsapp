@@ -19,6 +19,7 @@ import { insertPendingMessage, runCoalescedInbound } from "@/lib/whatsapp/coales
 import { extractIncomingMessages, type IncomingWhatsAppMessage } from "@/lib/whatsapp/parser";
 import { applyBroadcastStatuses, extractStatusUpdates, markBroadcastReplied } from "@/lib/whatsapp/broadcast-status";
 import { recordInteractiveResponse } from "@/lib/whatsapp/interactive-responses";
+import { parseCount, recordNiyazRsvpFromInteractive } from "@/lib/rsvp/niyaz-interactive";
 import { resolveFamilyForPhone } from "@/lib/rsvp/family";
 import { recordFamilyHeadCount, recordNiyazButtonResponse, recordUnregisteredRsvp, recordUnregisteredHeadCount, scopeToEntries, type ClampNotice, type NiyazLevel, type NiyazScope } from "@/lib/rsvp/meal-rsvp";
 import { consumePrompt, createPrompt, findOpenPrompt } from "@/lib/rsvp/niyaz-prompt";
@@ -130,6 +131,7 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage, account:
   await touchConversationSession({
     phoneE164: message.phoneE164,
     userId: user.id,
+    phoneNumberId: account.phoneNumberId,
   });
 
   if (message.messageType === "reaction") {
@@ -147,6 +149,21 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage, account:
       flowToken: message.flowResponse.flowToken,
       payload: message.flowResponse.responseJson,
     });
+    // Phase 2: decode the Flow's collected data into niyaz_rsvp (best-effort; raw row already saved).
+    try {
+      const rj = message.flowResponse.responseJson as Record<string, unknown> | null;
+      if (rj && typeof rj === "object") {
+        await recordNiyazRsvpFromInteractive({
+          hofIts: String(rj.hof_its ?? ""),
+          dayId: Number(rj.registration_instance_id),
+          lunchCount: parseCount(rj.lunch_attending_count),
+          dinnerCount: parseCount(rj.dinner_attending_count),
+          phone: message.phoneE164,
+        });
+      }
+    } catch (err) {
+      console.error("Niyaz flow RSVP decode failed", { inboundId: inbound.id, err });
+    }
     return true;
   }
   if (message.buttonPayload && message.buttonPayload.startsWith("rsvp:")) {
@@ -157,6 +174,15 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage, account:
       flowToken: message.buttonPayload,
       payload: { payload: message.buttonPayload },
     });
+    // "rsvp:<hof_its>:<day_id>:not-attending" → record both meals as not attending (counts 0/0).
+    try {
+      const parts = message.buttonPayload.split(":");
+      if (parts.length >= 4 && parts[3] === "not-attending") {
+        await recordNiyazRsvpFromInteractive({ hofIts: parts[1], dayId: Number(parts[2]), lunchCount: 0, dinnerCount: 0, phone: message.phoneE164 });
+      }
+    } catch (err) {
+      console.error("Niyaz button RSVP decode failed", { inboundId: inbound.id, err });
+    }
     return true;
   }
 
@@ -241,11 +267,13 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage, account:
           body: cleaned,
           whatsappMessageId: outboundId,
           rawPayload: metaResponse,
+          phoneNumberId: account.phoneNumberId,
         });
 
         await touchConversationSession({
           phoneE164: message.phoneE164,
           userId: user.id,
+          phoneNumberId: account.phoneNumberId,
         });
       },
     }),
@@ -297,8 +325,9 @@ async function handleNiyazButton(message: IncomingWhatsAppMessage, userId: strin
     body: reply,
     whatsappMessageId: metaResponse.messages?.[0]?.id,
     rawPayload: { source: "niyaz_rsvp_button", payload: message.buttonPayload, meta_response: metaResponse },
+    phoneNumberId: account.phoneNumberId,
   });
-  await touchConversationSession({ phoneE164: message.phoneE164, userId });
+  await touchConversationSession({ phoneE164: message.phoneE164, userId, phoneNumberId: account.phoneNumberId });
 }
 
 // Record a free-text head-count reply against the caller's most recent open prompt. Returns false
@@ -337,8 +366,9 @@ async function handleNiyazHeadCount(message: IncomingWhatsAppMessage, userId: st
     body: reply,
     whatsappMessageId: metaResponse.messages?.[0]?.id,
     rawPayload: { source: "niyaz_rsvp_headcount", event_date: prompt.event_date, head_count: count, meta_response: metaResponse },
+    phoneNumberId: account.phoneNumberId,
   });
-  await touchConversationSession({ phoneE164: message.phoneE164, userId });
+  await touchConversationSession({ phoneE164: message.phoneE164, userId, phoneNumberId: account.phoneNumberId });
   return true;
 }
 
@@ -373,8 +403,9 @@ async function sendRegistrationNudge(phone: string, userId: string | undefined, 
     body: reply,
     whatsappMessageId: metaResponse.messages?.[0]?.id,
     rawPayload: { source: "registration_gate", meta_response: metaResponse },
+    phoneNumberId: account.phoneNumberId,
   });
-  await touchConversationSession({ phoneE164: phone, userId });
+  await touchConversationSession({ phoneE164: phone, userId, phoneNumberId: account.phoneNumberId });
 }
 
 async function replyToImage(message: IncomingWhatsAppMessage, userId: string | undefined, account: WhatsAppAccount) {
@@ -401,8 +432,9 @@ async function replyToImage(message: IncomingWhatsAppMessage, userId: string | u
     body: answer,
     whatsappMessageId: metaResponse.messages?.[0]?.id,
     rawPayload: metaResponse,
+    phoneNumberId: account.phoneNumberId,
   });
-  await touchConversationSession({ phoneE164: message.phoneE164, userId });
+  await touchConversationSession({ phoneE164: message.phoneE164, userId, phoneNumberId: account.phoneNumberId });
 }
 
 // Accept a message only if it was delivered to the number this route serves: match the account's

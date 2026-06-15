@@ -521,6 +521,22 @@ One row per Niyaz meal occasion. See [meal-rsvp-feedback-digest.md](./meal-rsvp-
 
 Unique `(event_date, meal)`. Ashara 1448H = 19 events (Pehli Raat Jun 14 dinner; 1st Moharram Jun 15 dinner only; 2nd–9th Moharram Jun 16–23 lunch+dinner; 10th Moharram Jun 24 dinner only).
 
+### Number attribution on messages / conversation_sessions
+
+`messages.phone_number_id` and `conversation_sessions.phone_number_id` (migration
+`…_conversation_phone_number_id`) record which of our WhatsApp numbers a message/conversation is on
+(NULL = primary). The session value is "latest message wins". Powers the inbox split: the main inbox
+(`/admin/conversations`) excludes the niyaz/broadcast number; `?scope=niyaz` shows only it.
+
+### Guest overflow rows in `mumineen`
+
+When a family RSVPs more attendees than its roster, the double-RSVP decode creates **guest** rows in
+`mumineen` (`roster_active=false`, `family_id` set, `hof_its` copied, sentinel `its` `00000-<uuid>`,
+`full_name='Guest'`, `age` null). They are **excluded** from every member-list/audience query (all
+filter `roster_active=true`) but **counted** in the niyaz tallies (the tallies views don't filter
+`roster_active`; null age counts as an adult), so overflow counts for food planning. Their
+`niyaz_rsvp` rows carry `source='whatsapp'` and the family_id.
+
 ### `niyaz_event_config` (day-level RSVP config)
 
 Day-level config keyed by `event_date` (a "niyaz event" = one day). Holds the template-facing,

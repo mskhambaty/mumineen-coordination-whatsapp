@@ -155,9 +155,22 @@ the family's roster-active, not-attending=false count. `buildSendComponents` emi
 families with a `whatsapp`/`admin` `niyaz_rsvp` row for this event). Both have a **preview** (count +
 a sample list of name / ITS / masked phone), and there's a **single-ITS test send**.
 
-**Inbound (phase 1):** Flow completions (`nfm_reply`) and `rsvp:…:not-attending` taps are captured raw
-into `whatsapp_interactive_responses` and not yet decoded into RSVPs — see
-[whatsapp-webhook.md](./whatsapp-webhook.md). Decoding is phase 2.
+The flow_token / not-attending payloads use the `rsvp:<hof_its>:<day_id>` shape (`day_id` =
+`niyaz_event_config.day_id`, a stable numeric per-day id; the Flow's `registration_instance_id` is
+this day_id, not a per-meal instance UUID). flow_action_data carries `hof_its`,
+`registration_instance_id` (day_id), and `lunch_attending_count` / `dinner_attending_count`.
+
+**Inbound (phase 2 — recorded):** Flow completions (`nfm_reply`) and `rsvp:…:not-attending` taps are
+captured raw into `whatsapp_interactive_responses` AND decoded into `niyaz_rsvp`
+(`recordNiyazRsvpFromInteractive` → `recordNiyazDayRsvp`): resolve family by `hof_its`, day by
+`day_id`, then write per meal — `min(count, roster)` members attending (head→adults→kids), and any
+**overflow** beyond the roster as **guest** mumineen rows (`roster_active=false`, sentinel ITS
+`00000-…`, `full_name='Guest'`) that still count in the tallies. Re-submissions reconcile (idempotent;
+guests walk down on a lower count). See [whatsapp-webhook.md](./whatsapp-webhook.md).
+
+**Niyaz inbox:** conversations on the niyaz number are attributed via
+`conversation_sessions.phone_number_id` (and `messages.phone_number_id`) and kept **out of the main
+inbox**; view them via the **Niyaz inbox** button on `/admin/niyaz` (→ `/admin/conversations?scope=niyaz`).
 
 ## 2. Feedback
 

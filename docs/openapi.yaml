@@ -459,6 +459,10 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, default: 75, maximum: 200 }
+        - name: scope
+          in: query
+          schema: { type: string, enum: [main, niyaz], default: main }
+          description: "Inbox split by the number a conversation is on (conversation_sessions.phone_number_id). main = exclude the niyaz RSVP/broadcast number; niyaz = only it."
       responses:
         "200": { description: Conversations with handling mode, messages, and tool calls. }
         "401": { $ref: "#/components/responses/Unauthorized" }

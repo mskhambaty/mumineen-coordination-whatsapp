@@ -106,7 +106,8 @@ src/app/api/admin/niyaz/instances/[id]/config/route.ts — GET/PUT day-level eve
 src/app/api/admin/niyaz/instances/[id]/broadcast/route.ts — Send Niyaz RSVP: audience + preview (count/sample), event-config body bindings, custom per-recipient Flow/quick-reply button payloads, single-ITS test
 src/components/admin/niyaz/EventRsvpComposer.tsx — Admin composer: event config (template dropdown from the 630 WABA), audience + preview, button-payload editor, send/test
 src/components/admin/niyaz/BroadcastHistory.tsx — Niyaz broadcast history + delivery results (sent/delivered/read/failed), reuses /api/admin/templates/broadcasts(/[id]) filtered by audience_key=niyaz_rsvp
-src/lib/whatsapp/interactive-responses.ts — Raw capture of inbound Flow/button responses (whatsapp_interactive_responses); decoding is phase 2
+src/lib/whatsapp/interactive-responses.ts — Raw capture of inbound Flow/button responses (whatsapp_interactive_responses)
+src/lib/rsvp/niyaz-interactive.ts        — Phase 2 decode: interactive response (hof_its + day_id + lunch/dinner counts) → niyaz_rsvp via recordNiyazDayRsvp (real members + guest overflow, reconciled)
 src/lib/feedback/record.ts               — Append-only feedback capture (area→department tagged)
 src/lib/whatsapp/audience.ts             — Send-console audience resolution + free/paid window split + roster-by-phone enrichment (resolveRosterByPhone) + Niyaz reach segments (segmentCounts, segment_* audiences)
 src/lib/whatsapp/audience-filter.ts      — Custom-audience rule engine (FIELD_CATALOG, evaluate/runFilter); behavioral fields (Engagement / AI tool usage / Template history) attached in loadRoster() from the phone_message_stats / phone_tool_usage / phone_template_sends views; `set` type = recency-windowed multiselect

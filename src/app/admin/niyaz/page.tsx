@@ -240,6 +240,13 @@ export default function NiyazPage() {
           >
             Niyaz days →
           </button>
+          <button
+            type="button"
+            onClick={() => router.push("/admin/conversations?scope=niyaz")}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+          >
+            Niyaz inbox →
+          </button>
           <div>
             <h1 className="text-xl font-bold">Niyaz Registration</h1>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">

@@ -33,6 +33,7 @@ const extractStatusUpdates = vi.fn(() => []);
 const recordNiyazButtonResponse = vi.fn(async () => undefined);
 const resolveFamilyForPhone = vi.fn(async () => ({ muminId: "m1", familyId: "f1" }));
 const recordInteractiveResponse = vi.fn(async () => undefined);
+const recordNiyazRsvpFromInteractive = vi.fn(async () => true);
 const insertPendingMessage = vi.fn(async () => undefined);
 
 vi.mock("@/lib/whatsapp/accounts", () => ({
@@ -87,6 +88,13 @@ vi.mock("@/lib/whatsapp/coalesce", () => ({
 }));
 vi.mock("@/lib/whatsapp/interactive-responses", () => ({
   recordInteractiveResponse: (...args: unknown[]) => recordInteractiveResponse(...args),
+}));
+vi.mock("@/lib/rsvp/niyaz-interactive", () => ({
+  recordNiyazRsvpFromInteractive: (...args: unknown[]) => recordNiyazRsvpFromInteractive(...args),
+  parseCount: (v: unknown) => {
+    const n = parseInt(String(v ?? "0"), 10);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  },
 }));
 
 import { webhookReceive, webhookVerify } from "@/lib/whatsapp/inbound";
@@ -174,7 +182,7 @@ describe("webhookReceive — interactive responses are captured raw (phase 1)", 
         profileName: "Tester",
         messageType: "interactive",
         buttonPayload: null,
-        flowResponse: { flowToken: "rsvp:m1:e1", responseJson: { flow_token: "rsvp:m1:e1", attending_count: 3 } },
+        flowResponse: { flowToken: "rsvp:40495151:2", responseJson: { flow_token: "rsvp:40495151:2", hof_its: 40495151, registration_instance_id: 2, lunch_attending_count: "2", dinner_attending_count: "3" } },
         body: "",
         businessPhoneNumberId: "PN_BROADCAST",
         businessDisplayPhoneNumber: "+13120000002",
@@ -188,9 +196,11 @@ describe("webhookReceive — interactive responses are captured raw (phase 1)", 
       phoneE164: "+13125559999",
       waMessageId: "wamid.flow",
       type: "flow",
-      flowToken: "rsvp:m1:e1",
-      payload: { flow_token: "rsvp:m1:e1", attending_count: 3 },
+      flowToken: "rsvp:40495151:2",
+      payload: { flow_token: "rsvp:40495151:2", hof_its: 40495151, registration_instance_id: 2, lunch_attending_count: "2", dinner_attending_count: "3" },
     });
+    // Phase 2: decode into niyaz_rsvp with parsed family/day/counts.
+    expect(recordNiyazRsvpFromInteractive).toHaveBeenCalledWith({ hofIts: "40495151", dayId: 2, lunchCount: 2, dinnerCount: 3, phone: "+13125559999" });
     expect(recordNiyazButtonResponse).not.toHaveBeenCalled();
     expect(insertPendingMessage).not.toHaveBeenCalled();
     expect(sendWhatsAppText).not.toHaveBeenCalled();
@@ -221,6 +231,8 @@ describe("webhookReceive — interactive responses are captured raw (phase 1)", 
       flowToken: "rsvp:522382:159:not-attending",
       payload: { payload: "rsvp:522382:159:not-attending" },
     });
+    // Phase 2: not-attending decodes to counts 0/0 for that family + day.
+    expect(recordNiyazRsvpFromInteractive).toHaveBeenCalledWith({ hofIts: "522382", dayId: 159, lunchCount: 0, dinnerCount: 0, phone: "+13125559999" });
     expect(recordNiyazButtonResponse).not.toHaveBeenCalled();
   });
 });
