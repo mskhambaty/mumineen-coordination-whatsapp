@@ -99,7 +99,10 @@ src/app/api/admin/lost-found/[id]/resolve/route.ts — Mark item resolved with h
 src/lib/rsvp/meal-rsvp.ts                — Per-mumin Niyaz RSVP (niyaz_rsvp): grids, family/individual set-cascade, tallies (max/min), unregistered RSVP helpers, daily-button recording
 src/lib/rsvp/niyaz-prompt.ts             — Daily RSVP-template audiences (ITS/mumineen/HOF/adults, requireRegistered) + button payloads + per-recipient fields (mumin_id, family_members, eligible_family_count) + single-prompt creation for unregistered callers
 src/lib/rsvp/event-config.ts             — Day-level Niyaz event config (niyaz_event_config): rsvp_event_title, lunch/dinner menus, rsvp_end_time, meals, template_code
-src/app/api/admin/niyaz/instances/[id]/config/route.ts — GET/PUT day-level event config
+src/app/admin/niyaz/days/page.tsx        — Niyaz days view: lists prefilled 1st–10th Moharram days; click a day to configure + send RSVP (composer)
+src/app/api/admin/niyaz/days/route.ts    — GET list of Niyaz days (config + representative instance id per date)
+src/app/api/admin/niyaz/days/[date]/route.ts — GET/PUT day-level config by date
+src/app/api/admin/niyaz/instances/[id]/config/route.ts — GET/PUT day-level event config (by instance id)
 src/app/api/admin/niyaz/instances/[id]/broadcast/route.ts — Send Niyaz RSVP: audience + preview (count/sample), event-config body bindings, custom per-recipient Flow/quick-reply button payloads, single-ITS test
 src/components/admin/niyaz/EventRsvpComposer.tsx — Admin composer: event config, audience + preview, button-payload editor, send/test
 src/lib/whatsapp/interactive-responses.ts — Raw capture of inbound Flow/button responses (whatsapp_interactive_responses); decoding is phase 2

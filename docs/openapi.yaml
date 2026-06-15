@@ -2011,10 +2011,58 @@ paths:
         "201": { description: "{ instance: { id } }." }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /api/admin/niyaz/days:
+    get:
+      tags: [admin]
+      summary: List Niyaz days (day-level RSVP config)
+      description: >-
+        Admin (portal). The configured Niyaz days from niyaz_event_config (prefilled 1st–10th
+        Moharram), each with a representative registration instance id for that date (used to
+        preview/send the RSVP broadcast). Ordered by date.
+      responses:
+        "200": { description: "{ days: [{ date, title, lunch_menu, dinner_menu, rsvp_end_time, has_lunch, has_dinner, template_code, instance_id }] }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/niyaz/days/{date}:
+    get:
+      tags: [admin]
+      summary: Day-level Niyaz config by date
+      description: Admin (portal). The niyaz_event_config row for a date (null if not configured yet).
+      parameters:
+        - { name: date, in: path, required: true, schema: { type: string, format: date } }
+      responses:
+        "200": { description: "{ date, config }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [admin]
+      summary: Upsert day-level Niyaz config by date
+      description: Admin/leadership (portal). Partial patch — only provided fields are written.
+      parameters:
+        - { name: date, in: path, required: true, schema: { type: string, format: date } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rsvp_event_title: { type: string, nullable: true }
+                lunch_menu: { type: string, nullable: true }
+                dinner_menu: { type: string, nullable: true }
+                rsvp_end_time: { type: string, nullable: true }
+                has_lunch: { type: boolean }
+                has_dinner: { type: boolean }
+                template_code: { type: string, nullable: true }
+      responses:
+        "200": { description: "{ date, config }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /api/admin/niyaz/instances/{id}/config:
     get:
       tags: [admin]
-      summary: Day-level Niyaz event config
+      summary: Day-level Niyaz event config (by instance)
       description: >-
         Admin/leadership (portal). The day-level config (keyed by the instance's event_date) holding
         the template-facing fields the RSVP broadcast needs: rsvp_event_title, lunch/dinner menus,

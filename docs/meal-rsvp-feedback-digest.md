@@ -129,12 +129,17 @@ the attendance it represents is already counted in `niyaz_rsvp`, so adding it wo
 
 ### 1b. Double-RSVP via WhatsApp Flow (`ashara_relay_double_rsvp`)
 
-A "niyaz event" (a day) has a **day-level config** in `niyaz_event_config` (keyed by `event_date`):
-`rsvp_event_title`, `lunch_menu`, `dinner_menu`, `rsvp_end_time`, `has_lunch`/`has_dinner` checkboxes,
-and the `template_code`. The per-meal `rsvp_registration_instance` rows stay the RSVP/tally source of
-truth — this config only supplies the template-facing fields. Edited via
-`GET/PUT /api/admin/niyaz/instances/[id]/config` (`src/lib/rsvp/event-config.ts`) from the
-`EventRsvpComposer` on `/admin/niyaz`.
+**Niyaz days vs Niyaz events.** The admin UI separates configuration from responses:
+- **Niyaz days** (`/admin/niyaz/days`) — the day-level config in `niyaz_event_config` (keyed by
+  `event_date`), **prefilled 1st–10th Moharram** (`20260615190000_seed_niyaz_days`): `rsvp_event_title`,
+  `lunch_menu`, `dinner_menu`, `rsvp_end_time`, `has_lunch`/`has_dinner` checkboxes, `template_code`.
+  This is where each day is configured **and the RSVP is sent** (`EventRsvpComposer`). Listed via
+  `GET /api/admin/niyaz/days`; edited via `GET/PUT /api/admin/niyaz/days/[date]`
+  (`src/lib/rsvp/event-config.ts`). The page maps each day to a **representative registration
+  instance** for that date to drive the broadcast.
+- **Niyaz events** (`/admin/niyaz`) — the per-meal `rsvp_registration_instance` rows, which remain the
+  RSVP/tally source of truth; clicking one shows **only its responses**. A "Niyaz days →" button links
+  the two. (`GET/PUT /api/admin/niyaz/instances/[id]/config` still exists as an instance-keyed alias.)
 
 The composer sends `ashara_relay_double_rsvp` (a **Flow** button "Attending" + a "Not attending"
 quick-reply) from the niyaz RSVP number (the broadcast WhatsApp account that owns the template).

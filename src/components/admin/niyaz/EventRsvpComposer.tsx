@@ -4,11 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/admin/client";
 
-// Day-level RSVP config + broadcast composer for one Niyaz event. Configures the template-facing
-// fields (event title, lunch/dinner menus, RSVP cutoff, which meals, which template), lets the admin
-// pick an audience and preview it, edit the per-recipient button payloads, and send — including a
-// single-ITS test send. The buttons default to the ashara_relay_double_rsvp Flow + quick-reply
-// structure; {{tokens}} are resolved per recipient at send time.
+// Day-level RSVP config + broadcast composer for one Niyaz day. Config (event title, lunch/dinner
+// menus, RSVP cutoff, which meals, which template) is keyed by date (niyaz_event_config); the
+// broadcast (audience + preview + per-recipient button payloads + send, incl. a single-ITS test)
+// runs against the day's representative registration instance. Buttons default to the
+// ashara_relay_double_rsvp Flow + quick-reply structure; {{tokens}} resolve per recipient at send
+// time. Send/preview are disabled when the day has no registration instance.
 
 type Config = {
   rsvpEventTitle: string | null;
@@ -66,7 +67,17 @@ function audienceParams(audience: AudienceKey, testIts: string) {
   };
 }
 
-export default function EventRsvpComposer({ instanceId, title }: { instanceId: string; title: string }) {
+export default function EventRsvpComposer({
+  date,
+  instanceId,
+  title,
+  onSaved,
+}: {
+  date: string;
+  instanceId: string | null;
+  title: string;
+  onSaved?: () => void;
+}) {
   const [config, setConfig] = useState<Config>({ rsvpEventTitle: "", lunchMenu: "", dinnerMenu: "", rsvpEndTime: "", hasLunch: false, hasDinner: false, templateCode: DEFAULT_TEMPLATE });
   const [savingConfig, setSavingConfig] = useState(false);
   const [configSaved, setConfigSaved] = useState(false);
@@ -82,7 +93,7 @@ export default function EventRsvpComposer({ instanceId, title }: { instanceId: s
   const [result, setResult] = useState<string | null>(null);
 
   const loadConfig = useCallback(async () => {
-    const res = await apiFetch(`/api/admin/niyaz/instances/${instanceId}/config`);
+    const res = await apiFetch(`/api/admin/niyaz/days/${date}`);
     if (!res.ok) return;
     const data = await res.json().catch(() => ({}));
     const c = data.config as Config | null;
@@ -97,7 +108,7 @@ export default function EventRsvpComposer({ instanceId, title }: { instanceId: s
         templateCode: c.templateCode ?? DEFAULT_TEMPLATE,
       });
     }
-  }, [instanceId]);
+  }, [date]);
 
   // The parent remounts this component (key={instanceId}) when the selected event changes, so state
   // starts fresh; the effect only needs to load the saved config.
@@ -110,7 +121,7 @@ export default function EventRsvpComposer({ instanceId, title }: { instanceId: s
     setConfigSaved(false);
     setError(null);
     try {
-      const res = await apiFetch(`/api/admin/niyaz/instances/${instanceId}/config`, {
+      const res = await apiFetch(`/api/admin/niyaz/days/${date}`, {
         method: "PUT",
         body: JSON.stringify({
           rsvp_event_title: config.rsvpEventTitle || null,
@@ -124,6 +135,7 @@ export default function EventRsvpComposer({ instanceId, title }: { instanceId: s
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Save failed");
       setConfigSaved(true);
+      onSaved?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -141,6 +153,10 @@ export default function EventRsvpComposer({ instanceId, title }: { instanceId: s
   }
 
   async function runPreview() {
+    if (!instanceId) {
+      setError("No registration instance exists for this date yet — create one on the Niyaz events page to send/preview.");
+      return;
+    }
     setPreviewing(true);
     setError(null);
     setResult(null);
@@ -165,6 +181,10 @@ export default function EventRsvpComposer({ instanceId, title }: { instanceId: s
   }
 
   async function send() {
+    if (!instanceId) {
+      setError("No registration instance exists for this date yet — create one on the Niyaz events page to send.");
+      return;
+    }
     const buttons = parseButtons();
     if (!buttons) {
       setError("Button payloads are not valid JSON.");
@@ -270,13 +290,16 @@ export default function EventRsvpComposer({ instanceId, title }: { instanceId: s
         <textarea value={buttonsJson} onChange={(e) => setButtonsJson(e.target.value)} rows={12} className={`${inputCls} font-mono text-xs`} spellCheck={false} />
       </label>
 
-      <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={runPreview} disabled={previewing} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={runPreview} disabled={previewing || !instanceId} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
           {previewing ? "Previewing…" : "Preview audience"}
         </button>
-        <button type="button" onClick={send} disabled={sending} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-700">
+        <button type="button" onClick={send} disabled={sending || !instanceId} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-700">
           {sending ? "Sending…" : "Send broadcast"}
         </button>
+        {!instanceId && (
+          <span className="text-xs text-amber-600 dark:text-amber-400">No registration instance for this date — create one on the Niyaz events page to send.</span>
+        )}
       </div>
 
       {error && <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{error}</div>}

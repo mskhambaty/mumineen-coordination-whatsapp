@@ -5,7 +5,6 @@ import { useCallback, useEffect, useState } from "react";
 
 import { canAccessPortal } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
-import EventRsvpComposer from "@/components/admin/niyaz/EventRsvpComposer";
 
 type Meal = "lunch" | "dinner";
 type ServingType = "thaal" | "packet";
@@ -233,11 +232,20 @@ export default function NiyazPage() {
   return (
     <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
       <div className="mb-5 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold">Niyaz Registration</h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Click an event to see its RSVP responses.
-          </p>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => router.push("/admin/niyaz/days")}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+          >
+            Niyaz days →
+          </button>
+          <div>
+            <h1 className="text-xl font-bold">Niyaz Registration</h1>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Click an event to see its RSVP responses. Configure and send RSVPs from Niyaz days.
+            </p>
+          </div>
         </div>
         <button type="button" onClick={openCreate} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
           New event
@@ -386,10 +394,6 @@ export default function NiyazPage() {
           </div>
         )}
       </div>
-
-      {selected && selected.eventDate && (
-        <EventRsvpComposer key={selected.id} instanceId={selected.id} title={selected.title || dayLabel(selected.eventDate)} />
-      )}
 
       {selected && (
         <div className="mt-6">
