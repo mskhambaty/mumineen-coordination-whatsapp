@@ -4,6 +4,7 @@ import {
   isDepartmentMember,
   isEscalationSupportMember,
   isItMember,
+  isReligiousMonitor,
   isTransportMember,
 } from "@/lib/supabase/server";
 
@@ -27,6 +28,7 @@ export type PortalSessionUser = {
   is_transport: boolean;
   is_accommodations: boolean;
   is_internal: boolean;
+  is_religious_monitor: boolean;
 };
 
 export async function buildPortalSessionUser(user: PortalSessionSourceUser): Promise<PortalSessionUser> {
@@ -38,6 +40,9 @@ export async function buildPortalSessionUser(user: PortalSessionSourceUser): Pro
   const isAccommodations = await isAccommodationsMember(user.id);
   // Internal = assigned to any department (managers/IT are internal by definition).
   const isInternal = isManager || isIt || isTransport || isAccommodations || (await isDepartmentMember(user.id));
+  // On the Waaz Talaqqi monitor team — needed so the /admin/religious gate + nav see the flag
+  // (the page reads this from the stored login user, not the per-request permissions RPC).
+  const isReligious = await isReligiousMonitor(user.id);
 
   return {
     id: user.id,
@@ -51,6 +56,7 @@ export async function buildPortalSessionUser(user: PortalSessionSourceUser): Pro
     is_transport: isTransport,
     is_accommodations: isAccommodations,
     is_internal: isInternal,
+    is_religious_monitor: isReligious,
   };
 }
 
