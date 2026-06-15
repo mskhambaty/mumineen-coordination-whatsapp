@@ -64,6 +64,16 @@ from the model's general knowledge. **Short follow-ups** ("Tazyeen", "Al dars", 
 number) inherit the majlis+year (or the offered option) from the previous turn — the agent
 re-calls the tool with the full reference rather than answering from memory.
 
+**Two-way lookup.** The dictionary works in both directions. *Forward* (default) takes a Lisan
+word → English meaning. *Reverse* (`direction: "to_lisan"` on the tool, or an explicit "what is
+the Lisan word for X" / "what is X in lisan ud dawat" phrase caught deterministically by
+`maybeReverseWordQuery` in `religious-guard.ts`) takes an English term → the Lisan word, via
+`lookupEnglishMeaning` (`lisan-words.ts`): exact gloss-word match on the `meaning_terms` array →
+fuzzy `word_similarity` over `meaning` (`match_lisan_by_meaning` RPC). A reverse miss is a clean
+"not in the dictionary" — never a forward fuzzy guess, and it is **not** queued as a missing word
+(the query is an English word, not a Lisan one). `meaning_terms` is computed by `prepareLisanRow`
+on every add/import (migration `20260615220000_lisan_meaning_reverse.sql`).
+
 **Maintaining the dictionary (DB is the source of truth).** On `/admin/knowledge` the Lisan
 uploader supports three operations against `lisan_words` (all `canManageKnowledge`): **Upload &
 Replace** (`POST` CSV, full delete+insert — for a bulk reload), **Add a word** (`PUT` JSON, the

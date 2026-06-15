@@ -1,5 +1,5 @@
 import { optionalEnv } from "@/lib/env";
-import { ARABIC_RE, type LisanLookup } from "@/lib/knowledge/lisan-words";
+import { ARABIC_RE, type LisanLookup, type ReverseLisanLookup } from "@/lib/knowledge/lisan-words";
 import { isOverviewQuery, parseMajlisRef } from "@/lib/knowledge/religious-topics";
 
 // ─── Fixed reply strings (verbatim, named constants) ─────────────────────────────────────────
@@ -30,6 +30,44 @@ export function appendOnCallSuggestion(
   if (history.some((m) => m.direction === "outbound" && (m.body ?? "").includes(ISTIBSAAR_ONCALL_URL))) return reply;
   if (!opts.force && history.filter((m) => m.direction === "inbound").length < ON_CALL_AFTER_INBOUND) return reply;
   return `${reply}\n\n${ON_CALL_SUGGESTION}`;
+}
+
+// ─── Reverse dictionary pre-route (English → Lisan word) ─────────────────────────────────────
+// Detect an explicit "what is the Lisan word for X" / "what is X in lisan ud dawat" ask and return
+// the English term to reverse-look-up. Deliberately requires the literal "lisan … word for" / "in
+// lisan" phrasing so it never swallows a forward "what does X mean" lookup (handled below).
+const LISAN_UD_DAWAT = String.raw`lisan(?:\s*[-']?\s*(?:ud|ul|e)\s*[-']?\s*dawat)?`;
+
+export function maybeReverseWordQuery(message: string): { english: string } | null {
+  const m = message.trim();
+  if (!m) return null;
+
+  // "(what is the) lisan (ud dawat) word for/of X"
+  let mm = m.match(new RegExp(String.raw`\b${LISAN_UD_DAWAT}\s+word\s+(?:for|of)\s+["']?([a-z][a-z'’\s-]{1,40}?)["']?\s*[?.!]*$`, "i"));
+  if (mm) return { english: cleanEnglishTerm(mm[1]) };
+
+  // "what is X in lisan (ud dawat)" / "X in lisan ud dawat" / "how do you/we/i say X in lisan"
+  mm = m.match(new RegExp(String.raw`^(?:what(?:'?s| is)\s+(?:the\s+)?|how\s+(?:do\s+(?:you|we|i|u)\s+|to\s+)say\s+)?["']?([a-z][a-z'’\s-]{1,40}?)["']?\s+in\s+${LISAN_UD_DAWAT}\s*[?.!]*$`, "i"));
+  if (mm) return { english: cleanEnglishTerm(mm[1]) };
+
+  return null;
+}
+
+function cleanEnglishTerm(s: string): string {
+  return s.trim().toLowerCase().replace(/^(?:the|a|an)\s+/i, "").replace(/["'’?.!,]+$/g, "").trim();
+}
+
+// Render a reverse lookup deterministically (WhatsApp markup). Source line only on a real hit.
+export function renderReverseLisanReply(query: string, lookup: ReverseLisanLookup): string {
+  if (lookup.status === "ok" && lookup.matches.length) {
+    const lines = lookup.matches.slice(0, 3).map((e) =>
+      `*${e.transliteration ?? ""}*${e.lisan ? ` (_${e.lisan}_)` : ""}${e.meaning ? ` — ${e.meaning}` : ""}`.trim(),
+    );
+    const head =
+      lines.length > 1 ? `Lisan ud Dawat words for *${query}*:` : `The Lisan ud Dawat word for *${query}* is:`;
+    return `${head}\n${lines.join("\n")}\n\nSource: Lisan ud Dawat dictionary`;
+  }
+  return `I don't have a Lisan ud Dawat word for *${query}* in the dictionary. If you share a sentence or more context, the team can help.`;
 }
 
 // ─── Single-word dictionary pre-route detection ──────────────────────────────────────────────

@@ -13,6 +13,8 @@ vi.mock("@/lib/knowledge/lisan-word-requests", () => ({ markWordRequestAdded: vi
 import {
   normalizeWord,
   lookupLisanWord,
+  lookupEnglishMeaning,
+  meaningTerms,
   splitForms,
   trigramSim,
   isTrivialLookup,
@@ -21,7 +23,7 @@ import {
   listAllLisanWords,
 } from "@/lib/knowledge/lisan-words";
 
-type Row = { transliteration: string | null; lisan: string | null; meaning: string | null; example: string | null; norm?: string | null; similarity?: number };
+type Row = { transliteration: string | null; lisan: string | null; meaning: string | null; example: string | null; norm?: string | null; similarity?: number; meaning_terms?: string[] | null };
 
 // Wire the supabase mock:
 //   .eq("norm",…) → exactData,  .eq("norm_skeleton",…) → skelData (legacy fallback)
@@ -157,8 +159,67 @@ describe("lookupLisanWord", () => {
   });
 });
 
+describe("meaningTerms", () => {
+  it("tokenizes a gloss into distinct content words (drops short/stop words)", () => {
+    expect(meaningTerms("Painstaking, hardworking")).toEqual(["painstaking", "hardworking"]);
+    expect(meaningTerms("calmness, tranquility, rest, quiet, stillness")).toEqual([
+      "calmness", "tranquility", "rest", "quiet", "stillness",
+    ]);
+    expect(meaningTerms("Back")).toEqual(["back"]);
+    expect(meaningTerms("To listen")).toEqual(["listen"]); // "to" dropped as a stopword
+    expect(meaningTerms(null)).toEqual([]);
+  });
+});
+
+describe("lookupEnglishMeaning (reverse: English → Lisan word)", () => {
+  // select("…").overlaps("meaning_terms",…).limit() → exactData; rpc() → suggData.
+  function wireReverse({ exactData = [] as Row[], suggData = [] as Row[] } = {}) {
+    mocks.from.mockReturnValue({
+      select: () => ({ overlaps: () => ({ limit: () => Promise.resolve({ data: exactData }) }) }),
+    });
+    mocks.rpc.mockResolvedValue({ data: suggData });
+  }
+
+  it("returns the Lisan word on an exact gloss-word match (hardworking → Jafakash)", async () => {
+    wireReverse({ exactData: [{ transliteration: "Jafakash", lisan: "جفاكش", meaning: "Painstaking, hardworking", example: null, meaning_terms: ["painstaking", "hardworking"] }] });
+    const res = await lookupEnglishMeaning("hardworking");
+    expect(res.status).toBe("ok");
+    expect(res.status === "ok" && res.matches[0].transliteration).toBe("Jafakash");
+    expect(mocks.rpc).not.toHaveBeenCalled(); // exact term hit, no fuzzy needed
+  });
+
+  it("ranks the most specific entry first (back → Kamar over a multi-gloss entry)", async () => {
+    wireReverse({ exactData: [
+      { transliteration: "Pusht", lisan: "پشت", meaning: "rear, behind, back, reverse, posterior", example: null, meaning_terms: ["rear", "behind", "back", "reverse", "posterior"] },
+      { transliteration: "Kamar", lisan: "كمر", meaning: "Back", example: null, meaning_terms: ["back"] },
+    ] });
+    const res = await lookupEnglishMeaning("back");
+    expect(res.status === "ok" && res.matches[0].transliteration).toBe("Kamar");
+  });
+
+  it("falls back to fuzzy word-trigram when no exact term matches (calm → calmness)", async () => {
+    wireReverse({ exactData: [], suggData: [{ transliteration: "Sukun", lisan: "سكون", meaning: "calmness, tranquility, rest", example: null, similarity: 0.8 }] });
+    const res = await lookupEnglishMeaning("calm");
+    expect(res.status).toBe("ok");
+    expect(res.status === "ok" && res.matches[0].transliteration).toBe("Sukun");
+    expect(mocks.rpc).toHaveBeenCalled();
+  });
+
+  it("returns a clean not_found when nothing matches (never a forward fuzzy guess)", async () => {
+    wireReverse({ exactData: [], suggData: [] });
+    expect((await lookupEnglishMeaning("brain")).status).toBe("not_found");
+  });
+
+  it("returns not_found for a stopword-only / trivial query without hitting the DB", async () => {
+    wireReverse();
+    expect((await lookupEnglishMeaning("the")).status).toBe("not_found"); // no content terms
+    expect((await lookupEnglishMeaning("ok")).status).toBe("not_found"); // trivial
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+});
+
 describe("prepareLisanRow", () => {
-  it("computes norm / skeleton / forms for a simple word", () => {
+  it("computes norm / skeleton / forms / meaning_terms for a simple word", () => {
     const r = prepareLisanRow({ transliteration: "Sadaqa", lisan: "صدقة", meaning: "Charity", example: "" });
     expect(r).toMatchObject({
       transliteration: "Sadaqa",
@@ -167,6 +228,7 @@ describe("prepareLisanRow", () => {
       example: null,
       norm: "sadaqa",
       norm_skeleton: "sdq",
+      meaning_terms: ["charity"],
     });
   });
 

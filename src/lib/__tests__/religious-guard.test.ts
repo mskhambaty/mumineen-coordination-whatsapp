@@ -5,8 +5,10 @@ import {
   THIS_YEAR_OFFER_LAST,
   ISTIBSAAR_ONCALL_URL,
   appendOnCallSuggestion,
+  maybeReverseWordQuery,
   maybeSingleWordQuery,
   renderLisanReply,
+  renderReverseLisanReply,
   isClearlySocial,
   hasReligiousSignal,
   isAffirmative,
@@ -159,5 +161,44 @@ describe("fixed reply constants", () => {
     expect(THIS_YEAR_OFFER_LAST).toContain("1448H");
     expect(THIS_YEAR_OFFER_LAST).toContain("1447H");
     expect(THIS_YEAR_OFFER_LAST).not.toContain("Source:");
+  });
+});
+
+describe("maybeReverseWordQuery (English → Lisan intent)", () => {
+  it("detects 'lisan word for X' phrasings and extracts the English term", () => {
+    expect(maybeReverseWordQuery("what is the lisan word for brain")).toEqual({ english: "brain" });
+    expect(maybeReverseWordQuery("Lisan ud Dawat word for patience")).toEqual({ english: "patience" });
+    expect(maybeReverseWordQuery("lisan word of the heart")).toEqual({ english: "heart" }); // leading article stripped
+  });
+
+  it("detects 'X in lisan ud dawat' phrasings", () => {
+    expect(maybeReverseWordQuery("what is sun in lisan ud dawat")).toEqual({ english: "sun" });
+    expect(maybeReverseWordQuery("Brain in Lisan ud dawat")).toEqual({ english: "brain" });
+    expect(maybeReverseWordQuery("how do you say patience in lisan")).toEqual({ english: "patience" });
+  });
+
+  it("does NOT match forward 'what does X mean' asks (those stay forward lookups)", () => {
+    expect(maybeReverseWordQuery("what does kamar mean")).toBeNull();
+    expect(maybeReverseWordQuery("kamar")).toBeNull();
+    expect(maybeReverseWordQuery("meaning of jafakash")).toBeNull();
+    expect(maybeReverseWordQuery("what is the meaning of aaeen")).toBeNull();
+  });
+});
+
+describe("renderReverseLisanReply", () => {
+  it("ok: heads with the English term and lists the Lisan word + meaning + dictionary source", () => {
+    const out = renderReverseLisanReply("hardworking", {
+      status: "ok",
+      matches: [{ transliteration: "Jafakash", lisan: "جفاكش", meaning: "Painstaking, hardworking", example: null }],
+    });
+    expect(out).toContain("*hardworking*");
+    expect(out).toContain("*Jafakash*");
+    expect(out).toContain("Source: Lisan ud Dawat dictionary");
+  });
+
+  it("not_found: a clean message, no source line, no forward fuzzy guess", () => {
+    const out = renderReverseLisanReply("brain", { status: "not_found" });
+    expect(out).toContain("don't have a Lisan ud Dawat word for *brain*");
+    expect(out).not.toContain("Source:");
   });
 });

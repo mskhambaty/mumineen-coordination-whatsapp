@@ -2,7 +2,7 @@ import type OpenAI from "openai";
 
 import { canUseTool, canUseTaskToolForCaller, publicTools, taskReadTools, taskWriteTools, taskCreateTools, leadershipTools, type AppUser } from "@/lib/permissions";
 import { retrieveReligiousContext, retrieveSiteContext, RELIGIOUS_FALLBACK_MIN_SCORE } from "@/lib/scraper/retrieve-site-context";
-import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
+import { lookupEnglishMeaning, lookupLisanWord } from "@/lib/knowledge/lisan-words";
 import { recordMissingLisanWord } from "@/lib/knowledge/lisan-word-requests";
 import { maybeSingleWordQuery } from "@/lib/agent/religious-guard";
 import { ACTIVE_ASHARA_YEAR, LAST_COMPLETED_ASHARA_YEAR, resolveAsharaYear } from "@/lib/knowledge/ashara-config";
@@ -95,13 +95,20 @@ export const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "get_lisan_word_meaning",
       description:
-        "Look up the meaning of a single Lisan ud Dawat word in the official dictionary (exact lookup). Use this whenever a user asks what a Lisan ud Dawat / Lisaan ud Dawat word means, or how to say a word. Returns the exact entry, or close 'did you mean' suggestions if the word isn't found exactly. NEVER answer a word's meaning from general knowledge.",
+        "Two-way Lisan ud Dawat dictionary lookup. DEFAULT (direction 'to_english'): the user gives a Lisan ud Dawat word and wants its English meaning — returns the exact entry or close 'did you mean' suggestions. REVERSE (direction 'to_lisan'): the user asks for the Lisan ud Dawat WORD for an English term (e.g. 'what is the lisan word for brain', 'how do you say patience in lisan') — pass the English term in `word` and set direction 'to_lisan'. NEVER answer a word's meaning from general knowledge.",
       parameters: {
         type: "object",
         properties: {
           word: {
             type: "string",
-            description: "The single word to look up, as the user typed it (Roman transliteration or Lisan script).",
+            description:
+              "The term to look up: for 'to_english', the Lisan word as typed (Roman or Lisan script); for 'to_lisan', the English word the user wants the Lisan term for.",
+          },
+          direction: {
+            type: "string",
+            enum: ["to_english", "to_lisan"],
+            description:
+              "'to_english' (default) = Lisan word → English meaning. 'to_lisan' = English word → Lisan ud Dawat word.",
           },
         },
         required: ["word"],
@@ -808,6 +815,11 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
     }
     case "get_lisan_word_meaning": {
       const word = String(args.word ?? "");
+      // Reverse direction (English → Lisan word): a miss is not a dictionary gap (the query is an
+      // English word, not a Lisan one), so it is NOT queued for the team.
+      if (args.direction === "to_lisan") {
+        return await lookupEnglishMeaning(word);
+      }
       const lookup = await lookupLisanWord(word);
       // A genuine gap (not_found, not a "did you mean") → queue it + alert the owner once so the
       // word can be added. Fire-and-forget; never blocks or breaks the member's reply.
