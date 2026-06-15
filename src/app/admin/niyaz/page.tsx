@@ -106,7 +106,7 @@ export default function NiyazPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
 
-  const [mode, setMode] = useState<TallyMode>("max");
+  const [mode, setMode] = useState<TallyMode>("min");
   const [events, setEvents] = useState<NiyazEvent[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -341,7 +341,7 @@ export default function NiyazPage() {
               Viewing your RSVP via the bot counts as confirmation. Use this to see who has actively confirmed.
             </>
           )}{" "}
-          Thaals = ceil(attending heads ÷ 8). Unreg columns are guests not linked to a registered family.
+          Thaals = ceil(attending heads ÷ 8).
         </p>
         {events.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">No Niyaz events yet.</p>
@@ -355,8 +355,6 @@ export default function NiyazPage() {
                   <th className="px-2 py-1.5 text-right">Yes adults</th>
                   <th className="px-2 py-1.5 text-right">Yes kids</th>
                   <th className="px-2 py-1.5 text-right">Yes families</th>
-                  <th className="px-2 py-1.5 text-right" title="Unregistered adults">Unreg</th>
-                  <th className="px-2 py-1.5 text-right" title="Unregistered kids">Unreg kids</th>
                   <th className="px-2 py-1.5 text-right">Thaals</th>
                   <th className="px-2 py-1.5 text-right">No adults</th>
                   <th className="px-2 py-1.5 text-right">No kids</th>
@@ -383,8 +381,6 @@ export default function NiyazPage() {
                     <td className={num}>{e.yesAdults}</td>
                     <td className={num}>{e.yesKids}</td>
                     <td className={num}>{e.yesFamilies}</td>
-                    <td className={`${num} text-orange-600 dark:text-orange-400`}>{e.unregAdults || ""}</td>
-                    <td className={`${num} text-orange-600 dark:text-orange-400`}>{e.unregKids || ""}</td>
                     <td className={`${num} font-semibold`}>{e.thaalCount}</td>
                     <td className={`${num} text-gray-500`}>{e.noAdults}</td>
                     <td className={`${num} text-gray-500`}>{e.noKids}</td>
