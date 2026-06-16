@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getEventConfigTitles } from "@/lib/rsvp/event-config";
 import { resolveFamilyForPhone } from "@/lib/rsvp/family";
-import { getFamilyMembers, getFamilyNiyazGrid, markFamilyRsvpConfirmed, setFamilyNiyazRsvp, getUnregisteredRsvps, recordUnregisteredRsvp, getEvents } from "@/lib/rsvp/meal-rsvp";
+import { getFamilyMembers, getFamilyNiyazDays, groupEventsByDay, markFamilyRsvpConfirmed, setFamilyNiyazRsvp, getUnregisteredRsvps, recordUnregisteredRsvp, getEvents } from "@/lib/rsvp/meal-rsvp";
 
 export const runtime = "nodejs";
 
@@ -45,8 +46,9 @@ function dateLabel(date: string): string {
   return d.toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
 }
 
-// GET — the caller's family Niyaz grid (every event + how many of the family are attending).
-// Returns status "unregistered" with existing unregistered RSVPs if the phone isn't linked.
+// GET — the caller's family Niyaz RSVP, organised per DAY (one row per Gregorian day, with a lunch
+// and a dinner attending count). Returns status "unregistered" with existing unregistered RSVPs and
+// the per-day event list if the phone isn't linked. Both are trimmed to today→Ashura.
 export async function GET(req: NextRequest) {
   const phone = requirePhone(req);
   if (!phone) return NextResponse.json({ error: "Missing x-whatsapp-from header" }, { status: 400 });
@@ -55,26 +57,32 @@ export async function GET(req: NextRequest) {
 
   const family = await resolveFamilyForPhone(phone);
   if (!family) {
-    const [rsvps, events] = await Promise.all([getUnregisteredRsvps(phone), getEvents()]);
-    const upcoming = events.filter((e) => e.eventDate >= today);
+    const [rsvps, events, titles] = await Promise.all([getUnregisteredRsvps(phone), getEvents(), getEventConfigTitles()]);
+    const days = groupEventsByDay(events.filter((e) => e.eventDate >= today), titles).map((d) => ({
+      date: d.date,
+      dateLabel: dateLabel(d.date),
+      title: d.title,
+      lunch: d.lunch,
+      dinner: d.dinner,
+    }));
     return NextResponse.json({
       status: "unregistered",
-      grid: [],
-      events: upcoming.map((e) => ({ date: e.eventDate, label: dateLabel(e.eventDate), meal: e.meal, title: e.title })),
+      events: days,
       rsvps: rsvps.filter((r) => r.event_date >= today),
-      message: "This number isn't linked to a registered family. Any previous RSVPs from this number are shown in rsvps. Use events for the canonical date/meal/title of each jaman.",
+      message:
+        "This number isn't linked to a registered family. Any previous RSVPs from this number are shown in rsvps. `events` is the canonical per-DAY jaman list (each with date, title, and which meals — lunch/dinner — are served); target a change by an event's date + meal.",
     });
   }
 
-  const [grid, familyMembers] = await Promise.all([
-    getFamilyNiyazGrid(family.familyId),
+  const [days, familyMembers] = await Promise.all([
+    getFamilyNiyazDays(family.familyId),
     getFamilyMembers(family.familyId),
   ]);
   markFamilyRsvpConfirmed(family.familyId, phone).catch(() => {});
-  const labeledGrid = grid
-    .filter((row) => row.event.eventDate >= today)
-    .map((row) => ({ ...row, dateLabel: dateLabel(row.event.eventDate) }));
-  return NextResponse.json({ status: "ok", grid: labeledGrid, familyMembers });
+  const labeled = days
+    .filter((d) => d.date >= today)
+    .map((d) => ({ ...d, dateLabel: dateLabel(d.date) }));
+  return NextResponse.json({ status: "ok", days: labeled, familyMembers });
 }
 
 // POST — set RSVP for the caller's family across one or more days/meals.
@@ -122,5 +130,12 @@ export async function POST(req: NextRequest) {
       }
     : undefined;
 
-  return NextResponse.json({ status: "ok", updated: result.updated, grid: result.grid, clamped: clampNotice });
+  // Return the post-change RSVP as the same per-day, today-onward shape the GET returns, so the
+  // agent's read-back is identical whether the family just asked or just made a change.
+  const today = todayChicago();
+  const days = (await getFamilyNiyazDays(family.familyId))
+    .filter((d) => d.date >= today)
+    .map((d) => ({ ...d, dateLabel: dateLabel(d.date) }));
+
+  return NextResponse.json({ status: "ok", updated: result.updated, days, clamped: clampNotice });
 }

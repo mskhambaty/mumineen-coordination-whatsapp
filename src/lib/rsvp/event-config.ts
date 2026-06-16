@@ -89,6 +89,21 @@ export async function getEventConfig(date: string): Promise<NiyazEventConfig | n
   return data ? toConfig(data as Row) : null;
 }
 
+// Map of event_date → day-level title (rsvp_event_title) for every configured day. One query, used
+// to label the family RSVP summary per DAY (matching the admin "Niyaz days" view) instead of by the
+// per-meal instance title, which differs on dinners due to the hijri night-shift. Dates with no
+// title are omitted, so callers fall back to the instance title / date.
+export async function getEventConfigTitles(): Promise<Map<string, string>> {
+  const { data } = await getSupabaseAdmin()
+    .from("niyaz_event_config")
+    .select("event_date, rsvp_event_title");
+  const map = new Map<string, string>();
+  for (const r of (data ?? []) as { event_date: string; rsvp_event_title: string | null }[]) {
+    if (r.rsvp_event_title) map.set(r.event_date, r.rsvp_event_title);
+  }
+  return map;
+}
+
 // The day's config by its stable numeric day_id (used to decode the Flow's registration_instance_id).
 export async function getEventConfigByDayId(dayId: number): Promise<NiyazEventConfig | null> {
   if (!Number.isFinite(dayId)) return null;
