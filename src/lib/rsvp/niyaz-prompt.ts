@@ -32,7 +32,7 @@ function dedupeByPhone(list: Recipient[]): Recipient[] {
   return [...byPhone.values()];
 }
 
-export type NiyazAudienceKind = "specific_its" | "all_mumineen" | "all_hof" | "all_adults";
+export type NiyazAudienceKind = "specific_its" | "all_mumineen" | "all_hof" | "all_adults" | "all_adults_hof";
 
 // The per-recipient template field map for ONE family (its head) — used to resolve the confirmation
 // template's variable/button bindings in phase 2. Mirrors the recipient fields built by
@@ -109,6 +109,19 @@ export async function resolveNiyazAudience(opts: {
       recipients.push(toRecipient(m));
     }
     recipients = dedupeByPhone(recipients);
+  } else if (opts.audience === "all_adults_hof") {
+    // Every adult of ONE family, addressed by the entered HOF ITS (opts.its[0]).
+    const hofList = [...new Set((opts.its ?? []).map((s) => s.trim()).filter(Boolean))];
+    if (hofList.length === 0) return { recipients: [], unresolvedIts: [] };
+    const { data } = await supabase
+      .from("mumineen")
+      .select(sel)
+      .in("hof_its", hofList)
+      .eq("roster_active", true)
+      .eq("not_attending", false)
+      .eq("is_adult", true)
+      .not("whatsapp_e164", "is", null);
+    recipients = dedupeByPhone(((data ?? []) as unknown as MuminRow[]).map(toRecipient));
   } else {
     // Filter to active families via a server-side inner join instead of a huge .in(familyIds) list
     // (1000+ family UUIDs blew past the request URL limit, returning nothing). require_registered
@@ -181,17 +194,13 @@ export async function resolveNiyazAudience(opts: {
     if (instanceIds.length > 0) {
       const { data } = await supabase
         .from("niyaz_rsvp")
-        .select("mumin_id, family_id")
+        .select("family_id")
         .in("registration_instance_id", instanceIds)
         .in("source", ["whatsapp", "admin"]);
-      const rows = (data ?? []) as { mumin_id: string; family_id: string | null }[];
-      if (opts.level === "fam") {
-        const answered = new Set(rows.map((r) => r.family_id));
-        recipients = recipients.filter((r) => !answered.has(r.familyId));
-      } else {
-        const answered = new Set(rows.map((r) => r.mumin_id));
-        recipients = recipients.filter((r) => !(r.muminId && answered.has(r.muminId)));
-      }
+      // Family-level: once any member of a family responds for the day, the whole family is excluded
+      // (a family RSVP stamps every member with source='whatsapp').
+      const answered = new Set(((data ?? []) as { family_id: string | null }[]).map((r) => r.family_id));
+      recipients = recipients.filter((r) => !answered.has(r.familyId));
     }
   }
 

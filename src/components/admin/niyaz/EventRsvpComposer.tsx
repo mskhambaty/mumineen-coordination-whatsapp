@@ -92,7 +92,13 @@ function defaultBinding(token: string, config: Config): Binding {
   return { kind: "static", value: "" };
 }
 
-type AudienceKey = "all_hof" | "all_hof_unresponded" | "specific_its";
+type AudienceKey =
+  | "all_hof"
+  | "all_hof_unresponded"
+  | "all_adults"
+  | "all_adults_unresponded"
+  | "all_adults_hof"
+  | "specific_its";
 
 const DEFAULT_TEMPLATE = "ashara_relay_double_rsvp";
 const DEFAULT_CONFIRMATION_TEMPLATE = "ashara_relay_double_rsvp_confirmation";
@@ -150,18 +156,24 @@ const controlCls =
 
 const labelCls = "text-xs uppercase tracking-wide text-gray-400";
 
-// Map the audience radio to the broadcast API params.
-function audienceParams(audience: AudienceKey, testIts: string) {
-  if (audience === "specific_its") {
-    return { audience: "specific_its", level: "ind", its: testIts.split(/[\s,]+/).filter(Boolean), require_registered: false, only_non_responders: false };
+// Map the audience radio to the broadcast API params. `testIts` carries the specific-ITS test list;
+// `hofIts` carries the HOF ITS for the "all adults of a family" option.
+function audienceParams(audience: AudienceKey, testIts: string, hofIts: string) {
+  const split = (s: string) => s.split(/[\s,]+/).filter(Boolean);
+  switch (audience) {
+    case "specific_its":
+      return { audience: "specific_its", level: "ind", its: split(testIts), require_registered: false, only_non_responders: false };
+    case "all_adults_hof":
+      return { audience: "all_adults_hof", level: "ind", its: split(hofIts), require_registered: false, only_non_responders: false };
+    case "all_adults":
+      return { audience: "all_adults", level: "ind", its: [] as string[], require_registered: false, only_non_responders: false };
+    case "all_adults_unresponded":
+      return { audience: "all_adults", level: "ind", its: [] as string[], require_registered: false, only_non_responders: true };
+    case "all_hof_unresponded":
+      return { audience: "all_hof", level: "fam", its: [] as string[], require_registered: false, only_non_responders: true };
+    default:
+      return { audience: "all_hof", level: "fam", its: [] as string[], require_registered: false, only_non_responders: false };
   }
-  return {
-    audience: "all_hof",
-    level: "fam",
-    require_registered: false,
-    only_non_responders: audience === "all_hof_unresponded",
-    its: [] as string[],
-  };
 }
 
 // The body/header tokens of a selected template.
@@ -307,6 +319,7 @@ export default function EventRsvpComposer({
 
   const [audience, setAudience] = useState<AudienceKey>("all_hof");
   const [testIts, setTestIts] = useState("");
+  const [hofItsInput, setHofItsInput] = useState("");
 
   const [preview, setPreview] = useState<{ count: number; sample: SampleRow[]; unresolved: string[] } | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -425,7 +438,7 @@ export default function EventRsvpComposer({
     setError(null);
     setResult(null);
     try {
-      const p = audienceParams(audience, testIts);
+      const p = audienceParams(audience, testIts, hofItsInput);
       const qs = new URLSearchParams({
         audience: p.audience,
         level: p.level,
@@ -461,7 +474,7 @@ export default function EventRsvpComposer({
       // Persist config first so the confirmation template is ready before any responses arrive.
       if (!(await persistConfig())) return;
       const { body, header } = templateTokens(templates, config.templateCode);
-      const p = audienceParams(audience, testIts);
+      const p = audienceParams(audience, testIts, hofItsInput);
       const res = await apiFetch(`/api/admin/niyaz/instances/${instanceId}/broadcast`, {
         method: "POST",
         body: JSON.stringify({
@@ -579,8 +592,23 @@ export default function EventRsvpComposer({
           </label>
           <label className="flex items-center gap-2">
             <input type="radio" name="audience" checked={audience === "all_hof_unresponded"} onChange={() => setAudience("all_hof_unresponded")} />
-            All HOF — not yet responded to this event
+            All HOF — not responded to the day&apos;s niyaz RSVP
           </label>
+          <label className="flex items-center gap-2">
+            <input type="radio" name="audience" checked={audience === "all_adults"} onChange={() => setAudience("all_adults")} />
+            All Adults
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="radio" name="audience" checked={audience === "all_adults_unresponded"} onChange={() => setAudience("all_adults_unresponded")} />
+            All Adults — not responded to the day&apos;s niyaz RSVP
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="radio" name="audience" checked={audience === "all_adults_hof"} onChange={() => setAudience("all_adults_hof")} />
+            All Adults with HOF ITS ID
+          </label>
+          {audience === "all_adults_hof" && (
+            <input value={hofItsInput} onChange={(e) => setHofItsInput(e.target.value)} className={`${inputCls} mt-1 max-w-sm`} placeholder="HOF ITS id" />
+          )}
           <label className="flex items-center gap-2">
             <input type="radio" name="audience" checked={audience === "specific_its"} onChange={() => setAudience("specific_its")} />
             Test: specific ITS

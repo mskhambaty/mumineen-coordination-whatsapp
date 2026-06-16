@@ -13,7 +13,7 @@ import { MAPPABLE_FIELDS, type Binding, type ButtonBinding, type VariableBinding
 
 export const runtime = "nodejs";
 
-const AUDIENCES = ["specific_its", "all_mumineen", "all_hof", "all_adults"] as const;
+const AUDIENCES = ["specific_its", "all_mumineen", "all_hof", "all_adults", "all_adults_hof"] as const;
 
 // Per-recipient button payload spec (templated; {{tokens}} resolved per recipient at send time).
 const flowButtonSchema = z.object({
