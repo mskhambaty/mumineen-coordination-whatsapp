@@ -1,4 +1,5 @@
 import { getEvents, type NiyazLevel } from "@/lib/rsvp/meal-rsvp";
+import { shortFamilyName } from "@/lib/rsvp/niyaz-format";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import type { Recipient } from "@/lib/whatsapp/audience";
 import { MAPPABLE_FIELDS } from "@/lib/whatsapp/templates";
@@ -59,7 +60,7 @@ export async function getFamilyTemplateFields(familyId: string): Promise<Record<
     .eq("family_id", familyId)
     .eq("roster_active", true);
   const rows = (members ?? []) as { full_name: string | null; not_attending: boolean | null }[];
-  fields.family_members = rows.map((m) => m.full_name).filter(Boolean).join(", ");
+  fields.family_members = rows.map((m) => shortFamilyName(m.full_name)).filter(Boolean).join(", ");
   fields.eligible_family_count = String(rows.filter((m) => m.not_attending !== true).length);
   return fields;
 }
@@ -159,7 +160,7 @@ export async function resolveNiyazAudience(opts: {
     for (const m of (data ?? []) as { family_id: string; full_name: string | null; not_attending: boolean | null }[]) {
       if (m.full_name) {
         const arr = namesByFam.get(m.family_id) ?? [];
-        arr.push(m.full_name);
+        arr.push(shortFamilyName(m.full_name));
         namesByFam.set(m.family_id, arr);
       }
       if (m.not_attending !== true) eligibleByFam.set(m.family_id, (eligibleByFam.get(m.family_id) ?? 0) + 1);
