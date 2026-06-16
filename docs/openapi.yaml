@@ -2224,6 +2224,137 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /api/feedback-survey/{token}:
+    get:
+      tags: [feedback]
+      summary: Load a targeted survey for a recipient token (public)
+      description: >-
+        Token-scoped, no auth. The opaque per-recipient token maps to exactly one (mumin, form).
+        Returns the form's sections/questions snapshot + the responder's FIRST NAME only (shown as
+        "Submitting as <name> — is this you?"). Marks the recipient 'opened'. 404 for an unknown token.
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "{ status: ok|closed, firstName, formTitle, alreadyCompleted, sections: [{ section_id, title, questions: [{ form_question_id, question_id, area, snapshot }] }] }." }
+        "404": { description: "Unknown token (status=not_found)." }
+    post:
+      tags: [feedback]
+      summary: Submit a targeted survey response (public)
+      description: >-
+        Token-scoped, no auth. Records answers (one row per question), each scored 1-5
+        (`sentiment_1_5`) and routed to the area's department; negative answers carry a `reason`.
+        Idempotent — re-submitting replaces this recipient's prior answers and marks them 'completed'.
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [answers]
+              properties:
+                answers:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  items:
+                    type: object
+                    required: [question_id, value]
+                    properties:
+                      question_id: { type: string, format: uuid }
+                      value: { type: string, nullable: true }
+                      reason: { type: string, nullable: true }
+      responses:
+        "200": { description: "{ status: ok, recorded: <n> }." }
+        "400": { description: "Invalid body or invalid/expired token." }
+        "404": { description: "Malformed token." }
+
+  /api/admin/surveys/databank:
+    get:
+      tags: [admin]
+      summary: Survey databank (sections + questions) and target groups
+      description: Admin/leadership only (requirePortalCaller · isAdminOrLeadership). Powers the survey console.
+      responses:
+        "200": { description: "{ sections: [{ ..., questions: [...] }], groups: [...] }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/surveys/questions:
+    post:
+      tags: [admin]
+      summary: Add a question to a section (databank grows during the event)
+      description: Admin/leadership only. Body { section_id, text, type, options?, negative_values?, polarity?, is_general? }.
+      responses:
+        "201": { description: "Created question." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/surveys/groups:
+    get:
+      tags: [admin]
+      summary: List target groups
+      responses:
+        "200": { description: "{ groups: [...] }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [admin]
+      summary: Create a target group from an audience RuleGroup
+      description: Admin/leadership only. Body { name, description?, rules (RuleGroup), area_focus? }. Validates rules; returns a live reachable count.
+      responses:
+        "201": { description: "{ group, reachable }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { description: "Duplicate group name." }
+
+  /api/admin/surveys/forms:
+    get:
+      tags: [admin]
+      summary: List forms with recipient/response counts
+      responses:
+        "200": { description: "{ forms: [{ id, title, group_name, status, recipient_count, completed_count, ... }] }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [admin]
+      summary: Create a form and compose its questions
+      description: Admin/leadership only. Body { title, group_id, sample_size?, question_ids[] }. Snapshots each question for stability.
+      responses:
+        "201": { description: "{ form_id, question_count }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/admin/surveys/forms/{id}/preview:
+    post:
+      tags: [admin]
+      summary: Dry-run the sample (no writes)
+      description: Admin/leadership only. Returns the sampling funnel (candidates/excludedToday/excludedExhausted/fresh/reused/chosen) + first-name preview.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ funnel, sample_names }." }
+        "404": { description: "Form not found." }
+
+  /api/admin/surveys/forms/{id}/send:
+    post:
+      tags: [admin]
+      summary: Commit the sample and (optionally) dispatch the WhatsApp template
+      description: >-
+        Admin/leadership only. Creates per-recipient tokens + writes (mumin, question) exposures
+        (once-per-event). Dispatches via WhatsApp when SURVEY_SEND_ENABLED + SURVEY_WA_TEMPLATE are
+        set; otherwise returns the per-recipient links for manual sending.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ formId, funnel, recipients: [{ phone, token, link, name }], sent, sendError? }." }
+        "400": { description: "Not sendable (no group/questions/eligible recipients, or already sent)." }
+
+  /api/admin/surveys/forms/{id}/results:
+    get:
+      tags: [admin]
+      summary: Per-section 1-5 sentiment, response rate, breakdowns, comments
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ form, response: { sent, completed, rate }, sections: [{ title, sentiment, responses }], questions: [{ text, sentiment, breakdown, comments }] }." }
+        "404": { description: "Form not found." }
+
   /api/feedback:
     post:
       tags: [feedback]

@@ -1,0 +1,80 @@
+# Targeted Feedback Surveys
+
+A **second, active** feedback system, separate from the passive conversation-mined `feedback_entries`
+(see [meal-rsvp-feedback-digest.md](./meal-rsvp-feedback-digest.md)). It composes targeted surveys
+from a databank, samples a group of mumineen (fresh-first, never re-asking a question), and collects
+responses through a per-recipient **tokenized web form** delivered over WhatsApp.
+
+## Concepts
+
+- **Section databank** (`survey_sections`) — reusable sections, each tied to a feedback `area`
+  (`mawaid`, `flow`, `parking_transport`, `audio_video`, `accommodation`, `seating`, `general`).
+  `is_general` sections apply to everyone.
+- **Question databank** (`survey_questions`) — multiple questions per section; add more as the event
+  progresses. Types: `choice` (options stored **best-first**), `scale10`, `scale5`, `yesno`, `text`.
+  `negative_values` drive the "why" box; `polarity` flips yes/no & scale scoring.
+- **Groups** (`survey_groups`) — named target audiences stored as an audience-filter `RuleGroup`
+  (reuses `runFilter` from [audience-filter.ts](../src/lib/whatsapp/audience-filter.ts)). Seeded:
+  *All attending*, *Rahat / accessibility*, *Mehmaan — rental car*, *Local Chicago*, *VIP / category*,
+  *Accommodation — utaro*.
+- **Form** (`survey_forms` + `survey_form_questions`) — a composed run: a group + a chosen subset of
+  questions (snapshotted for stability). ~5 forms/day → 5 samples.
+- **Recipients** (`survey_recipients`) — the sample; each row carries a unique opaque `token`.
+- **Exposures** (`survey_question_exposures`) — `unique (mumin_id, question_id)`; enforces
+  **once-per-event** no-repeat. Written when a form is committed.
+- **Answers** (`survey_answers`) — one row per answered question, scored `sentiment_1_5`, routed to
+  the area's department, with the qualitative `reason_text` for negative answers.
+
+## Sampling (`src/lib/surveys/sampling.ts`)
+
+`suggestSample(groupRules, formQuestionIds, size, eventDate)`:
+1. `runFilter` → reachable candidates.
+2. Exclude anyone **already sampled today** (≤1 sample/day) and anyone **exposed to every** question
+   in this form.
+3. Rank **fresh first** (0 prior sends), then fewest sends, then longest-since-last.
+Returns the chosen set + a funnel for the admin preview. `suggestQuestionsForSection` rotates the
+databank by preferring least-exposed questions.
+
+## Sentiment (`src/lib/surveys/sentiment.ts`, pure + unit-tested)
+
+`answerSentiment(question, answer) → 1..5 | null`. Choice = option position (best-first); scale10 =
+`ceil(v/2)`; scale5 = v; yes/no = Yes 5 / No 1, inverted for `polarity:'negative'`; text = null.
+Section sentiment = mean of its scored answers.
+
+## Delivery (`src/lib/surveys/send.ts`)
+
+`commitAndSendForm(formId)` creates tokens + writes exposures (irreversible), then **optionally**
+dispatches a WhatsApp template via `createBroadcast` — the URL button suffix `{{1}}` = the recipient
+token (`https://<APP_URL>/feedback/s/<token>`), body `{{1}}` = first name. Gated by
+`SURVEY_SEND_ENABLED` + `SURVEY_WA_TEMPLATE`; when off, the returned per-recipient links can be
+exported and sent manually (so the build never blocks on Meta template approval).
+
+## Collection (frictionless, token = identity)
+
+- Public page `src/app/feedback/s/[token]/page.tsx` → `GET /api/feedback-survey/[token]` returns the
+  form + responder **first name only** (shown as "Submitting as <name> — is this you?"). No login/ITS.
+- `POST /api/feedback-survey/[token]` records answers (idempotent; re-submit replaces). The token maps
+  to exactly one (mumin, form), so we know who answered which question.
+
+## Admin
+
+`/admin/surveys` (admin/leadership) — tabs: **Compose** (group + questions → create form),
+**Forms** (preview sample funnel → commit & send → results), **Databank** (view + add questions).
+APIs under `src/app/api/admin/surveys/**` (gated by `requirePortalCaller(isAdminOrLeadership)`).
+
+## Key files
+
+```
+supabase/migrations/20260616000000_feedback_surveys.sql      — 8 tables + RLS + indexes
+supabase/migrations/20260616000100_seed_survey_databank.sql  — sections/questions/groups seed
+src/lib/surveys/{sentiment,sampling,send,respond,tokens}.ts  — core logic
+src/app/feedback/s/[token]/page.tsx                          — public tokenized form
+src/app/api/feedback-survey/[token]/route.ts                 — GET form + POST submit
+src/app/admin/surveys/page.tsx                               — admin console
+src/app/api/admin/surveys/**                                 — databank/questions/groups/forms/preview/send/results
+```
+
+## Not yet (enhancements)
+
+Auto-generate the day's 5 forms; LLM sentiment on free-text; feed section sentiment into the
+department digest; reminder re-sends to non-openers.
