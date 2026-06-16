@@ -203,6 +203,14 @@ function FormsTab({ forms, reload }: { forms: FormRow[]; reload: () => void }) {
     setDetail({ kind: "test", id, ...(await res.json().catch(() => ({}))) });
     setBusy(null);
   }
+  async function del(id: string) {
+    if (!confirm("Delete this form? This removes its questions, sample, and any responses. Its questions become askable again. This cannot be undone.")) return;
+    setBusy(id);
+    await apiFetch(`/api/admin/surveys/forms/${id}`, { method: "DELETE" });
+    setBusy(null);
+    setDetail(null);
+    reload();
+  }
 
   const ghostBtn = "rounded border border-gray-300 px-3 py-1 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800";
 
@@ -225,6 +233,7 @@ function FormsTab({ forms, reload }: { forms: FormRow[]; reload: () => void }) {
                 {f.status === "sent" ? "Sent" : "Commit & send"}
               </button>
               <button onClick={() => call(f.id, "results", `/api/admin/surveys/forms/${f.id}/results`)} disabled={busy === f.id} className={ghostBtn}>Results</button>
+              <button onClick={() => del(f.id)} disabled={busy === f.id} className="rounded border border-red-300 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40">Delete</button>
             </div>
           </div>
           {detail && detail.id === f.id && <DetailView detail={detail} />}

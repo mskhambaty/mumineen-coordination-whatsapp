@@ -2348,6 +2348,20 @@ paths:
         "200": { description: "{ formId, funnel, recipients: [{ phone, token, link, name }], sent, sendError? }." }
         "400": { description: "Not sendable (no group/questions/eligible recipients, or already sent)." }
 
+  /api/admin/surveys/forms/{id}:
+    delete:
+      tags: [admin]
+      summary: Delete a form
+      description: >-
+        Admin/leadership only. Removes the form and cascades its composed questions, recipients, and
+        answers. Also deletes the form's (mumin, question) exposures so its questions become askable
+        again (a full undo). Cannot be undone.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ status: deleted }." }
+        "404": { description: "Form not found." }
+
   /api/admin/surveys/forms/{id}/test-link:
     post:
       tags: [admin]
