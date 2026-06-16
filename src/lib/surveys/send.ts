@@ -22,6 +22,25 @@ export function surveyLink(token: string): string {
   return `${surveyBaseUrl()}/feedback/s/${token}`;
 }
 
+// Send a single survey link to one phone via the WhatsApp template (used for "send a test to a
+// specific person"). Gated by SURVEY_SEND_ENABLED + SURVEY_WA_TEMPLATE; queues via the broadcast
+// engine (the drain cron delivers). Returns delivered=true when queued.
+export async function deliverSurveyLink(phone: string, token: string, name: string | null): Promise<{ delivered: boolean; error?: string }> {
+  const sendEnabled = process.env.SURVEY_SEND_ENABLED === "true";
+  const templateCode = process.env.SURVEY_WA_TEMPLATE;
+  if (!sendEnabled || !templateCode) {
+    return { delivered: false, error: "WhatsApp sending is off (set SURVEY_SEND_ENABLED + SURVEY_WA_TEMPLATE). Copy the link and send it manually." };
+  }
+  const result = await createBroadcast({
+    templateCode,
+    recipients: [{ phone, familyId: null, muminId: null, fields: { survey_token: token, first_name: (name ?? "").split(" ")[0] || "Mumin" } }],
+    audienceKey: "custom",
+    variableBindings: { urlButton: { kind: "field", field: "survey_token" }, body: { "1": { kind: "field", field: "first_name" } } },
+  });
+  if ("error" in result) return { delivered: false, error: result.error };
+  return { delivered: true };
+}
+
 export type CommittedRecipient = { recipientId: string; muminId: string; phone: string; name: string | null; token: string; link: string };
 export type CommitResult = {
   formId: string;

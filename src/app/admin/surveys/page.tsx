@@ -197,9 +197,16 @@ function FormsTab({ forms, reload }: { forms: FormRow[]; reload: () => void }) {
     reload();
   }
   async function testLink(id: string) {
-    const its = window.prompt("Preview as ITS number (optional — blank = anonymous 'you' preview):", "")?.trim() ?? "";
+    const its = window.prompt("Send test to which ITS? (leave blank for an anonymous 'you' preview link):", "")?.trim() ?? "";
+    let deliver = false;
+    if (its) {
+      deliver = confirm("Deliver this test to that person's WhatsApp now?\n\nOK  = send to their WhatsApp (requires WhatsApp sending to be enabled)\nCancel = just generate their link to copy / forward");
+    }
     setBusy(id);
-    const res = await apiFetch(`/api/admin/surveys/forms/${id}/test-link`, { method: "POST", body: JSON.stringify(its ? { its } : {}) });
+    const res = await apiFetch(`/api/admin/surveys/forms/${id}/test-link`, {
+      method: "POST",
+      body: JSON.stringify({ ...(its ? { its } : {}), deliver }),
+    });
     setDetail({ kind: "test", id, ...(await res.json().catch(() => ({}))) });
     setBusy(null);
   }
@@ -307,12 +314,19 @@ function DetailView({ detail }: { detail: Detail }) {
   if (detail.kind === "test") {
     const link = String(detail.link ?? "");
     const name = detail.name ? String(detail.name) : null;
+    const phone = detail.phone ? String(detail.phone) : null;
+    const delivery = detail.delivery as { delivered: boolean; error?: string } | null;
     return (
       <div className={box}>
         <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">
-          {name ? `Previewing as ${name}. ` : "Anonymous preview (the form greets a generic “you” — real recipients see their first name). "}
-          Open this link (or send it to yourself) to preview the live form. Test recipient — no exposures written, excluded from results.
+          {name ? `Test for ${name}${phone ? ` (${phone})` : ""}. ` : "Anonymous preview (the form greets a generic “you” — real recipients see their first name). "}
+          It&apos;s a test recipient — no exposures written, excluded from results.
         </p>
+        {delivery && (
+          <p className={`mb-2 text-xs font-medium ${delivery.delivered ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+            {delivery.delivered ? `✓ Queued to ${phone} via WhatsApp.` : `Not delivered: ${delivery.error ?? "unknown error"}`}
+          </p>
+        )}
         <div className="flex items-center gap-2">
           <input readOnly value={link} className="flex-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200" />
           <button onClick={() => copy(link)} className="rounded bg-blue-600 px-2 py-1 text-xs text-white">Copy</button>

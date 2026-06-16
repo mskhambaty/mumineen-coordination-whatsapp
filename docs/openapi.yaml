@@ -2367,16 +2367,27 @@ paths:
   /api/admin/surveys/forms/{id}/test-link:
     post:
       tags: [admin]
-      summary: Mint a throwaway self-test link for a form
+      summary: Mint a self-test link for a form (optionally to a specific person)
       description: >-
         Admin/leadership only. Creates an is_test recipient (no question exposures written, excluded
-        from results) and returns its tokenized form link so the admin can preview/submit the live
-        form without affecting real samples or analytics.
+        from results) and returns its tokenized form link. Body { its? } targets a specific person
+        (form greets them by name, response attributable; returns their name + phone). Body
+        { its, deliver:true } also sends the link to THAT person's WhatsApp when SURVEY_SEND_ENABLED
+        + SURVEY_WA_TEMPLATE are set (otherwise delivery.error explains and you copy the link).
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                its: { type: string, description: "Target a specific person by ITS." }
+                deliver: { type: boolean, description: "Also send the link to that person's WhatsApp." }
       responses:
-        "200": { description: "{ link, token }." }
-        "400": { description: "Form has no composed questions." }
+        "200": { description: "{ link, token, name, phone, delivery: { delivered, error? } | null }." }
+        "400": { description: "Form has no composed questions, or ITS not in the active roster." }
         "404": { description: "Form not found." }
 
   /api/admin/surveys/forms/{id}/results:

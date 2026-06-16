@@ -64,8 +64,12 @@ form), **Forms** (Test link · Preview sample funnel · Commit & send · Results
 `requirePortalCaller(isAdminOrLeadership)`).
 
 **Self-test:** *Test link* on any form mints an `is_test` recipient (no exposures, excluded from
-results) and returns a real `/feedback/s/<token>` link, so you can preview/submit the live form
-yourself before sending to anyone.
+results) and returns a real `/feedback/s/<token>` link. Optionally pass an **ITS** to target a
+specific person (the form then greets them by name; response is attributable), and `deliver:true`
+to send that link to their WhatsApp (when `SURVEY_SEND_ENABLED`); otherwise copy/forward the link.
+
+**Verify a sample:** *Preview sample* returns the chosen sample with **name + ITS + freshness** and
+the admin UI has a **search box** to confirm whether a specific person was selected.
 
 **Sample size** is admin-controlled per form: `suggestSample` resolves *all* qualifying mumineen,
 then takes the top N (fresh-first). Set N high to target everyone who qualifies.
