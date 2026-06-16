@@ -32,6 +32,9 @@ export default function SurveysAdminPage() {
   const [groupId, setGroupId] = useState("");
   const [sampleSize, setSampleSize] = useState(40);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [lookupIts, setLookupIts] = useState<string | null>(null);
+
+  function openMumin(its: string) { setLookupIts(its); setTab("lookup"); }
 
   const loadDatabank = useCallback(async () => {
     const res = await apiFetch("/api/admin/surveys/databank");
@@ -132,9 +135,9 @@ export default function SurveysAdminPage() {
         </div>
       )}
 
-      {tab === "forms" && <FormsTab forms={forms} reload={loadForms} />}
+      {tab === "forms" && <FormsTab forms={forms} reload={loadForms} onPickMumin={openMumin} />}
 
-      {tab === "lookup" && <LookupTab />}
+      {tab === "lookup" && <LookupTab initialIts={lookupIts} />}
 
       {tab === "databank" && (
         <div className="space-y-3">
@@ -183,7 +186,7 @@ function AddQuestion({ sectionId, onAdded }: { sectionId: string; onAdded: () =>
 
 type Detail = { kind: string; id: string; [k: string]: unknown };
 
-function FormsTab({ forms, reload }: { forms: FormRow[]; reload: () => void }) {
+function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: () => void; onPickMumin: (its: string) => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
 
@@ -245,7 +248,7 @@ function FormsTab({ forms, reload }: { forms: FormRow[]; reload: () => void }) {
               <button onClick={() => del(f.id)} disabled={busy === f.id} className="rounded border border-red-300 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40">Delete</button>
             </div>
           </div>
-          {detail && detail.id === f.id && <DetailView detail={detail} />}
+          {detail && detail.id === f.id && <DetailView detail={detail} onPickMumin={onPickMumin} />}
         </div>
       ))}
     </div>
@@ -261,12 +264,18 @@ type Lookup = {
   answers: { form_title: string; section_title: string; question: string; answer: string | null; sentiment: number | null; reason: string | null; date: string | null }[];
 };
 
-function LookupTab() {
+function LookupTab({ initialIts }: { initialIts?: string | null }) {
   const [q, setQ] = useState("");
   const [matches, setMatches] = useState<{ its: string; name: string | null }[] | null>(null);
   const [data, setData] = useState<Lookup | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Auto-load when arrived here via a clicked sample/lookup record.
+  useEffect(() => {
+    if (initialIts) void load(initialIts);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialIts]);
 
   async function search() {
     if (!q.trim()) return;
@@ -368,7 +377,7 @@ function LookupTab() {
 
 function copy(text: string) { void navigator.clipboard?.writeText(text); }
 
-function PreviewSample({ detail }: { detail: Detail }) {
+function PreviewSample({ detail, onPickMumin }: { detail: Detail; onPickMumin?: (its: string) => void }) {
   const [q, setQ] = useState("");
   const f = (detail.funnel ?? {}) as Record<string, number>;
   const sample = (detail.sample ?? []) as { name: string; its: string; fresh: boolean }[];
@@ -394,13 +403,20 @@ function PreviewSample({ detail }: { detail: Detail }) {
           <p className="mt-1 text-[11px] text-gray-400">{filtered.length} of {sample.length}{ql ? ` matching “${q}”` : " in sample"}</p>
           <div className="mt-1 max-h-64 divide-y divide-gray-100 overflow-auto dark:divide-gray-800">
             {filtered.map((s, i) => (
-              <div key={i} className="flex items-center justify-between gap-3 py-1 text-xs">
+              <button
+                key={i}
+                type="button"
+                onClick={() => onPickMumin?.(s.its)}
+                disabled={!onPickMumin}
+                title={onPickMumin ? "View this mumin's feedback details" : undefined}
+                className="flex w-full items-center justify-between gap-3 py-1 text-left text-xs enabled:hover:bg-blue-50/50 dark:enabled:hover:bg-gray-800/60"
+              >
                 <span className="truncate text-gray-700 dark:text-gray-300">{s.name}</span>
                 <span className="flex flex-shrink-0 items-center gap-2">
                   <span className="font-mono text-gray-400">{s.its}</span>
                   <span className={`rounded px-1.5 py-0.5 text-[10px] ${s.fresh ? "bg-emerald-600/20 text-emerald-700 dark:text-emerald-400" : "bg-amber-500/20 text-amber-700 dark:text-amber-400"}`}>{s.fresh ? "fresh" : "reused"}</span>
                 </span>
-              </div>
+              </button>
             ))}
             {filtered.length === 0 && <p className="py-2 text-xs text-gray-400">No one matching “{q}” in this sample.</p>}
           </div>
@@ -423,7 +439,7 @@ function SentimentBadge({ value }: { value: number | null }) {
   );
 }
 
-function DetailView({ detail }: { detail: Detail }) {
+function DetailView({ detail, onPickMumin }: { detail: Detail; onPickMumin?: (its: string) => void }) {
   const box = "mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm dark:border-gray-700 dark:bg-gray-800/40";
   if (detail.error) return <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{String(detail.error)}</p>;
 
@@ -452,7 +468,7 @@ function DetailView({ detail }: { detail: Detail }) {
     );
   }
 
-  if (detail.kind === "preview") return <PreviewSample detail={detail} />;
+  if (detail.kind === "preview") return <PreviewSample detail={detail} onPickMumin={onPickMumin} />;
 
   if (detail.kind === "send") {
     const recipients = (detail.recipients ?? []) as { name: string | null; phone: string; link: string }[];
