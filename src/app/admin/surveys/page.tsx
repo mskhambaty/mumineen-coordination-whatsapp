@@ -394,7 +394,7 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
           ))}
         </select>
         {templates.length === 0 && <span className="text-xs text-amber-600 dark:text-amber-400">No approved URL-button templates found.</span>}
-        {templateCode && <span className="text-xs text-emerald-600 dark:text-emerald-400">Send & WhatsApp-deliver will use this template.</span>}
+        {templateCode && <span className="text-xs text-emerald-600 dark:text-emerald-400">Commit &amp; send (and Test deliver) will use this template.</span>}
       </div>
       {forms.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">No forms yet — compose one.</p>}
       {forms.map((f) => (
