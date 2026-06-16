@@ -1,3 +1,4 @@
+import { getEventConfigTitles } from "@/lib/rsvp/event-config";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 // Per-mumin Niyaz attendance over the `niyaz_rsvp` table: one row per (event, mumin), `attending`
@@ -83,6 +84,70 @@ export async function getFamilyNiyazGrid(familyId: string): Promise<FamilyGridRo
     const a = agg.get(event.id) ?? { yes: 0, adults: 0, kids: 0, total: 0 };
     return { event, attending: a.yes, adults: a.adults, kids: a.kids, total: a.total };
   });
+}
+
+// --- Per-day grouping (the family RSVP summary the bot reads back) ---
+
+export type DayMeal = { attending: number; total: number };
+// One Gregorian day of the Ashara jaman schedule, the unit the bot's RSVP summary is organised by
+// (matching the admin "Niyaz days" view). `title` is the DAY-level title (config first), NOT a
+// per-meal instance title; `lunch`/`dinner` are null when that meal isn't served that day.
+export type FamilyDayRow = {
+  date: string; // YYYY-MM-DD Gregorian calendar day
+  title: string;
+  hijriDate: string | null;
+  lunch: DayMeal | null;
+  dinner: DayMeal | null;
+};
+
+// Day skeleton (which meals are served + the day title) without any family counts. Pure — events and
+// the date→title map are passed in, so it's directly unit-testable. Title fallback order:
+// config day-title → lunch instance title → dinner instance title → the date itself. The night-shifted
+// dinner instance title is only a last resort; it is never used to TARGET a write.
+export type DaySkeleton = { date: string; title: string; hijriDate: string | null; lunch: boolean; dinner: boolean };
+export function groupEventsByDay(events: NiyazEvent[], titles: Map<string, string>): DaySkeleton[] {
+  const byDate = new Map<string, { lunch?: NiyazEvent; dinner?: NiyazEvent }>();
+  const order: string[] = [];
+  for (const ev of events) {
+    let day = byDate.get(ev.eventDate);
+    if (!day) {
+      day = {};
+      byDate.set(ev.eventDate, day);
+      order.push(ev.eventDate);
+    }
+    if (ev.meal === "lunch") day.lunch = ev;
+    else if (ev.meal === "dinner") day.dinner = ev;
+  }
+  order.sort();
+  return order.map((date) => {
+    const day = byDate.get(date)!;
+    // `||` (not `??`) so a blank instance title (toEvent maps null → "") falls through to the date.
+    const title = titles.get(date) || day.lunch?.title || day.dinner?.title || date;
+    const hijriDate = day.lunch?.hijriDate ?? day.dinner?.hijriDate ?? null;
+    return { date, title, hijriDate, lunch: Boolean(day.lunch), dinner: Boolean(day.dinner) };
+  });
+}
+
+// The caller's family RSVP organised per DAY: each day carries its title + a single attending count
+// for lunch and for dinner (or null when that meal isn't served). Built by overlaying the per-event
+// grid (getFamilyNiyazGrid — proven attending/total aggregation) onto the day skeleton.
+export async function getFamilyNiyazDays(familyId: string): Promise<FamilyDayRow[]> {
+  const [grid, titles] = await Promise.all([getFamilyNiyazGrid(familyId), getEventConfigTitles()]);
+  const byKey = new Map<string, FamilyGridRow>(); // `${date}|${meal}` → row
+  for (const row of grid) byKey.set(`${row.event.eventDate}|${row.event.meal}`, row);
+
+  const meal = (date: string, m: Meal): DayMeal | null => {
+    const row = byKey.get(`${date}|${m}`);
+    return row ? { attending: row.attending, total: row.total } : null;
+  };
+
+  return groupEventsByDay(grid.map((r) => r.event), titles).map((d) => ({
+    date: d.date,
+    title: d.title,
+    hijriDate: d.hijriDate,
+    lunch: d.lunch ? meal(d.date, "lunch") : null,
+    dinner: d.dinner ? meal(d.date, "dinner") : null,
+  }));
 }
 
 export type FamilyMember = {

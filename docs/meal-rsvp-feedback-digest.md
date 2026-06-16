@@ -55,19 +55,27 @@ were wrongly treated as "unregistered" when messaging the bot. A one-time backfi
 roster member with a usable number, and the runtime fallback covers any future gap.
 
 Code: `src/lib/rsvp/family.ts` (phone → roster family), `src/lib/rsvp/meal-rsvp.ts`
-(`getFamilyNiyazGrid` — per event, family attending split into **adults/kids** via
-`mumineen.is_adult` (null = adult) so the agent reads back "2 adults, 2 kids" not "4 adults";
+(`getFamilyNiyazGrid` — per **meal-event** family attending count plus an adults/kids split via
+`mumineen.is_adult` (null = adult); still used for the partial-attendance allocation and as the input
+to the per-day view. `getFamilyNiyazDays` — the **per-DAY** view the bot reads back: groups the grid by
+Gregorian `event_date` into one row per day, each carrying a single `attending` count for `lunch` and
+for `dinner` (or null when that meal isn't served), plus a day `title`. `groupEventsByDay` is the pure,
+testable grouping helper; the day `title` comes from `niyaz_event_config.rsvp_event_title` (via
+`getEventConfigTitles` in `event-config.ts`) so it matches the admin **Niyaz days** view — NOT the
+per-meal instance title, which differs on dinners due to the hijri night-shift (fallback: config
+title → lunch instance title → dinner instance title → date);
 `getFamilyMembers` — roster-active member list with name/isAdult/isHead/notAttending for the agent
 to list when the user's count exceeds the family size;
 `setFamilyNiyazRsvp` whole-family cascade, `getEventTallies(mode)`,
 `recordUnregisteredRsvp`, `getUnregisteredRsvps`, `recordUnregisteredHeadCount`,
 `mergeUnregisteredRsvps`, `getMealAttendanceTotals`). API: `GET/POST /api/rsvp/meals` (self-scoped via `x-whatsapp-from`,
-Zod-validated; POST entries are `{attending, titles?, dates?, meal?, all?}` with optional `adults`, `kids`,
-`its_number`. **Event targeting:** the agent selects named jaman by `titles` (exact title copied from
-the grid, e.g. "Pehli Raat") + `meal` rather than translating a name into a date — `decideEvents`
-resolves title→date server-side, eliminating hijri night-shift date-guessing (a dinner's date isn't
-the Gregorian day you'd guess; a shared title like "2nd Moharram ul Haram" is disambiguated by meal).
-`dates` is reserved for explicit calendar dates. For registered families, `adults`/`kids` enable **partial attendance**: only that many
+Zod-validated; returns a today→Ashura `days` array `[{date, dateLabel, title, lunch, dinner}]` (lunch/dinner
+each `{attending,total}` or null); POST entries are `{attending, titles?, dates?, meal?, all?}` with optional `adults`, `kids`,
+`its_number`. **Event targeting:** because the summary is day-based, the agent now targets a change by the
+day row's `date` + `meal` — copying the server-provided `date` **verbatim** (never computing it). Since
+`(event_date, meal)` is unique, this hits exactly one jaman, so the displayed day title is presentation-only
+and never a write selector — eliminating any hijri night-shift mis-target. `titles`+`meal` remains accepted
+server-side as a legacy fallback (`decideEvents` resolves title→date). For registered families, `adults`/`kids` enable **partial attendance**: only that many
 members are marked attending (head of family kept first, then other adults, then kids), and the rest
 are marked not-attending for those events; for unregistered callers they record the head count.
 Changes go to `unregistered_rsvps` for unlinked phones). Agent tools: `get_family_meal_rsvps`, `set_family_meal_rsvps`
