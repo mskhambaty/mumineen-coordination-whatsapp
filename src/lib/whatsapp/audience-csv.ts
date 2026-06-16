@@ -1,5 +1,8 @@
 import { parseCsv } from "@/lib/util/csv";
-import { normalizePhone, type Recipient } from "@/lib/whatsapp/audience";
+// Import normalizePhone from the leaf phone module (not audience.ts) so this parser stays free of
+// server-only deps and can run in the browser too (e.g. the niyaz composer's CSV-upload preview).
+import { normalizePhone } from "@/lib/whatsapp/phone";
+import type { Recipient } from "@/lib/whatsapp/audience";
 
 // Parse an uploaded audience CSV (the same format the app's CSV downloads use — both the audience
 // export and the per-broadcast failures export) into the recipient list the broadcast engine

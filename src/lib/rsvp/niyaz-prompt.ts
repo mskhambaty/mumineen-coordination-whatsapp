@@ -1,6 +1,7 @@
 import { getEvents, type NiyazLevel } from "@/lib/rsvp/meal-rsvp";
 import { shortFamilyName } from "@/lib/rsvp/niyaz-format";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { parseAudienceCsv, type AudienceCsvResult } from "@/lib/whatsapp/audience-csv";
 import { fetchAllRows, type Pageable, type Recipient } from "@/lib/whatsapp/audience";
 import { MAPPABLE_FIELDS } from "@/lib/whatsapp/templates";
 
@@ -8,6 +9,11 @@ import { MAPPABLE_FIELDS } from "@/lib/whatsapp/templates";
 // payloads encode `niyaz|<level>|<scope>|<date>` so a tap is self-describing on the inbound side.
 
 const MAPPABLE_COLS = MAPPABLE_FIELDS.map((f) => f.key);
+
+// Roster columns selected for niyaz recipients: identity (id/family_id/phone), the flags the
+// audiences filter on, plus the mappable personalization fields. Shared by the audience resolver and
+// the CSV-upload phone lookup so both produce identically-shaped recipients.
+const NIYAZ_SEL = `id, family_id, whatsapp_e164, is_head, is_adult, not_attending, ${MAPPABLE_COLS.join(", ")}`;
 
 function normalizePhone(input: string): string {
   const digits = input.replace(/[^\d]/g, "");
@@ -97,7 +103,7 @@ export async function resolveNiyazAudience(opts: {
   requireRegistered?: boolean;
 }): Promise<{ recipients: Recipient[]; unresolvedIts: string[] }> {
   const supabase = getSupabaseAdmin();
-  const sel = `id, family_id, whatsapp_e164, is_head, is_adult, not_attending, ${MAPPABLE_COLS.join(", ")}`;
+  const sel = NIYAZ_SEL;
   let recipients: Recipient[] = [];
   const unresolvedIts: string[] = [];
 
@@ -171,9 +177,39 @@ export async function resolveNiyazAudience(opts: {
     }
   }
 
-  // Attach computed family fields per recipient: `family_members` (the family's member names, for
-  // the {{family_members}} template variable) and `eligible_family_count` (roster-active members
-  // not marked not-attending, for the {{EligibleFamilyCount}} button token / default attending count).
+  // Attach computed family fields (family_members + eligible_family_count) per recipient.
+  await attachFamilyFields(recipients);
+
+  if (opts.onlyNonResponders) {
+    const instanceIds = (await getEvents()).filter((e) => e.eventDate === opts.date).map((e) => e.id);
+    if (instanceIds.length > 0) {
+      // Paged: a day's niyaz_rsvp rows (one per attending mumin per meal) run into the thousands, well
+      // past the 1000-row cap. A truncated `answered` set would wrongly KEEP families who already
+      // responded, so the "not responded" audience must read every response row. Stable .order("id").
+      const responses = await fetchAllRows<{ family_id: string | null }>(() =>
+        supabase
+          .from("niyaz_rsvp")
+          .select("family_id")
+          .in("registration_instance_id", instanceIds)
+          .in("source", ["whatsapp", "admin"])
+          .order("id", { ascending: true }) as unknown as Pageable<{ family_id: string | null }>,
+      );
+      // Family-level: once any member of a family responds for the day, the whole family is excluded
+      // (a family RSVP stamps every member with source='whatsapp').
+      const answered = new Set(responses.map((r) => r.family_id));
+      recipients = recipients.filter((r) => !answered.has(r.familyId));
+    }
+  }
+
+  return { recipients, unresolvedIts };
+}
+
+// Attach computed family fields per recipient: `family_members` (the family's member names, for the
+// {{family_members}} template variable) and `eligible_family_count` (roster-active members not marked
+// not-attending, for the {{EligibleFamilyCount}} button token / default attending count). Shared by
+// the audience resolver and the CSV-upload path so both personalize identically.
+async function attachFamilyFields(recipients: Recipient[]): Promise<void> {
+  const supabase = getSupabaseAdmin();
   const famIds = [...new Set(recipients.map((r) => r.familyId).filter(Boolean))] as string[];
   const namesByFam = new Map<string, string[]>();
   const eligibleByFam = new Map<string, number>();
@@ -211,29 +247,63 @@ export async function resolveNiyazAudience(opts: {
       eligible_family_count: String(eligible),
     };
   }
+}
 
-  if (opts.onlyNonResponders) {
-    const instanceIds = (await getEvents()).filter((e) => e.eventDate === opts.date).map((e) => e.id);
-    if (instanceIds.length > 0) {
-      // Paged: a day's niyaz_rsvp rows (one per attending mumin per meal) run into the thousands, well
-      // past the 1000-row cap. A truncated `answered` set would wrongly KEEP families who already
-      // responded, so the "not responded" audience must read every response row. Stable .order("id").
-      const responses = await fetchAllRows<{ family_id: string | null }>(() =>
-        supabase
-          .from("niyaz_rsvp")
-          .select("family_id")
-          .in("registration_instance_id", instanceIds)
-          .in("source", ["whatsapp", "admin"])
-          .order("id", { ascending: true }) as unknown as Pageable<{ family_id: string | null }>,
-      );
-      // Family-level: once any member of a family responds for the day, the whole family is excluded
-      // (a family RSVP stamps every member with source='whatsapp').
-      const answered = new Set(responses.map((r) => r.family_id));
-      recipients = recipients.filter((r) => !answered.has(r.familyId));
+// Resolve the recipient list for a CSV-upload send. The CSV is the same format the audience export
+// emits (header-matched, WhatsApp column required) — see parseAudienceCsv. Each parsed row is then
+// matched back to the roster by its WhatsApp number so the recipient carries the SAME identity and
+// computed fields a resolved audience would (family_id, mumin_id, hof_its, eligible_family_count, …),
+// and the per-recipient RSVP buttons personalize correctly. CSV-provided field values win over the
+// roster; rows with no roster match are still sent (with their CSV fields + eligible_family_count 1).
+export async function resolveNiyazCsvRecipients(csvText: string): Promise<AudienceCsvResult> {
+  const parsed = parseAudienceCsv(csvText);
+  if (parsed.error || parsed.recipients.length === 0) return parsed;
+
+  const byPhone = await rosterByPhoneForNiyaz(parsed.recipients.map((r) => r.phone));
+  for (const r of parsed.recipients) {
+    const m = byPhone.get(normalizePhone(r.phone));
+    if (!m) continue;
+    r.familyId = (m.family_id as string | null) ?? null;
+    r.muminId = r.muminId ?? m.id;
+    // Roster fields as the base; non-empty CSV values override (the upload is the source of truth).
+    const merged: Record<string, string | null> = fieldsOf(m);
+    for (const [k, v] of Object.entries(r.fields ?? {})) {
+      if (v != null && String(v).trim() !== "") merged[k] = v;
+    }
+    r.fields = { ...merged, mumin_id: m.id, mumin_name: merged.full_name };
+  }
+  await attachFamilyFields(parsed.recipients);
+  return parsed;
+}
+
+// Look up roster identity (the NIYAZ_SEL columns) for a set of phone numbers, keyed by normalized
+// phone. Matches the member's OWN whatsapp_e164 — the column the audience export emits — so a
+// re-uploaded export round-trips. Chunked + paged to stay under the URL/row limits. Stored numbers
+// are inconsistent about the leading "+", so both forms are queried.
+async function rosterByPhoneForNiyaz(phones: string[]): Promise<Map<string, MuminRow>> {
+  const supabase = getSupabaseAdmin();
+  const out = new Map<string, MuminRow>();
+  const norm = [...new Set(phones.map(normalizePhone))].filter(Boolean);
+  if (norm.length === 0) return out;
+  const variants = (ps: string[]) => [...new Set(ps.flatMap((p) => [p, p.replace(/^\+/, "")]))];
+  const CHUNK = 200;
+  for (let i = 0; i < norm.length; i += CHUNK) {
+    const chunk = variants(norm.slice(i, i + CHUNK));
+    const rows = await fetchAllRows<MuminRow>(() =>
+      supabase
+        .from("mumineen")
+        .select(NIYAZ_SEL)
+        .in("whatsapp_e164", chunk)
+        .eq("roster_active", true)
+        .order("id", { ascending: true }) as unknown as Pageable<MuminRow>,
+    );
+    for (const m of rows) {
+      if (!m.whatsapp_e164) continue;
+      const p = normalizePhone(m.whatsapp_e164);
+      if (!out.has(p)) out.set(p, m);
     }
   }
-
-  return { recipients, unresolvedIts };
+  return out;
 }
 
 // --- Free-text head-count prompts (date↔reply mapping) ---

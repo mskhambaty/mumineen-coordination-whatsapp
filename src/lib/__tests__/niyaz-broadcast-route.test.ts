@@ -7,6 +7,7 @@ const allow = () => ({ caller: { user_id: "u1" } });
 const requirePortalCaller = vi.fn();
 const getEvents = vi.fn();
 const resolveNiyazAudience = vi.fn();
+const resolveNiyazCsvRecipients = vi.fn();
 const buildNiyazSend = vi.fn();
 const createHeadCountPrompts = vi.fn(async () => undefined);
 const createBroadcast = vi.fn();
@@ -21,6 +22,7 @@ vi.mock("@/lib/admin/access", () => ({ canAccessPortal: () => true, isAdminOrLea
 vi.mock("@/lib/rsvp/meal-rsvp", () => ({ getEvents: (...a: unknown[]) => getEvents(...a) }));
 vi.mock("@/lib/rsvp/niyaz-prompt", () => ({
   resolveNiyazAudience: (...a: unknown[]) => resolveNiyazAudience(...a),
+  resolveNiyazCsvRecipients: (...a: unknown[]) => resolveNiyazCsvRecipients(...a),
   buildNiyazSend: (...a: unknown[]) => buildNiyazSend(...a),
   createHeadCountPrompts: (...a: unknown[]) => createHeadCountPrompts(...a),
 }));
@@ -154,6 +156,35 @@ describe("POST niyaz broadcast", () => {
     expect(arg.variableBindings.body.name).toEqual({ kind: "field", field: "its" });
     // …and an un-overridden token keeps its auto-bound default (meal → static mealLabel).
     expect(arg.variableBindings.body.meal).toEqual({ kind: "static", value: "lunch & dinner" });
+  });
+
+  it("csv_upload: parses the uploaded CSV into recipients and broadcasts to them (not the roster audience)", async () => {
+    requirePortalCaller.mockResolvedValue(allow());
+    resolveNiyazCsvRecipients.mockResolvedValue({
+      recipients: [{ phone: "+15551234567", familyId: "f1", muminId: "m1", fields: { full_name: "Test", hof_its: "10000001", eligible_family_count: "3" } }],
+      parsed: 1,
+      skipped: 0,
+      duplicates: 0,
+      corrupted: 0,
+    });
+    createBroadcast.mockResolvedValue({ broadcastId: "bcsv", total: 1, free: 0, paid: 1, skipped: 0, estCostUsd: 0 });
+
+    const body = { audience: "csv_upload", level: "ind", csv: "Name,WhatsApp\nTest,+15551234567\n", template_code: "niyaz_rsvp" };
+    const res = await POST(postReq(body), { params });
+    expect(res.status).toBe(200);
+    // The uploaded CSV is parsed; the roster audience resolver is NOT used.
+    expect(resolveNiyazCsvRecipients).toHaveBeenCalledWith("Name,WhatsApp\nTest,+15551234567\n");
+    expect(resolveNiyazAudience).not.toHaveBeenCalled();
+    const arg = createBroadcast.mock.calls[0][0] as { recipients: unknown[] };
+    expect(arg.recipients).toHaveLength(1);
+  });
+
+  it("csv_upload: 400 when no CSV is provided", async () => {
+    requirePortalCaller.mockResolvedValue(allow());
+    const res = await POST(postReq({ audience: "csv_upload", level: "ind", template_code: "niyaz_rsvp" }), { params });
+    expect(res.status).toBe(400);
+    expect(resolveNiyazCsvRecipients).not.toHaveBeenCalled();
+    expect(createBroadcast).not.toHaveBeenCalled();
   });
 
   it("head-count mode: no quick-reply payloads, logs prompts, binds family_members/message/example", async () => {

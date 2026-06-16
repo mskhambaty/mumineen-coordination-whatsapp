@@ -166,6 +166,17 @@ streams the *full* resolved audience (Name, ITS, HOF ITS, Jamaat, City, Gender, 
 WhatsApp; the preview sample is capped at 100, this is every recipient), gated to admin/leadership
 since it carries full numbers — and there's a **single-ITS test send**.
 
+**Upload CSV** audience: re-upload a CSV in the *exact export format* (a `WhatsApp` column is required;
+Name/ITS/HOF ITS/etc. optional) to broadcast to a hand-trimmed list — e.g. export *All Adults*, delete
+rows in a sheet, re-upload. Parsed client-side for the preview (count + sample) and re-parsed server-side
+at send (`resolveNiyazCsvRecipients` → `parseAudienceCsv`). Each row is matched back to the roster by its
+WhatsApp number so recipients carry the same computed fields a resolved audience would (`family_id`,
+`mumin_id`, `hof_its`, `eligible_family_count`) and the per-recipient RSVP buttons still personalize; rows
+with no roster match are still sent (CSV fields + `eligible_family_count` 1). CSV upload is **POST-only**
+(the file is in the body, not a query param), so it has no GET preview/export — preview is client-side,
+and there's no Export button for it. Deduped by number; every recipient is enqueued + delivery-tracked
+like any other broadcast.
+
 The flow_token / not-attending payloads use the `rsvp:<hof_its>:<day_id>` shape (`day_id` =
 `niyaz_event_config.day_id`, a stable numeric per-day id; the Flow's `registration_instance_id` is
 this day_id, not a per-meal instance UUID). flow_action_data carries `hof_its`,
