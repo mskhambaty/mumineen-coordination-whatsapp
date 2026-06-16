@@ -58,9 +58,17 @@ exported and sent manually (so the build never blocks on Meta template approval)
 
 ## Admin
 
-`/admin/surveys` (admin/leadership) — tabs: **Compose** (group + questions → create form),
-**Forms** (preview sample funnel → commit & send → results), **Databank** (view + add questions).
-APIs under `src/app/api/admin/surveys/**` (gated by `requirePortalCaller(isAdminOrLeadership)`).
+`/admin/surveys` (admin/leadership) — tabs: **Compose** (group + sample size + questions → create
+form), **Forms** (Test link · Preview sample funnel · Commit & send · Results dashboard),
+**Databank** (view + add questions). APIs under `src/app/api/admin/surveys/**` (gated by
+`requirePortalCaller(isAdminOrLeadership)`).
+
+**Self-test:** *Test link* on any form mints an `is_test` recipient (no exposures, excluded from
+results) and returns a real `/feedback/s/<token>` link, so you can preview/submit the live form
+yourself before sending to anyone.
+
+**Sample size** is admin-controlled per form: `suggestSample` resolves *all* qualifying mumineen,
+then takes the top N (fresh-first). Set N high to target everyone who qualifies.
 
 ## Key files
 

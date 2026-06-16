@@ -16,13 +16,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const [{ data: form }, { data: recips }, { data: answers }, { data: fqs }] = await Promise.all([
     supabase.from("survey_forms").select("id, title, status, event_date").eq("id", id).maybeSingle(),
-    supabase.from("survey_recipients").select("status").eq("form_id", id),
-    supabase.from("survey_answers").select("section_id, question_id, area, answer_text, reason_text, sentiment_1_5").eq("form_id", id),
+    supabase.from("survey_recipients").select("id, status, is_test").eq("form_id", id),
+    supabase.from("survey_answers").select("recipient_id, section_id, question_id, area, answer_text, reason_text, sentiment_1_5").eq("form_id", id),
     supabase.from("survey_form_questions").select("section_id, question_id, area, snapshot").eq("form_id", id),
   ]);
   if (!form) return NextResponse.json({ error: "Form not found." }, { status: 404 });
 
-  const recipients = (recips ?? []) as { status: string }[];
+  // Exclude is_test recipients (admin self-test links) from counts and answer aggregation.
+  const recipients = ((recips ?? []) as { id: string; status: string; is_test: boolean }[]).filter((r) => !r.is_test);
+  const testIds = new Set(((recips ?? []) as { id: string; is_test: boolean }[]).filter((r) => r.is_test).map((r) => r.id));
   const sent = recipients.length;
   const completed = recipients.filter((r) => r.status === "completed").length;
 
@@ -37,7 +39,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   // Aggregate per section (1-5 sentiment) and per question (answer breakdown + comments).
   const bySection = new Map<string, { title: string; scores: number[] }>();
   const byQuestion = new Map<string, { text: string; counts: Record<string, number>; comments: string[]; scores: number[] }>();
-  for (const a of (answers ?? []) as { section_id: string | null; question_id: string | null; answer_text: string | null; reason_text: string | null; sentiment_1_5: number | null }[]) {
+  for (const a of (answers ?? []) as { recipient_id: string; section_id: string | null; question_id: string | null; answer_text: string | null; reason_text: string | null; sentiment_1_5: number | null }[]) {
+    if (testIds.has(a.recipient_id)) continue;
     if (a.section_id) {
       const s = bySection.get(a.section_id) ?? { title: sectionTitle.get(a.section_id) ?? "Section", scores: [] };
       if (a.sentiment_1_5 != null) s.scores.push(a.sentiment_1_5);
