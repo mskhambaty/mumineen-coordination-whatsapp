@@ -6,7 +6,7 @@ import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getEventConfig, type NiyazEventConfig } from "@/lib/rsvp/event-config";
 import { formatNiyazEndTime } from "@/lib/rsvp/niyaz-format";
 import { getEvents } from "@/lib/rsvp/meal-rsvp";
-import { buildNiyazSend, createHeadCountPrompts, resolveNiyazAudience, type NiyazAudienceKind } from "@/lib/rsvp/niyaz-prompt";
+import { buildNiyazSend, createHeadCountPrompts, resolveNiyazAudience, resolveNiyazCsvRecipients, type NiyazAudienceKind } from "@/lib/rsvp/niyaz-prompt";
 import type { Recipient } from "@/lib/whatsapp/audience";
 import { createBroadcast } from "@/lib/whatsapp/broadcast";
 import { resolveApprovedTemplateForAnyAccount } from "@/lib/whatsapp/send-template";
@@ -14,7 +14,11 @@ import { MAPPABLE_FIELDS, type Binding, type ButtonBinding, type VariableBinding
 
 export const runtime = "nodejs";
 
+// Audiences resolved from the roster (GET preview + POST send). The CSV-upload audience is POST-only
+// (the file is in the body, not a query param) — its recipients come from the uploaded file, so it's
+// handled separately and is NOT in this list.
 const AUDIENCES = ["specific_its", "all_mumineen", "all_hof", "all_adults", "all_adults_hof"] as const;
+const SEND_AUDIENCES = [...AUDIENCES, "csv_upload"] as const;
 
 // Per-recipient button payload spec (templated; {{tokens}} resolved per recipient at send time).
 const flowButtonSchema = z.object({
@@ -38,7 +42,9 @@ const bindingValueSchema = z.discriminatedUnion("kind", [
 ]);
 
 const bodySchema = z.object({
-  audience: z.enum(AUDIENCES),
+  audience: z.enum(SEND_AUDIENCES),
+  // Raw CSV text for the "csv_upload" audience — the same format the audience export emits.
+  csv: z.string().optional(),
   its: z.array(z.string()).optional(),
   only_non_responders: z.boolean().optional(),
   // Default true (legacy submitted-registration filter). The double-RSVP audiences send false.
@@ -178,14 +184,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { audience, its, only_non_responders, require_registered, level, template_code } = parsed.data;
   const mode = parsed.data.mode ?? "buttons";
 
-  const { recipients, unresolvedIts } = await resolveNiyazAudience({
-    date,
-    audience,
-    its,
-    onlyNonResponders: only_non_responders,
-    level,
-    requireRegistered: require_registered,
-  });
+  // CSV upload: recipients come from the uploaded file (export format), matched back to the roster so
+  // they personalize like a resolved audience. Otherwise resolve the chosen roster audience.
+  let recipients: Recipient[];
+  let unresolvedIts: string[] = [];
+  if (audience === "csv_upload") {
+    if (!parsed.data.csv) return NextResponse.json({ error: "Upload a CSV file first." }, { status: 400 });
+    const csv = await resolveNiyazCsvRecipients(parsed.data.csv);
+    if (csv.error) return NextResponse.json({ error: csv.error }, { status: 400 });
+    recipients = csv.recipients;
+  } else {
+    const resolved = await resolveNiyazAudience({
+      date,
+      audience: audience as NiyazAudienceKind,
+      its,
+      onlyNonResponders: only_non_responders,
+      level,
+      requireRegistered: require_registered,
+    });
+    recipients = resolved.recipients;
+    unresolvedIts = resolved.unresolvedIts;
+  }
   if (recipients.length === 0) {
     return NextResponse.json({ error: "No recipients for this audience.", unresolved_its: unresolvedIts }, { status: 400 });
   }

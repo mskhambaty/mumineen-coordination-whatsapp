@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/admin/client";
 import BroadcastHistory from "@/components/admin/niyaz/BroadcastHistory";
 import { formatNiyazEndTime } from "@/lib/rsvp/niyaz-format";
+import { parseAudienceCsv } from "@/lib/whatsapp/audience-csv";
 
 // ISO timestamp ↔ <input type="datetime-local"> value (browser-local wall clock).
 function toLocalInput(iso: string | null): string {
@@ -33,6 +34,13 @@ type Config = {
 };
 
 type SampleRow = { name: string | null; its: string | null; phone_masked: string };
+
+// Mask all but the last 4 digits — matches the server-side preview masking, used for the client-side
+// CSV-upload preview so an uploaded list shows the same way as a resolved audience.
+function maskPhone(phone: string): string {
+  const digits = phone.replace(/[^\d]/g, "");
+  return digits.length >= 4 ? `••••${digits.slice(-4)}` : "••••";
+}
 
 type TemplatePreview = {
   name: string;
@@ -98,7 +106,8 @@ type AudienceKey =
   | "all_adults"
   | "all_adults_unresponded"
   | "all_adults_hof"
-  | "specific_its";
+  | "specific_its"
+  | "csv_upload";
 
 const DEFAULT_TEMPLATE = "ashara_relay_double_rsvp";
 const DEFAULT_CONFIRMATION_TEMPLATE = "ashara_relay_double_rsvp_confirmation";
@@ -320,6 +329,9 @@ export default function EventRsvpComposer({
   const [audience, setAudience] = useState<AudienceKey>("all_hof");
   const [testIts, setTestIts] = useState("");
   const [hofItsInput, setHofItsInput] = useState("");
+  // Raw CSV text + file name for the "Upload CSV" audience (export-format file).
+  const [csvText, setCsvText] = useState("");
+  const [csvFileName, setCsvFileName] = useState("");
 
   const [preview, setPreview] = useState<{ count: number; sample: SampleRow[]; unresolved: string[] } | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -431,6 +443,25 @@ export default function EventRsvpComposer({
   }
 
   async function runPreview() {
+    // CSV upload: parse the uploaded file client-side (it's the export format) for an instant count +
+    // sample. The server re-parses + roster-matches authoritatively at send time. No instanceId needed.
+    if (audience === "csv_upload") {
+      if (!csvText) return setError("Choose a CSV file first.");
+      const parsed = parseAudienceCsv(csvText);
+      if (parsed.error) return setError(parsed.error);
+      setError(null);
+      setResult(null);
+      setPreview({
+        count: parsed.recipients.length,
+        sample: parsed.recipients.slice(0, 100).map((r) => ({
+          name: r.fields?.full_name ?? null,
+          its: r.fields?.its ?? null,
+          phone_masked: maskPhone(r.phone),
+        })),
+        unresolved: [],
+      });
+      return;
+    }
     if (!instanceId) {
       setError("No registration instance exists for this date yet — create one on the Niyaz events page to send/preview.");
       return;
@@ -510,6 +541,10 @@ export default function EventRsvpComposer({
       setError("RSVP button payloads are not valid JSON.");
       return;
     }
+    if (audience === "csv_upload" && !csvText) {
+      setError("Choose a CSV file first.");
+      return;
+    }
     setSending(true);
     setError(null);
     setResult(null);
@@ -517,22 +552,30 @@ export default function EventRsvpComposer({
       // Persist config first so the confirmation template is ready before any responses arrive.
       if (!(await persistConfig())) return;
       const { body, header } = templateTokens(templates, config.templateCode);
-      const p = audienceParams(audience, testIts, hofItsInput);
+      const variable_bindings = {
+        body: Object.fromEntries(body.map((t) => [t, effBinding(t)])),
+        ...(header ? { header: effBinding(header) } : {}),
+      };
+      // CSV upload sends to the uploaded file (forced per-mumin level); otherwise the chosen audience.
+      const sendBody =
+        audience === "csv_upload"
+          ? { audience: "csv_upload", level: "ind", csv: csvText, template_code: config.templateCode || DEFAULT_TEMPLATE, buttons, variable_bindings }
+          : (() => {
+              const p = audienceParams(audience, testIts, hofItsInput);
+              return {
+                audience: p.audience,
+                level: p.level,
+                require_registered: p.require_registered,
+                only_non_responders: p.only_non_responders,
+                its: p.its,
+                template_code: config.templateCode || DEFAULT_TEMPLATE,
+                buttons,
+                variable_bindings,
+              };
+            })();
       const res = await apiFetch(`/api/admin/niyaz/instances/${instanceId}/broadcast`, {
         method: "POST",
-        body: JSON.stringify({
-          audience: p.audience,
-          level: p.level,
-          require_registered: p.require_registered,
-          only_non_responders: p.only_non_responders,
-          its: p.its,
-          template_code: config.templateCode || DEFAULT_TEMPLATE,
-          buttons,
-          variable_bindings: {
-            body: Object.fromEntries(body.map((t) => [t, effBinding(t)])),
-            ...(header ? { header: effBinding(header) } : {}),
-          },
-        }),
+        body: JSON.stringify(sendBody),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Send failed");
@@ -659,16 +702,49 @@ export default function EventRsvpComposer({
           {audience === "specific_its" && (
             <input value={testIts} onChange={(e) => setTestIts(e.target.value)} className={`${inputCls} mt-1 max-w-sm`} placeholder="ITS number(s), comma-separated" />
           )}
+          <label className="flex items-center gap-2">
+            <input type="radio" name="audience" checked={audience === "csv_upload"} onChange={() => setAudience("csv_upload")} />
+            Upload CSV…
+          </label>
+          {audience === "csv_upload" && (
+            <div className="mt-1 rounded-md border border-gray-100 p-3 dark:border-gray-800">
+              <div className="mb-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300">
+                Use the exact format from <b>Export CSV</b> above — a <b>WhatsApp</b> column is required; Name/ITS/HOF
+                ITS/etc. are optional and personalize the message. Numbers are matched back to the roster so the RSVP
+                buttons work. Rows are <b>deduplicated by number</b>.{" "}
+                <b>Don&apos;t open &amp; re-save in Excel</b> — it corrupts phone numbers; upload the download as-is.
+              </div>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  setPreview(null);
+                  if (!file) {
+                    setCsvText("");
+                    setCsvFileName("");
+                    return;
+                  }
+                  setCsvFileName(file.name);
+                  setCsvText(await file.text());
+                }}
+                className="block w-full text-sm"
+              />
+              {csvFileName && <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">Loaded: <b>{csvFileName}</b>. Preview to validate and see the count.</div>}
+            </div>
+          )}
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={runPreview} disabled={previewing || !instanceId} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
+        <button type="button" onClick={runPreview} disabled={previewing || (audience !== "csv_upload" && !instanceId)} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
           {previewing ? "Previewing…" : "Preview audience"}
         </button>
-        <button type="button" onClick={exportCsv} disabled={exporting || !instanceId} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
-          {exporting ? "Exporting…" : "Export CSV"}
-        </button>
+        {audience !== "csv_upload" && (
+          <button type="button" onClick={exportCsv} disabled={exporting || !instanceId} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
+            {exporting ? "Exporting…" : "Export CSV"}
+          </button>
+        )}
         <button type="button" onClick={send} disabled={sending || !instanceId} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-700">
           {sending ? "Sending…" : "Send broadcast"}
         </button>

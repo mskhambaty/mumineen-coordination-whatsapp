@@ -2171,6 +2171,11 @@ paths:
         resolved per recipient — {{hof_its}}, {{RegistrationInstanceId}} (the day's numeric
         niyaz_event_config.day_id), {{EligibleFamilyCount}} — replacing the legacy
         niyaz|level|scope|date quick-reply buttons.
+        For audience=csv_upload, pass `csv` (raw CSV text in the audience-export format); audience
+        resolution is skipped and each row is matched back to the roster by its WhatsApp number so
+        recipients carry the same computed fields (family_id, mumin_id, hof_its, eligible_family_count)
+        a resolved audience would — so the per-recipient buttons still personalize. CSV upload is
+        POST-only (the file isn't a query param), so the GET preview/export does not accept it.
         Phase 1: inbound Flow/button responses are captured raw by the webhook; decoding into RSVPs
         is phase 2.
       parameters:
@@ -2183,7 +2188,8 @@ paths:
               type: object
               required: [audience, level, template_code]
               properties:
-                audience: { type: string, enum: [specific_its, all_mumineen, all_hof, all_adults, all_adults_hof] }
+                audience: { type: string, enum: [specific_its, all_mumineen, all_hof, all_adults, all_adults_hof, csv_upload] }
+                csv: { type: string, description: "Raw CSV text in the audience-export format (audience=csv_upload). A WhatsApp column is required; Name/ITS/HOF ITS/etc. personalize." }
                 its: { type: array, items: { type: string }, description: "ITS list for specific_its; the single HOF ITS for all_adults_hof." }
                 only_non_responders: { type: boolean, description: "Family-level: excludes a family once any member has a whatsapp/admin RSVP for the day." }
                 require_registered: { type: boolean, default: true, description: "false targets every roster-active, not-attending=false family." }
