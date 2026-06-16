@@ -25,7 +25,8 @@ import {
 import { resolveCallerFromPhone, type CallerContext } from "@/lib/api/auth";
 import type { AppUser } from "@/lib/permissions";
 import { formatSenderProfileForPrompt, getSenderProfile, type SenderProfile } from "@/lib/mumineen/sender-profile";
-import { getRecentMessages, getSupabaseAdmin } from "@/lib/supabase/server";
+import { getRecentMessages, getSupabaseAdmin, recordToolAudit } from "@/lib/supabase/server";
+import { recordMissingLisanWord } from "@/lib/knowledge/lisan-word-requests";
 
 export { SYSTEM_PROMPT };
 
@@ -437,11 +438,29 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   const history = await getRecentMessages(input.phoneE164, HISTORY_MESSAGE_LIMIT).catch(() => []);
   const lastOutbound = [...history].reverse().find((t) => t.direction === "outbound")?.body?.trim() ?? "";
 
+  // Record a deterministic Lisan pre-route reply as a get_lisan_word_meaning tool call. These
+  // pre-routes answer BEFORE the model's tool layer (which is what normally logs), so without this
+  // the lookup never lands in tool_audit_logs — invisible to the monitor surfaces and undercounted in
+  // the Waaz metrics. Fire-and-forget; never delays or breaks the member's reply.
+  const logLisanPreroute = (args: Record<string, unknown>, status: string): void => {
+    void recordToolAudit({
+      phoneE164: input.phoneE164,
+      toolName: "get_lisan_word_meaning",
+      arguments: args,
+      allowed: true,
+      resultSummary: JSON.stringify({ status }),
+    }).catch(() => {});
+  };
+
   // PRE-ROUTE A5: a numeric / "the second one" pick after a dictionary did-you-mean list is
   // resolved deterministically from the prior message — never answered from model memory.
   if (isDidYouMeanFollowUp(input.message, lastOutbound)) {
     const word = pickDidYouMeanCandidate(input.message, lastOutbound);
-    if (word) return renderLisanReply(await lookupLisanWord(word));
+    if (word) {
+      const lookup = await lookupLisanWord(word);
+      logLisanPreroute({ word }, lookup.status);
+      return renderLisanReply(lookup);
+    }
   }
 
   // PRE-ROUTE (reverse dictionary): an explicit "what is the Lisan word for X" / "what is X in lisan
@@ -449,7 +468,11 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   // its phrasing is more specific. A reverse miss is a clean not-found (never queued as a gap).
   if (!isClearlySocial(input.message)) {
     const rev = maybeReverseWordQuery(input.message);
-    if (rev) return renderReverseLisanReply(rev.english, await lookupEnglishMeaning(rev.english));
+    if (rev) {
+      const lookup = await lookupEnglishMeaning(rev.english);
+      logLisanPreroute({ word: rev.english, direction: "to_lisan" }, lookup.status);
+      return renderReverseLisanReply(rev.english, lookup);
+    }
   }
 
   // PRE-ROUTE (step 2): a single-word / "what does X mean" lookup goes straight to the dictionary,
@@ -461,7 +484,12 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
       const lookup = await lookupLisanWord(sw.word);
       // Latin bare token: only an EXACT dictionary hit replies. did_you_mean suggestions for a
       // non-dictionary word (e.g. "No..", "flask") confused real users — fall through instead.
-      if (lookup.status === "ok" || sw.forceAnswer) return renderLisanReply(lookup);
+      if (lookup.status === "ok" || sw.forceAnswer) {
+        logLisanPreroute({ word: sw.word }, lookup.status);
+        // A genuine miss on an explicit ask → queue it for the team, like the model tool path does.
+        if (lookup.status === "not_found") void recordMissingLisanWord(sw.word, input.phoneE164).catch(() => {});
+        return renderLisanReply(lookup);
+      }
     }
   }
 
