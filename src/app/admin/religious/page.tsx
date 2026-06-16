@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { canManageKnowledge, canMonitorReligiousChats, isAdminOrLeadership } from "@/lib/admin/access";
+import { canMonitorReligiousChats, isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 import ChatsTab from "@/components/admin/religious/ChatsTab";
 import ContentTab from "@/components/admin/religious/ContentTab";
@@ -52,7 +52,6 @@ export default function WaazTalaqqiPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [canManage, setCanManage] = useState(false);
 
   const [tab, setTab] = useState<TabKey>("overview");
   const [days, setDays] = useState(30);
@@ -73,7 +72,6 @@ export default function WaazTalaqqiPage() {
       return;
     }
     setIsAdmin(isAdminOrLeadership(user));
-    setCanManage(canManageKnowledge(user));
     const urlTab = new URLSearchParams(window.location.search).get("tab") as TabKey | null;
     if (urlTab) setTab(urlTab);
     setAuthorized(true);
@@ -109,14 +107,15 @@ export default function WaazTalaqqiPage() {
     if (authorized) void loadAll();
   }, [authorized, loadAll]);
 
-  // Topics power the Overview "Today's uploads" panel — managers only (the endpoint is canAccessPortal).
+  // Topics power the Overview "Today's uploads" panel + the Content tab. Open to the whole monitor
+  // team now (the religious-topics endpoint accepts canManageReligiousContent).
   useEffect(() => {
-    if (!authorized || !canManage) return;
+    if (!authorized) return;
     void (async () => {
       const res = await apiFetch("/api/admin/religious-topics");
       if (res.ok) setTopics((await res.json()).topics ?? []);
     })();
-  }, [authorized, canManage]);
+  }, [authorized]);
 
   useEffect(() => {
     if (authorized) void loadMonitors();
@@ -154,12 +153,14 @@ export default function WaazTalaqqiPage() {
       { key: "overview", label: "Overview" },
       { key: "chats", label: "Chats" },
     ];
-    if (canManage) list.push({ key: "dictionary", label: "Dictionary", badge: s?.open_word_requests || undefined });
-    if (canManage) list.push({ key: "content", label: "Content" });
+    // Dictionary + Content are part of the Waaz Talaqqi team's job, so the whole team sees them
+    // (the underlying APIs accept canManageReligiousContent). Team (access control) stays admin-only.
+    list.push({ key: "dictionary", label: "Dictionary", badge: s?.open_word_requests || undefined });
+    list.push({ key: "content", label: "Content" });
     list.push({ key: "flags", label: "Flags", badge: s?.unreviewed_ruling_flags || undefined });
     if (isAdmin) list.push({ key: "team", label: "Team" });
     return list;
-  }, [canManage, isAdmin, s?.open_word_requests, s?.unreviewed_ruling_flags]);
+  }, [isAdmin, s?.open_word_requests, s?.unreviewed_ruling_flags]);
 
   // If the URL/tab points somewhere this user can't see, fall back to Overview.
   const activeTab = tabs.some((t) => t.key === tab) ? tab : "overview";
@@ -216,11 +217,11 @@ export default function WaazTalaqqiPage() {
 
       {/* Tab content */}
       {activeTab === "overview" && (
-        <OverviewTab metrics={metrics} topics={topics} canManage={canManage} onJump={changeTab} />
+        <OverviewTab metrics={metrics} topics={topics} canManage onJump={changeTab} />
       )}
       {activeTab === "chats" && <ChatsTab conversations={conversations} onReload={loadAll} />}
-      {activeTab === "dictionary" && canManage && <DictionaryTab wordRequests={requests} onResolve={resolveRequest} />}
-      {activeTab === "content" && canManage && <ContentTab />}
+      {activeTab === "dictionary" && <DictionaryTab wordRequests={requests} onResolve={resolveRequest} />}
+      {activeTab === "content" && <ContentTab />}
       {activeTab === "flags" && <FlagsTab flags={flags} />}
       {activeTab === "team" && isAdmin && <TeamTab monitors={monitors} directory={directory} onAdd={addMonitor} onRemove={removeMonitor} />}
     </div>

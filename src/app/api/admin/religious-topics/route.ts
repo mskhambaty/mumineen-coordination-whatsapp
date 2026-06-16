@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { canAccessPortal } from "@/lib/admin/access";
+import { canManageReligiousContent } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import {
   createReligiousTopic,
@@ -19,7 +19,7 @@ export const maxDuration = 120;
 
 // GET: all religious topic blocks with content + entry/chunk counts.
 export async function GET(req: NextRequest) {
-  const auth = await requirePortalCaller(req, canAccessPortal);
+  const auth = await requirePortalCaller(req, canManageReligiousContent);
   if (auth instanceof NextResponse) return auth;
   try {
     return NextResponse.json({ topics: await listReligiousTopics() });
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
 // POST { title, ...metadata }: create a new (empty) religious topic block. The Ashara
 // dashboard passes per-majlis metadata (year/majlis/category/language/status/source).
 export async function POST(req: NextRequest) {
-  const auth = await requirePortalCaller(req, canAccessPortal);
+  const auth = await requirePortalCaller(req, canManageReligiousContent);
   if (auth instanceof NextResponse) return auth;
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const title = typeof body.title === "string" ? body.title.trim() : "";

@@ -127,7 +127,11 @@ to the inbox — see [access-control.md](./access-control.md)). The dashboard sh
 **reply box**. Replying (`POST /api/admin/religious/reply`) sends free-form text **only inside
 WhatsApp's 24-hour window** (else 422) and is **state-preserving** — it updates only
 `last_message_at`, never the member's conversation intent/state or `handling_mode`, so an
-in-progress logistics flow is never disturbed. Admins manage the monitor list from the same page.
+in-progress logistics flow is never disturbed. The whole team also gets the **Dictionary** and
+**Content** tabs (managing the Lisan dictionary + per-majlis topics is part of their job) — the
+underlying `lisan-words` / `religious-topics` / `ashara/seed` routes accept
+`canManageReligiousContent` (= existing portal/knowledge managers **plus** a religious monitor).
+The **Team** tab (adding/removing monitors) stays admin/leadership-only, since it controls access.
 
 **Year resolution (1447 ↔ 1448).** Before retrieving, the tool calls `resolveAsharaYear(query, today)` (`ashara-config.ts`) to anchor on the *event*, not the Hijri calendar: explicit `1447/1448` → that year; "last year" → `LAST_COMPLETED_ASHARA_YEAR` (1447, the indexed one); "this year / today / this Ashara / upcoming" → `ACTIVE_ASHARA_YEAR` (1448, not yet posted); no cue → most-recent-available. If the resolved year has no content, the tool returns `not_available` **with** `available_year` + last year's content, and the agent says "1448H isn't posted yet — here's last year (1447H): …" — it never relabels one year's content as another's. Every answer states the concrete year.
 
