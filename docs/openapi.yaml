@@ -2364,6 +2364,23 @@ paths:
         "200": { description: "{ status: deleted }." }
         "404": { description: "Form not found." }
 
+  /api/admin/surveys/responses:
+    get:
+      tags: [admin]
+      summary: Individual mumin survey-feedback lookup
+      description: >-
+        Admin/leadership only. `?q=<name|its>` returns up to 20 candidate matches to pick from;
+        `?its=<its>` returns that person's full survey history — every answer with its question text,
+        form and section, their 1-5 sentiment and any reason — plus per-section sentiment, an overall
+        sentiment, and the forms they were sent.
+      parameters:
+        - { name: q, in: query, required: false, schema: { type: string } }
+        - { name: its, in: query, required: false, schema: { type: string } }
+      responses:
+        "200": { description: "{ matches: [{its,name}] } for q, or { mumin, overall_sentiment, answered, forms_received, sections, answers } for its." }
+        "400": { description: "Neither its nor q provided." }
+        "404": { description: "ITS not found in the active roster." }
+
   /api/admin/surveys/forms/{id}/test-link:
     post:
       tags: [admin]

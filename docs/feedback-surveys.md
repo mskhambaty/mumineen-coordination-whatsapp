@@ -71,6 +71,11 @@ to send that link to their WhatsApp (when `SURVEY_SEND_ENABLED`); otherwise copy
 **Verify a sample:** *Preview sample* returns the chosen sample with **name + ITS + freshness** and
 the admin UI has a **search box** to confirm whether a specific person was selected.
 
+**Individual lookup:** the **Lookup** tab (`GET /api/admin/surveys/responses?q=`/`?its=`) finds a
+mumin by name/ITS and shows their full survey history — every answer with its question, form,
+section, 1-5 sentiment and reason, plus per-section and overall sentiment, and which forms they
+were sent.
+
 **Sample size** is admin-controlled per form: `suggestSample` resolves *all* qualifying mumineen,
 then takes the top N (fresh-first). Set N high to target everyone who qualifies.
 

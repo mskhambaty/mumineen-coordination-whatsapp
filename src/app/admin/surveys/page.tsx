@@ -14,7 +14,7 @@ type FormRow = {
   status: string; event_date: string | null; recipient_count: number; completed_count: number;
 };
 
-type Tab = "compose" | "databank" | "forms";
+type Tab = "compose" | "databank" | "forms" | "lookup";
 
 const inputCls =
   "rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500";
@@ -85,7 +85,7 @@ export default function SurveysAdminPage() {
       <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">Compose targeted surveys, sample a group, and review section sentiment.</p>
 
       <div className="mb-5 flex gap-1 border-b border-gray-200 dark:border-gray-700">
-        {(["compose", "forms", "databank"] as Tab[]).map((t) => (
+        {(["compose", "forms", "lookup", "databank"] as Tab[]).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm font-medium capitalize ${tab === t ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}>
             {t}
@@ -133,6 +133,8 @@ export default function SurveysAdminPage() {
       )}
 
       {tab === "forms" && <FormsTab forms={forms} reload={loadForms} />}
+
+      {tab === "lookup" && <LookupTab />}
 
       {tab === "databank" && (
         <div className="space-y-3">
@@ -246,6 +248,120 @@ function FormsTab({ forms, reload }: { forms: FormRow[]; reload: () => void }) {
           {detail && detail.id === f.id && <DetailView detail={detail} />}
         </div>
       ))}
+    </div>
+  );
+}
+
+type Lookup = {
+  mumin: { its: string; name: string | null };
+  overall_sentiment: number | null;
+  answered: number;
+  forms_received: { title: string; status: string; completed_at: string | null; event_date: string | null; is_test: boolean }[];
+  sections: { title: string; sentiment: number | null; responses: number }[];
+  answers: { form_title: string; section_title: string; question: string; answer: string | null; sentiment: number | null; reason: string | null; date: string | null }[];
+};
+
+function LookupTab() {
+  const [q, setQ] = useState("");
+  const [matches, setMatches] = useState<{ its: string; name: string | null }[] | null>(null);
+  const [data, setData] = useState<Lookup | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function search() {
+    if (!q.trim()) return;
+    setBusy(true); setErr(null); setData(null); setMatches(null);
+    const res = await apiFetch(`/api/admin/surveys/responses?q=${encodeURIComponent(q.trim())}`);
+    const json = await res.json().catch(() => ({}));
+    setMatches(json.matches ?? []);
+    setBusy(false);
+  }
+  async function load(its: string) {
+    setBusy(true); setErr(null); setMatches(null);
+    const res = await apiFetch(`/api/admin/surveys/responses?its=${encodeURIComponent(its)}`);
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) { setErr(json.error ?? "Lookup failed"); setBusy(false); return; }
+    setData(json as Lookup);
+    setBusy(false);
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") search(); }}
+          placeholder="Look up a mumin by name or ITS…"
+          className={`flex-1 ${inputCls}`}
+        />
+        <button onClick={search} disabled={busy} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">Search</button>
+      </div>
+      {err && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{err}</p>}
+
+      {matches && (
+        matches.length === 0
+          ? <p className="text-sm text-gray-500 dark:text-gray-400">No matching mumineen.</p>
+          : <div className="divide-y divide-gray-100 rounded-lg border border-gray-200 dark:divide-gray-800 dark:border-gray-700">
+              {matches.map((m) => (
+                <button key={m.its} onClick={() => load(m.its)} className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-blue-50/50 dark:hover:bg-gray-800/50">
+                  <span className="text-gray-800 dark:text-gray-200">{m.name ?? "—"}</span>
+                  <span className="font-mono text-xs text-gray-400">{m.its}</span>
+                </button>
+              ))}
+            </div>
+      )}
+
+      {data && (
+        <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{data.mumin.name ?? "—"} <span className="font-mono text-xs text-gray-400">{data.mumin.its}</span></p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{data.answered} answers · {data.forms_received.length} forms sent</p>
+            </div>
+            <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">overall <SentimentBadge value={data.overall_sentiment} /></div>
+          </div>
+
+          {data.forms_received.length > 0 && (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {data.forms_received.map((f, i) => (
+                <span key={i} className="rounded border border-gray-200 px-2 py-0.5 text-[11px] text-gray-600 dark:border-gray-700 dark:text-gray-300">
+                  {f.title} · {f.completed_at ? "responded" : f.status}{f.is_test ? " · test" : ""}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {data.sections.length > 0 && (
+            <div className="mb-3">
+              <p className="mb-1 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">Their sentiment by section</p>
+              {data.sections.map((s, i) => (
+                <div key={i} className="flex items-center justify-between py-0.5">
+                  <span className="text-xs text-gray-700 dark:text-gray-300">{s.title} <span className="text-gray-400">({s.responses})</span></span>
+                  <SentimentBadge value={s.sentiment} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {data.answers.length === 0
+            ? <p className="text-xs text-gray-500 dark:text-gray-400">No submitted answers yet.</p>
+            : <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">Answers</p>
+                {data.answers.map((a, i) => (
+                  <div key={i} className="border-t border-gray-200 pt-2 dark:border-gray-700">
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="text-xs text-gray-700 dark:text-gray-300">{a.question}</span>
+                      <SentimentBadge value={a.sentiment} />
+                    </div>
+                    <p className="mt-0.5 text-xs font-medium text-gray-900 dark:text-gray-100">{a.answer ?? "—"}</p>
+                    {a.reason && <p className="mt-0.5 text-[11px] italic text-gray-500 dark:text-gray-400">“{a.reason}”</p>}
+                    <p className="mt-0.5 text-[10px] uppercase text-gray-400">{a.form_title} · {a.section_title}{a.date ? ` · ${a.date}` : ""}</p>
+                  </div>
+                ))}
+              </div>}
+        </div>
+      )}
     </div>
   );
 }
