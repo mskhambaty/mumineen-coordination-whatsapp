@@ -34,6 +34,7 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
   const [loading, setLoading] = useState(true);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,10 +54,25 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
   const answeredCount = allQuestions.filter((q) => (answers[q.question_id ?? ""] ?? "").trim()).length;
   const progress = allQuestions.length ? Math.round((answeredCount / allQuestions.length) * 100) : 0;
 
-  function setAnswer(qid: string, value: string, negativeValues?: string[] | null) {
+  function setAnswer(qid: string, value: string, negativeValues?: string[] | null, type?: string) {
     setAnswers((a) => ({ ...a, [qid]: value }));
+    const isNeg = Boolean(negativeValues?.includes(value));
     // Clear a stale reason if the new answer isn't negative.
-    if (!negativeValues?.includes(value)) setReasons((r) => ({ ...r, [qid]: "" }));
+    if (!isNeg) setReasons((r) => ({ ...r, [qid]: "" }));
+    // Free-text fires onChange per keystroke — never collapse/scroll it (would steal focus). Keep
+    // it expanded.
+    if (type === "text") { setExpanded((e) => ({ ...e, [qid]: true })); return; }
+    // Discrete answers (choice/scale/yes-no): collapse so the next question surfaces. Keep negative
+    // answers expanded so the "why?" box stays visible. Then scroll the next question into view.
+    setExpanded((e) => ({ ...e, [qid]: isNeg }));
+    if (!isNeg) {
+      const idx = allQuestions.findIndex((q) => (q.question_id ?? q.form_question_id) === qid);
+      const next = allQuestions[idx + 1];
+      if (next) {
+        const nid = next.question_id ?? next.form_question_id;
+        setTimeout(() => document.getElementById(`q-${nid}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 60);
+      }
+    }
   }
 
   async function submit() {
@@ -147,10 +163,30 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
                 const value = answers[qid] ?? "";
                 const negVals = q.snapshot.negative_values ?? [];
                 const showReason = Boolean(value) && negVals.includes(value);
+                // Collapsed once answered (so the next question surfaces) — except a negative answer
+                // stays open for its "why?" box. Tap a collapsed question to change the answer.
+                const collapsed = Boolean(value) && !expanded[qid] && !showReason;
+                if (collapsed) {
+                  return (
+                    <button
+                      key={q.form_question_id}
+                      id={`q-${qid}`}
+                      type="button"
+                      onClick={() => setExpanded((e) => ({ ...e, [qid]: true }))}
+                      className="flex w-full items-center justify-between gap-3 px-5 py-3 text-left transition hover:bg-white/[0.03]"
+                    >
+                      <span className="truncate text-sm text-gray-400">{q.snapshot.text}</span>
+                      <span className="flex flex-shrink-0 items-center gap-1.5 text-sm font-medium text-emerald-400">
+                        {value}
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-3.5 w-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M20 6 9 17l-5-5" /></svg>
+                      </span>
+                    </button>
+                  );
+                }
                 return (
-                  <div key={q.form_question_id} className="px-5 py-4">
+                  <div key={q.form_question_id} id={`q-${qid}`} className="scroll-mt-24 px-5 py-4">
                     <p className="mb-3 text-sm font-medium text-gray-100">{q.snapshot.text}</p>
-                    <QuestionInput question={q} value={value} onChange={(v) => setAnswer(qid, v, negVals)} />
+                    <QuestionInput question={q} value={value} onChange={(v) => setAnswer(qid, v, negVals, q.snapshot.type)} />
                     {showReason && (
                       <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
                         <label className="mb-1.5 block text-xs font-medium text-amber-300/90">Sorry to hear that — what was the main issue?</label>

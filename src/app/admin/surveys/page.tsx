@@ -144,8 +144,22 @@ export default function SurveysAdminPage() {
           {sections.map((s) => (
             <div key={s.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
               <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{s.title} <span className="text-[11px] uppercase text-gray-400 dark:text-gray-500">{s.area}</span></p>
-              <ul className="mt-1 list-disc pl-5 text-sm text-gray-600 dark:text-gray-300">
-                {s.questions.map((q) => <li key={q.id}>{q.text}</li>)}
+              <ul className="mt-1 space-y-0.5 text-sm text-gray-600 dark:text-gray-300">
+                {s.questions.map((q) => (
+                  <li key={q.id} className="group flex items-start justify-between gap-3">
+                    <span className="leading-snug"><span className="text-gray-400">•</span> {q.text} <span className="text-[10px] uppercase text-gray-400">({q.type})</span></span>
+                    <button
+                      onClick={async () => {
+                        if (!confirm("Remove this question from the databank? Existing forms keep it; it won't appear in new forms.")) return;
+                        await apiFetch(`/api/admin/surveys/questions/${q.id}`, { method: "DELETE" });
+                        loadDatabank();
+                      }}
+                      className="flex-shrink-0 text-xs text-red-500 opacity-0 hover:underline focus:opacity-100 group-hover:opacity-100 dark:text-red-400"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
               </ul>
               <AddQuestion sectionId={s.id} onAdded={loadDatabank} />
             </div>

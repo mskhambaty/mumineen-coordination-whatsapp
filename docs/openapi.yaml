@@ -2294,6 +2294,19 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /api/admin/surveys/questions/{id}:
+    delete:
+      tags: [admin]
+      summary: Retire a databank question (soft-delete)
+      description: >-
+        Admin/leadership only. Sets active=false — the question leaves the databank and compose
+        picker, but existing forms (which snapshot question text) and past answers/exposures stay.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ status: retired }." }
+        "404": { description: "Question not found." }
+
   /api/admin/surveys/groups:
     get:
       tags: [admin]
