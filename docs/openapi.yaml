@@ -2295,6 +2295,19 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
 
   /api/admin/surveys/questions/{id}:
+    patch:
+      tags: [admin]
+      summary: Edit a databank question
+      description: >-
+        Admin/leadership only. Updates any of { text, type, options, negative_values, polarity,
+        is_general }. Edits affect FUTURE forms only — existing forms snapshot the question text, so
+        already-sent surveys are unchanged.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ question }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { description: "Question not found." }
     delete:
       tags: [admin]
       summary: Retire a databank question (soft-delete)

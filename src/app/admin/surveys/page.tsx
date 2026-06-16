@@ -6,7 +6,12 @@ import { useRouter } from "next/navigation";
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
-type Question = { id: string; section_id: string; text: string; type: string; is_general: boolean };
+type Question = {
+  id: string; section_id: string; text: string; type: string; is_general: boolean;
+  options?: { label: string; score?: number }[] | null;
+  negative_values?: string[] | null;
+  polarity?: "positive" | "negative" | null;
+};
 type Section = { id: string; title: string; area: string; is_general: boolean; questions: Question[] };
 type Group = { id: string; name: string; description: string | null; area_focus: string | null };
 type FormRow = {
@@ -145,21 +150,7 @@ export default function SurveysAdminPage() {
             <div key={s.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
               <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{s.title} <span className="text-[11px] uppercase text-gray-400 dark:text-gray-500">{s.area}</span></p>
               <ul className="mt-1 space-y-0.5 text-sm text-gray-600 dark:text-gray-300">
-                {s.questions.map((q) => (
-                  <li key={q.id} className="group flex items-start justify-between gap-3">
-                    <span className="leading-snug"><span className="text-gray-400">•</span> {q.text} <span className="text-[10px] uppercase text-gray-400">({q.type})</span></span>
-                    <button
-                      onClick={async () => {
-                        if (!confirm("Remove this question from the databank? Existing forms keep it; it won't appear in new forms.")) return;
-                        await apiFetch(`/api/admin/surveys/questions/${q.id}`, { method: "DELETE" });
-                        loadDatabank();
-                      }}
-                      className="flex-shrink-0 text-xs text-red-500 opacity-0 hover:underline focus:opacity-100 group-hover:opacity-100 dark:text-red-400"
-                    >
-                      Remove
-                    </button>
-                  </li>
-                ))}
+                {s.questions.map((q) => <EditableQuestion key={q.id} q={q} onChanged={loadDatabank} />)}
               </ul>
               <AddQuestion sectionId={s.id} onAdded={loadDatabank} />
             </div>
@@ -167,6 +158,66 @@ export default function SurveysAdminPage() {
         </div>
       )}
     </div>
+  );
+}
+
+const QUAL_OPTS = [{ label: "Excellent" }, { label: "Good" }, { label: "Fair" }, { label: "Poor" }];
+
+function EditableQuestion({ q, onChanged }: { q: Question; onChanged: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(q.text);
+  const [type, setType] = useState(q.type);
+  const [isGeneral, setIsGeneral] = useState(q.is_general);
+  const [polarity, setPolarity] = useState<"positive" | "negative">(q.polarity ?? "positive");
+  const [saving, setSaving] = useState(false);
+
+  function reset() { setText(q.text); setType(q.type); setIsGeneral(q.is_general); setPolarity(q.polarity ?? "positive"); }
+
+  async function save() {
+    setSaving(true);
+    const patch: Record<string, unknown> = { text: text.trim(), type, is_general: isGeneral, polarity };
+    // Keep options/negatives sensible when the type changes.
+    if (type === "choice" && (!q.options || q.options.length < 2)) { patch.options = QUAL_OPTS; patch.negative_values = ["Fair", "Poor"]; }
+    else if (type === "yesno") patch.negative_values = ["No"];
+    const res = await apiFetch(`/api/admin/surveys/questions/${q.id}`, { method: "PATCH", body: JSON.stringify(patch) });
+    setSaving(false);
+    if (res.ok) { setEditing(false); onChanged(); }
+  }
+  async function remove() {
+    if (!confirm("Remove this question from the databank? Existing forms keep it; it won't appear in new forms.")) return;
+    await apiFetch(`/api/admin/surveys/questions/${q.id}`, { method: "DELETE" });
+    onChanged();
+  }
+
+  if (editing) {
+    const small = "rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100";
+    return (
+      <li className="flex flex-wrap items-center gap-2 py-1.5">
+        <input value={text} onChange={(e) => setText(e.target.value)} className={`min-w-[14rem] flex-1 ${small}`} />
+        <select value={type} onChange={(e) => setType(e.target.value)} className={small}>
+          <option value="yesno">Yes/No</option><option value="choice">Choice (QUAL)</option>
+          <option value="scale10">Scale 1-10</option><option value="scale5">Scale 1-5</option><option value="text">Text</option>
+        </select>
+        {(type === "yesno" || type === "scale10" || type === "scale5") && (
+          <select value={polarity} onChange={(e) => setPolarity(e.target.value as "positive" | "negative")} className={small} title="How the answer scores">
+            <option value="positive">higher = better</option><option value="negative">inverted (yes = worse)</option>
+          </select>
+        )}
+        <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300"><input type="checkbox" checked={isGeneral} onChange={(e) => setIsGeneral(e.target.checked)} className="accent-blue-600" /> general</label>
+        <button onClick={save} disabled={saving || text.trim().length < 3} className="rounded bg-blue-600 px-2 py-1 text-xs text-white disabled:opacity-50">Save</button>
+        <button onClick={() => { reset(); setEditing(false); }} className="text-xs text-gray-500 hover:underline dark:text-gray-400">Cancel</button>
+      </li>
+    );
+  }
+
+  return (
+    <li className="group flex items-start justify-between gap-3">
+      <span className="leading-snug"><span className="text-gray-400">•</span> {q.text} <span className="text-[10px] uppercase text-gray-400">({q.type})</span></span>
+      <span className="flex flex-shrink-0 gap-2 opacity-0 focus-within:opacity-100 group-hover:opacity-100">
+        <button onClick={() => setEditing(true)} className="text-xs text-blue-500 hover:underline dark:text-blue-400">Edit</button>
+        <button onClick={remove} className="text-xs text-red-500 hover:underline dark:text-red-400">Remove</button>
+      </span>
+    </li>
   );
 }
 
