@@ -79,17 +79,25 @@ export function buildAllUpWhatsappSummary(baseShort: string, depts: DeptMetrics[
   const issueDepts = depts.filter(hasDepartmentIssues).sort((a, b) => allUpIssueScore(b) - allUpIssueScore(a));
   if (issueDepts.length === 0 && extras.untriaged_issues === 0) return headline.slice(0, MAX_ALL_UP_WA_CHARS);
 
+  // Trailing lines (untriaged + a possible overflow marker) are appended after the per-department
+  // lines, so the loop must RESERVE room for them — otherwise the final slice() truncates the
+  // marker that tells the reader some departments were omitted.
+  const untriagedLine = extras.untriaged_issues > 0 ? `- Untriaged agent issues: ${extras.untriaged_issues}` : null;
+
   const lines = [headline, "Departments needing attention:"];
   let hidden = 0;
   for (let i = 0; i < issueDepts.length; i++) {
     const candidate = `- ${allUpIssueLine(issueDepts[i])}`;
-    if ([...lines, candidate].join("\n").length > MAX_ALL_UP_WA_CHARS) {
-      hidden = issueDepts.length - i;
+    const remaining = issueDepts.length - i;
+    // Reserve space for the untriaged line and a worst-case marker for the still-unshown depts.
+    const reserved = [untriagedLine, `- +${remaining} more departments with issues`].filter(Boolean);
+    if ([...lines, candidate, ...reserved].join("\n").length > MAX_ALL_UP_WA_CHARS) {
+      hidden = remaining;
       break;
     }
     lines.push(candidate);
   }
-  if (extras.untriaged_issues > 0) lines.push(`- Untriaged agent issues: ${extras.untriaged_issues}`);
+  if (untriagedLine) lines.push(untriagedLine);
   if (hidden > 0) lines.push(`- +${hidden} more departments with issues`);
   return lines.join("\n").slice(0, MAX_ALL_UP_WA_CHARS);
 }
