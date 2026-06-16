@@ -117,10 +117,10 @@ const isEmptyField = (v: unknown) => v == null || String(v).trim() === "";
 // audience counts collapse (e.g. 3k+ members read as ~900). Page through a query in 1000-row windows
 // so the full set is returned. `make` must return a fresh query builder each call (so .range() can be
 // applied) and the query must carry a stable .order() for correct, non-overlapping paging.
-interface Pageable<T> {
+export interface Pageable<T> {
   range(from: number, to: number): PromiseLike<{ data: T[] | null }>;
 }
-async function fetchAllRows<T>(make: () => Pageable<T>): Promise<T[]> {
+export async function fetchAllRows<T>(make: () => Pageable<T>): Promise<T[]> {
   const PAGE = 1000;
   const out: T[] = [];
   for (let from = 0; ; from += PAGE) {

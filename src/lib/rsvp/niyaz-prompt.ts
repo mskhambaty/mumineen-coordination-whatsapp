@@ -1,7 +1,7 @@
 import { getEvents, type NiyazLevel } from "@/lib/rsvp/meal-rsvp";
 import { shortFamilyName } from "@/lib/rsvp/niyaz-format";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import type { Recipient } from "@/lib/whatsapp/audience";
+import { fetchAllRows, type Pageable, type Recipient } from "@/lib/whatsapp/audience";
 import { MAPPABLE_FIELDS } from "@/lib/whatsapp/templates";
 
 // Audience resolution + send context for the admin-triggered daily Niyaz RSVP templates. The button
@@ -104,8 +104,10 @@ export async function resolveNiyazAudience(opts: {
   if (opts.audience === "specific_its") {
     const itsList = [...new Set((opts.its ?? []).map((s) => s.trim()).filter(Boolean))];
     if (itsList.length === 0) return { recipients: [], unresolvedIts: [] };
-    const { data } = await supabase.from("mumineen").select(sel).in("its", itsList).eq("roster_active", true);
-    const rows = (data ?? []) as unknown as (MuminRow & { its: string })[];
+    // Paged so a large paste of ITS can't be silently capped at 1000 matches. Stable .order("id").
+    const rows = await fetchAllRows<MuminRow & { its: string }>(() =>
+      supabase.from("mumineen").select(sel).in("its", itsList).eq("roster_active", true).order("id", { ascending: true }) as unknown as Pageable<MuminRow & { its: string }>,
+    );
     const foundIts = new Set(rows.map((r) => String(r.its)));
     for (const its of itsList) if (!foundIts.has(its)) unresolvedIts.push(its);
     for (const m of rows) {
@@ -134,6 +136,11 @@ export async function resolveNiyazAudience(opts: {
     // (1000+ family UUIDs blew past the request URL limit, returning nothing). require_registered
     // (default true) additionally requires a submitted registration.
     const selFam = `${sel}, families!inner(roster_active, registration_status)`;
+    // Page through ALL matching rows. PostgREST caps a single response at 1000 rows, so a bare
+    // `await` silently truncated large audiences — "All Adults" (2k+ member rows) read as 1000 and,
+    // after dedupe-by-phone, collapsed to ~930. fetchAllRows windows the query in 1000-row pages
+    // (stable .order("id") so pages don't overlap), returning the full audience. `baseQuery` must
+    // build a FRESH builder each call so .range() can be re-applied per page.
     const baseQuery = () => {
       let q = supabase
         .from("mumineen")
@@ -141,25 +148,26 @@ export async function resolveNiyazAudience(opts: {
         .eq("roster_active", true)
         .eq("not_attending", false)
         .not("whatsapp_e164", "is", null)
-        .eq("families.roster_active", true);
+        .eq("families.roster_active", true)
+        .order("id", { ascending: true });
       if (opts.requireRegistered ?? true) q = q.eq("families.registration_status", "submitted");
+      // all_adults narrows to adults; all_mumineen / all_hof scan every reachable member.
+      if (opts.audience === "all_adults") q = q.eq("is_adult", true);
       return q;
     };
 
+    const rows = await fetchAllRows<MuminRow>(() => baseQuery() as unknown as Pageable<MuminRow>);
+
     if (opts.audience === "all_hof") {
-      const { data } = await baseQuery();
       const byFamily = new Map<string, MuminRow>();
-      for (const m of (data ?? []) as unknown as MuminRow[]) {
+      for (const m of rows) {
         const existing = byFamily.get(m.family_id!);
         if (!existing || m.is_head) byFamily.set(m.family_id!, m);
       }
       recipients = dedupeByPhone([...byFamily.values()].map(toRecipient));
     } else {
       // all_mumineen / all_adults — every (adult) member with their own number.
-      let q = baseQuery();
-      if (opts.audience === "all_adults") q = q.eq("is_adult", true);
-      const { data } = await q;
-      recipients = dedupeByPhone(((data ?? []) as unknown as MuminRow[]).map(toRecipient));
+      recipients = dedupeByPhone(rows.map(toRecipient));
     }
   }
 
@@ -170,14 +178,22 @@ export async function resolveNiyazAudience(opts: {
   const namesByFam = new Map<string, string[]>();
   const eligibleByFam = new Map<string, number>();
   // Chunk the family lookup — a single .in() over 1000+ family ids exceeds the request URL limit.
+  // Each chunk is itself paged with fetchAllRows: 300 families can hold >1000 member rows, which the
+  // 1000-row PostgREST cap would silently truncate (under-counting eligible_family_count and dropping
+  // family_members names). Stable .order("id") keeps the pages non-overlapping.
+  type FamMemberRow = { family_id: string; full_name: string | null; not_attending: boolean | null; age: number | null };
   const CHUNK = 300;
   for (let i = 0; i < famIds.length; i += CHUNK) {
-    const { data } = await supabase
-      .from("mumineen")
-      .select("family_id, full_name, not_attending, age")
-      .in("family_id", famIds.slice(i, i + CHUNK))
-      .eq("roster_active", true);
-    for (const m of (data ?? []) as { family_id: string; full_name: string | null; not_attending: boolean | null; age: number | null }[]) {
+    const chunk = famIds.slice(i, i + CHUNK);
+    const data = await fetchAllRows<FamMemberRow>(() =>
+      supabase
+        .from("mumineen")
+        .select("family_id, full_name, not_attending, age")
+        .in("family_id", chunk)
+        .eq("roster_active", true)
+        .order("id", { ascending: true }) as unknown as Pageable<FamMemberRow>,
+    );
+    for (const m of data) {
       if (m.full_name) {
         const arr = namesByFam.get(m.family_id) ?? [];
         arr.push(shortFamilyName(m.full_name));
@@ -199,14 +215,20 @@ export async function resolveNiyazAudience(opts: {
   if (opts.onlyNonResponders) {
     const instanceIds = (await getEvents()).filter((e) => e.eventDate === opts.date).map((e) => e.id);
     if (instanceIds.length > 0) {
-      const { data } = await supabase
-        .from("niyaz_rsvp")
-        .select("family_id")
-        .in("registration_instance_id", instanceIds)
-        .in("source", ["whatsapp", "admin"]);
+      // Paged: a day's niyaz_rsvp rows (one per attending mumin per meal) run into the thousands, well
+      // past the 1000-row cap. A truncated `answered` set would wrongly KEEP families who already
+      // responded, so the "not responded" audience must read every response row. Stable .order("id").
+      const responses = await fetchAllRows<{ family_id: string | null }>(() =>
+        supabase
+          .from("niyaz_rsvp")
+          .select("family_id")
+          .in("registration_instance_id", instanceIds)
+          .in("source", ["whatsapp", "admin"])
+          .order("id", { ascending: true }) as unknown as Pageable<{ family_id: string | null }>,
+      );
       // Family-level: once any member of a family responds for the day, the whole family is excluded
       // (a family RSVP stamps every member with source='whatsapp').
-      const answered = new Set(((data ?? []) as { family_id: string | null }[]).map((r) => r.family_id));
+      const answered = new Set(responses.map((r) => r.family_id));
       recipients = recipients.filter((r) => !answered.has(r.familyId));
     }
   }
