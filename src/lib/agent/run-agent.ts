@@ -402,6 +402,21 @@ export function buildSystemPrompt(params: {
     systemContent += rule.text;
   }
 
+  // Current date/time in the Relay Center's local timezone. The model has no
+  // inherent clock and would otherwise hallucinate the date (or parrot stale
+  // dated FAQ content as "tonight"). Placed in the dynamic tail (with sender
+  // context) so the cacheable static prefix above stays byte-identical.
+  const nowChicago = new Date().toLocaleString("en-US", {
+    timeZone: "America/Chicago",
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  systemContent += `\n\n## Current Date & Time\nIt is currently ${nowChicago} in America/Chicago (the Relay Center's local time). Treat this as "now" / "today" / "tonight" when answering. If indexed content names a specific date, only present it as today's/tonight's program when that date matches the current date above; otherwise it refers to a different day — do not pass stale dated content off as today's. If you do not have confirmed program details for the current date, say so and point to the latest WhatsApp announcement / helpline rather than giving an out-of-date day's schedule.`;
+
   // Per-user sender/caller context goes LAST so the static prefix above stays
   // byte-identical across users and remains cacheable. It belongs in the system
   // prompt (not a user turn) so the message history can replay cleanly.
