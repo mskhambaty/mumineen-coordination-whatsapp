@@ -7,6 +7,7 @@ import { getEventConfig, type NiyazEventConfig } from "@/lib/rsvp/event-config";
 import { formatNiyazEndTime } from "@/lib/rsvp/niyaz-format";
 import { getEvents } from "@/lib/rsvp/meal-rsvp";
 import { buildNiyazSend, createHeadCountPrompts, resolveNiyazAudience, type NiyazAudienceKind } from "@/lib/rsvp/niyaz-prompt";
+import type { Recipient } from "@/lib/whatsapp/audience";
 import { createBroadcast } from "@/lib/whatsapp/broadcast";
 import { resolveApprovedTemplateForAnyAccount } from "@/lib/whatsapp/send-template";
 import { MAPPABLE_FIELDS, type Binding, type ButtonBinding, type VariableBindings } from "@/lib/whatsapp/templates";
@@ -101,16 +102,44 @@ function maskPhone(phone: string): string {
   return digits.length >= 4 ? `••••${digits.slice(-4)}` : "••••";
 }
 
+const csvEsc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+
+// The full resolved audience as a CSV download (the on-screen preview sample is capped at 100; this
+// is EVERY matched recipient). Unlike the preview it carries UNMASKED phone numbers, so the GET
+// handler gates this branch to admin/leadership. Columns mirror the Send Templates console export.
+function audienceCsv(recipients: Recipient[], audience: string, date: string): NextResponse {
+  const header = ["Name", "ITS", "HOF ITS", "Jamaat", "City", "Gender", "Local/Mehman", "WhatsApp"];
+  const lines = [header.map(csvEsc).join(",")];
+  for (const r of recipients) {
+    const f = r.fields ?? {};
+    lines.push(
+      [f.full_name, f.its, f.hof_its, f.jamaat, f.city, f.gender, f.local_mehman, r.phone].map(csvEsc).join(","),
+    );
+  }
+  // Prepend a BOM so Excel reads UTF-8 names correctly.
+  const csv = "﻿" + lines.join("\r\n");
+  return new NextResponse(csv, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="niyaz-audience-${audience}-${date}.csv"`,
+    },
+  });
+}
+
 // GET — audience preview: recipient count + a sample list (name/ITS/masked phone) for the chosen
-// audience/filters/level, so the composer can show who will receive the broadcast.
+// audience/filters/level, so the composer can show who will receive the broadcast. With
+// `format=csv` it instead returns the FULL resolved audience as a CSV download (unmasked phone
+// numbers) — that branch is gated to admin/leadership, the masked preview to any portal user.
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requirePortalCaller(req, canAccessPortal);
+  const sp = req.nextUrl.searchParams;
+  const wantCsv = sp.get("format") === "csv";
+  const auth = await requirePortalCaller(req, wantCsv ? isAdminOrLeadership : canAccessPortal);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   const date = await eventDate(id);
   if (!date) return NextResponse.json({ error: "Event has no date." }, { status: 400 });
 
-  const sp = req.nextUrl.searchParams;
   const audience = sp.get("audience") as NiyazAudienceKind | null;
   if (!audience || !(AUDIENCES as readonly string[]).includes(audience)) {
     return NextResponse.json({ error: "Invalid audience." }, { status: 400 });
@@ -121,6 +150,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const its = (sp.get("its") ?? "").split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
 
   const { recipients, unresolvedIts } = await resolveNiyazAudience({ date, audience, its, onlyNonResponders, level, requireRegistered });
+
+  if (wantCsv) return audienceCsv(recipients, audience, date);
+
   const sample = recipients.slice(0, 100).map((r) => ({
     name: (r.fields?.full_name as string | undefined) ?? null,
     its: (r.fields?.its as string | undefined) ?? null,

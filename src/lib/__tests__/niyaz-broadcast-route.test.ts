@@ -194,4 +194,32 @@ describe("GET niyaz broadcast (audience preview)", () => {
     expect(json.sample).toHaveLength(2);
     expect(json.sample[0]).toEqual({ name: "Aliasger", its: "10000001", phone_masked: "••••4567" });
   });
+
+  it("format=csv returns the full audience as a CSV download with UNMASKED phone numbers", async () => {
+    requirePortalCaller.mockResolvedValue(allow());
+    resolveNiyazAudience.mockResolvedValue({
+      recipients: [
+        { phone: "+15551234567", familyId: "f1", muminId: "m1", fields: { full_name: "Aliasger", its: "10000001", hof_its: "10000001", jamaat: "Chicago", city: "Chicago", gender: "M", local_mehman: "Local" } },
+        { phone: "+15557654321", familyId: "f2", muminId: "m2", fields: { full_name: 'Fatema "F"', its: "10000002" } },
+      ],
+      unresolvedIts: [],
+    });
+    const res = await GET(new NextRequest("http://localhost/api/admin/niyaz/instances/e1/broadcast?audience=all_hof&level=fam&format=csv"), { params });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/csv");
+    expect(res.headers.get("Content-Disposition")).toContain('filename="niyaz-audience-all_hof-2026-06-16.csv"');
+    const text = await res.text();
+    const lines = text.replace(/^﻿/, "").split("\r\n");
+    expect(lines[0]).toBe('"Name","ITS","HOF ITS","Jamaat","City","Gender","Local/Mehman","WhatsApp"');
+    // Full (unmasked) phone numbers, and quotes in a value are escaped by doubling.
+    expect(lines[1]).toBe('"Aliasger","10000001","10000001","Chicago","Chicago","M","Local","+15551234567"');
+    expect(lines[2]).toBe('"Fatema ""F""","10000002","","","","","","+15557654321"');
+  });
+
+  it("format=csv is gated to admin/leadership (403 for a non-authorized caller)", async () => {
+    requirePortalCaller.mockResolvedValue(deny());
+    const res = await GET(new NextRequest("http://localhost/api/admin/niyaz/instances/e1/broadcast?audience=all_hof&level=fam&format=csv"), { params });
+    expect(res.status).toBe(403);
+    expect(resolveNiyazAudience).not.toHaveBeenCalled();
+  });
 });
