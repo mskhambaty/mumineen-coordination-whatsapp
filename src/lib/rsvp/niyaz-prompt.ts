@@ -32,6 +32,13 @@ function dedupeByPhone(list: Recipient[]): Recipient[] {
   return [...byPhone.values()];
 }
 
+// Who counts toward eligible_family_count (the {{EligibleFamilyCount}} flow prefill): roster-active,
+// not marked not-attending, and older than 5 (young children are excluded). Unknown age (null) is
+// treated as eligible, matching the "null age = adult" convention used elsewhere.
+function isEligibleForCount(m: { not_attending: boolean | null; age: number | null }): boolean {
+  return m.not_attending !== true && (m.age == null || m.age > 5);
+}
+
 export type NiyazAudienceKind = "specific_its" | "all_mumineen" | "all_hof" | "all_adults" | "all_adults_hof";
 
 // The per-recipient template field map for ONE family (its head) — used to resolve the confirmation
@@ -56,12 +63,12 @@ export async function getFamilyTemplateFields(familyId: string): Promise<Record<
 
   const { data: members } = await supabase
     .from("mumineen")
-    .select("full_name, not_attending")
+    .select("full_name, not_attending, age")
     .eq("family_id", familyId)
     .eq("roster_active", true);
-  const rows = (members ?? []) as { full_name: string | null; not_attending: boolean | null }[];
+  const rows = (members ?? []) as { full_name: string | null; not_attending: boolean | null; age: number | null }[];
   fields.family_members = rows.map((m) => shortFamilyName(m.full_name)).filter(Boolean).join(", ");
-  fields.eligible_family_count = String(rows.filter((m) => m.not_attending !== true).length);
+  fields.eligible_family_count = String(rows.filter(isEligibleForCount).length);
   return fields;
 }
 
@@ -167,16 +174,16 @@ export async function resolveNiyazAudience(opts: {
   for (let i = 0; i < famIds.length; i += CHUNK) {
     const { data } = await supabase
       .from("mumineen")
-      .select("family_id, full_name, not_attending")
+      .select("family_id, full_name, not_attending, age")
       .in("family_id", famIds.slice(i, i + CHUNK))
       .eq("roster_active", true);
-    for (const m of (data ?? []) as { family_id: string; full_name: string | null; not_attending: boolean | null }[]) {
+    for (const m of (data ?? []) as { family_id: string; full_name: string | null; not_attending: boolean | null; age: number | null }[]) {
       if (m.full_name) {
         const arr = namesByFam.get(m.family_id) ?? [];
         arr.push(shortFamilyName(m.full_name));
         namesByFam.set(m.family_id, arr);
       }
-      if (m.not_attending !== true) eligibleByFam.set(m.family_id, (eligibleByFam.get(m.family_id) ?? 0) + 1);
+      if (isEligibleForCount(m)) eligibleByFam.set(m.family_id, (eligibleByFam.get(m.family_id) ?? 0) + 1);
     }
   }
   for (const r of recipients) {
