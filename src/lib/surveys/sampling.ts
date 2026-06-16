@@ -16,6 +16,7 @@ export type SampleCandidate = {
   its: string;
   phone: string;
   fullName: string | null;
+  gender: string | null;
   priorSends: number; // how many surveys they've previously been sent (freshness)
 };
 
@@ -97,6 +98,7 @@ export async function suggestSample(
       its: r.its,
       phone: r.whatsapp_e164 as string,
       fullName: r.full_name,
+      gender: r.gender,
       priorSends: priorSends.get(id) ?? 0,
     });
   }

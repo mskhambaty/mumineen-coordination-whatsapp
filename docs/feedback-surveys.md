@@ -44,8 +44,11 @@ Section sentiment = mean of its scored answers.
 ## Delivery (`src/lib/surveys/send.ts`)
 
 `commitAndSendForm(formId, templateCode?)` creates tokens + writes exposures (irreversible), then
-dispatches a WhatsApp template via `createBroadcast` — the URL button suffix `{{1}}` = the recipient
-token (`https://<APP_URL>/feedback/s/<token>`), body `{{1}}` = first name. The **template is picked
+dispatches a WhatsApp template via `createBroadcast`. The shared `dispatchSurveyTemplate` resolves the
+template (and the WABA/number it lives in) from Meta and binds dynamically: the **dynamic URL-button
+suffix = `feedback/s/<token>`** (the template's base URL is the site root), and **every body variable
+the template declares** (positional `{{1}}` or named like `mumin_name`) → the name as
+**"&lt;First&gt; bhai/bai"** (`honorificName`, by gender). The **template is picked
 from a dropdown** in the Forms tab (approved URL-button templates from
 `GET /api/admin/whatsapp/templates`) and passed as `template`; `resolveSurveyTemplate` uses the
 explicit choice, else falls back to `SURVEY_WA_TEMPLATE` only when `SURVEY_SEND_ENABLED=true`. With

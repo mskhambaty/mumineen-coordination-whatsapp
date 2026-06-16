@@ -30,20 +30,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   let familyId: string | null = null;
   let name: string | null = null;
   let phone: string | null = null;
+  let gender: string | null = null;
   const its = typeof body.its === "string" ? body.its.trim() : "";
   if (its) {
     const { data: mumin } = await supabase
       .from("mumineen")
-      .select("id, family_id, full_name, whatsapp_e164")
+      .select("id, family_id, full_name, whatsapp_e164, gender")
       .eq("its", its)
       .eq("roster_active", true)
       .maybeSingle();
     if (!mumin) return NextResponse.json({ error: `ITS ${its} not found in the active roster.` }, { status: 400 });
-    const m = mumin as { id: string; family_id: string | null; full_name: string | null; whatsapp_e164: string | null };
+    const m = mumin as { id: string; family_id: string | null; full_name: string | null; whatsapp_e164: string | null; gender: string | null };
     muminId = m.id;
     familyId = m.family_id;
     name = m.full_name;
     phone = m.whatsapp_e164;
+    gender = m.gender;
   }
 
   const token = generateSurveyToken();
@@ -64,7 +66,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   let delivery: { delivered: boolean; error?: string } | null = null;
   if (body.deliver === true) {
     if (!phone) delivery = { delivered: false, error: "That person has no WhatsApp number on file." };
-    else delivery = await deliverSurveyLink(phone, token, name, typeof body.template === "string" ? body.template : undefined);
+    else delivery = await deliverSurveyLink(phone, token, name, typeof body.template === "string" ? body.template : undefined, gender);
   }
 
   return NextResponse.json({ link: surveyLink(token), token, name, phone, delivery });
