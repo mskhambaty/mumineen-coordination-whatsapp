@@ -8,7 +8,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
-const MAX_CONVERSATIONS = 60;
+const MAX_CONVERSATIONS = 200;
 
 // GET: conversations that used a religious tool, newest activity first, with each thread's messages
 // and whether the member is inside WhatsApp's 24h reply window (drives the reply box). Optional
@@ -25,18 +25,16 @@ export async function GET(req: NextRequest) {
 
   const supabase = getSupabaseAdmin();
 
-  // Phones that used a religious tool in range, most-recent first.
-  let auditQuery = supabase
+  // Phones that used a religious tool — ALL-TIME membership, matching the Inbox's "Religious / Lisan"
+  // filter. We scope to the selected range later by conversation ACTIVITY (last_at), NOT by tool-call
+  // time, so a recently-active member whose religious tool call is older than the window isn't dropped.
+  const { data: audit, error: auditError } = await supabase
     .from("tool_audit_logs")
     .select("phone_e164, created_at")
     .in("tool_name", [...RELIGIOUS_TOOL_NAMES])
     .not("phone_e164", "is", null)
-    .gte("created_at", fromIso)
     .order("created_at", { ascending: false })
     .limit(5000);
-  if (toIso) auditQuery = auditQuery.lte("created_at", toIso);
-
-  const { data: audit, error: auditError } = await auditQuery;
   if (auditError) return NextResponse.json({ error: auditError.message }, { status: 500 });
 
   // Distinct phones in recency order, capped.
@@ -98,5 +96,15 @@ export async function GET(req: NextRequest) {
   // Newest activity first.
   conversations.sort((a, b) => (b.last_at ?? "").localeCompare(a.last_at ?? ""));
 
-  return NextResponse.json({ conversations });
+  // Scope to the selected window by recent ACTIVITY (keeps the "Last N days" dropdown meaningful
+  // while membership stays all-time). Robust to timestamp-format differences via Date.parse.
+  const fromMs = Date.parse(fromIso);
+  const toMs = toIso ? Date.parse(toIso) : Infinity;
+  const inRange = conversations.filter((c) => {
+    if (!c.last_at) return false;
+    const t = Date.parse(c.last_at);
+    return t >= fromMs && t <= toMs;
+  });
+
+  return NextResponse.json({ conversations: inRange });
 }

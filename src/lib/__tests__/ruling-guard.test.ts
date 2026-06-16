@@ -77,6 +77,11 @@ describe("looksLogistics (FAQ-derived allow-list)", () => {
       "is there a host family for accommodation",
       "what is the dress code",
       "where is the nearest bathroom",
+      // RSVP / meal — members ask about their niyaz RSVP; never a fatwa.
+      "what is my RSVP",
+      "can you tell me what did I RSVP for 2nd Moharram",
+      "update my RSVP",
+      "do I need to RSVP for the meal",
     ]) {
       expect(looksLogistics(q), q).toBe(true);
     }
@@ -150,6 +155,13 @@ describe("isPersonalRuling", () => {
     const res = await isPersonalRuling("am I supposed to eat dragon fruit during these days");
     expect(res).toEqual({ ruling: true, via: "classifier" });
     expect(mocks.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("rescues an RSVP question via logistics WITHOUT calling the classifier", async () => {
+    // "do I need to" trips the permission pre-filter; the rsvp logistics term must short-circuit first.
+    const res = await isPersonalRuling("do I need to RSVP for the meal");
+    expect(res).toEqual({ ruling: false, via: "logistics" });
+    expect(mocks.create).not.toHaveBeenCalled();
   });
 });
 
