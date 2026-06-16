@@ -1,25 +1,44 @@
 import { getEventConfigByDayId, type NiyazEventConfig } from "@/lib/rsvp/event-config";
+import { formatNiyazEndTime } from "@/lib/rsvp/niyaz-format";
 import { getFamilyTemplateFields } from "@/lib/rsvp/niyaz-prompt";
 import { getFamilyByHofIts, getNiyazRsvpStatus, recordNiyazDayRsvp } from "@/lib/rsvp/meal-rsvp";
 import { resolveApprovedTemplateForAnyAccount, sendTemplateNotification } from "@/lib/whatsapp/send-template";
 import { resolveBindings, type Binding, type ButtonBinding, type VariableBindings } from "@/lib/whatsapp/templates";
 
+// Outcome of decoding an interactive response: recorded (RSVP saved + confirmation sent), ended (past
+// the day's cutoff — caller should reply with `endedMessage`), or ignored (family/day unresolved).
+export type NiyazInteractiveOutcome = { status: "recorded" | "ended" | "ignored"; endedMessage?: string };
+
 // Phase 2: decode a double-RSVP interactive response into niyaz_rsvp records, then send the day's
 // confirmation template back to the responder. The payload carries the family (hof_its), the niyaz
 // DAY (registration_instance_id = niyaz_event_config.day_id), and the lunch/dinner attending counts.
-// Returns false (no throw) when the family or day can't be resolved, so the raw capture is never lost.
+// Never throws on a resolvable failure, so the raw capture is preserved.
 export async function recordNiyazRsvpFromInteractive(opts: {
   hofIts: string;
   dayId: number;
   lunchCount: number;
   dinnerCount: number;
   phone?: string | null;
-}): Promise<boolean> {
-  if (!opts.hofIts || !Number.isFinite(opts.dayId)) return false;
+}): Promise<NiyazInteractiveOutcome> {
+  if (!opts.hofIts || !Number.isFinite(opts.dayId)) return { status: "ignored" };
   const family = await getFamilyByHofIts(opts.hofIts);
-  if (!family) return false;
+  if (!family) return { status: "ignored" };
   const config = await getEventConfigByDayId(opts.dayId);
-  if (!config?.eventDate) return false;
+  if (!config?.eventDate) return { status: "ignored" };
+
+  // RSVP closed: reject late responses with a notice instead of recording.
+  if (config.rsvpEndAt) {
+    const end = new Date(config.rsvpEndAt);
+    if (!Number.isNaN(end.getTime()) && Date.now() > end.getTime()) {
+      const title = config.rsvpEventTitle || "this niyaz";
+      const when = formatNiyazEndTime(config.rsvpEndAt);
+      return {
+        status: "ended",
+        endedMessage: `Shukran for your reply. RSVP for ${title} has ended${when ? ` (closed ${when})` : ""}, so your response could not be recorded. Please contact the relay center if you need to make a change.`,
+      };
+    }
+  }
+
   await recordNiyazDayRsvp(family.familyId, family.hofIts, config.eventDate, opts.lunchCount, opts.dinnerCount, opts.phone ?? null);
 
   // Confirmation back to the responder (best-effort — never blocks the record).
@@ -28,7 +47,7 @@ export async function recordNiyazRsvpFromInteractive(opts: {
   } catch (err) {
     console.error("Niyaz confirmation send failed", { dayId: opts.dayId, err });
   }
-  return true;
+  return { status: "recorded" };
 }
 
 // The composer stores confirmation buttons in the broadcast API shape (flow_token / flow_action_data);

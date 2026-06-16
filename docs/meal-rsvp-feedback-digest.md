@@ -160,6 +160,11 @@ The flow_token / not-attending payloads use the `rsvp:<hof_its>:<day_id>` shape 
 this day_id, not a per-meal instance UUID). flow_action_data carries `hof_its`,
 `registration_instance_id` (day_id), and `lunch_attending_count` / `dinner_attending_count`.
 
+**RSVP cutoff:** each day has an `rsvp_end_at` timestamp (set via a datetime field in the composer; the
+`{{rsvp_end_time}}` variable renders it in Chicago time). An interactive response arriving **after**
+`rsvp_end_at` is **not recorded** — `recordNiyazRsvpFromInteractive` returns `ended` and the webhook
+replies "registration has ended". No cutoff set ⇒ always open.
+
 **Inbound (phase 2 — recorded):** Flow completions (`nfm_reply`) and `rsvp:…:not-attending` taps are
 captured raw into `whatsapp_interactive_responses` AND decoded into `niyaz_rsvp`
 (`recordNiyazRsvpFromInteractive` → `recordNiyazDayRsvp`): resolve family by `hof_its`, day by

@@ -19,6 +19,7 @@ export type NiyazEventConfig = {
   lunchMenu: string | null;
   dinnerMenu: string | null;
   rsvpEndTime: string | null;
+  rsvpEndAt: string | null;
   hasLunch: boolean;
   hasDinner: boolean;
   templateCode: string | null;
@@ -34,6 +35,7 @@ type Row = {
   lunch_menu: string | null;
   dinner_menu: string | null;
   rsvp_end_time: string | null;
+  rsvp_end_at: string | null;
   has_lunch: boolean;
   has_dinner: boolean;
   template_code: string | null;
@@ -43,7 +45,7 @@ type Row = {
 };
 
 const COLS =
-  "event_date, day_id, rsvp_event_title, lunch_menu, dinner_menu, rsvp_end_time, has_lunch, has_dinner, template_code, confirmation_template_code, confirmation_variable_bindings, confirmation_buttons";
+  "event_date, day_id, rsvp_event_title, lunch_menu, dinner_menu, rsvp_end_time, rsvp_end_at, has_lunch, has_dinner, template_code, confirmation_template_code, confirmation_variable_bindings, confirmation_buttons";
 
 const toConfig = (r: Row): NiyazEventConfig => ({
   eventDate: r.event_date,
@@ -52,6 +54,7 @@ const toConfig = (r: Row): NiyazEventConfig => ({
   lunchMenu: r.lunch_menu,
   dinnerMenu: r.dinner_menu,
   rsvpEndTime: r.rsvp_end_time,
+  rsvpEndAt: r.rsvp_end_at,
   hasLunch: r.has_lunch,
   hasDinner: r.has_dinner,
   templateCode: r.template_code,
@@ -65,6 +68,7 @@ export const eventConfigPatchSchema = z.object({
   lunch_menu: z.string().nullable().optional(),
   dinner_menu: z.string().nullable().optional(),
   rsvp_end_time: z.string().nullable().optional(),
+  rsvp_end_at: z.string().datetime({ offset: true }).nullable().optional(),
   has_lunch: z.boolean().optional(),
   has_dinner: z.boolean().optional(),
   template_code: z.string().nullable().optional(),
@@ -106,6 +110,7 @@ export async function upsertEventConfig(date: string, patch: EventConfigPatch): 
   if (patch.lunch_menu !== undefined) fields.lunch_menu = patch.lunch_menu;
   if (patch.dinner_menu !== undefined) fields.dinner_menu = patch.dinner_menu;
   if (patch.rsvp_end_time !== undefined) fields.rsvp_end_time = patch.rsvp_end_time;
+  if (patch.rsvp_end_at !== undefined) fields.rsvp_end_at = patch.rsvp_end_at;
   if (patch.has_lunch !== undefined) fields.has_lunch = patch.has_lunch;
   if (patch.has_dinner !== undefined) fields.has_dinner = patch.has_dinner;
   if (patch.template_code !== undefined) fields.template_code = patch.template_code;

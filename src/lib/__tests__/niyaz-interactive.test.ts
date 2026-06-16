@@ -45,9 +45,25 @@ describe("parseCount", () => {
 
 describe("recordNiyazRsvpFromInteractive", () => {
   it("resolves family + day and records the per-meal counts", async () => {
-    const ok = await recordNiyazRsvpFromInteractive({ hofIts: "40495151", dayId: 2, lunchCount: 2, dinnerCount: 3, phone: "+1555" });
-    expect(ok).toBe(true);
+    const outcome = await recordNiyazRsvpFromInteractive({ hofIts: "40495151", dayId: 2, lunchCount: 2, dinnerCount: 3, phone: "+1555" });
+    expect(outcome.status).toBe("recorded");
     expect(recordNiyazDayRsvp).toHaveBeenCalledWith("fam-1", "40495151", "2026-06-16", 2, 3, "+1555");
+  });
+
+  it("rejects a response after the RSVP cutoff (ended) without recording", async () => {
+    getEventConfigByDayId.mockResolvedValue({ eventDate: "2026-06-16", dayId: 2, rsvpEventTitle: "2nd Moharram", rsvpEndAt: "2020-01-01T00:00:00.000Z" });
+    const outcome = await recordNiyazRsvpFromInteractive({ hofIts: "40495151", dayId: 2, lunchCount: 2, dinnerCount: 3, phone: "+1555" });
+    expect(outcome.status).toBe("ended");
+    expect(outcome.endedMessage).toContain("has ended");
+    expect(recordNiyazDayRsvp).not.toHaveBeenCalled();
+    expect(sendTemplateNotification).not.toHaveBeenCalled();
+  });
+
+  it("records when the cutoff is in the future", async () => {
+    getEventConfigByDayId.mockResolvedValue({ eventDate: "2026-06-16", dayId: 2, rsvpEndAt: "2999-01-01T00:00:00.000Z" });
+    const outcome = await recordNiyazRsvpFromInteractive({ hofIts: "40495151", dayId: 2, lunchCount: 1, dinnerCount: 1, phone: "+1555" });
+    expect(outcome.status).toBe("recorded");
+    expect(recordNiyazDayRsvp).toHaveBeenCalled();
   });
 
   it("does NOT send a confirmation when the day has no confirmation template", async () => {
@@ -77,17 +93,17 @@ describe("recordNiyazRsvpFromInteractive", () => {
     );
   });
 
-  it("confirmation send failure does not block the record (still true)", async () => {
+  it("confirmation send failure does not block the record (still recorded)", async () => {
     getEventConfigByDayId.mockResolvedValue({ eventDate: "2026-06-16", dayId: 2, confirmationTemplateCode: "x" });
     resolveApprovedTemplateForAnyAccount.mockRejectedValue(new Error("template missing"));
-    const ok = await recordNiyazRsvpFromInteractive({ hofIts: "40495151", dayId: 2, lunchCount: 1, dinnerCount: 0, phone: "+1555" });
-    expect(ok).toBe(true);
+    const outcome = await recordNiyazRsvpFromInteractive({ hofIts: "40495151", dayId: 2, lunchCount: 1, dinnerCount: 0, phone: "+1555" });
+    expect(outcome.status).toBe("recorded");
     expect(recordNiyazDayRsvp).toHaveBeenCalled();
   });
 
-  it("is a no-op (false) when the family or day can't be resolved", async () => {
+  it("is a no-op (ignored) when the family or day can't be resolved", async () => {
     getFamilyByHofIts.mockResolvedValue(null);
-    expect(await recordNiyazRsvpFromInteractive({ hofIts: "999", dayId: 2, lunchCount: 1, dinnerCount: 1 })).toBe(false);
+    expect((await recordNiyazRsvpFromInteractive({ hofIts: "999", dayId: 2, lunchCount: 1, dinnerCount: 1 })).status).toBe("ignored");
     expect(recordNiyazDayRsvp).not.toHaveBeenCalled();
   });
 });

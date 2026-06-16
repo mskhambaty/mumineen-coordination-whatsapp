@@ -4,6 +4,7 @@ import { z } from "zod";
 import { canAccessPortal, isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getEventConfig, type NiyazEventConfig } from "@/lib/rsvp/event-config";
+import { formatNiyazEndTime } from "@/lib/rsvp/niyaz-format";
 import { getEvents } from "@/lib/rsvp/meal-rsvp";
 import { buildNiyazSend, createHeadCountPrompts, resolveNiyazAudience, type NiyazAudienceKind } from "@/lib/rsvp/niyaz-prompt";
 import { createBroadcast } from "@/lib/whatsapp/broadcast";
@@ -79,7 +80,7 @@ function bindToken(token: string, ctx: BindCtx): Binding {
   if (t === "rsvp_event_title" || t === "event_title") return { kind: "static", value: ctx.config?.rsvpEventTitle ?? ctx.dayLabel };
   if (t === "lunch_menu" || t === "lunch") return { kind: "static", value: ctx.config?.lunchMenu ?? "" };
   if (t === "dinner_menu" || t === "dinner") return { kind: "static", value: ctx.config?.dinnerMenu ?? "" };
-  if (t === "rsvp_end_time" || t === "end_time") return { kind: "static", value: ctx.config?.rsvpEndTime ?? "" };
+  if (t === "rsvp_end_time" || t === "end_time") return { kind: "static", value: formatNiyazEndTime(ctx.config?.rsvpEndAt) || ctx.config?.rsvpEndTime || "" };
   if (FIELD_KEYS.has(token)) return { kind: "field", field: token };
   if (["day", "date", "when", "days"].includes(t)) return { kind: "static", value: ctx.dayLabel };
   if (["meal", "meals"].includes(t)) return { kind: "static", value: ctx.mealLabel };

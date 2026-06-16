@@ -2074,7 +2074,8 @@ paths:
                 rsvp_event_title: { type: string, nullable: true }
                 lunch_menu: { type: string, nullable: true }
                 dinner_menu: { type: string, nullable: true }
-                rsvp_end_time: { type: string, nullable: true }
+                rsvp_end_time: { type: string, nullable: true, description: "Legacy free-text label (display fallback)." }
+                rsvp_end_at: { type: string, format: date-time, nullable: true, description: "RSVP cutoff instant. Interactive responses after this are rejected with a 'registration has ended' reply; {{rsvp_end_time}} renders this in Chicago time." }
                 has_lunch: { type: boolean }
                 has_dinner: { type: boolean }
                 template_code: { type: string, nullable: true }

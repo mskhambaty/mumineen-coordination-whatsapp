@@ -4,6 +4,16 @@ import { useCallback, useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/admin/client";
 import BroadcastHistory from "@/components/admin/niyaz/BroadcastHistory";
+import { formatNiyazEndTime } from "@/lib/rsvp/niyaz-format";
+
+// ISO timestamp ↔ <input type="datetime-local"> value (browser-local wall clock).
+function toLocalInput(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 // Day-level RSVP config + broadcast composer for one Niyaz day. Two templates are configured per day:
 // the RSVP template (sent as the broadcast) and the RSVP confirmation template (sent back to a family
@@ -16,6 +26,7 @@ type Config = {
   lunchMenu: string | null;
   dinnerMenu: string | null;
   rsvpEndTime: string | null;
+  rsvpEndAt: string | null;
   hasLunch: boolean;
   hasDinner: boolean;
   templateCode: string | null;
@@ -74,7 +85,7 @@ function defaultBinding(token: string, config: Config): Binding {
   if (t === "rsvp_event_title" || t === "event_title") return { kind: "static", value: config.rsvpEventTitle ?? "" };
   if (t === "lunch_menu" || t === "lunch") return { kind: "static", value: config.lunchMenu ?? "" };
   if (t === "dinner_menu" || t === "dinner") return { kind: "static", value: config.dinnerMenu ?? "" };
-  if (t === "rsvp_end_time" || t === "end_time") return { kind: "static", value: config.rsvpEndTime ?? "" };
+  if (t === "rsvp_end_time" || t === "end_time") return { kind: "static", value: formatNiyazEndTime(config.rsvpEndAt) || config.rsvpEndTime || "" };
   if (["name", "person_name", "full_name", "mumin_name"].includes(t)) return { kind: "field", field: "full_name" };
   if (t === "family_members") return { kind: "field", field: "family_members" };
   if (t === "rsvp_status") return { kind: "field", field: "rsvp_status" };
@@ -280,7 +291,7 @@ export default function EventRsvpComposer({
   title: string;
   onSaved?: () => void;
 }) {
-  const [config, setConfig] = useState<Config>({ rsvpEventTitle: "", lunchMenu: "", dinnerMenu: "", rsvpEndTime: "", hasLunch: false, hasDinner: false, templateCode: DEFAULT_TEMPLATE });
+  const [config, setConfig] = useState<Config>({ rsvpEventTitle: "", lunchMenu: "", dinnerMenu: "", rsvpEndTime: "", rsvpEndAt: null, hasLunch: false, hasDinner: false, templateCode: DEFAULT_TEMPLATE });
   const [savingConfig, setSavingConfig] = useState(false);
   const [configSaved, setConfigSaved] = useState(false);
   const [templates, setTemplates] = useState<TemplatePreview[]>([]);
@@ -316,6 +327,7 @@ export default function EventRsvpComposer({
         lunchMenu: c.lunchMenu ?? "",
         dinnerMenu: c.dinnerMenu ?? "",
         rsvpEndTime: c.rsvpEndTime ?? "",
+        rsvpEndAt: c.rsvpEndAt ?? null,
         hasLunch: c.hasLunch,
         hasDinner: c.hasDinner,
         templateCode: c.templateCode ?? DEFAULT_TEMPLATE,
@@ -373,7 +385,7 @@ export default function EventRsvpComposer({
         rsvp_event_title: config.rsvpEventTitle || null,
         lunch_menu: config.lunchMenu || null,
         dinner_menu: config.dinnerMenu || null,
-        rsvp_end_time: config.rsvpEndTime || null,
+        rsvp_end_at: config.rsvpEndAt || null,
         has_lunch: config.hasLunch,
         has_dinner: config.hasDinner,
         template_code: config.templateCode || null,
@@ -502,8 +514,14 @@ export default function EventRsvpComposer({
           <textarea value={config.dinnerMenu ?? ""} onChange={(e) => setConfig({ ...config, dinnerMenu: e.target.value })} rows={2} className={inputCls} />
         </label>
         <label>
-          <span className={labelCls}>RSVP end time (rsvp_end_time)</span>
-          <input value={config.rsvpEndTime ?? ""} onChange={(e) => setConfig({ ...config, rsvpEndTime: e.target.value })} className={inputCls} placeholder="e.g. Tonight 10pm" />
+          <span className={labelCls}>RSVP end time / cutoff (Chicago time)</span>
+          <input
+            type="datetime-local"
+            value={toLocalInput(config.rsvpEndAt)}
+            onChange={(e) => setConfig({ ...config, rsvpEndAt: e.target.value ? new Date(e.target.value).toISOString() : null })}
+            className={inputCls}
+          />
+          <span className="mt-0.5 block text-xs text-gray-400">Responses after this are rejected with a &quot;registration has ended&quot; reply. The {"{{rsvp_end_time}}"} variable shows {formatNiyazEndTime(config.rsvpEndAt) || "—"}.</span>
         </label>
         <div className="flex items-end gap-6">
           <label className="flex items-center gap-2 text-sm">

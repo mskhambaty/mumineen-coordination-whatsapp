@@ -153,13 +153,14 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage, account:
     try {
       const rj = message.flowResponse.responseJson as Record<string, unknown> | null;
       if (rj && typeof rj === "object") {
-        await recordNiyazRsvpFromInteractive({
+        const outcome = await recordNiyazRsvpFromInteractive({
           hofIts: String(rj.hof_its ?? ""),
           dayId: Number(rj.registration_instance_id),
           lunchCount: parseCount(rj.lunch_attending_count),
           dinnerCount: parseCount(rj.dinner_attending_count),
           phone: message.phoneE164,
         });
+        if (outcome.status === "ended" && outcome.endedMessage) await sendNiyazRsvpEnded(message, outcome.endedMessage, account);
       }
     } catch (err) {
       console.error("Niyaz flow RSVP decode failed", { inboundId: inbound.id, err });
@@ -178,7 +179,8 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage, account:
     try {
       const parts = message.buttonPayload.split(":");
       if (parts.length >= 4 && parts[3] === "not-attending") {
-        await recordNiyazRsvpFromInteractive({ hofIts: parts[1], dayId: Number(parts[2]), lunchCount: 0, dinnerCount: 0, phone: message.phoneE164 });
+        const outcome = await recordNiyazRsvpFromInteractive({ hofIts: parts[1], dayId: Number(parts[2]), lunchCount: 0, dinnerCount: 0, phone: message.phoneE164 });
+        if (outcome.status === "ended" && outcome.endedMessage) await sendNiyazRsvpEnded(message, outcome.endedMessage, account);
       }
     } catch (err) {
       console.error("Niyaz button RSVP decode failed", { inboundId: inbound.id, err });
@@ -370,6 +372,20 @@ async function handleNiyazHeadCount(message: IncomingWhatsAppMessage, userId: st
   });
   await touchConversationSession({ phoneE164: message.phoneE164, userId, phoneNumberId: account.phoneNumberId });
   return true;
+}
+
+// Reply when an interactive RSVP arrives after the day's cutoff: tell the responder it's closed and
+// record/attribute the outbound to the niyaz number (so it stays in the niyaz inbox).
+async function sendNiyazRsvpEnded(message: IncomingWhatsAppMessage, text: string, account: WhatsAppAccount) {
+  const metaResponse = await sendWhatsAppText(message.phoneE164, text, account);
+  await recordOutboundMessage({
+    phoneE164: message.phoneE164,
+    body: text,
+    whatsappMessageId: metaResponse.messages?.[0]?.id,
+    rawPayload: { source: "niyaz_rsvp_ended", meta_response: metaResponse },
+    phoneNumberId: account.phoneNumberId,
+  });
+  await touchConversationSession({ phoneE164: message.phoneE164, phoneNumberId: account.phoneNumberId });
 }
 
 function niyazConfirmation(level: NiyazLevel, scope: NiyazScope, date: string): string {

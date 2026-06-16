@@ -33,7 +33,7 @@ const extractStatusUpdates = vi.fn(() => []);
 const recordNiyazButtonResponse = vi.fn(async () => undefined);
 const resolveFamilyForPhone = vi.fn(async () => ({ muminId: "m1", familyId: "f1" }));
 const recordInteractiveResponse = vi.fn(async () => undefined);
-const recordNiyazRsvpFromInteractive = vi.fn(async () => true);
+const recordNiyazRsvpFromInteractive = vi.fn(async () => ({ status: "recorded" as const }));
 const insertPendingMessage = vi.fn(async () => undefined);
 
 vi.mock("@/lib/whatsapp/accounts", () => ({
@@ -234,5 +234,26 @@ describe("webhookReceive — interactive responses are captured raw (phase 1)", 
     // Phase 2: not-attending decodes to counts 0/0 for that family + day.
     expect(recordNiyazRsvpFromInteractive).toHaveBeenCalledWith({ hofIts: "522382", dayId: 159, lunchCount: 0, dinnerCount: 0, phone: "+13125559999" });
     expect(recordNiyazButtonResponse).not.toHaveBeenCalled();
+  });
+
+  it("replies 'registration has ended' when a response arrives after the cutoff", async () => {
+    recordNiyazRsvpFromInteractive.mockResolvedValue({ status: "ended" as const, endedMessage: "RSVP has ended" } as never);
+    extractIncomingMessages.mockReturnValue([
+      {
+        phoneE164: "+13125559999",
+        whatsappMessageId: "wamid.flow2",
+        profileName: "Tester",
+        messageType: "interactive",
+        buttonPayload: null,
+        flowResponse: { flowToken: "rsvp:40495151:2", responseJson: { hof_its: 40495151, registration_instance_id: 2, lunch_attending_count: "2", dinner_attending_count: "2" } },
+        body: "",
+        businessPhoneNumberId: "PN_BROADCAST",
+        businessDisplayPhoneNumber: "+13120000002",
+        media: undefined,
+      },
+    ]);
+    const res = await webhookReceive(postReq("PN_BROADCAST"));
+    expect(await res.json()).toMatchObject({ processed: 1 });
+    expect(sendWhatsAppText).toHaveBeenCalledWith("+13125559999", "RSVP has ended", BROADCAST);
   });
 });

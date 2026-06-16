@@ -549,7 +549,8 @@ the RSVP/tally source of truth. Source: `src/lib/rsvp/event-config.ts`.
 | `day_id` | bigint identity | Stable numeric per-day id (1..N by date). Passed as `registration_instance_id` into the day-level Flow/button payloads. |
 | `rsvp_event_title` | text | `{{rsvp_event_title}}` / `{{event_title}}` |
 | `lunch_menu` / `dinner_menu` | text | `{{lunch_menu}}` / `{{dinner_menu}}` |
-| `rsvp_end_time` | text | `{{rsvp_end_time}}` |
+| `rsvp_end_time` | text | Legacy free-text label (display fallback) |
+| `rsvp_end_at` | timestamptz | RSVP cutoff; interactive responses after this are rejected with a "registration has ended" reply. `{{rsvp_end_time}}` renders this (Chicago time). |
 | `has_lunch` / `has_dinner` | boolean | Which meals this event offers |
 | `template_code` | text | RSVP template to send (e.g. `ashara_relay_double_rsvp`) |
 | `confirmation_template_code` | text | Confirmation template sent back after a response (e.g. `ashara_relay_double_rsvp_confirmation`) |
