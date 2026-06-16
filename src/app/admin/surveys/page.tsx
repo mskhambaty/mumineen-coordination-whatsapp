@@ -179,29 +179,22 @@ function AddQuestion({ sectionId, onAdded }: { sectionId: string; onAdded: () =>
   );
 }
 
+type Detail = { kind: string; id: string; [k: string]: unknown };
+
 function FormsTab({ forms, reload }: { forms: FormRow[]; reload: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
-  const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
+  const [detail, setDetail] = useState<Detail | null>(null);
 
-  async function preview(id: string) {
+  async function call(id: string, kind: string, path: string, method = "GET") {
     setBusy(id);
-    const res = await apiFetch(`/api/admin/surveys/forms/${id}/preview`, { method: "POST" });
-    setDetail({ kind: "preview", id, ...(await res.json().catch(() => ({}))) });
+    const res = await apiFetch(path, method === "GET" ? undefined : { method });
+    setDetail({ kind, id, ...(await res.json().catch(() => ({}))) });
     setBusy(null);
   }
   async function send(id: string) {
     if (!confirm("Commit this sample? This locks the questions for those mumineen (they won't be re-asked).")) return;
-    setBusy(id);
-    const res = await apiFetch(`/api/admin/surveys/forms/${id}/send`, { method: "POST" });
-    setDetail({ kind: "send", id, ...(await res.json().catch(() => ({}))) });
-    setBusy(null);
+    await call(id, "send", `/api/admin/surveys/forms/${id}/send`, "POST");
     reload();
-  }
-  async function results(id: string) {
-    setBusy(id);
-    const res = await apiFetch(`/api/admin/surveys/forms/${id}/results`);
-    setDetail({ kind: "results", id, ...(await res.json().catch(() => ({}))) });
-    setBusy(null);
   }
 
   const ghostBtn = "rounded border border-gray-300 px-3 py-1 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800";
@@ -218,21 +211,135 @@ function FormsTab({ forms, reload }: { forms: FormRow[]; reload: () => void }) {
                 {f.group_name ?? "—"} · status {f.status} · {f.completed_count}/{f.recipient_count} responded · sample {f.sample_size}
               </p>
             </div>
-            <div className="flex gap-2">
-              <button onClick={() => preview(f.id)} disabled={busy === f.id} className={ghostBtn}>Preview sample</button>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => call(f.id, "test", `/api/admin/surveys/forms/${f.id}/test-link`, "POST")} disabled={busy === f.id} className={ghostBtn}>Test link</button>
+              <button onClick={() => call(f.id, "preview", `/api/admin/surveys/forms/${f.id}/preview`, "POST")} disabled={busy === f.id} className={ghostBtn}>Preview sample</button>
               <button onClick={() => send(f.id)} disabled={busy === f.id || f.status === "sent"} className="rounded bg-emerald-600 px-3 py-1 text-xs text-white disabled:opacity-50">
                 {f.status === "sent" ? "Sent" : "Commit & send"}
               </button>
-              <button onClick={() => results(f.id)} disabled={busy === f.id} className={ghostBtn}>Results</button>
+              <button onClick={() => call(f.id, "results", `/api/admin/surveys/forms/${f.id}/results`)} disabled={busy === f.id} className={ghostBtn}>Results</button>
             </div>
           </div>
-          {detail && detail.id === f.id && (
-            <pre className="mt-3 max-h-80 overflow-auto rounded bg-gray-900 p-3 text-[11px] leading-relaxed text-gray-100 dark:bg-black/40">
-              {JSON.stringify(detail, null, 2)}
-            </pre>
-          )}
+          {detail && detail.id === f.id && <DetailView detail={detail} />}
         </div>
       ))}
     </div>
   );
+}
+
+function copy(text: string) { void navigator.clipboard?.writeText(text); }
+
+function SentimentBadge({ value }: { value: number | null }) {
+  if (value == null) return <span className="text-xs text-gray-400">—</span>;
+  const color = value >= 4 ? "bg-emerald-600" : value >= 3 ? "bg-amber-500" : "bg-red-600";
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="inline-block h-1.5 w-16 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
+        <span className={`block h-full ${color}`} style={{ width: `${(value / 5) * 100}%` }} />
+      </span>
+      <span className="text-xs font-medium text-gray-700 dark:text-gray-200">{value.toFixed(1)}/5</span>
+    </span>
+  );
+}
+
+function DetailView({ detail }: { detail: Detail }) {
+  const box = "mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm dark:border-gray-700 dark:bg-gray-800/40";
+  if (detail.error) return <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{String(detail.error)}</p>;
+
+  if (detail.kind === "test") {
+    const link = String(detail.link ?? "");
+    return (
+      <div className={box}>
+        <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">Open this link (or send it to yourself) to preview the live form. It&apos;s a test recipient — no exposures written, excluded from results.</p>
+        <div className="flex items-center gap-2">
+          <input readOnly value={link} className="flex-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200" />
+          <button onClick={() => copy(link)} className="rounded bg-blue-600 px-2 py-1 text-xs text-white">Copy</button>
+          <a href={link} target="_blank" rel="noreferrer" className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 dark:border-gray-600 dark:text-gray-200">Open</a>
+        </div>
+      </div>
+    );
+  }
+
+  if (detail.kind === "preview") {
+    const f = (detail.funnel ?? {}) as Record<string, number>;
+    const names = (detail.sample_names ?? []) as string[];
+    return (
+      <div className={box}>
+        <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-700 dark:text-gray-300">
+          <span><b>{f.candidates ?? 0}</b> qualify</span>
+          <span><b>{f.chosen ?? 0}</b> chosen</span>
+          <span className="text-emerald-600 dark:text-emerald-400">{f.fresh ?? 0} fresh</span>
+          <span className="text-amber-600 dark:text-amber-400">{f.reused ?? 0} reused</span>
+          <span className="text-gray-400">{f.excludedToday ?? 0} already today · {f.excludedExhausted ?? 0} exhausted</span>
+        </div>
+        {names.length > 0 && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Sample: {names.join(", ")}{(f.chosen ?? 0) > names.length ? "…" : ""}</p>}
+      </div>
+    );
+  }
+
+  if (detail.kind === "send") {
+    const recipients = (detail.recipients ?? []) as { name: string | null; phone: string; link: string }[];
+    return (
+      <div className={box}>
+        <p className="mb-2 text-sm font-medium text-gray-800 dark:text-gray-100">
+          {detail.sent ? "Sent via WhatsApp." : "Committed (WhatsApp dispatch off) — share these links manually:"}
+          {detail.sendError ? <span className="text-amber-600 dark:text-amber-400"> {String(detail.sendError)}</span> : null}
+        </p>
+        <div className="max-h-72 space-y-1 overflow-auto">
+          {recipients.map((r, i) => (
+            <div key={i} className="flex items-center gap-2 text-xs">
+              <span className="w-32 truncate text-gray-600 dark:text-gray-300">{r.name ?? r.phone}</span>
+              <input readOnly value={r.link} className="flex-1 rounded border border-gray-300 bg-white px-2 py-0.5 text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300" />
+              <button onClick={() => copy(r.link)} className="rounded bg-blue-600 px-2 py-0.5 text-white">Copy</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (detail.kind === "results") {
+    const resp = (detail.response ?? {}) as { sent: number; completed: number; rate: number };
+    const sections = (detail.sections ?? []) as { section_id: string; title: string; sentiment: number | null; responses: number }[];
+    const questions = (detail.questions ?? []) as { question_id: string; text: string; sentiment: number | null; breakdown: Record<string, number>; comments: string[] }[];
+    return (
+      <div className={box}>
+        <p className="mb-3 text-sm font-medium text-gray-800 dark:text-gray-100">
+          Response rate: {resp.completed}/{resp.sent} ({Math.round((resp.rate ?? 0) * 100)}%)
+        </p>
+        {sections.length > 0 && (
+          <div className="mb-3">
+            <p className="mb-1 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">Section sentiment</p>
+            {sections.map((s) => (
+              <div key={s.section_id} className="flex items-center justify-between py-0.5">
+                <span className="text-xs text-gray-700 dark:text-gray-300">{s.title} <span className="text-gray-400">({s.responses})</span></span>
+                <SentimentBadge value={s.sentiment} />
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="space-y-2">
+          {questions.map((q) => (
+            <div key={q.question_id} className="border-t border-gray-200 pt-2 dark:border-gray-700">
+              <div className="flex items-start justify-between gap-3">
+                <span className="text-xs text-gray-700 dark:text-gray-300">{q.text}</span>
+                <SentimentBadge value={q.sentiment} />
+              </div>
+              {Object.keys(q.breakdown).length > 0 && (
+                <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">{Object.entries(q.breakdown).map(([k, v]) => `${k}: ${v}`).join("  ·  ")}</p>
+              )}
+              {q.comments.length > 0 && (
+                <ul className="mt-1 list-disc pl-4 text-[11px] italic text-gray-500 dark:text-gray-400">
+                  {q.comments.slice(0, 8).map((c, i) => <li key={i}>{c}</li>)}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+        {sections.length === 0 && questions.length === 0 && <p className="text-xs text-gray-500 dark:text-gray-400">No responses yet.</p>}
+      </div>
+    );
+  }
+
+  return null;
 }

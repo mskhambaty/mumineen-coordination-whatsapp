@@ -2345,6 +2345,21 @@ paths:
         "200": { description: "{ formId, funnel, recipients: [{ phone, token, link, name }], sent, sendError? }." }
         "400": { description: "Not sendable (no group/questions/eligible recipients, or already sent)." }
 
+  /api/admin/surveys/forms/{id}/test-link:
+    post:
+      tags: [admin]
+      summary: Mint a throwaway self-test link for a form
+      description: >-
+        Admin/leadership only. Creates an is_test recipient (no question exposures written, excluded
+        from results) and returns its tokenized form link so the admin can preview/submit the live
+        form without affecting real samples or analytics.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ link, token }." }
+        "400": { description: "Form has no composed questions." }
+        "404": { description: "Form not found." }
+
   /api/admin/surveys/forms/{id}/results:
     get:
       tags: [admin]
