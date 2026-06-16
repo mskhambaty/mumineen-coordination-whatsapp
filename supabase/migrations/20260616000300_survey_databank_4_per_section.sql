@@ -54,7 +54,7 @@ begin
     select coalesce(max(sort_order),0)+1 into v_next from public.survey_questions where section_id = v_section;
     v_opts := null; v_neg := null;
     if rec->>'ty' = 'choice' then v_opts := qual_opts; v_neg := qual_neg; end if;
-    if rec->>'ty' = 'yesno' then v_neg := yesno_neg; end if;
+    if rec->>'ty' = 'yesno' then v_neg := case when coalesce(rec->>'pol','positive') = 'negative' then '["Yes"]'::jsonb else yesno_neg end; end if;
     insert into public.survey_questions (section_id, text, type, options, negative_values, polarity, is_general, sort_order)
     values (v_section, rec->>'t', rec->>'ty', v_opts, v_neg, 'positive', coalesce((rec->>'g')::boolean,false), v_next);
   end loop;

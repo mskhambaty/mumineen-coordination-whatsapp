@@ -128,7 +128,9 @@ begin
         v_neg := '["10-20 min","Over 20 min"]';
       else v_opts := null;
     end case;
-    if rec->>'ty' = 'yesno' then v_neg := yesno_neg; end if;
+    -- For yes/no, the reason box triggers on the "problem" answer: "Yes" when the question is
+    -- negatively phrased (No = good), otherwise "No".
+    if rec->>'ty' = 'yesno' then v_neg := case when coalesce(rec->>'pol','positive') = 'negative' then '["Yes"]'::jsonb else yesno_neg end; end if;
 
     insert into public.survey_questions
       (section_id, text, type, options, negative_values, polarity, is_general, sort_order)
