@@ -24,9 +24,32 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { count } = await supabase.from("survey_form_questions").select("id", { count: "exact", head: true }).eq("form_id", id);
   if (!count) return NextResponse.json({ error: "Compose questions for this form first." }, { status: 400 });
 
+  // Optional: impersonate a real ITS so the test form greets that mumin by first name (otherwise
+  // it shows a generic "you"). Test recipients still write no exposures and are excluded from results.
+  const body = (await req.json().catch(() => ({}))) as { its?: unknown };
+  let muminId: string | null = null;
+  let familyId: string | null = null;
+  let name: string | null = null;
+  const its = typeof body.its === "string" ? body.its.trim() : "";
+  if (its) {
+    const { data: mumin } = await supabase
+      .from("mumineen")
+      .select("id, family_id, full_name")
+      .eq("its", its)
+      .eq("roster_active", true)
+      .maybeSingle();
+    if (!mumin) return NextResponse.json({ error: `ITS ${its} not found in the active roster.` }, { status: 400 });
+    const m = mumin as { id: string; family_id: string | null; full_name: string | null };
+    muminId = m.id;
+    familyId = m.family_id;
+    name = m.full_name;
+  }
+
   const token = generateSurveyToken();
   const { error } = await supabase.from("survey_recipients").insert({
     form_id: id,
+    mumin_id: muminId,
+    family_id: familyId,
     group_id: (form as { group_id: string | null }).group_id,
     token,
     status: "sampled",
@@ -35,5 +58,5 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  return NextResponse.json({ link: surveyLink(token), token });
+  return NextResponse.json({ link: surveyLink(token), token, name });
 }

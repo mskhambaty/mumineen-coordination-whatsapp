@@ -196,6 +196,13 @@ function FormsTab({ forms, reload }: { forms: FormRow[]; reload: () => void }) {
     await call(id, "send", `/api/admin/surveys/forms/${id}/send`, "POST");
     reload();
   }
+  async function testLink(id: string) {
+    const its = window.prompt("Preview as ITS number (optional — blank = anonymous 'you' preview):", "")?.trim() ?? "";
+    setBusy(id);
+    const res = await apiFetch(`/api/admin/surveys/forms/${id}/test-link`, { method: "POST", body: JSON.stringify(its ? { its } : {}) });
+    setDetail({ kind: "test", id, ...(await res.json().catch(() => ({}))) });
+    setBusy(null);
+  }
 
   const ghostBtn = "rounded border border-gray-300 px-3 py-1 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800";
 
@@ -212,7 +219,7 @@ function FormsTab({ forms, reload }: { forms: FormRow[]; reload: () => void }) {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button onClick={() => call(f.id, "test", `/api/admin/surveys/forms/${f.id}/test-link`, "POST")} disabled={busy === f.id} className={ghostBtn}>Test link</button>
+              <button onClick={() => testLink(f.id)} disabled={busy === f.id} className={ghostBtn}>Test link</button>
               <button onClick={() => call(f.id, "preview", `/api/admin/surveys/forms/${f.id}/preview`, "POST")} disabled={busy === f.id} className={ghostBtn}>Preview sample</button>
               <button onClick={() => send(f.id)} disabled={busy === f.id || f.status === "sent"} className="rounded bg-emerald-600 px-3 py-1 text-xs text-white disabled:opacity-50">
                 {f.status === "sent" ? "Sent" : "Commit & send"}
@@ -248,9 +255,13 @@ function DetailView({ detail }: { detail: Detail }) {
 
   if (detail.kind === "test") {
     const link = String(detail.link ?? "");
+    const name = detail.name ? String(detail.name) : null;
     return (
       <div className={box}>
-        <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">Open this link (or send it to yourself) to preview the live form. It&apos;s a test recipient — no exposures written, excluded from results.</p>
+        <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">
+          {name ? `Previewing as ${name}. ` : "Anonymous preview (the form greets a generic “you” — real recipients see their first name). "}
+          Open this link (or send it to yourself) to preview the live form. Test recipient — no exposures written, excluded from results.
+        </p>
         <div className="flex items-center gap-2">
           <input readOnly value={link} className="flex-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200" />
           <button onClick={() => copy(link)} className="rounded bg-blue-600 px-2 py-1 text-xs text-white">Copy</button>
