@@ -22,14 +22,20 @@ export function surveyLink(token: string): string {
   return `${surveyBaseUrl()}/feedback/s/${token}`;
 }
 
+// Resolve which template to send with: an explicitly chosen template (from the admin dropdown)
+// always wins; otherwise fall back to the env default, but only when SURVEY_SEND_ENABLED is on.
+export function resolveSurveyTemplate(explicit?: string | null): string | undefined {
+  if (explicit && explicit.trim()) return explicit.trim();
+  return process.env.SURVEY_SEND_ENABLED === "true" ? process.env.SURVEY_WA_TEMPLATE || undefined : undefined;
+}
+
 // Send a single survey link to one phone via the WhatsApp template (used for "send a test to a
-// specific person"). Gated by SURVEY_SEND_ENABLED + SURVEY_WA_TEMPLATE; queues via the broadcast
-// engine (the drain cron delivers). Returns delivered=true when queued.
-export async function deliverSurveyLink(phone: string, token: string, name: string | null): Promise<{ delivered: boolean; error?: string }> {
-  const sendEnabled = process.env.SURVEY_SEND_ENABLED === "true";
-  const templateCode = process.env.SURVEY_WA_TEMPLATE;
-  if (!sendEnabled || !templateCode) {
-    return { delivered: false, error: "WhatsApp sending is off (set SURVEY_SEND_ENABLED + SURVEY_WA_TEMPLATE). Copy the link and send it manually." };
+// specific person"). Pass an explicit templateCode (admin dropdown) or rely on the env default.
+// Queues via the broadcast engine (the drain cron delivers). Returns delivered=true when queued.
+export async function deliverSurveyLink(phone: string, token: string, name: string | null, templateCodeOverride?: string | null): Promise<{ delivered: boolean; error?: string }> {
+  const templateCode = resolveSurveyTemplate(templateCodeOverride);
+  if (!templateCode) {
+    return { delivered: false, error: "No WhatsApp template selected (pick one from the dropdown, or set SURVEY_SEND_ENABLED + SURVEY_WA_TEMPLATE). Copy the link and send it manually." };
   }
   const result = await createBroadcast({
     templateCode,
@@ -52,7 +58,7 @@ export type CommitResult = {
 
 type FormRow = { id: string; group_id: string | null; sample_size: number; status: string };
 
-export async function commitAndSendForm(formId: string): Promise<CommitResult | { error: string }> {
+export async function commitAndSendForm(formId: string, templateCodeOverride?: string | null): Promise<CommitResult | { error: string }> {
   const supabase = getSupabaseAdmin();
   const eventDate = chicagoToday();
 
@@ -125,10 +131,10 @@ export async function commitAndSendForm(formId: string): Promise<CommitResult | 
 
   await supabase.from("survey_forms").update({ status: "sampled" }).eq("id", formId);
 
-  // Optional WhatsApp dispatch — gated by env so the build doesn't depend on template approval.
-  const sendEnabled = process.env.SURVEY_SEND_ENABLED === "true";
-  const templateCode = process.env.SURVEY_WA_TEMPLATE;
-  if (!sendEnabled || !templateCode) {
+  // WhatsApp dispatch: an explicitly selected template (admin dropdown) sends directly; otherwise
+  // fall back to the env default only when SURVEY_SEND_ENABLED is on. No template → just committed.
+  const templateCode = resolveSurveyTemplate(templateCodeOverride);
+  if (!templateCode) {
     return { formId, funnel: sample.funnel, recipients, sent: false };
   }
 

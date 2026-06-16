@@ -322,10 +322,22 @@ function AddQuestion({ sectionId, onAdded }: { sectionId: string; onAdded: () =>
 
 type Detail = { kind: string; id: string; [k: string]: unknown };
 
+type Template = { name: string; language: string; displayNumber?: string | null; accountLabel?: string; urlButtons?: { hasVar: boolean }[]; bodyVars?: string[] };
+
 function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: () => void; onPickMumin: (its: string) => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [pickerFor, setPickerFor] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [templateCode, setTemplateCode] = useState("");
+
+  // Approved WhatsApp templates that have a dynamic URL button (needed to carry the survey link).
+  useEffect(() => {
+    apiFetch("/api/admin/whatsapp/templates")
+      .then((r) => r.json())
+      .then((j) => setTemplates(((j.templates ?? []) as Template[]).filter((t) => (t.urlButtons ?? []).some((b) => b.hasVar))))
+      .catch(() => setTemplates([]));
+  }, []);
 
   async function call(id: string, kind: string, path: string, method = "GET") {
     setBusy(id);
@@ -335,19 +347,25 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
   }
   async function send(id: string) {
     if (!confirm("Commit this sample? This locks the questions for those mumineen (they won't be re-asked).")) return;
-    await call(id, "send", `/api/admin/surveys/forms/${id}/send`, "POST");
+    setBusy(id);
+    const res = await apiFetch(`/api/admin/surveys/forms/${id}/send`, {
+      method: "POST",
+      body: JSON.stringify({ template: templateCode || undefined }),
+    });
+    setDetail({ kind: "send", id, ...(await res.json().catch(() => ({}))) });
+    setBusy(null);
     reload();
   }
   async function testLink(id: string) {
     const its = window.prompt("Send test to which ITS? (leave blank for an anonymous 'you' preview link):", "")?.trim() ?? "";
     let deliver = false;
     if (its) {
-      deliver = confirm("Deliver this test to that person's WhatsApp now?\n\nOK  = send to their WhatsApp (requires WhatsApp sending to be enabled)\nCancel = just generate their link to copy / forward");
+      deliver = confirm("Deliver this test to that person's WhatsApp now?\n\nOK  = send to their WhatsApp (uses the selected template)\nCancel = just generate their link to copy / forward");
     }
     setBusy(id);
     const res = await apiFetch(`/api/admin/surveys/forms/${id}/test-link`, {
       method: "POST",
-      body: JSON.stringify({ ...(its ? { its } : {}), deliver }),
+      body: JSON.stringify({ ...(its ? { its } : {}), deliver, template: templateCode || undefined }),
     });
     setDetail({ kind: "test", id, ...(await res.json().catch(() => ({}))) });
     setBusy(null);
@@ -365,6 +383,19 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
 
   return (
     <div className="space-y-2">
+      <div className="mb-1 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 p-2 dark:border-gray-700">
+        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">WhatsApp template:</span>
+        <select value={templateCode} onChange={(e) => setTemplateCode(e.target.value)} className={inputCls}>
+          <option value="">— Manual links only (no WhatsApp send) —</option>
+          {templates.map((t) => (
+            <option key={`${t.name}:${t.language}`} value={t.name}>
+              {t.name}{t.displayNumber ? ` · ${t.displayNumber}` : ""}{(t.bodyVars?.length ?? 0) > 1 ? ` · ${t.bodyVars?.length} body vars` : ""}
+            </option>
+          ))}
+        </select>
+        {templates.length === 0 && <span className="text-xs text-amber-600 dark:text-amber-400">No approved URL-button templates found.</span>}
+        {templateCode && <span className="text-xs text-emerald-600 dark:text-emerald-400">Send & WhatsApp-deliver will use this template.</span>}
+      </div>
       {forms.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">No forms yet — compose one.</p>}
       {forms.map((f) => (
         <div key={f.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
@@ -386,7 +417,7 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
               <button onClick={() => del(f.id)} disabled={busy === f.id} className="rounded border border-red-300 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40">Delete</button>
             </div>
           </div>
-          {pickerFor === f.id && <ManualTestPanel formId={f.id} />}
+          {pickerFor === f.id && <ManualTestPanel formId={f.id} templateCode={templateCode} />}
           {detail && detail.id === f.id && <DetailView detail={detail} onPickMumin={onPickMumin} />}
         </div>
       ))}
@@ -394,7 +425,7 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
   );
 }
 
-function ManualTestPanel({ formId }: { formId: string }) {
+function ManualTestPanel({ formId, templateCode }: { formId: string; templateCode: string }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState<{ its: string; name: string | null }[] | null>(null);
   const [selected, setSelected] = useState<Record<string, string>>({}); // its -> name
@@ -415,7 +446,7 @@ function ManualTestPanel({ formId }: { formId: string }) {
     const its = Object.keys(selected);
     if (its.length === 0) return;
     setBusy(true);
-    const res = await apiFetch(`/api/admin/surveys/forms/${formId}/test-batch`, { method: "POST", body: JSON.stringify({ its, deliver }) });
+    const res = await apiFetch(`/api/admin/surveys/forms/${formId}/test-batch`, { method: "POST", body: JSON.stringify({ its, deliver, template: templateCode || undefined }) });
     const j = await res.json().catch(() => ({}));
     setOut(j.recipients ?? []);
     setBusy(false);

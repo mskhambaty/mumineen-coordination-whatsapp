@@ -25,7 +25,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { count } = await supabase.from("survey_form_questions").select("id", { count: "exact", head: true }).eq("form_id", id);
   if (!count) return NextResponse.json({ error: "Compose questions for this form first." }, { status: 400 });
 
-  const body = (await req.json().catch(() => ({}))) as { its?: unknown; deliver?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { its?: unknown; deliver?: unknown; template?: unknown };
   let muminId: string | null = null;
   let familyId: string | null = null;
   let name: string | null = null;
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   let delivery: { delivered: boolean; error?: string } | null = null;
   if (body.deliver === true) {
     if (!phone) delivery = { delivered: false, error: "That person has no WhatsApp number on file." };
-    else delivery = await deliverSurveyLink(phone, token, name);
+    else delivery = await deliverSurveyLink(phone, token, name, typeof body.template === "string" ? body.template : undefined);
   }
 
   return NextResponse.json({ link: surveyLink(token), token, name, phone, delivery });

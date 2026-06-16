@@ -15,6 +15,7 @@ export const runtime = "nodejs";
 const bodySchema = z.object({
   its: z.array(z.string().min(1)).min(1).max(100),
   deliver: z.boolean().optional(),
+  template: z.string().optional(),
 });
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     };
     if (parsed.data.deliver) {
       if (!m.whatsapp_e164) row.error = "No WhatsApp number on file.";
-      else { const d = await deliverSurveyLink(m.whatsapp_e164, token, m.full_name); row.delivered = d.delivered; if (d.error) row.error = d.error; }
+      else { const d = await deliverSurveyLink(m.whatsapp_e164, token, m.full_name, parsed.data.template); row.delivered = d.delivered; if (d.error) row.error = d.error; }
     }
     results.push(row);
   }
