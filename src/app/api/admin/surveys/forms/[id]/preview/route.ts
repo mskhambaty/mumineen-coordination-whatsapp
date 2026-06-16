@@ -29,9 +29,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const questionIds = ((fqs ?? []) as { question_id: string | null }[]).map((q) => q.question_id).filter((q): q is string => Boolean(q));
 
   const sample = await suggestSample((group as { rules: RuleGroup }).rules, questionIds, f.sample_size, chicagoToday());
-  // PII-minimal preview: funnel + first names only (no phones).
+  // Admin-gated preview: return the chosen sample (name + ITS + freshness) so the admin can search
+  // it and verify a specific person was selected. No phone numbers.
   return NextResponse.json({
     funnel: sample.funnel,
-    sample_names: sample.chosen.slice(0, 25).map((c) => (c.fullName ?? "").split(" ")[0] || "Mumin"),
+    sample: sample.chosen.map((c) => ({ name: c.fullName ?? "—", its: c.its, fresh: c.priorSends === 0 })),
   });
 }

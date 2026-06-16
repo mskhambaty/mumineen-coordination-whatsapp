@@ -13,6 +13,7 @@ import { chicagoToday } from "@/lib/surveys/tokens";
 export type SampleCandidate = {
   muminId: string;
   familyId: string | null;
+  its: string;
   phone: string;
   fullName: string | null;
   priorSends: number; // how many surveys they've previously been sent (freshness)
@@ -93,6 +94,7 @@ export async function suggestSample(
     eligible.push({
       muminId: id,
       familyId: r.family_id,
+      its: r.its,
       phone: r.whatsapp_e164 as string,
       fullName: r.full_name,
       priorSends: priorSends.get(id) ?? 0,

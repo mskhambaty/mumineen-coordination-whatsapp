@@ -245,6 +245,48 @@ function FormsTab({ forms, reload }: { forms: FormRow[]; reload: () => void }) {
 
 function copy(text: string) { void navigator.clipboard?.writeText(text); }
 
+function PreviewSample({ detail }: { detail: Detail }) {
+  const [q, setQ] = useState("");
+  const f = (detail.funnel ?? {}) as Record<string, number>;
+  const sample = (detail.sample ?? []) as { name: string; its: string; fresh: boolean }[];
+  const ql = q.trim().toLowerCase();
+  const filtered = ql ? sample.filter((s) => s.name.toLowerCase().includes(ql) || s.its.includes(ql)) : sample;
+  return (
+    <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/40">
+      <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-700 dark:text-gray-300">
+        <span><b>{f.candidates ?? 0}</b> qualify</span>
+        <span><b>{f.chosen ?? 0}</b> chosen</span>
+        <span className="text-emerald-600 dark:text-emerald-400">{f.fresh ?? 0} fresh</span>
+        <span className="text-amber-600 dark:text-amber-400">{f.reused ?? 0} reused</span>
+        <span className="text-gray-400">{f.excludedToday ?? 0} already today · {f.excludedExhausted ?? 0} exhausted</span>
+      </div>
+      {sample.length > 0 && (
+        <>
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search this sample by name or ITS…"
+            className="mt-3 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
+          />
+          <p className="mt-1 text-[11px] text-gray-400">{filtered.length} of {sample.length}{ql ? ` matching “${q}”` : " in sample"}</p>
+          <div className="mt-1 max-h-64 divide-y divide-gray-100 overflow-auto dark:divide-gray-800">
+            {filtered.map((s, i) => (
+              <div key={i} className="flex items-center justify-between gap-3 py-1 text-xs">
+                <span className="truncate text-gray-700 dark:text-gray-300">{s.name}</span>
+                <span className="flex flex-shrink-0 items-center gap-2">
+                  <span className="font-mono text-gray-400">{s.its}</span>
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] ${s.fresh ? "bg-emerald-600/20 text-emerald-700 dark:text-emerald-400" : "bg-amber-500/20 text-amber-700 dark:text-amber-400"}`}>{s.fresh ? "fresh" : "reused"}</span>
+                </span>
+              </div>
+            ))}
+            {filtered.length === 0 && <p className="py-2 text-xs text-gray-400">No one matching “{q}” in this sample.</p>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function SentimentBadge({ value }: { value: number | null }) {
   if (value == null) return <span className="text-xs text-gray-400">—</span>;
   const color = value >= 4 ? "bg-emerald-600" : value >= 3 ? "bg-amber-500" : "bg-red-600";
@@ -280,22 +322,7 @@ function DetailView({ detail }: { detail: Detail }) {
     );
   }
 
-  if (detail.kind === "preview") {
-    const f = (detail.funnel ?? {}) as Record<string, number>;
-    const names = (detail.sample_names ?? []) as string[];
-    return (
-      <div className={box}>
-        <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-700 dark:text-gray-300">
-          <span><b>{f.candidates ?? 0}</b> qualify</span>
-          <span><b>{f.chosen ?? 0}</b> chosen</span>
-          <span className="text-emerald-600 dark:text-emerald-400">{f.fresh ?? 0} fresh</span>
-          <span className="text-amber-600 dark:text-amber-400">{f.reused ?? 0} reused</span>
-          <span className="text-gray-400">{f.excludedToday ?? 0} already today · {f.excludedExhausted ?? 0} exhausted</span>
-        </div>
-        {names.length > 0 && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Sample: {names.join(", ")}{(f.chosen ?? 0) > names.length ? "…" : ""}</p>}
-      </div>
-    );
-  }
+  if (detail.kind === "preview") return <PreviewSample detail={detail} />;
 
   if (detail.kind === "send") {
     const recipients = (detail.recipients ?? []) as { name: string | null; phone: string; link: string }[];
