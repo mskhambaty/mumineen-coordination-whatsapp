@@ -2140,11 +2140,13 @@ paths:
   /api/admin/niyaz/instances/{id}/broadcast:
     get:
       tags: [admin]
-      summary: Preview the audience for a Niyaz RSVP send
+      summary: Preview (or export) the audience for a Niyaz RSVP send
       description: >-
         Admin (portal). Returns the recipient count, any unresolved ITS, and a sample list
         (name / ITS / masked phone, first 100) for the chosen audience/level/filter so the composer
-        can preview who will receive the broadcast.
+        can preview who will receive the broadcast. With `format=csv` it instead streams the FULL
+        resolved audience (every matched recipient, UNMASKED phone numbers) as a CSV download — that
+        branch is gated to admin/leadership.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: audience, in: query, required: true, schema: { type: string, enum: [specific_its, all_mumineen, all_hof, all_adults, all_adults_hof] }, description: "all_adults_hof = all adults of one family; pass its=<HOF ITS>. only_non_responders is family-level." }
@@ -2152,8 +2154,9 @@ paths:
         - { name: only_non_responders, in: query, schema: { type: boolean } }
         - { name: require_registered, in: query, schema: { type: boolean, default: true }, description: "false targets every roster-active, not-attending=false family (drops the submitted-registration filter)." }
         - { name: its, in: query, schema: { type: string }, description: Comma/space-separated ITS for the test audience. }
+        - { name: format, in: query, schema: { type: string, enum: [csv] }, description: "csv = download the full resolved audience (Name, ITS, HOF ITS, Jamaat, City, Gender, Local/Mehman, WhatsApp) instead of the masked JSON preview. Admin/leadership only." }
       responses:
-        "200": { description: "{ count, unresolved_its, sample: [{ name, its, phone_masked }] }." }
+        "200": { description: "JSON { count, unresolved_its, sample: [{ name, its, phone_masked }] }, or a text/csv attachment when format=csv." }
         "403": { $ref: "#/components/responses/Forbidden" }
     post:
       tags: [admin]

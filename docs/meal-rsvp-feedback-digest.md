@@ -153,7 +153,10 @@ the family's roster-active, not-attending=false count. `buildSendComponents` emi
 **Audiences** (the composer): *All HOF* (one reachable number per family, `roster_active` +
 `not_attending=false`, `require_registered=false`) and *All HOF — not yet responded* (the same, minus
 families with a `whatsapp`/`admin` `niyaz_rsvp` row for this event). Both have a **preview** (count +
-a sample list of name / ITS / masked phone), and there's a **single-ITS test send**.
+a sample list of name / ITS / masked phone), an **Export CSV** button — `GET …/broadcast?…&format=csv`
+streams the *full* resolved audience (Name, ITS, HOF ITS, Jamaat, City, Gender, Local/Mehman, unmasked
+WhatsApp; the preview sample is capped at 100, this is every recipient), gated to admin/leadership
+since it carries full numbers — and there's a **single-ITS test send**.
 
 The flow_token / not-attending payloads use the `rsvp:<hof_its>:<day_id>` shape (`day_id` =
 `niyaz_event_config.day_id`, a stable numeric per-day id; the Flow's `registration_instance_id` is

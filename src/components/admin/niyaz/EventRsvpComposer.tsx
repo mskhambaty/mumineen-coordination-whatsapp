@@ -323,6 +323,7 @@ export default function EventRsvpComposer({
 
   const [preview, setPreview] = useState<{ count: number; sample: SampleRow[]; unresolved: string[] } | null>(null);
   const [previewing, setPreviewing] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
@@ -454,6 +455,48 @@ export default function EventRsvpComposer({
       setError(err instanceof Error ? err.message : "Preview failed");
     } finally {
       setPreviewing(false);
+    }
+  }
+
+  // Download the FULL audience (every matched recipient, not just the 100-row preview sample) as a
+  // CSV. The same audience/filters/level params as the preview, plus format=csv. Admin/leadership
+  // only on the server — a non-authorized caller gets a 403 surfaced as an error.
+  async function exportCsv() {
+    if (!instanceId) {
+      setError("No registration instance exists for this date yet — create one on the Niyaz events page to export.");
+      return;
+    }
+    setExporting(true);
+    setError(null);
+    setResult(null);
+    try {
+      const p = audienceParams(audience, testIts, hofItsInput);
+      const qs = new URLSearchParams({
+        audience: p.audience,
+        level: p.level,
+        require_registered: String(p.require_registered),
+        only_non_responders: String(p.only_non_responders),
+        format: "csv",
+      });
+      if (p.its.length) qs.set("its", p.its.join(","));
+      const res = await apiFetch(`/api/admin/niyaz/instances/${instanceId}/broadcast?${qs.toString()}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Export failed");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `niyaz-audience-${audience}-${date}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -622,6 +665,9 @@ export default function EventRsvpComposer({
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={runPreview} disabled={previewing || !instanceId} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
           {previewing ? "Previewing…" : "Preview audience"}
+        </button>
+        <button type="button" onClick={exportCsv} disabled={exporting || !instanceId} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
+          {exporting ? "Exporting…" : "Export CSV"}
         </button>
         <button type="button" onClick={send} disabled={sending || !instanceId} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-700">
           {sending ? "Sending…" : "Send broadcast"}
