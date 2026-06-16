@@ -622,6 +622,23 @@ Unique `(registration_instance_id, family_id)`. RLS enabled (service-role access
 reply is tied back to a date via the **`niyaz_rsvp_prompts`** table (a prompt is logged when the
 head-count template is sent; the next numeric reply consumes the most recent open prompt).
 
+### Targeted feedback surveys (`survey_*`)
+
+A second, active feedback system (separate from the mined `feedback_entries`). See
+[feedback-surveys.md](./feedback-surveys.md). Eight tables, all RLS-enabled (service-role only),
+FKs to `mumineen`/`families` use `on delete set null` to preserve responses:
+
+| Table | Role |
+|-------|------|
+| `survey_sections` | Section databank (slug `key`, feedback `area`, `is_general`). |
+| `survey_questions` | Question databank per section (`type`, `options` best-first, `negative_values`, `polarity`, `is_general`). |
+| `survey_groups` | Named target audiences stored as an audience-filter `RuleGroup` (`rules` jsonb). |
+| `survey_forms` | A composed run (group + sample_size + status draft/sampled/sent/closed). |
+| `survey_form_questions` | The form's composed questions, with a `snapshot` jsonb for stability. |
+| `survey_recipients` | The sample; each row has a unique opaque `token` (identity for the public form). |
+| `survey_question_exposures` | `unique (mumin_id, question_id)` — enforces once-per-event no-repeat. |
+| `survey_answers` | One row per answered question: `sentiment_1_5`, `department_ids`, `reason_text`. |
+
 ### `whatsapp_template_settings`
 
 Admin annotations on the Meta message templates for the Send Templates console. Meta owns the

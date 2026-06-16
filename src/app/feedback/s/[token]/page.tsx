@@ -1,0 +1,248 @@
+"use client";
+
+import { use, useEffect, useMemo, useState } from "react";
+
+// Public, frictionless feedback-survey form. The token in the URL identifies the mumin + form;
+// we show their first name to confirm before submit. Mirrors the webinars page styling.
+
+type Question = {
+  form_question_id: string;
+  question_id: string | null;
+  area: string | null;
+  snapshot: {
+    text: string;
+    type: "choice" | "scale10" | "scale5" | "yesno" | "text";
+    options?: { label: string }[] | null;
+    negative_values?: string[] | null;
+  };
+};
+type Section = { section_id: string | null; title: string; questions: Question[] };
+type LoadedForm = {
+  status: "ok" | "not_found" | "closed";
+  recipientId?: string;
+  firstName?: string | null;
+  formTitle?: string;
+  alreadyCompleted?: boolean;
+  sections?: Section[];
+};
+
+const QUAL_SCALE = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
+
+export default function SurveyFormPage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = use(params);
+  const [form, setForm] = useState<LoadedForm | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/feedback-survey/${token}`)
+      .then((r) => r.json())
+      .then((d: LoadedForm) => setForm(d))
+      .catch(() => setForm({ status: "not_found" }))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  const allQuestions = useMemo(
+    () => (form?.sections ?? []).flatMap((s) => s.questions),
+    [form],
+  );
+  const answeredCount = allQuestions.filter((q) => (answers[q.question_id ?? ""] ?? "").trim()).length;
+  const progress = allQuestions.length ? Math.round((answeredCount / allQuestions.length) * 100) : 0;
+
+  function setAnswer(qid: string, value: string, negativeValues?: string[] | null) {
+    setAnswers((a) => ({ ...a, [qid]: value }));
+    // Clear a stale reason if the new answer isn't negative.
+    if (!negativeValues?.includes(value)) setReasons((r) => ({ ...r, [qid]: "" }));
+  }
+
+  async function submit() {
+    setSubmitting(true);
+    setError(null);
+    const payload = {
+      answers: allQuestions
+        .map((q) => {
+          const qid = q.question_id ?? "";
+          const value = (answers[qid] ?? "").trim();
+          if (!value) return null;
+          const reason = (reasons[qid] ?? "").trim() || null;
+          return { question_id: qid, value, reason };
+        })
+        .filter(Boolean),
+    };
+    if (payload.answers.length === 0) {
+      setError("Please answer at least one question.");
+      setSubmitting(false);
+      return;
+    }
+    const res = await fetch(`/api/feedback-survey/${token}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    setSubmitting(false);
+    if (!res.ok) { setError(json.error ?? "Could not submit. Please try again."); return; }
+    setDone(true);
+  }
+
+  if (loading) {
+    return <div className="flex min-h-screen items-center justify-center bg-gray-950 text-gray-400">Loading…</div>;
+  }
+  if (!form || form.status !== "ok") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-950 px-6 text-center">
+        <div className="max-w-sm text-gray-300">
+          <h1 className="mb-2 text-lg font-semibold text-white">
+            {form?.status === "closed" ? "This survey has closed" : "Survey link not found"}
+          </h1>
+          <p className="text-sm text-gray-500">
+            {form?.status === "closed"
+              ? "Shukran — this feedback round is no longer accepting responses."
+              : "This link may have expired or already been used. Please check the latest message we sent you."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+  if (done) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-950 px-6 text-center">
+        <div className="max-w-sm">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-600 to-green-700">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-8 w-8 text-white"><path strokeLinecap="round" strokeLinejoin="round" d="M20 6 9 17l-5-5" /></svg>
+          </div>
+          <h1 className="mb-1 text-xl font-bold text-white">Shukran{form.firstName ? `, ${form.firstName}` : ""}!</h1>
+          <p className="text-sm text-gray-400">Your feedback has been recorded. It helps us improve the khidmat for all mumineen.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white">
+      <div className="sticky top-0 z-20 h-1.5 w-full bg-white/10">
+        <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all" style={{ width: `${progress}%` }} />
+      </div>
+      <header className="border-b border-white/10 bg-gradient-to-br from-blue-900/40 to-gray-950 px-5 py-6 text-center">
+        <p className="text-xs uppercase tracking-widest text-blue-300/80">Ashara Mubaraka 1448H · Chicago Relay Centre</p>
+        <h1 className="mt-1 text-xl font-bold">{form.formTitle ?? "Mumineen Feedback"}</h1>
+        {form.alreadyCompleted && (
+          <p className="mt-2 text-xs text-amber-300/90">You&apos;ve already submitted this — re-submitting will update your responses.</p>
+        )}
+      </header>
+
+      <main className="mx-auto max-w-2xl px-4 py-6">
+        {(form.sections ?? []).map((section) => (
+          <section key={section.section_id ?? section.title} className="mb-5 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+            <div className="border-b border-white/10 bg-white/5 px-5 py-3">
+              <h2 className="text-sm font-semibold text-white">{section.title}</h2>
+            </div>
+            <div className="divide-y divide-white/5">
+              {section.questions.map((q) => {
+                const qid = q.question_id ?? q.form_question_id;
+                const value = answers[qid] ?? "";
+                const negVals = q.snapshot.negative_values ?? [];
+                const showReason = Boolean(value) && negVals.includes(value);
+                return (
+                  <div key={q.form_question_id} className="px-5 py-4">
+                    <p className="mb-3 text-sm font-medium text-gray-100">{q.snapshot.text}</p>
+                    <QuestionInput question={q} value={value} onChange={(v) => setAnswer(qid, v, negVals)} />
+                    {showReason && (
+                      <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
+                        <label className="mb-1.5 block text-xs font-medium text-amber-300/90">Sorry to hear that — what was the main issue?</label>
+                        <input
+                          type="text"
+                          value={reasons[qid] ?? ""}
+                          onChange={(e) => setReasons((r) => ({ ...r, [qid]: e.target.value }))}
+                          placeholder="Briefly tell us why…"
+                          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+
+        {error && <p className="mb-3 rounded-xl bg-red-950/50 px-4 py-3 text-sm text-red-400">{error}</p>}
+
+        <div className="sticky bottom-0 -mx-4 border-t border-white/10 bg-gray-950/90 px-4 py-4 backdrop-blur">
+          <p className="mb-2 text-center text-xs text-gray-400">
+            Submitting as <span className="font-semibold text-gray-200">{form.firstName ?? "you"}</span> — is this you?
+          </p>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={submitting || answeredCount === 0}
+            className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 py-3 text-sm font-semibold text-white shadow-lg transition hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50"
+          >
+            {submitting ? "Submitting…" : `Submit feedback (${answeredCount}/${allQuestions.length})`}
+          </button>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function QuestionInput({ question, value, onChange }: { question: Question; value: string; onChange: (v: string) => void }) {
+  const { type, options } = question.snapshot;
+
+  if (type === "text") {
+    return (
+      <textarea
+        rows={3}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Type your answer…"
+        className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+      />
+    );
+  }
+
+  if (type === "scale10" || type === "scale5") {
+    const scale = type === "scale10" ? QUAL_SCALE : QUAL_SCALE.slice(0, 5);
+    return (
+      <div className="flex flex-wrap gap-2">
+        {scale.map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => onChange(n)}
+            className={`flex h-10 w-10 items-center justify-center rounded-lg border text-sm font-medium transition ${
+              value === n ? "border-blue-500 bg-blue-600 text-white" : "border-white/10 bg-white/5 text-gray-300 hover:border-white/30"
+            }`}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  const choices = type === "yesno" ? [{ label: "Yes" }, { label: "No" }] : options ?? [];
+  return (
+    <div className="flex flex-col gap-2">
+      {choices.map((opt) => (
+        <button
+          key={opt.label}
+          type="button"
+          onClick={() => onChange(opt.label)}
+          className={`flex items-center gap-3 rounded-xl border px-4 py-2.5 text-left text-sm transition ${
+            value === opt.label ? "border-blue-500 bg-blue-600/15 font-medium text-white" : "border-white/10 bg-white/5 text-gray-200 hover:border-white/30"
+          }`}
+        >
+          <span className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border ${value === opt.label ? "border-blue-400 bg-blue-500" : "border-white/30"}`}>
+            {value === opt.label && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+          </span>
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}

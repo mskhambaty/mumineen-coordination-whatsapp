@@ -28,6 +28,11 @@ import { GET, POST } from "@/app/api/rsvp/meals/route";
 const PHONE = "+15551234567";
 const FAMILY = { familyId: "fam-1", muminId: "m-1", hofIts: "10", displayName: "X" };
 
+// The route filters out past events, so these tests must use an "upcoming" date relative to the
+// run (not a hardcoded one that lapses). Label is computed the same way the route does.
+const UPCOMING = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+const UPCOMING_LABEL = new Date(`${UPCOMING}T12:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
+
 function req(method: string, body?: unknown, withPhone = true): NextRequest {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (withPhone) headers["x-whatsapp-from"] = PHONE;
@@ -60,15 +65,15 @@ describe("GET /api/rsvp/meals", () => {
   it("returns the caller's family grid with a weekday dateLabel per row", async () => {
     resolveFamilyForPhone.mockResolvedValue(FAMILY);
     getFamilyNiyazGrid.mockResolvedValue([
-      { event: { id: "e1", eventDate: "2026-06-15" }, attending: 4, adults: 2, kids: 2, total: 5 },
+      { event: { id: "e1", eventDate: UPCOMING }, attending: 4, adults: 2, kids: 2, total: 5 },
     ]);
     const res = await GET(req("GET"));
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.status).toBe("ok");
     expect(json.grid).toHaveLength(1);
-    // Jun 15 2026 is a Monday — the label is computed server-side so the agent never guesses it.
-    expect(json.grid[0].dateLabel).toBe("Mon, Jun 15");
+    // The label is computed server-side (so the agent never guesses it) and includes the weekday.
+    expect(json.grid[0].dateLabel).toBe(UPCOMING_LABEL);
     expect(json.familyMembers).toEqual(MEMBERS);
     expect(getFamilyNiyazGrid).toHaveBeenCalledWith("fam-1");
     // Viewing the RSVP via the bot promotes default rows to whatsapp for the min view.
@@ -79,13 +84,13 @@ describe("GET /api/rsvp/meals", () => {
     resolveFamilyForPhone.mockResolvedValue(null);
     getUnregisteredRsvps.mockResolvedValue([]);
     getEvents.mockResolvedValue([
-      { id: "e1", title: "1st Moharram ul Haram", eventDate: "2026-06-15", meal: "lunch" },
+      { id: "e1", title: "1st Moharram ul Haram", eventDate: UPCOMING, meal: "lunch" },
     ]);
     const res = await GET(req("GET"));
     const json = await res.json();
     expect(json.status).toBe("unregistered");
     expect(json.events).toEqual([
-      { date: "2026-06-15", label: "Mon, Jun 15", meal: "lunch", title: "1st Moharram ul Haram" },
+      { date: UPCOMING, label: UPCOMING_LABEL, meal: "lunch", title: "1st Moharram ul Haram" },
     ]);
     expect(getFamilyNiyazGrid).not.toHaveBeenCalled();
   });

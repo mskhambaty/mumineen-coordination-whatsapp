@@ -35,6 +35,7 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 | [meal-rsvp-feedback-digest.md](./meal-rsvp-feedback-digest.md) | Jaman meal RSVP, feedback capture, nightly department digest, and the manual template send console |
 | [lost-found.md](./lost-found.md) | Lost/found reporting tools, auto-escalation, reporter identity, and portal page |
 | [webinars.md](./webinars.md) | Public `/webinars` page: ITS gate, video card grid, modal player, admin add/manage |
+| [feedback-surveys.md](./feedback-surveys.md) | Targeted feedback surveys: section/question databank, group sampling (fresh-first, once-per-event), tokenized web form, 1-5 section sentiment |
 | [openapi.yaml](./openapi.yaml) | API-first contract for all `src/app/api/**` routes |
 
 ## Key File Locations
@@ -98,6 +99,10 @@ src/app/api/lost-found/route.ts          — Agent intake for lost/found reports
 src/app/api/admin/lost-found/route.ts    — Portal-member lost/found report list + manual add (POST)
 src/app/api/admin/lost-found/[id]/route.ts — Edit (PUT) / Delete (DELETE) a lost/found item
 src/app/api/admin/lost-found/[id]/resolve/route.ts — Mark item resolved with history tracking
+src/lib/surveys/{sentiment,sampling,send,respond,tokens}.ts — Targeted feedback surveys: scoring, fresh-first sampling, commit/send, tokenized collection
+src/app/feedback/s/[token]/page.tsx       — Public tokenized feedback-survey form
+src/app/api/feedback-survey/[token]/route.ts — GET form + POST submit (token-scoped, no login)
+src/app/admin/surveys/page.tsx + src/app/api/admin/surveys/** — Survey console (compose/sample/send/results)
 src/lib/rsvp/meal-rsvp.ts                — Per-mumin Niyaz RSVP (niyaz_rsvp): grids, family/individual set-cascade, tallies (max/min), unregistered RSVP helpers, daily-button recording
 src/lib/rsvp/niyaz-prompt.ts             — Daily RSVP-template audiences (ITS/mumineen/HOF/adults, requireRegistered) + button payloads + per-recipient fields (mumin_id, family_members, eligible_family_count) + single-prompt creation for unregistered callers
 src/lib/rsvp/event-config.ts             — Day-level Niyaz event config (niyaz_event_config): rsvp_event_title, lunch/dinner menus, rsvp_end_time, meals, template_code
