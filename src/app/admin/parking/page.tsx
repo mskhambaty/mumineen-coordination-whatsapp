@@ -1633,6 +1633,16 @@ export default function ParkingPage() {
                       </span>
                     ))}
                   </div>
+                  {r.passes.length > 0 && (
+                    <a
+                      href={`/admin/parking/print?hof_its=${encodeURIComponent(r.hof_its)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1.5 inline-block text-[11px] text-purple-600 hover:underline dark:text-purple-400"
+                    >
+                      Show passes
+                    </a>
+                  )}
                 </td>
                 {canManage && (
                   <td className="px-3 py-2 text-center">
@@ -1845,7 +1855,19 @@ export default function ParkingPage() {
 
                 {/* Parking Passes */}
                 <div className="px-5 py-4">
-                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Parking Passes</h3>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">Parking Passes</h3>
+                    {detail.passes.length > 0 && (
+                      <a
+                        href={`/admin/parking/print?hof_its=${encodeURIComponent(detailRow.hof_its)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] text-purple-600 hover:underline dark:text-purple-400"
+                      >
+                        Show passes
+                      </a>
+                    )}
+                  </div>
                   {detail.passes.length === 0 ? (
                     <span className="text-gray-400">No passes assigned</span>
                   ) : (

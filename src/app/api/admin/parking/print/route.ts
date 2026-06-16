@@ -12,7 +12,8 @@ type LotRow = { id: string; name: string; color: string | null };
 
 // GET /api/admin/parking/print
 // ?lot_id=<id>        — passes for one lot, sorted alphabetically by name.
-// (no lot_id)         — ALL passes across every lot, sorted by ITS number.
+// ?hof_its=<its>      — passes for one household, sorted by lot name.
+// (neither)           — ALL passes across every lot, sorted by ITS number.
 // ?unprinted_only=1   — only passes where printed_at IS NULL (default: 1).
 // ?unprinted_only=0   — all passes regardless of print status.
 // Response includes total_passes (pre-filter) and unprinted_count for the toolbar.
@@ -22,17 +23,35 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const lotId = searchParams.get("lot_id");
+  const hofIts = searchParams.get("hof_its");
   const unprintedOnly = searchParams.get("unprinted_only") !== "0"; // default true
 
   const supabase = getSupabaseAdmin();
 
+  // For a household view, resolve its family ids up front so we can scope the pass query.
+  let householdFamilyIds: string[] | null = null;
+  if (hofIts) {
+    const { data: hofFamilies, error: hofErr } = await supabase
+      .from("families")
+      .select("id")
+      .eq("hof_its", hofIts);
+    if (hofErr) return NextResponse.json({ error: hofErr.message }, { status: 500 });
+    householdFamilyIds = (hofFamilies ?? []).map((f: { id: string }) => f.id);
+    if (householdFamilyIds.length === 0) {
+      return NextResponse.json({ error: "Household not found." }, { status: 404 });
+    }
+  }
+
+  const passesQuery = supabase.from("parking_passes").select("id, family_id, lot_id, printed_at");
   const [lotsResult, allPassesResult] = await Promise.all([
     lotId
       ? supabase.from("parking_lots").select("id, name, color").eq("id", lotId)
       : supabase.from("parking_lots").select("id, name, color"),
     lotId
-      ? supabase.from("parking_passes").select("id, family_id, lot_id, printed_at").eq("lot_id", lotId).order("created_at")
-      : supabase.from("parking_passes").select("id, family_id, lot_id, printed_at").order("created_at"),
+      ? passesQuery.eq("lot_id", lotId).order("created_at")
+      : householdFamilyIds
+        ? passesQuery.in("family_id", householdFamilyIds).order("created_at")
+        : passesQuery.order("created_at"),
   ]);
 
   if (lotsResult.error) return NextResponse.json({ error: lotsResult.error.message }, { status: 500 });
@@ -93,10 +112,14 @@ export async function GET(req: NextRequest) {
         printed_at: p.printed_at ?? null,
       };
     })
-    .sort(lotId
-      ? (a, b) => a.head_name.localeCompare(b.head_name)
+    .sort(lotId || hofIts
+      ? (a, b) => a.lot_name.localeCompare(b.lot_name) || a.head_name.localeCompare(b.head_name)
       : (a, b) => a.hof_its.localeCompare(b.hof_its),
     );
 
-  return NextResponse.json({ lot, passes: result, total_passes: totalPasses, unprinted_count: unprintedCount });
+  const household = hofIts
+    ? { hof_its: hofIts, head_name: result[0]?.head_name ?? hofIts }
+    : null;
+
+  return NextResponse.json({ lot, household, passes: result, total_passes: totalPasses, unprinted_count: unprintedCount });
 }
