@@ -2390,6 +2390,17 @@ paths:
         "200": { description: "{ status: deleted }." }
         "404": { description: "Form not found." }
 
+  /api/admin/surveys/mumin:
+    get:
+      tags: [admin]
+      summary: One mumin's personal + registration details (popup)
+      description: Admin/leadership only. By `?its=`, returns roster + family fields shown in the "view details" popup off a sampled record.
+      parameters:
+        - { name: its, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "{ mumin: {...}, family: {...}|null }." }
+        "404": { description: "ITS not in the active roster." }
+
   /api/admin/surveys/responses:
     get:
       tags: [admin]
@@ -2406,6 +2417,21 @@ paths:
         "200": { description: "{ matches: [{its,name}] } for q, or { mumin, overall_sentiment, answered, forms_received, sections, answers } for its." }
         "400": { description: "Neither its nor q provided." }
         "404": { description: "ITS not found in the active roster." }
+
+  /api/admin/surveys/forms/{id}/test-batch:
+    post:
+      tags: [admin]
+      summary: Send a test to manually-selected individuals (in-team testing)
+      description: >-
+        Admin/leadership only. Body { its: string[], deliver? }. Creates an is_test recipient per
+        ITS (no exposures, excluded from results) and returns each one's link; deliver:true also
+        sends it to their WhatsApp. Used by the "Test to people" picker.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ recipients: [{ its, name, phone, link?, delivered?, error? }] }." }
+        "400": { description: "Invalid body or no composed questions." }
+        "404": { description: "Form not found." }
 
   /api/admin/surveys/forms/{id}/test-link:
     post:

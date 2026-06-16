@@ -38,8 +38,10 @@ export default function SurveysAdminPage() {
   const [sampleSize, setSampleSize] = useState(40);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lookupIts, setLookupIts] = useState<string | null>(null);
+  const [personIts, setPersonIts] = useState<string | null>(null);
 
-  function openMumin(its: string) { setLookupIts(its); setTab("lookup"); }
+  // Clicking a sampled record opens a details popup (personal + registration info).
+  function openMumin(its: string) { setPersonIts(its); }
 
   const loadDatabank = useCallback(async () => {
     const res = await apiFetch("/api/admin/surveys/databank");
@@ -157,6 +159,75 @@ export default function SurveysAdminPage() {
           ))}
         </div>
       )}
+
+      {personIts && <PersonModal its={personIts} onClose={() => setPersonIts(null)} />}
+    </div>
+  );
+}
+
+type PersonDetail = {
+  mumin: Record<string, unknown> & { name: string | null; its: string };
+  family: Record<string, unknown> | null;
+};
+
+function PersonModal({ its, onClose }: { its: string; onClose: () => void }) {
+  const [data, setData] = useState<PersonDetail | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiFetch(`/api/admin/surveys/mumin?its=${encodeURIComponent(its)}`)
+      .then((r) => r.json())
+      .then((j) => { if (j.error) setErr(j.error); else setData(j as PersonDetail); })
+      .catch(() => setErr("Lookup failed"));
+  }, [its]);
+
+  const m = data?.mumin;
+  const fam = data?.family;
+  const fmtDate = (v: unknown) => (typeof v === "string" ? v.slice(0, 10) : null);
+  const yes = (v: unknown) => (v ? "Yes" : "No");
+  const row = (label: string, value: React.ReactNode) =>
+    value == null || value === "" ? null : (
+      <div className="flex justify-between gap-4 py-1 text-sm">
+        <span className="text-gray-500 dark:text-gray-400">{label}</span>
+        <span className="text-right font-medium text-gray-800 dark:text-gray-100">{value}</span>
+      </div>
+    );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[85vh] w-full max-w-md overflow-auto rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl dark:border-gray-700 dark:bg-gray-900" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-start justify-between">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">{m?.name ?? "Mumin details"}</h2>
+          <button onClick={onClose} aria-label="Close" className="rounded-full px-2 text-lg text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">✕</button>
+        </div>
+        {err && <p className="text-sm text-red-600 dark:text-red-400">{err}</p>}
+        {!data && !err && <p className="text-sm text-gray-500">Loading…</p>}
+        {m && (
+          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+            {row("ITS", <span className="font-mono">{String(m.its)}</span>)}
+            {row("HOF ITS", m.hof_its ? <span className="font-mono">{String(m.hof_its)}</span> : null)}
+            {row("Head of family", m.is_head ? "Yes" : null)}
+            {row("Gender / Age", [m.gender, m.age].filter(Boolean).join(" · ") || null)}
+            {row("Jamaat", m.jamaat as React.ReactNode)}
+            {row("City", m.city as React.ReactNode)}
+            {row("Local / Mehman", m.local_mehman as React.ReactNode)}
+            {row("Category", m.category as React.ReactNode)}
+            {row("Idara", m.idara as React.ReactNode)}
+            {row("Phone", m.phone as React.ReactNode)}
+            {row("Email", m.email as React.ReactNode)}
+            {row("Arrival", fmtDate(m.arrival_at))}
+            {row("Departure", fmtDate(m.departure_at))}
+            {row("Airport", m.airport as React.ReactNode)}
+            {row("Rahat / Wheelchair", (m.rahat_seating || m.wheelchair) ? [m.rahat_seating ? "Rahat" : null, m.wheelchair ? "Wheelchair" : null].filter(Boolean).join(" · ") : null)}
+            {row("Special needs", m.special_needs as React.ReactNode)}
+            {row("Attending", m.not_attending ? "No" : "Yes")}
+            {row("Registration", fam ? (fam.registration_status === "submitted" ? "Submitted" : "Not started") : "—")}
+            {row("Accommodation", fam?.acc_type ? `${fam.acc_type}${fam.hotel_name ? ` — ${fam.hotel_name}` : fam.utaro_host_name ? ` — ${fam.utaro_host_name}` : ""}` : null)}
+            {row("Transport", fam?.transport_mode as React.ReactNode)}
+            {row("Wants khidmat", m.wants_khidmat ? yes(m.wants_khidmat) : null)}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -254,6 +325,7 @@ type Detail = { kind: string; id: string; [k: string]: unknown };
 function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: () => void; onPickMumin: (its: string) => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [pickerFor, setPickerFor] = useState<string | null>(null);
 
   async function call(id: string, kind: string, path: string, method = "GET") {
     setBusy(id);
@@ -305,6 +377,7 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
             </div>
             <div className="flex flex-wrap gap-2">
               <button onClick={() => testLink(f.id)} disabled={busy === f.id} className={ghostBtn}>Test link</button>
+              <button onClick={() => setPickerFor(pickerFor === f.id ? null : f.id)} className={ghostBtn}>Test to people</button>
               <button onClick={() => call(f.id, "preview", `/api/admin/surveys/forms/${f.id}/preview`, "POST")} disabled={busy === f.id} className={ghostBtn}>Preview sample</button>
               <button onClick={() => send(f.id)} disabled={busy === f.id || f.status === "sent"} className="rounded bg-emerald-600 px-3 py-1 text-xs text-white disabled:opacity-50">
                 {f.status === "sent" ? "Sent" : "Commit & send"}
@@ -313,9 +386,95 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
               <button onClick={() => del(f.id)} disabled={busy === f.id} className="rounded border border-red-300 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40">Delete</button>
             </div>
           </div>
+          {pickerFor === f.id && <ManualTestPanel formId={f.id} />}
           {detail && detail.id === f.id && <DetailView detail={detail} onPickMumin={onPickMumin} />}
         </div>
       ))}
+    </div>
+  );
+}
+
+function ManualTestPanel({ formId }: { formId: string }) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<{ its: string; name: string | null }[] | null>(null);
+  const [selected, setSelected] = useState<Record<string, string>>({}); // its -> name
+  const [deliver, setDeliver] = useState(false);
+  const [out, setOut] = useState<{ its: string; name: string | null; phone: string | null; link?: string; delivered?: boolean; error?: string }[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function search() {
+    if (!q.trim()) return;
+    const res = await apiFetch(`/api/admin/surveys/responses?q=${encodeURIComponent(q.trim())}`);
+    const j = await res.json().catch(() => ({}));
+    setResults(j.matches ?? []);
+  }
+  function toggle(its: string, name: string | null) {
+    setSelected((s) => { const n = { ...s }; if (n[its]) delete n[its]; else n[its] = name ?? its; return n; });
+  }
+  async function generate() {
+    const its = Object.keys(selected);
+    if (its.length === 0) return;
+    setBusy(true);
+    const res = await apiFetch(`/api/admin/surveys/forms/${formId}/test-batch`, { method: "POST", body: JSON.stringify({ its, deliver }) });
+    const j = await res.json().catch(() => ({}));
+    setOut(j.recipients ?? []);
+    setBusy(false);
+  }
+
+  const small = "rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
+  const chosen = Object.entries(selected);
+
+  return (
+    <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/40">
+      <p className="mb-2 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">Send test to selected people (in-team testing — no exposures, excluded from results)</p>
+      <div className="flex gap-2">
+        <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") search(); }} placeholder="Search by name or ITS…" className={`flex-1 ${small}`} />
+        <button onClick={search} className="rounded bg-blue-600 px-3 py-1 text-xs text-white">Search</button>
+      </div>
+
+      {results && (
+        <div className="mt-2 max-h-44 divide-y divide-gray-100 overflow-auto rounded border border-gray-200 dark:divide-gray-800 dark:border-gray-700">
+          {results.length === 0 && <p className="px-2 py-1 text-xs text-gray-400">No matches.</p>}
+          {results.map((r) => (
+            <label key={r.its} className="flex cursor-pointer items-center justify-between gap-3 px-2 py-1 text-xs hover:bg-blue-50/50 dark:hover:bg-gray-800/50">
+              <span className="flex items-center gap-2"><input type="checkbox" checked={Boolean(selected[r.its])} onChange={() => toggle(r.its, r.name)} className="accent-blue-600" /> <span className="text-gray-700 dark:text-gray-300">{r.name ?? "—"}</span></span>
+              <span className="font-mono text-gray-400">{r.its}</span>
+            </label>
+          ))}
+        </div>
+      )}
+
+      {chosen.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {chosen.map(([its, name]) => (
+            <button key={its} onClick={() => toggle(its, name)} className="rounded-full bg-blue-600/15 px-2 py-0.5 text-[11px] text-blue-700 dark:text-blue-300" title="Remove">{name} ✕</button>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-2 flex items-center gap-3">
+        <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300"><input type="checkbox" checked={deliver} onChange={(e) => setDeliver(e.target.checked)} className="accent-blue-600" /> also send to their WhatsApp</label>
+        <button onClick={generate} disabled={busy || chosen.length === 0} className="rounded bg-emerald-600 px-3 py-1 text-xs text-white disabled:opacity-50">
+          {busy ? "Working…" : `Generate ${chosen.length || ""} test link${chosen.length === 1 ? "" : "s"}`}
+        </button>
+      </div>
+
+      {out && (
+        <div className="mt-3 max-h-72 space-y-1 overflow-auto">
+          {out.map((r, i) => (
+            <div key={i} className="flex items-center gap-2 text-xs">
+              <span className="w-28 truncate text-gray-600 dark:text-gray-300">{r.name ?? r.its}</span>
+              {r.error
+                ? <span className="text-amber-600 dark:text-amber-400">{r.error}</span>
+                : <>
+                    <input readOnly value={r.link ?? ""} className="flex-1 rounded border border-gray-300 bg-white px-2 py-0.5 text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300" />
+                    <button onClick={() => copy(r.link ?? "")} className="rounded bg-blue-600 px-2 py-0.5 text-white">Copy</button>
+                    {r.delivered && <span className="text-emerald-600 dark:text-emerald-400">sent</span>}
+                  </>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
