@@ -5,7 +5,7 @@ import { countUnreadInbound, groupRowsByPhoneChronologically } from "@/lib/admin
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { RELIGIOUS_TOOL_NAMES } from "@/lib/admin/religious-transcript";
-import { getBroadcastAccount } from "@/lib/whatsapp/accounts";
+import { getAccounts, getBroadcastAccount, getPrimaryAccount } from "@/lib/whatsapp/accounts";
 
 type MessageRow = {
   id: string;
@@ -16,6 +16,8 @@ type MessageRow = {
   whatsapp_message_id: string | null;
   created_at: string;
   raw_payload: unknown;
+  // Which WABA number this message went to/from (NULL = primary). Maps to an account via `accounts`.
+  phone_number_id: string | null;
 };
 
 type ToolAuditRow = {
@@ -64,6 +66,29 @@ type SessionRow = {
   assigned_user?: UserRelation | UserRelation[];
   issue?: { id: string; issue_number: number; title: string } | Array<{ id: string; issue_number: number; title: string }> | null;
 };
+
+// Public account directory for the inbox: maps each message's phone_number_id to a human label so
+// the UI can show which WABA number a message went to/from. Cheap (2-3 env-backed entries, built
+// once per request); falls back to [] if accounts aren't configured (e.g. in tests). NULL
+// phone_number_id on a message means the primary account.
+function resolveAccountsForResponse(): Array<{
+  phoneNumberId: string;
+  label: string;
+  displayNumber: string | null;
+  isPrimary: boolean;
+}> {
+  try {
+    const primaryId = getPrimaryAccount().phoneNumberId;
+    return getAccounts().map((a) => ({
+      phoneNumberId: a.phoneNumberId,
+      label: a.label,
+      displayNumber: a.displayNumber ?? null,
+      isPrimary: a.phoneNumberId === primaryId,
+    }));
+  } catch {
+    return [];
+  }
+}
 
 export async function GET(req: NextRequest) {
   const auth = await requirePortalCaller(req, canAccessInbox);
@@ -229,14 +254,14 @@ export async function GET(req: NextRequest) {
 
   const phoneNumbers = ((sessions ?? []) as SessionRow[]).map((session) => session.phone_e164);
   if (phoneNumbers.length === 0) {
-    return NextResponse.json({ conversations: [], resolved_has_more: resolvedHasMore });
+    return NextResponse.json({ conversations: [], resolved_has_more: resolvedHasMore, accounts: resolveAccountsForResponse() });
   }
 
   const [{ data: messages, error: messagesError }, { data: toolCalls, error: toolError }] =
     await Promise.all([
       supabase
         .from("messages")
-        .select("id, phone_e164, direction, body, message_type, whatsapp_message_id, created_at, raw_payload")
+        .select("id, phone_e164, direction, body, message_type, whatsapp_message_id, created_at, raw_payload, phone_number_id")
         .in("phone_e164", phoneNumbers)
         .order("created_at", { ascending: false })
         .limit(selectedPhone ? 300 : 1000),
@@ -312,5 +337,5 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  return NextResponse.json({ conversations, resolved_has_more: resolvedHasMore });
+  return NextResponse.json({ conversations, resolved_has_more: resolvedHasMore, accounts: resolveAccountsForResponse() });
 }
