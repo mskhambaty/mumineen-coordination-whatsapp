@@ -2594,8 +2594,10 @@ paths:
       description: >-
         Admin/leadership only. Read-only (POST carries the filter object). Body { formIds?, areas?,
         sectionIds?, includeTest?, gender?, ageMin?, ageMax?, localMehman?, rahatOnly?, jamaats?,
-        categories? }. Every aggregate reflects the active filters. Returns overview (sent, responded
-        [distinct people], response_rate, avg_sentiment, comment_count), sentiment distribution, by
+        categories?, drillScore? }. Every aggregate reflects the active filters. When `drillScore`
+        (1-5) is set, also returns `responses` — the individual answers at that sentiment score
+        (name, ITS, question, answer, reason) for the "who responded" side pane. Returns overview
+        (sent, responded [distinct people], response_rate, avg_sentiment, comment_count), by
         section/area/question, by-attribute breakdowns (local/mehman, gender, age, rahat, jamaat),
         the comment list, and the filter-option universe.
       responses:
