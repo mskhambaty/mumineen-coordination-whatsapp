@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { canAccessPortal } from "@/lib/admin/access";
 import { getEventTallies, getFamilyHeadCounts, type TallyMode } from "@/lib/rsvp/meal-rsvp";
+import { assembleBreakdown, type BreakdownRpcRow } from "@/lib/rsvp/niyaz-breakdown";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const mode: TallyMode = req.nextUrl.searchParams.get("mode") === "max" ? "max" : "min";
 
-  const [tallies, regResult, unregResult] = await Promise.all([
+  const [tallies, regResult, unregResult, breakdownResult] = await Promise.all([
     getEventTallies(mode),
     supabase
       .from("niyaz_rsvp")
@@ -56,6 +57,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       .eq("registration_instance_id", id)
       .order("created_at", { ascending: false })
       .range(0, ROW_LIMIT),
+    // Local-vs-Mehmaan breakdown, DB-aggregated so it is correct past the row list's 1000-row cap.
+    supabase.rpc("niyaz_event_breakdown", { p_instance_id: id }),
   ]);
 
   const tally = tallies.find((t) => t.id === id);
@@ -67,6 +70,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   const rows = (regResult.data ?? []) as unknown as ResponseRow[];
+
+  // Local-vs-Mehmaan breakdown from the DB aggregate (NOT counted from `rows`, which the db-max-rows
+  // cap truncates at 1000). assembleBreakdown picks the columns for the active mode.
+  const breakdown = assembleBreakdown((breakdownResult.data ?? []) as BreakdownRpcRow[], mode);
 
   // Free-text family head counts for this event (separate input from the per-mumin button responses).
   const headcounts = await getFamilyHeadCounts(id);
@@ -92,6 +99,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       yesFamilies: tally.yesFamilies,
       noFamilies: tally.noFamilies,
     },
+    breakdown,
     responses: rows,
     unregistered: (unregResult.data ?? []).map((u) => ({
       id: u.id,
