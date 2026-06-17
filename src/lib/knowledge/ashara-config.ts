@@ -13,7 +13,9 @@ export type AsharaCategory = {
   sameDayTranslate?: boolean;
 };
 
-// The 6 categories ingested for each majlis (user-selected scope).
+// The per-majlis content cells (user-selected scope). The first six are the sources; "Q&A" is a
+// curated bucket of likely member questions + grounded answers (pasted in), indexed like the rest so
+// the agent answers recurring / "list all N" questions from a vetted answer rather than raw prose.
 export const ASHARA_CATEGORIES: AsharaCategory[] = [
   { key: "reflection", label: "Reflections", language: "en" },
   { key: "tazyeen", label: "Tazyeen", language: "en" },
@@ -21,6 +23,7 @@ export const ASHARA_CATEGORIES: AsharaCategory[] = [
   { key: "jumla", label: "Jumla", language: "lisan", sameDayTranslate: true },
   { key: "kalema", label: "Kalema", language: "lisan", sameDayTranslate: true },
   { key: "unwaan", label: "Unwaan", language: "lisan", sameDayTranslate: true },
+  { key: "faq", label: "Q&A", language: "en" },
 ];
 
 export const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(

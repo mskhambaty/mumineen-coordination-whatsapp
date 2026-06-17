@@ -37,10 +37,14 @@ answers and accurate follow-up menus.
 The **Ashara Daily Content** dashboard (External → Ashara Daily Content) is the single surface
 for entering content. Grid = majlis (rows) × category (columns).
 
-- **Seed a day:** "Seed all 6" creates the 6 category slots for a majlis with metadata + a
-  "start here" istibsaar source link. English → `placeholder`, Lisan → `pending_translation`.
-  The daily cron `/api/cron/seed-majlis-day` (gated by `ASHARA_START_DATE` / `ASHARA_YEAR`) does
-  this automatically each Ashara day; `seedMajlisDay()` is the shared logic.
+- **Seed a day:** "Seed all" creates the per-majlis category slots (the 6 source cells + a **Q&A**
+  cell). English → `placeholder`, Lisan → `pending_translation`. The daily cron
+  `/api/cron/seed-majlis-day` (gated by `ASHARA_START_DATE` / `ASHARA_YEAR`) does this automatically
+  each Ashara day; `seedMajlisDay()` is the shared logic (driven by `ASHARA_CATEGORIES`).
+- **Q&A cell (`category='faq'`):** a curated bucket of likely member questions + grounded answers,
+  pasted in per majlis (generated separately, e.g. by Opus). Indexed like any other cell, and the
+  agent searches it alongside the sermon sources — so recurring and "list all N" questions ("the six
+  qualities of a cook") get a vetted answer instead of being re-synthesized from raw reflection prose.
 - **Fill a cell:** click → `ContentBucketEditor`. English: paste the article. Lisan: read the
   original via the **↗ source** link and paste the **English translation**. Saving re-indexes it
   (`status → indexed`) and auto-generates the theme.
@@ -135,7 +139,7 @@ The **Team** tab (adding/removing monitors) stays admin/leadership-only, since i
 
 **Year resolution (1447 ↔ 1448).** Before retrieving, the tool calls `resolveAsharaYear(query, today)` (`ashara-config.ts`) to anchor on the *event*, not the Hijri calendar: explicit `1447/1448` → that year; "last year" → `LAST_COMPLETED_ASHARA_YEAR` (1447, the indexed one); "this year / today / this Ashara / upcoming" → `ACTIVE_ASHARA_YEAR` (1448, not yet posted); no cue → most-recent-available. If the resolved year has no content, the tool returns `not_available` **with** `available_year` + last year's content, and the agent says "1448H isn't posted yet — here's last year (1447H): …" — it never relabels one year's content as another's. Every answer states the concrete year.
 
-**Category-disciplined retrieval.** The tool checks a **specific majlis** first, then **overview** intent (`isOverviewQuery` → the curated `overview` block + per-majlis theme list), then a **category-aware vector fallback**: a decoration question searches `tazyeen`; everything else searches the sermon sources (`reflection`+`al_dars`+`overview`) so the decoration article can never answer a sermon-content question. `retrieveReligiousContext(query, topK, categories)` post-filters by the denormalized `category` on `religious_content`.
+**Category-disciplined retrieval.** The tool checks a **specific majlis** first, then **overview** intent (`isOverviewQuery` → the curated `overview` block + per-majlis theme list), then a **category-aware vector fallback**: a decoration question searches `tazyeen`; everything else searches the sermon sources + the curated Q&A bucket (`reflection`+`al_dars`+`overview`+`faq`) so the decoration article can never answer a sermon-content question, while a member's question can match a vetted Q&A answer. `retrieveReligiousContext(query, topK, categories)` post-filters by the denormalized `category` on `religious_content`.
 
 **Can't answer from the reflections → hand off to the team (no improvised ruling).** Decision tree, enforced by `RELIGIOUS_GUIDANCE_RULE`:
 1. A real, on-topic match in the reflections → answer + cite the source (above).

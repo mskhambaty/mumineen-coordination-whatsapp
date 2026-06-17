@@ -4,7 +4,7 @@ import { deleteReligiousContent, indexReligiousTopic, type ReligiousMeta } from 
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export type ReligiousCategory =
-  | "reflection" | "tazyeen" | "al_dars" | "jumla" | "kalema" | "unwaan" | "overview" | "misc";
+  | "reflection" | "tazyeen" | "al_dars" | "jumla" | "kalema" | "unwaan" | "overview" | "faq" | "misc";
 export type ReligiousLanguage = "en" | "lisan";
 export type ReligiousStatus = "indexed" | "pending_translation" | "placeholder";
 

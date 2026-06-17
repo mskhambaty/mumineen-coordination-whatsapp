@@ -10,7 +10,7 @@ import {
   type ReligiousStatus,
 } from "@/lib/knowledge/religious-topics";
 
-const CATEGORIES = ["reflection", "tazyeen", "al_dars", "jumla", "kalema", "unwaan", "misc"];
+const CATEGORIES = ["reflection", "tazyeen", "al_dars", "jumla", "kalema", "unwaan", "overview", "faq", "misc"];
 const LANGUAGES = ["en", "lisan"];
 const STATUSES = ["indexed", "pending_translation", "placeholder"];
 

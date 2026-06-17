@@ -798,7 +798,9 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       // 3. General religious question → YEAR-SCOPED, category-aware vector fallback. A 1448 query
       // is year-filtered to nothing (zero 1448 rows) so it can't relabel the embedded 1447 rows.
       const decoration = /\b(tazyeen|tazeen|tazyin|decorat|sajawat|sajaawat|artwork|calligraph)\b/i.test(query);
-      const cats = decoration ? ["tazyeen"] : ["reflection", "al_dars", "overview"];
+      // 'faq' = the curated per-majlis Q&A bucket; searched alongside the sermon sources so a member's
+      // question matches a vetted answer (the Q text ranks high against the question's wording).
+      const cats = decoration ? ["tazyeen"] : ["reflection", "al_dars", "overview", "faq"];
       const targetYear = yr.year ?? null;
       const ctx = await retrieveReligiousContext(query, 5, cats, targetYear, RELIGIOUS_FALLBACK_MIN_SCORE);
       if (ctx) {
