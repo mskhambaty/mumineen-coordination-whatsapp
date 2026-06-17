@@ -463,8 +463,25 @@ paths:
           in: query
           schema: { type: string, enum: [main, niyaz], default: main }
           description: "Inbox split by the number a conversation is on (conversation_sessions.phone_number_id). main = exclude the niyaz RSVP/broadcast number; niyaz = only it."
+        - name: includeResolved
+          in: query
+          schema: { type: string, enum: ["1"] }
+          description: >-
+            When "1", also load resolved escalations (escalation_status=resolved) for the Escalations
+            tab, bounded to the most-recent `resolvedLimit`. Resolved escalations linked to an issue
+            are ALWAYS returned regardless of this flag so issue "View" links resolve. Pending
+            escalations are always returned.
+        - name: resolvedLimit
+          in: query
+          schema: { type: integer, default: 50, maximum: 500 }
+          description: Page size for resolved escalations when includeResolved=1 (used for "load more").
       responses:
-        "200": { description: Conversations with handling mode, messages, and tool calls. }
+        "200":
+          description: >-
+            Conversations with handling mode, messages, and tool calls. Body also includes
+            `resolved_has_more` (boolean) — true when more resolved escalations exist beyond
+            `resolvedLimit`. Each conversation carries `escalation_status` (none|pending|resolved),
+            the canonical open/resolved lifecycle field.
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
   /admin/conversations/religious-export:
@@ -3412,6 +3429,10 @@ components:
     get:
       tags: [issues]
       summary: Issue detail with linked escalations and activity log.
+      description: >-
+        Each linked escalation carries `escalation_status` (canonical open/resolved lifecycle) plus
+        `escalation_stage`. `breaching` is computed from `escalation_status` — a resolved escalation
+        is never breaching, even if its SLA deadline has passed.
       responses:
         200:
           description: Issue detail.

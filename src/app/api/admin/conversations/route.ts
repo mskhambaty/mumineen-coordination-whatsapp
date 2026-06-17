@@ -117,9 +117,32 @@ export async function GET(req: NextRequest) {
     if (scopeEq) escalationsQuery = escalationsQuery.eq("phone_number_id", scopeEq);
   }
 
-  const [recentResult, escalationResult] = await Promise.all([
+  // Resolved escalations belong to the Escalations tab too (the team browses them, and an
+  // issue's "View" link must reach them). Load them only when asked (?includeResolved=1),
+  // bounded to the most-recent `resolvedLimit` for the "load more" paging.
+  const includeResolved = req.nextUrl.searchParams.get("includeResolved") === "1";
+  const resolvedLimit = Math.min(
+    Number(req.nextUrl.searchParams.get("resolvedLimit") ?? 50) || 50,
+    500,
+  );
+  let resolvedQuery =
+    selectedPhone || !includeResolved
+      ? null
+      : supabase
+          .from("conversation_sessions")
+          .select(sessionColumns)
+          .eq("escalation_status", "resolved")
+          .order("last_message_at", { ascending: false })
+          .range(0, resolvedLimit - 1);
+  if (resolvedQuery) {
+    if (scopeOr) resolvedQuery = resolvedQuery.or(scopeOr);
+    if (scopeEq) resolvedQuery = resolvedQuery.eq("phone_number_id", scopeEq);
+  }
+
+  const [recentResult, escalationResult, resolvedResult] = await Promise.all([
     sessionsQuery,
     escalationsQuery ?? Promise.resolve({ data: [] as SessionRow[], error: null }),
+    resolvedQuery ?? Promise.resolve({ data: [] as SessionRow[], error: null }),
   ]);
 
   if (recentResult.error) {
@@ -128,12 +151,48 @@ export async function GET(req: NextRequest) {
   if (escalationResult.error) {
     return NextResponse.json({ error: escalationResult.error.message }, { status: 500 });
   }
+  if (resolvedResult.error) {
+    return NextResponse.json({ error: resolvedResult.error.message }, { status: 500 });
+  }
 
-  // Merge & deduplicate: pending escalations that fall outside the recent
-  // window still appear so the sidebar and KPI strip agree.
+  // Always include resolved escalations linked to an issue (regardless of window or the
+  // includeResolved toggle) so every issue's "View" target is present. Linkage lives in the
+  // junction table — the denormalized linked_issue_id is unreliable.
+  let issueLinkedResolved: SessionRow[] = [];
+  if (!selectedPhone) {
+    const { data: linkRows } = await supabase
+      .from("issue_escalation_links")
+      .select("conversation_session_id");
+    const linkedIds = [
+      ...new Set(((linkRows ?? []) as { conversation_session_id: string }[]).map((r) => r.conversation_session_id)),
+    ];
+    if (linkedIds.length > 0) {
+      const { data: linkedSessions } = await supabase
+        .from("conversation_sessions")
+        .select(sessionColumns)
+        .in("id", linkedIds)
+        .eq("escalation_status", "resolved");
+      issueLinkedResolved = (linkedSessions ?? []) as SessionRow[];
+    }
+  }
+
+  // Merge & deduplicate: escalations outside the recent window still appear so the
+  // sidebar and KPI strip agree.
   const seenIds = new Set(((recentResult.data ?? []) as SessionRow[]).map((s) => s.id));
-  const extra = ((escalationResult.data ?? []) as SessionRow[]).filter((s) => !seenIds.has(s.id));
+  const supplemental = [
+    ...((escalationResult.data ?? []) as SessionRow[]),
+    ...((resolvedResult.data ?? []) as SessionRow[]),
+    ...issueLinkedResolved,
+  ];
+  const extra: SessionRow[] = [];
+  for (const s of supplemental) {
+    if (!seenIds.has(s.id)) {
+      seenIds.add(s.id);
+      extra.push(s);
+    }
+  }
   const sessions = [...(recentResult.data ?? []) as SessionRow[], ...extra];
+  const resolvedHasMore = ((resolvedResult.data ?? []) as SessionRow[]).length >= resolvedLimit;
 
   // `?religious=1`: also load EVERY conversation that used a religious/Lisan tool — even if it
   // falls outside the recent window — so the "Religious / Lisan tool used" filter shows all of
@@ -165,7 +224,7 @@ export async function GET(req: NextRequest) {
 
   const phoneNumbers = ((sessions ?? []) as SessionRow[]).map((session) => session.phone_e164);
   if (phoneNumbers.length === 0) {
-    return NextResponse.json({ conversations: [] });
+    return NextResponse.json({ conversations: [], resolved_has_more: resolvedHasMore });
   }
 
   const [{ data: messages, error: messagesError }, { data: toolCalls, error: toolError }] =
@@ -248,5 +307,5 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  return NextResponse.json({ conversations });
+  return NextResponse.json({ conversations, resolved_has_more: resolvedHasMore });
 }

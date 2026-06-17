@@ -24,10 +24,29 @@ escalation_status = 'pending'  ──►  moves to the Escalations tab
       │                              guest told "this has been escalated"
       │  (support member clicks "De-escalate" on the chat)
       ▼
-escalation_status = 'resolved' ──►  returns to the Conversations tab
+escalation_status = 'resolved' ──►  stays in the Escalations tab as history
+                                     (hidden behind the "Resolved"/"All" stage filter)
 ```
 
 Re-escalation is allowed (sets `pending` again). The AI keeps replying throughout.
+
+### Canonical status vs. work stage
+
+`escalation_status` (`none` / `pending` / `resolved`) is the **authoritative** open-vs-resolved
+lifecycle and drives tab membership. `escalation_stage` (`pending` / `picked_up` /
+`waiting_on_department` / `resolved`) is the fine-grained **work sub-state while pending** — never
+the authority on resolved-ness. All resolved-ness checks (tab membership, the issue panel's SLA
+"breaching" flag) read `escalation_status`. Resolve writes set both columns; the
+`20260616010000_reconcile_escalation_stage_status` migration realigns any legacy rows where they
+diverged.
+
+### Resolved escalations in the inbox
+
+Resolved escalations remain in the **Escalations tab** (escalation history), not the Conversations
+tab — the Conversations tab shows only `escalation_status = 'none'` threads. They are hidden by the
+default "Active" stage filter and revealed via the **Resolved** / **All** stage options (paged with
+"Load more"). Resolved escalations linked to an issue are always loadable so an issue's "View →"
+link always reaches them.
 
 ## Triggers & decision logic
 
@@ -160,10 +179,10 @@ section on their profile (same page as department memberships), with on-call hou
   table** + **Add** button. Add picks from the **existing user list**; adding a user inserts
   an `escalation_support_members` row (= assigns the role) and lets them set **on-call hours**
   (weekday × time ranges).
-- **Lead Inbox split into two tabs:** **Conversations** (normal) and **Escalations**
-  (`pending` threads, simplified/grouped view with tag + priority).
-- **De-escalate button** on an escalated chat → sets `escalation_status='resolved'` and
-  returns the thread to Conversations.
+- **Lead Inbox split into two tabs:** **Conversations** (`escalation_status = 'none'` threads)
+  and **Escalations** (`pending` + `resolved` threads; resolved hidden behind the stage filter).
+- **De-escalate button** on an escalated chat → sets `escalation_status='resolved'`; the thread
+  stays in the Escalations tab as resolved history (visible via the Resolved/All stage filter).
 
 ## Notifications (on-call support only)
 

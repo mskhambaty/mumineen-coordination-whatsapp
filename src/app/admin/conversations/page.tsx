@@ -145,6 +145,7 @@ type IssueEscalation = {
   session_id: string;
   phone_e164: string;
   display_name: string | null;
+  escalation_status: string;
   escalation_stage: string;
   escalation_priority: string;
   escalation_category: string;
@@ -166,7 +167,7 @@ type EscalationFilters = {
   assignee: string;   // "all" | "mine" | "unassigned" | user_id
   priority: string;   // "all" | "urgent" | "normal"
   category: string;   // "all" | category string
-  stage: string;      // "active" | "pending" | "picked_up"
+  stage: string;      // "active" | "pending" | "picked_up" | "resolved" | "all"
 };
 
 type SupportMember = {
@@ -203,6 +204,10 @@ export default function ConversationsPage() {
     const p = new URLSearchParams();
     if (religious) p.set("religious", "1");
     if (isNiyaz) p.set("scope", "niyaz");
+    if (escalationFilters.stage === "resolved" || escalationFilters.stage === "all") {
+      p.set("includeResolved", "1");
+      p.set("resolvedLimit", String(resolvedLimit));
+    }
     const qs = p.toString();
     return `/api/admin/conversations${qs ? `?${qs}` : ""}`;
   };
@@ -259,7 +264,12 @@ export default function ConversationsPage() {
   const [escalationFilters, setEscalationFilters] = useState<EscalationFilters>(loadSavedFilters);
   const [supportMembers, setSupportMembers] = useState<SupportMember[]>([]);
   const [claimingPhone, setClaimingPhone] = useState<string | null>(null);
+  // Resolved-escalation paging for the Escalations tab (loaded only when "Resolved"/"All" stage is selected).
+  const [resolvedLimit, setResolvedLimit] = useState(50);
+  const [resolvedHasMore, setResolvedHasMore] = useState(false);
   const currentUserId = useMemo(() => readAdminUser()?.id ?? null, []);
+  // The Escalations tab loads resolved escalations only when the stage filter asks for them.
+  const showResolved = escalationFilters.stage === "resolved" || escalationFilters.stage === "all";
 
   const escalatedCount = useMemo(
     () => conversations.filter((conversation) => conversation.escalation_status === "pending").length,
@@ -268,7 +278,9 @@ export default function ConversationsPage() {
 
   // Conversations tab KPI stats (non-escalated threads only).
   const conversationStats = useMemo(() => {
-    const nonEsc = conversations.filter((c) => c.escalation_status !== "pending");
+    const nonEsc = conversations.filter(
+      (c) => c.escalation_status !== "pending" && c.escalation_status !== "resolved",
+    );
     return {
       total: nonEsc.length,
       unread: nonEsc.filter((c) => c.unread_inbound_count > 0).length,
@@ -305,15 +317,20 @@ export default function ConversationsPage() {
   // everything else stays in Conversations. Issues tab doesn't show conversations.
   const visibleConversations = useMemo(() => {
     if (tab === "issues") return [];
-    const inEscalations = (c: Conversation) => c.escalation_status === "pending";
+    // Escalation lifecycle = pending (open work) or resolved (history). `none` = normal thread.
+    const inEscalations = (c: Conversation) =>
+      c.escalation_status === "pending" || c.escalation_status === "resolved";
     const list = conversations.filter((c) => (tab === "escalations" ? inEscalations(c) : !inEscalations(c)));
     if (tab === "escalations") {
       // Apply escalation filters
       let filtered = list;
 
-      // Stage filter
+      // Stage filter. Resolved-ness keys off the canonical escalation_status; pending/picked_up
+      // are work sub-states (escalation_stage). "active" hides resolved; "all" shows everything.
       if (escalationFilters.stage === "active") {
-        filtered = filtered.filter((c) => c.escalation_stage !== "resolved");
+        filtered = filtered.filter((c) => c.escalation_status !== "resolved");
+      } else if (escalationFilters.stage === "resolved") {
+        filtered = filtered.filter((c) => c.escalation_status === "resolved");
       } else if (escalationFilters.stage !== "all") {
         filtered = filtered.filter((c) => c.escalation_stage === escalationFilters.stage);
       }
@@ -338,6 +355,10 @@ export default function ConversationsPage() {
       }
 
       return [...filtered].sort((a, b) => {
+        // Resolved escalations sink to the bottom — open work stays on top.
+        const aResolved = a.escalation_status === "resolved";
+        const bResolved = b.escalation_status === "resolved";
+        if (aResolved !== bResolved) return aResolved ? 1 : -1;
         // Primary: priority (urgent first)
         if (a.escalation_priority !== b.escalation_priority) {
           return a.escalation_priority === "urgent" ? -1 : 1;
@@ -517,6 +538,13 @@ export default function ConversationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
+  // Resolved escalations aren't loaded by default — refetch with them included when the team
+  // selects the "Resolved"/"All" stage filter, or asks for an older page via "Load more".
+  useEffect(() => {
+    if (tab === "escalations" && showResolved) void loadConversations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showResolved, resolvedLimit, tab]);
+
   // Live updates via Server-Sent Events; the session cookie rides along automatically.
   useEffect(() => {
     const source = new EventSource("/api/admin/conversations/stream");
@@ -552,6 +580,7 @@ export default function ConversationsPage() {
       }
       const items = (data.conversations ?? []) as Conversation[];
       setConversations(items);
+      setResolvedHasMore(Boolean(data.resolved_has_more));
       if (!selectedPhone && items[0]) setSelectedPhone(items[0].phone_e164);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load conversations");
@@ -568,6 +597,7 @@ export default function ConversationsPage() {
       if (!res.ok) return;
       const data = await res.json().catch(() => ({}));
       setConversations((data.conversations ?? []) as Conversation[]);
+      setResolvedHasMore(Boolean(data.resolved_has_more));
     } catch {
       // Ignore transient polling failures.
     }
@@ -584,13 +614,16 @@ export default function ConversationsPage() {
       const data = await res.json().catch(() => ({}));
       const full = ((data.conversations ?? []) as Conversation[])[0];
       if (!full) return;
-      setConversations((prev) =>
-        prev.map((c) =>
+      setConversations((prev) => {
+        // Off-window threads (e.g. a resolved escalation reached via an issue's "View" link) aren't
+        // in the list yet — insert them, don't silently drop them. Otherwise merge in the full thread.
+        if (!prev.some((c) => c.phone_e164 === phone)) return [...prev, full];
+        return prev.map((c) =>
           c.phone_e164 === phone
             ? { ...c, messages: full.messages, tool_calls: full.tool_calls, used_religious_tool: full.used_religious_tool ?? c.used_religious_tool }
             : c,
-        ),
-      );
+        );
+      });
     } catch {
       // Ignore transient failures; the list-level data still renders.
     }
@@ -1074,6 +1107,8 @@ export default function ConversationsPage() {
                     <option value="active">All Active</option>
                     <option value="pending">Pending</option>
                     <option value="picked_up">Picked Up</option>
+                    <option value="resolved">Resolved</option>
+                    <option value="all">All (incl. resolved)</option>
                   </select>
                 </div>
                 {(escalationFilters.assignee !== "all" || escalationFilters.priority !== "all" || escalationFilters.category !== "all" || escalationFilters.stage !== "active") && (
@@ -1162,7 +1197,8 @@ export default function ConversationsPage() {
                     ) : "No conversations yet."}
                 </div>
               ) : (
-                searchedConversations.map((conversation) => (
+                <>
+                {searchedConversations.map((conversation) => (
                   <button
                     key={conversation.id}
                     onClick={() => setSelectedPhone(conversation.phone_e164)}
@@ -1179,7 +1215,12 @@ export default function ConversationsPage() {
                           {conversation.escalation_priority === "urgent" ? "URGENT" : "ESCALATED"}
                         </span>
                       )}
-                      {tab === "escalations" && conversation.escalation_stage && conversation.escalation_stage !== "none" && (
+                      {tab === "escalations" && conversation.escalation_status === "resolved" ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3"><path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" /></svg>
+                          Resolved
+                        </span>
+                      ) : tab === "escalations" && conversation.escalation_stage && conversation.escalation_stage !== "none" && (
                         <span className={`rounded-full px-2 py-0.5 text-xs ${conversation.escalation_stage === "pending" ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" : conversation.escalation_stage === "picked_up" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"}`}>
                           {conversation.escalation_stage === "pending" ? "Pending" : conversation.escalation_stage === "picked_up" ? "Picked Up" : conversation.escalation_stage.replace(/_/g, " ")}
                         </span>
@@ -1223,7 +1264,17 @@ export default function ConversationsPage() {
                       ) : null}
                     </div>
                   </button>
-                ))
+                ))}
+                {tab === "escalations" && showResolved && resolvedHasMore && (
+                  <button
+                    type="button"
+                    onClick={() => setResolvedLimit((n) => n + 50)}
+                    className="block w-full border-b px-4 py-3 text-center text-xs font-medium text-amber-600 hover:bg-amber-50 dark:border-gray-800 dark:text-amber-400 dark:hover:bg-amber-900/20"
+                  >
+                    Load more resolved
+                  </button>
+                )}
+                </>
               )}
             </div>
           </aside>
@@ -1249,7 +1300,12 @@ export default function ConversationsPage() {
                 ) : (
                   <IssueDetailPanel
                     detail={issueDetail}
-                    onNavigateToEscalation={(phone) => { setTab("escalations"); setSelectedPhone(phone); }}
+                    onNavigateToEscalation={(phone) => {
+                      // Show all stages so the target is visible whether it's still open or resolved.
+                      setEscalationFilters((f) => ({ ...f, stage: "all" }));
+                      setTab("escalations");
+                      setSelectedPhone(phone);
+                    }}
                     onRefresh={() => { void fetchIssueDetail(selectedIssueId); void fetchIssues(); }}
                   />
                 )}
@@ -2210,21 +2266,37 @@ function IssueDetailPanel({
           <p className="text-sm text-gray-500 dark:text-gray-400">No escalations linked to this issue yet.</p>
         ) : (
           <div className="space-y-1">
-            {escalations.map((esc) => (
+            {[...escalations]
+              .sort((a, b) => {
+                // Resolved escalations sink to the bottom — open ones stay on top.
+                const ar = a.escalation_status === "resolved";
+                const br = b.escalation_status === "resolved";
+                return ar === br ? 0 : ar ? 1 : -1;
+              })
+              .map((esc) => {
+              const resolved = esc.escalation_status === "resolved";
+              return (
               <div
                 key={esc.link_id}
-                className={`flex items-center gap-3 rounded-md border px-3 py-2 ${esc.breaching ? "border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950/20" : "border-gray-200 dark:border-gray-700"}`}
+                className={`flex items-center gap-3 rounded-md border px-3 py-2 ${resolved ? "border-gray-200 bg-gray-50/60 dark:border-gray-800 dark:bg-gray-900/40" : esc.breaching ? "border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950/20" : "border-gray-200 dark:border-gray-700"}`}
               >
-                <div className={`w-1 self-stretch rounded-full ${esc.breaching ? "bg-red-500" : esc.escalation_stage === "picked_up" ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-600"}`} />
+                <div className={`w-1 self-stretch rounded-full ${resolved ? "bg-green-500" : esc.breaching ? "bg-red-500" : esc.escalation_stage === "picked_up" ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-600"}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="font-medium text-sm">{esc.display_name || esc.phone_e164}</span>
-                    {esc.breaching && <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-900/40 dark:text-red-300">SLA BREACH</span>}
+                    <span className={`font-medium text-sm ${resolved ? "text-gray-500 dark:text-gray-400" : ""}`}>{esc.display_name || esc.phone_e164}</span>
+                    {resolved ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-2.5 w-2.5"><path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" /></svg>
+                        Resolved
+                      </span>
+                    ) : esc.breaching ? (
+                      <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-900/40 dark:text-red-300">SLA BREACH</span>
+                    ) : null}
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{esc.escalation_reason || esc.escalation_category || "—"}</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {esc.escalation_sla_deadline && <SLACountdown deadline={esc.escalation_sla_deadline} />}
+                  {!resolved && esc.escalation_sla_deadline && <SLACountdown deadline={esc.escalation_sla_deadline} />}
                   <button
                     type="button"
                     onClick={() => onNavigateToEscalation(esc.phone_e164)}
@@ -2234,7 +2306,8 @@ function IssueDetailPanel({
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
