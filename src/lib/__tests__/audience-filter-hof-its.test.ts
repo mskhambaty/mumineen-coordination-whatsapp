@@ -90,6 +90,33 @@ describe("NOT groups (custom-filter exclusions)", () => {
   });
 });
 
+describe("independent-combinator groups (mixed AND/OR in one filter)", () => {
+  // react-querybuilder IC shape: combinators are interleaved between rules, evaluated left-to-right.
+  // e.g. (rahat OR wheelchair) AND attending  ==  [rahat, "or", wheelchair, "and", attending]
+  const ic = {
+    rules: [
+      { field: "rahat_seating", operator: "=", value: true },
+      "or",
+      { field: "wheelchair", operator: "=", value: true },
+      "and",
+      { field: "not_attending", operator: "=", value: false },
+    ],
+  } as unknown as Parameters<typeof evaluate>[0];
+
+  it("evaluates interleaved and/or left-to-right", () => {
+    expect(evaluate(ic, row({ rahat_seating: true, wheelchair: false, not_attending: false }))).toBe(true);
+    expect(evaluate(ic, row({ rahat_seating: false, wheelchair: true, not_attending: false }))).toBe(true);
+    expect(evaluate(ic, row({ rahat_seating: false, wheelchair: false, not_attending: false }))).toBe(false);
+    expect(evaluate(ic, row({ rahat_seating: true, wheelchair: true, not_attending: true }))).toBe(false); // not attending
+  });
+
+  it("validateRules accepts an IC group and rejects a bad junction", () => {
+    expect(validateRules(ic)).toBeNull();
+    const bad = { rules: [{ field: "wheelchair", operator: "=", value: true }, "xor", { field: "rahat_seating", operator: "=", value: true }] };
+    expect(validateRules(bad)).toBe("Invalid combinator.");
+  });
+});
+
 describe("has_child_under_7 household field (Atfaal targeting)", () => {
   // The Atfaal group targets ADULTS in young-child households so the survey greets a parent, not
   // the toddler. The field is set per family member in loadRoster; here we just verify the rule.
