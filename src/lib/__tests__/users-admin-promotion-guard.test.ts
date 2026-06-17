@@ -93,4 +93,13 @@ describe("admin-promotion guard", () => {
     const res = (await PUT(putReq({ role: "admin" }), params)) as NextResponse;
     expect(res.status).not.toBe(403);
   });
+
+  it("promotes an existing phone (update) instead of failing on the unique constraint (POST)", async () => {
+    // The phone already exists (maybeSingle returns a row) — e.g. a visitor who messaged the bot.
+    // The route must UPDATE that row and return 200, not throw a 500 duplicate-key error.
+    const res = (await POST(
+      postReq({ display_name: "Nafisa", phone_e164: "+13129730178", email: "n@x.com", role: "helpdesk" }),
+    )) as NextResponse;
+    expect(res.status).toBe(200);
+  });
 });
