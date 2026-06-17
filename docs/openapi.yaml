@@ -2363,7 +2363,10 @@ paths:
     post:
       tags: [admin]
       summary: Add a question to a section (databank grows during the event)
-      description: Admin/leadership only. Body { section_id, text, type, options?, negative_values?, polarity?, is_general? }.
+      description: >-
+        Admin/leadership only. Body { section_id, text, type, options?, negative_values?, polarity?,
+        is_general?, collect_comment?, comment_threshold? }. `collect_comment` toggles the "why?"
+        box; `comment_threshold` (scale questions) is the rating ≤ which an answer opens it.
       responses:
         "201": { description: "Created question." }
         "400": { $ref: "#/components/responses/BadRequest" }
@@ -2388,8 +2391,8 @@ paths:
       summary: Edit a databank question
       description: >-
         Admin/leadership only. Updates any of { text, type, options, negative_values, polarity,
-        is_general }. Edits affect FUTURE forms only — existing forms snapshot the question text, so
-        already-sent surveys are unchanged.
+        is_general, collect_comment, comment_threshold }. Edits affect FUTURE forms only — existing
+        forms snapshot the question, so already-sent surveys are unchanged.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
