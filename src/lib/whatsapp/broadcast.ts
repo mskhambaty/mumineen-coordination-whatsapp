@@ -76,11 +76,20 @@ export async function createBroadcast(input: CreateBroadcastInput): Promise<Crea
   let recipients: (Recipient & { inWindow: boolean })[];
   if (input.recipients) {
     const [inWindow, suppressed] = await Promise.all([getInWindowPhones(input.windowHours), suppressedPhones()]);
-    // Drop numbers Meta flagged as undeliverable so explicit-list sends (Niyaz RSVP, CSV upload)
-    // skip them too — the audience-path recipients are already filtered by previewAudience below.
-    recipients = input.recipients
-      .filter((r) => !suppressed.has(normalizePhone(r.phone)))
-      .map((r) => ({ ...r, inWindow: inWindow.has(r.phone) }));
+    // Final dedupe + suppression safety net for explicit lists (Niyaz RSVP, CSV upload): never
+    // enqueue the same number twice regardless of how the list was assembled, and drop numbers Meta
+    // flagged as undeliverable. There's no DB unique constraint on (broadcast_id, phone_e164), so
+    // this app-level guard is the guarantee. All keyed on the normalized phone so dedupe, suppression
+    // and the in-window tag agree. (Audience-path recipients are already deduped + suppression-
+    // filtered by previewAudience below.)
+    const seen = new Set<string>();
+    recipients = [];
+    for (const r of input.recipients) {
+      const phone = normalizePhone(r.phone);
+      if (!phone || seen.has(phone) || suppressed.has(phone)) continue;
+      seen.add(phone);
+      recipients.push({ ...r, phone, inWindow: inWindow.has(phone) });
+    }
     // Apply the window filter to explicit lists too. Niyaz callers omit windowFilter, so this is a
     // no-op for them.
     if (windowFilter === "in_window") recipients = recipients.filter((r) => r.inWindow);
