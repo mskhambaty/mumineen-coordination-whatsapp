@@ -151,12 +151,15 @@ the attendance it represents is already counted in `niyaz_rsvp`, so adding it wo
   rows (still the RSVP/tally source of truth) grouped by `event_date` client-side
   (`groupTalliesByDay`, `src/lib/rsvp/niyaz-day-grouping.ts`) over `GET /api/admin/niyaz/instances`.
   Each day row has a **Send RSVP →** button that routes to `/admin/niyaz/days?date=<date>` (the
-  composer, preselected), and expands to its jaman (lunch/dinner) showing only the **Yes count** plus
-  an **Edit** button. Edit/New open a modal (`src/components/admin/niyaz/EventFormModal.tsx`, reusing
+  composer, preselected), and expands to its jaman (lunch/dinner) showing the **Yes count** and
+  **Thaals** (⌈yes ÷ 8⌉) plus an **Edit** button. Edit/New open a modal (`src/components/admin/niyaz/EventFormModal.tsx`, reusing
   `POST`/`PATCH /api/admin/niyaz/instances`). Clicking a jaman opens the **event detail page**
-  (`/admin/niyaz/events/[id]`) showing **Yes count, No count, and the response list** via
-  `GET /api/admin/niyaz/instances/[id]/responses` (now also returns the event's `instance` meta for the
-  header). The Max/Min toggle still drives counts. (`GET/PUT /api/admin/niyaz/instances/[id]/config`
+  (`/admin/niyaz/events/[id]?mode=`) showing **Yes count, No count, Thaals (⌈yes ÷ 8⌉), and the response list** via
+  `GET /api/admin/niyaz/instances/[id]/responses?mode=`. The Yes/No headline comes from the mode-aware
+  DB aggregate (`getEventTallies`) returned as `tally`, **not** by counting the fetched rows — so it
+  matches the overview and is correct past the 1000-row PostgREST cap (the response list itself is
+  fetched with an explicit high `.range()` so it isn't silently truncated). The detail page inherits
+  the overview's Max/Min via the `?mode=` link. (`GET/PUT /api/admin/niyaz/instances/[id]/config`
   still exists as an instance-keyed alias.)
 
 The composer sends `ashara_relay_double_rsvp` (a **Flow** button "Attending" + a "Not attending"

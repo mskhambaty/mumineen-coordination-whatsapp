@@ -111,7 +111,7 @@ src/lib/rsvp/niyaz-day-grouping.ts       — Pure, client-safe groupTalliesByDay
 src/app/admin/niyaz/page.tsx             — Niyaz days overview: days (grouped instances) with Yes count; expand → jaman; Send RSVP → composer; Edit/New via modal; click jaman → event detail
 src/app/admin/niyaz/events/[id]/page.tsx — Niyaz event detail: Yes count, No count, and the RSVP response list (GET …/instances/[id]/responses)
 src/components/admin/niyaz/EventFormModal.tsx — Create/Edit Niyaz event modal (POST/PATCH /api/admin/niyaz/instances)
-src/app/api/admin/niyaz/instances/[id]/responses/route.ts — GET per-event responses + summary + event instance meta
+src/app/api/admin/niyaz/instances/[id]/responses/route.ts — GET per-event responses (uncapped) + event instance meta + mode-aware Yes/No tally from getEventTallies (?mode=min|max)
 src/app/admin/niyaz/days/page.tsx        — Niyaz days view: lists prefilled 1st–10th Moharram days; click a day (or ?date=) to configure + send RSVP (composer)
 src/app/api/admin/niyaz/days/route.ts    — GET list of Niyaz days (config + representative instance id per date)
 src/app/api/admin/niyaz/days/[date]/route.ts — GET/PUT day-level config by date

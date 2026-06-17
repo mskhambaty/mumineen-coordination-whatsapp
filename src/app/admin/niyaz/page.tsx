@@ -44,6 +44,10 @@ function yesOf(e: NiyazEvent): number {
   return e.yesAdults + e.yesKids;
 }
 
+function thaalsOf(yes: number): number {
+  return Math.ceil(yes / 8); // one thaal per 8 attending heads
+}
+
 function toEditable(e: NiyazEvent): EditableInstance {
   return { id: e.id, title: e.title, eventDate: e.eventDate, hijriDate: e.hijriDate, meal: e.meal, servingType: e.servingType, description: e.description };
 }
@@ -213,6 +217,7 @@ export default function NiyazPage() {
                           <tr>
                             <th className="px-3 py-1.5">Jaman</th>
                             <th className="px-3 py-1.5 text-right">Yes count</th>
+                            <th className="px-3 py-1.5 text-right" title="Yes count ÷ 8 (rounded up)">Thaals</th>
                             <th className="px-3 py-1.5"></th>
                           </tr>
                         </thead>
@@ -220,7 +225,7 @@ export default function NiyazPage() {
                           {day.events.map((e) => (
                             <tr
                               key={e.id}
-                              onClick={() => router.push(`/admin/niyaz/events/${e.id}`)}
+                              onClick={() => router.push(`/admin/niyaz/events/${e.id}?mode=${mode}`)}
                               className="cursor-pointer border-t border-gray-100 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
                             >
                               <td className="px-3 py-1.5">
@@ -228,6 +233,7 @@ export default function NiyazPage() {
                                 {e.servingType ? <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">· {e.servingType}</span> : null}
                               </td>
                               <td className="px-3 py-1.5 text-right font-semibold tabular-nums">{yesOf(e)}</td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-gray-600 dark:text-gray-300">{thaalsOf(yesOf(e))}</td>
                               <td className="px-3 py-1.5 text-right" onClick={(ev) => ev.stopPropagation()}>
                                 <button
                                   type="button"

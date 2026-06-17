@@ -1,7 +1,7 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
 
 import { canAccessPortal } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
@@ -28,16 +28,10 @@ type UnregRow = {
   created_at: string;
 };
 
-type Summary = {
-  responded: number;
-  yes_adults: number;
-  yes_kids: number;
-  yes_families: number;
-  no_adults: number;
-  no_kids: number;
-  no_families: number;
-  headcount_families: number;
-  headcount_total: number;
+type Tally = {
+  mode: "min" | "max";
+  yes: number;
+  no: number;
 };
 
 type Instance = {
@@ -71,21 +65,23 @@ function dayLabel(date: string | null): string {
   return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
-export default function NiyazEventPage() {
+function NiyazEventPageInner() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const id = params?.id;
+  const searchParams = useSearchParams();
+  const mode = searchParams.get("mode") === "max" ? "max" : "min";
 
   const [instance, setInstance] = useState<Instance | null>(null);
   const [responses, setResponses] = useState<RespRow[]>([]);
   const [unregResponses, setUnregResponses] = useState<UnregRow[]>([]);
-  const [summary, setSummary] = useState<Summary | null>(null);
+  const [tally, setTally] = useState<Tally | null>(null);
   const [respSearch, setRespSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
-  const load = useCallback(async (instanceId: string) => {
-    const res = await apiFetch(`/api/admin/niyaz/instances/${instanceId}/responses`);
+  const load = useCallback(async (instanceId: string, m: string) => {
+    const res = await apiFetch(`/api/admin/niyaz/instances/${instanceId}/responses?mode=${m}`);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       setError(data.error ?? "Failed to load event.");
@@ -95,7 +91,7 @@ export default function NiyazEventPage() {
     setInstance((data.instance as Instance) ?? null);
     setResponses((data.responses as RespRow[]) ?? []);
     setUnregResponses((data.unregistered as UnregRow[]) ?? []);
-    setSummary((data.summary as Summary) ?? null);
+    setTally((data.tally as Tally) ?? null);
     setLoaded(true);
   }, []);
 
@@ -109,8 +105,8 @@ export default function NiyazEventPage() {
       router.push("/admin/conversations");
       return;
     }
-    if (id) void load(id);
-  }, [router, id, load]);
+    if (id) void load(id, mode);
+  }, [router, id, mode, load]);
 
   const q = respSearch.trim().toLowerCase();
   const filteredResponses = q
@@ -126,10 +122,10 @@ export default function NiyazEventPage() {
     ? unregResponses.filter((u) => u.phone_e164.toLowerCase().includes(q) || (u.its_number ?? "").toLowerCase().includes(q))
     : unregResponses;
 
-  // Yes/No headline. Yes includes attending unregistered guests; No is registered not-attending.
-  const unregYes = unregResponses.filter((u) => u.attending).reduce((n, u) => n + u.adults + u.kids, 0);
-  const yesCount = summary ? summary.yes_adults + summary.yes_kids + unregYes : 0;
-  const noCount = summary ? summary.no_adults + summary.no_kids : 0;
+  // Yes/No headline from the mode-aware DB aggregate (matches the days overview exactly).
+  const yesCount = tally?.yes ?? 0;
+  const noCount = tally?.no ?? 0;
+  const thaals = Math.ceil(yesCount / 8); // one thaal per 8 attending heads
 
   const title = instance?.title || dayLabel(instance?.event_date ?? null);
   const subtitle = [dayLabel(instance?.event_date ?? null), instance?.meal, instance?.serving_type].filter(Boolean).join(" · ");
@@ -156,7 +152,7 @@ export default function NiyazEventPage() {
 
       {!error && (
         <>
-          <div className="mb-6 grid grid-cols-2 gap-4 sm:max-w-md">
+          <div className="mb-6 grid grid-cols-3 gap-4 sm:max-w-xl">
             <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
               <div className="text-xs uppercase tracking-wide text-gray-400">Yes count</div>
               <div className="mt-1 text-3xl font-bold tabular-nums text-green-600 dark:text-green-400">{yesCount}</div>
@@ -164,6 +160,10 @@ export default function NiyazEventPage() {
             <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
               <div className="text-xs uppercase tracking-wide text-gray-400">No count</div>
               <div className="mt-1 text-3xl font-bold tabular-nums text-red-500">{noCount}</div>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-xs uppercase tracking-wide text-gray-400" title="Yes count ÷ 8 (rounded up)">Thaals</div>
+              <div className="mt-1 text-3xl font-bold tabular-nums text-gray-700 dark:text-gray-200">{thaals}</div>
             </div>
           </div>
 
@@ -273,5 +273,13 @@ export default function NiyazEventPage() {
         </>
       )}
     </main>
+  );
+}
+
+export default function NiyazEventPage() {
+  return (
+    <Suspense fallback={<main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8" />}>
+      <NiyazEventPageInner />
+    </Suspense>
   );
 }
