@@ -239,7 +239,9 @@ export default function UsersPage() {
         const forList = membership && newUserDeptId === selectedDepartmentId
           ? { ...created, department_membership_id: membership.id, department_role: membership.dept_role }
           : created;
-        setUsers((items) => [...items, forList].sort(sortUsers));
+        // Upsert by id: if this phone already existed (a visitor we just promoted), replace the row
+        // instead of adding a duplicate.
+        setUsers((items) => [...items.filter((u) => u.id !== forList.id), forList].sort(sortUsers));
       }
     } catch (err) {
       console.error("Failed to add user:", err);

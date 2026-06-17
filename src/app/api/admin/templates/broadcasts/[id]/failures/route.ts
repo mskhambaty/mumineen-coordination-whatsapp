@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
-import { normalizePhone, resolveRosterByPhone } from "@/lib/whatsapp/audience";
+import { fetchAllRows, normalizePhone, resolveRosterByPhone, type Pageable } from "@/lib/whatsapp/audience";
 import { categorizeFailure } from "@/lib/whatsapp/broadcast";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -28,12 +28,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     .maybeSingle();
   if (!broadcast) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const { data: recips } = await supabase
-    .from("template_broadcast_recipients")
-    .select("phone_e164, error_detail, was_in_window")
-    .eq("broadcast_id", id)
-    .eq("send_status", "failed");
-  const rows = (recips ?? []) as { phone_e164: string; error_detail: string | null; was_in_window: boolean | null }[];
+  // Page through all failures: a bare await caps at PostgREST's 1000-row limit, which would silently
+  // truncate the failures CSV on a broadcast with >1000 undelivered rows. Stable .order("id").
+  type Row = { phone_e164: string; error_detail: string | null; was_in_window: boolean | null };
+  const rows = await fetchAllRows<Row>(() =>
+    supabase
+      .from("template_broadcast_recipients")
+      .select("phone_e164, error_detail, was_in_window")
+      .eq("broadcast_id", id)
+      .eq("send_status", "failed")
+      .order("id", { ascending: true }) as unknown as Pageable<Row>,
+  );
 
   // Best-effort identity resolution by phone (a failed number may not match a roster row). Uses the
   // shared roster resolver so it picks up names via mumin_phone_links (shared/registration numbers),

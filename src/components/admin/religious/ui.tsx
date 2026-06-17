@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 // renders with the same look (cards, badges, KPIs, tabs, the AI/Manual toggle, chat bubbles).
 
 // ─── Types (mirror the /api/admin/religious/* responses) ──────────────────────────────────────
-export type TabKey = "overview" | "chats" | "dictionary" | "content" | "flags" | "team";
+export type TabKey = "overview" | "inbox" | "dictionary" | "content" | "flags" | "team";
 
 export type Metrics = {
   summary: {

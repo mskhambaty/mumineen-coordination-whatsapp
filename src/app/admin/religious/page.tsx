@@ -5,14 +5,13 @@ import { useRouter } from "next/navigation";
 
 import { canMonitorReligiousChats, isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
-import ChatsTab from "@/components/admin/religious/ChatsTab";
+import ReligiousInbox from "@/components/admin/religious/ReligiousInbox";
 import ContentTab from "@/components/admin/religious/ContentTab";
 import DictionaryTab from "@/components/admin/religious/DictionaryTab";
 import FlagsTab from "@/components/admin/religious/FlagsTab";
 import OverviewTab from "@/components/admin/religious/OverviewTab";
 import TeamTab from "@/components/admin/religious/TeamTab";
 import {
-  Conversation,
   DirectoryUser,
   KpiCard,
   Metrics,
@@ -27,7 +26,7 @@ import {
 // One-line description shown under the tab bar for the active tab.
 const TAB_BLURB: Record<TabKey, string> = {
   overview: "What needs attention today — content to upload, gaps to fill, flags to review.",
-  chats: "Monitor religious chats and reply. Switch a chat to Manual to take over from the AI.",
+  inbox: "Live inbox of religious & Lisan chats. Switch a chat to Manual to reply yourself.",
   dictionary: "Words members asked for that aren't in the dictionary, plus the full Lisan dictionary.",
   content: "Daily majlis content per year, plus supplementary documents and Waaz FAQ blocks.",
   flags: "Personal-fatwa questions the bot refused, kept for awareness (not escalations).",
@@ -58,7 +57,6 @@ export default function WaazTalaqqiPage() {
 
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [requests, setRequests] = useState<WordRequest[]>([]);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [flags, setFlags] = useState<RulingFlag[]>([]);
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [directory, setDirectory] = useState<DirectoryUser[]>([]);
@@ -86,15 +84,13 @@ export default function WaazTalaqqiPage() {
 
   const loadAll = useCallback(async () => {
     const from = daysAgoIso(days);
-    const [m, w, c, f] = await Promise.all([
+    const [m, w, f] = await Promise.all([
       apiFetch(`/api/admin/religious/metrics?from=${from}`),
       apiFetch("/api/admin/religious/word-requests?status=open"),
-      apiFetch(`/api/admin/religious/conversations?from=${from}`),
       apiFetch("/api/admin/ruling-flags"),
     ]);
     if (m.ok) setMetrics(await m.json());
     if (w.ok) setRequests((await w.json()).requests ?? []);
-    if (c.ok) setConversations((await c.json()).conversations ?? []);
     if (f.ok) setFlags((await f.json()).recent ?? []);
   }, [days]);
 
@@ -151,7 +147,7 @@ export default function WaazTalaqqiPage() {
   const tabs = useMemo(() => {
     const list: { key: TabKey; label: string; badge?: number }[] = [
       { key: "overview", label: "Overview" },
-      { key: "chats", label: "Chats" },
+      { key: "inbox", label: "Inbox" },
     ];
     // Dictionary + Content are part of the Waaz Talaqqi team's job, so the whole team sees them
     // (the underlying APIs accept canManageReligiousContent). Team (access control) stays admin-only.
@@ -219,7 +215,7 @@ export default function WaazTalaqqiPage() {
       {activeTab === "overview" && (
         <OverviewTab metrics={metrics} topics={topics} canManage onJump={changeTab} />
       )}
-      {activeTab === "chats" && <ChatsTab conversations={conversations} onReload={loadAll} />}
+      {activeTab === "inbox" && <ReligiousInbox />}
       {activeTab === "dictionary" && <DictionaryTab wordRequests={requests} onResolve={resolveRequest} />}
       {activeTab === "content" && <ContentTab />}
       {activeTab === "flags" && <FlagsTab flags={flags} />}

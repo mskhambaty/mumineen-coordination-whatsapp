@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const supabaseMock = vi.hoisted(() => {
   let recip: unknown = null;
   const patches: Record<string, unknown>[] = [];
+  const rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
   const client = {
     from: () => {
       const builder: Record<string, unknown> = {
@@ -21,16 +22,22 @@ const supabaseMock = vi.hoisted(() => {
       };
       return builder;
     },
+    rpc: (fn: string, args: Record<string, unknown>) => {
+      rpcCalls.push({ fn, args });
+      return Promise.resolve({ error: null });
+    },
   };
   return {
     client,
     patches,
+    rpcCalls,
     setRecip: (r: unknown) => {
       recip = r;
     },
     reset: () => {
       recip = null;
       patches.length = 0;
+      rpcCalls.length = 0;
     },
   };
 });
@@ -159,9 +166,31 @@ describe("applyBroadcastStatuses", () => {
   });
 
   it("records the number for suppression on a failed status, passing the recipient phone + Meta code", async () => {
-    supabaseMock.setRecip({ id: "r1", send_status: "sent", phone_e164: "+13125550001" });
+    supabaseMock.setRecip({ id: "r1", broadcast_id: "b1", send_status: "sent", phone_e164: "+13125550001" });
     await applyBroadcastStatuses([{ waMessageId: "wamid.U", status: "failed", timestamp: 1700000300, errorCode: 131026 }]);
     expect(undeliverableMock.recordUndeliverable).toHaveBeenCalledWith("+13125550001", 131026);
+  });
+
+  it("syncs the aggregate counters on a sent→failed transition (count_sent -1, count_failed +1)", async () => {
+    // An async undeliverable (131026) on a message that was counted as sent must move the broadcast's
+    // aggregate columns sent→failed, so the console header matches the live recipient-row rollup.
+    supabaseMock.setRecip({ id: "r1", broadcast_id: "b1", send_status: "sent", phone_e164: "+13125550001" });
+    await applyBroadcastStatuses([{ waMessageId: "wamid.U", status: "failed", timestamp: 1700000300, errorCode: 131026 }]);
+    const adjust = supabaseMock.rpcCalls.filter((c) => c.fn === "adjust_broadcast_counters");
+    expect(adjust).toHaveLength(1);
+    expect(adjust[0].args).toEqual({ p_broadcast_id: "b1", p_sent_delta: -1, p_failed_delta: 1 });
+  });
+
+  it("does not double-adjust counters when a failed webhook is redelivered (row already failed)", async () => {
+    supabaseMock.setRecip({ id: "r3", broadcast_id: "b1", send_status: "failed", phone_e164: "+13125550003" });
+    await applyBroadcastStatuses([{ waMessageId: "wamid.U", status: "failed", timestamp: 1700000300, errorCode: 131026 }]);
+    expect(supabaseMock.rpcCalls.filter((c) => c.fn === "adjust_broadcast_counters")).toHaveLength(0);
+  });
+
+  it("does not adjust counters on a successful (delivered) status", async () => {
+    supabaseMock.setRecip({ id: "r2", broadcast_id: "b1", send_status: "sent", phone_e164: "+13125550002" });
+    await applyBroadcastStatuses([{ waMessageId: "wamid.D", status: "delivered", timestamp: 1700000000 }]);
+    expect(supabaseMock.rpcCalls.filter((c) => c.fn === "adjust_broadcast_counters")).toHaveLength(0);
   });
 
   it("does not touch the suppression list for a successful (delivered) status", async () => {

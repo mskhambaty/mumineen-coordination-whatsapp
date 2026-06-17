@@ -77,6 +77,22 @@ export function extractStatusUpdates(payload: unknown): WaStatusUpdate[] {
 // Status precedence so a late 'delivered' can't downgrade a 'read'.
 const RANK: Record<string, number> = { queued: 0, sent: 1, delivered: 2, read: 3, replied: 4, failed: 1 };
 
+// Recipient states that were already tallied into template_broadcasts.count_sent at send time. When a
+// row in one of these later fails, count_sent must drop by one as count_failed rises by one.
+const COUNTED_AS_SENT = new Set(["sent", "delivered", "read", "replied"]);
+
+// Atomically adjust a broadcast's aggregate count_sent / count_failed (two-column delta in one UPDATE
+// so concurrent webhooks can't lose an increment). Best-effort: a counter slip must never block the
+// status update itself.
+async function adjustBroadcastCounters(broadcastId: string, sentDelta: number, failedDelta: number): Promise<void> {
+  const { error } = await getSupabaseAdmin().rpc("adjust_broadcast_counters", {
+    p_broadcast_id: broadcastId,
+    p_sent_delta: sentDelta,
+    p_failed_delta: failedDelta,
+  });
+  if (error) console.error("Failed to adjust broadcast counters:", error.message);
+}
+
 // Apply delivery-status updates to broadcast recipients (best-effort; unmatched ids are ignored —
 // most statuses are for non-broadcast messages).
 export async function applyBroadcastStatuses(updates: WaStatusUpdate[]): Promise<number> {
@@ -87,7 +103,7 @@ export async function applyBroadcastStatuses(updates: WaStatusUpdate[]): Promise
   for (const u of updates) {
     const { data: recip } = await supabase
       .from("template_broadcast_recipients")
-      .select("id, send_status, phone_e164")
+      .select("id, broadcast_id, send_status, phone_e164")
       .eq("wa_message_id", u.waMessageId)
       .maybeSingle();
     if (!recip) continue;
@@ -99,6 +115,11 @@ export async function applyBroadcastStatuses(updates: WaStatusUpdate[]): Promise
     // rows, so this still counts genuine repeat failures. No-op for non-undeliverable codes.
     if (u.status === "failed" && recip.send_status !== "failed") {
       await recordUndeliverable(recip.phone_e164, u.errorCode);
+      // Keep the broadcast's aggregate columns in sync with this async failure, so the console header
+      // (which reads count_failed) matches the live recipient-row rollup. A row that was previously
+      // counted as sent moves sent→failed (-1/+1); a row that never counted as sent only adds a fail.
+      const sentDelta = COUNTED_AS_SENT.has(recip.send_status) ? -1 : 0;
+      await adjustBroadcastCounters(recip.broadcast_id, sentDelta, 1);
     }
 
     const next = u.status === "failed" ? "failed" : u.status;

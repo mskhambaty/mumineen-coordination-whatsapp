@@ -62,9 +62,9 @@ describe("answer_religious_questions tool", () => {
       { user: visitor, phoneE164: "+1555" },
     );
 
-    // Sermon-content fallback searches the sermon categories (decoration/tazyeen excluded),
-    // year-scoped (null = no time cue → most-recent indexed).
-    expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith("what is vaaz talaqi", 5, ["reflection", "al_dars", "overview"], null, 0.4);
+    // Sermon-content fallback searches the sermon categories + the curated Q&A bucket
+    // (decoration/tazyeen excluded), year-scoped (null = no time cue → most-recent indexed).
+    expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith("what is vaaz talaqi", 5, ["reflection", "al_dars", "overview", "faq"], null, 0.4);
     expect(mocks.retrieveSiteContext).not.toHaveBeenCalled();
     expect(result).toMatchObject({ status: "ok", decision: "answer", source: "indexed_religious_content" });
   });

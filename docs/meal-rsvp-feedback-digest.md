@@ -12,11 +12,12 @@ responses come in.
 
 - **Events** live in `rsvp_registration_instance` (`title`, `event_date`, `hijri_date`, `meal`
   `lunch`|`dinner`, `serving_type` `thaal`|`packet`, `description`, unique `(event_date, meal)`).
-  Ashara 1448H = **20 events**: **Pehli Raat (Jun 14, dinner thaal)**, **1st Moharram lunch +
-  2nd Moharram dinner (Jun 15)**, **2nd–9th lunch + 3rd–10th dinner (Jun 16–23)**, **Ashura (Jun 24,
-  dinner thaal)**. Hijri night-first ordering: lunch = Nth Day, dinner = (N+1)th Night on each
-  Gregorian day. (Corrected in `20260610110000_fix_moharram_dates_and_titles` and
-  `20260610140000_fix_moharram_dinner_titles`.)
+  Ashara 1448H = **19 events** on the **Gregorian-day convention** — each calendar date carries one
+  Moharram number shared by its lunch and dinner: **Pehli Raat (Jun 14, dinner thaal)**, **1st Moharram
+  (Jun 15, dinner only)**, **2nd–9th Moharram lunch + dinner (Jun 16–23)**, **Ashura / 10th Moharram
+  (Jun 24, dinner thaal)**. Both meal titles on a date match `niyaz_event_config.rsvp_event_title`.
+  (Titles realigned from the earlier hijri night-shift labelling in
+  `20260617120000_niyaz_gregorian_day_titles`, which also dropped the spurious Jun 15 lunch.)
 - **`niyaz_rsvp`** (`20260608131000_*`): one row per `(registration_instance_id, mumin_id)` with
   `attending boolean`, `family_id`, and `source` (`default`|`registration`|`whatsapp`|`admin`). RLS
   on, service-role access only. (The legacy `rsvp_responses` table was dropped in
@@ -61,9 +62,10 @@ to the per-day view. `getFamilyNiyazDays` — the **per-DAY** view the bot reads
 Gregorian `event_date` into one row per day, each carrying a single `attending` count for `lunch` and
 for `dinner` (or null when that meal isn't served), plus a day `title`. `groupEventsByDay` is the pure,
 testable grouping helper; the day `title` comes from `niyaz_event_config.rsvp_event_title` (via
-`getEventConfigTitles` in `event-config.ts`) so it matches the admin **Niyaz days** view — NOT the
-per-meal instance title, which differs on dinners due to the hijri night-shift (fallback: config
-title → lunch instance title → dinner instance title → date);
+`getEventConfigTitles` in `event-config.ts`) so it matches the admin **Niyaz days** view (fallback: config
+title → lunch instance title → dinner instance title → date); since the Gregorian-day retitling
+(`20260617120000_*`) the per-meal instance titles also agree with the config, so the fallback is now
+mainly defensive;
 `getFamilyMembers` — roster-active member list with name/isAdult/isHead/notAttending for the agent
 to list when the user's count exceeds the family size;
 `setFamilyNiyazRsvp` whole-family cascade, `getEventTallies(mode)`,
@@ -145,9 +147,20 @@ the attendance it represents is already counted in `niyaz_rsvp`, so adding it wo
   `GET /api/admin/niyaz/days`; edited via `GET/PUT /api/admin/niyaz/days/[date]`
   (`src/lib/rsvp/event-config.ts`). The page maps each day to a **representative registration
   instance** for that date to drive the broadcast.
-- **Niyaz events** (`/admin/niyaz`) — the per-meal `rsvp_registration_instance` rows, which remain the
-  RSVP/tally source of truth; clicking one shows **only its responses**. A "Niyaz days →" button links
-  the two. (`GET/PUT /api/admin/niyaz/instances/[id]/config` still exists as an instance-keyed alias.)
+- **Niyaz overview** (`/admin/niyaz`) — a **days overview**: the per-meal `rsvp_registration_instance`
+  rows (still the RSVP/tally source of truth) grouped by `event_date` client-side
+  (`groupTalliesByDay`, `src/lib/rsvp/niyaz-day-grouping.ts`) over `GET /api/admin/niyaz/instances`.
+  Each day row has a **Send RSVP →** button that routes to `/admin/niyaz/days?date=<date>` (the
+  composer, preselected), and expands to its jaman (lunch/dinner) showing the **Yes count** and
+  **Thaals** (⌈yes ÷ 8⌉) plus an **Edit** button. Edit/New open a modal (`src/components/admin/niyaz/EventFormModal.tsx`, reusing
+  `POST`/`PATCH /api/admin/niyaz/instances`). Clicking a jaman opens the **event detail page**
+  (`/admin/niyaz/events/[id]?mode=`) showing **Yes count, No count, Thaals (⌈yes ÷ 8⌉), and the response list** via
+  `GET /api/admin/niyaz/instances/[id]/responses?mode=`. The Yes/No headline comes from the mode-aware
+  DB aggregate (`getEventTallies`) returned as `tally`, **not** by counting the fetched rows — so it
+  matches the overview and is correct past the 1000-row PostgREST cap (the response list itself is
+  fetched with an explicit high `.range()` so it isn't silently truncated). The detail page inherits
+  the overview's Max/Min via the `?mode=` link. (`GET/PUT /api/admin/niyaz/instances/[id]/config`
+  still exists as an instance-keyed alias.)
 
 The composer sends `ashara_relay_double_rsvp` (a **Flow** button "Attending" + a "Not attending"
 quick-reply) from the niyaz RSVP number (the broadcast WhatsApp account that owns the template).
@@ -402,6 +415,12 @@ and Single-recipient dropdowns** (the popup still lists them so they can be reac
   hint for common codes, e.g. `131049` engagement/frequency cap, `131026` undeliverable) is stored in
   the recipient's `error_detail` — never any PII. Most large-broadcast failures are Meta *delivery*
   decisions reported async (not send-time rejections), so this is the only place the real reason exists.
+  A `failed` callback also keeps the broadcast's aggregate columns honest: on the **first** transition
+  of a recipient into `failed`, the webhook adjusts `template_broadcasts.count_failed +1` (and
+  `count_sent -1` when the row had been counted as sent) via the `adjust_broadcast_counters` RPC. Without
+  this the columns reflected send-time outcomes only, so the Broadcast-log header undercounted failures
+  (e.g. header `Failed 1` vs the live rollup's `Failed 65`). The first-transition guard makes it
+  idempotent against Meta's at-least-once webhook redelivery.
 - Failure visibility: send-time and delivery-status failures are surfaced per broadcast in the console —
   expand a Broadcast-log row for the status rollup + a grouped failure-reason breakdown
   (`failure_reasons` on `GET .../broadcasts/[id]`), with a per-recipient list / CSV from
@@ -429,7 +448,9 @@ and Single-recipient dropdowns** (the popup still lists them so they can be reac
   `createBroadcast()`; older broadcasts predating the columns read as "not recorded". The **full
   recipient list** (every status, not just failures) is available — loaded on demand (PII) and as a
   CSV — from `GET .../broadcasts/[id]/recipients` (admin/leadership only), reusing the failures route's
-  roster resolution.
+  roster resolution. Both the recipients and failures reads page server-side via `fetchAllRows`, so the
+  full set is returned even past PostgREST's 1000-row response cap (a bare query silently truncated the
+  CSV — e.g. 1000 of 1858 recipients).
 - API: `GET /api/admin/templates` (catalog + friendly-name/active annotations),
   `PUT /api/admin/templates/settings` (friendly name / active flag),
   `GET /api/admin/templates/segments` (reach-segment sizes),

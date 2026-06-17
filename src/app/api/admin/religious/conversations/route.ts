@@ -6,6 +6,9 @@ import { RELIGIOUS_TOOL_NAMES } from "@/lib/admin/religious-transcript";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
+// Never cache: the religious Inbox polls this for live updates (without it the GET response is
+// served stale — the cause of the old Chats tab going out of date).
+export const dynamic = "force-dynamic";
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_CONVERSATIONS = 200;
@@ -50,7 +53,11 @@ export async function GET(req: NextRequest) {
       .from("messages")
       .select("phone_e164, direction, body, created_at")
       .in("phone_e164", phones)
-      .order("created_at", { ascending: true })
+      // DESCENDING (newest first) is critical: PostgREST caps the response at its db-max-rows
+      // setting (~1000), which OVERRIDES .limit(8000). Ascending order would return the OLDEST
+      // ~1000 messages and drop everything recent, making every last_at stale (the Jun-14 bug).
+      // Newest-first keeps the recent messages; we restore chronological order per phone below.
+      .order("created_at", { ascending: false })
       .limit(8000),
     supabase.from("whatsapp_users").select("phone_e164, display_name").in("phone_e164", phones),
     // handling_mode drives the AI/Manual toggle + badge (mirrors the Inbox).
@@ -73,6 +80,9 @@ export async function GET(req: NextRequest) {
     list.push(m);
     byPhone.set(m.phone_e164, list);
   }
+  // Messages were fetched newest-first (see the query above); restore chronological order so the
+  // thread reads oldest→newest and last_at is the genuinely newest message.
+  for (const list of byPhone.values()) list.reverse();
 
   const now = Date.now();
   const conversations = phones.map((phone) => {
