@@ -2442,9 +2442,10 @@ paths:
       summary: Dry-run the sample (no writes)
       description: >-
         Admin/leadership only. Body { freeWindowOnly?, excludeAlreadySent? }. Returns the sampling
-        funnel (candidates/excludedToday/excludedExhausted/excludedNonResponder/excludedAlreadySent/
-        fresh/reused/chosen) + first-name preview. excludeAlreadySent drops anyone already sent any
-        survey this event (cross-form de-overlap).
+        funnel (candidates/excludedUnregistered/excludedToday/excludedExhausted/excludedNonResponder/
+        excludedAlreadySent/fresh/reused/chosen) + first-name preview. Candidates are always
+        registration-submitted households; excludeAlreadySent drops anyone already sent any survey
+        this event (cross-form de-overlap).
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:

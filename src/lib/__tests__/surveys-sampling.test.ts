@@ -25,7 +25,8 @@ import { suggestSample } from "@/lib/surveys/sampling";
 const RULES = { combinator: "and" as const, rules: [] };
 const TODAY = "2026-06-16";
 function row(id: string, extra: Record<string, unknown> = {}) {
-  return { mumin_id: id, family_id: null, whatsapp_e164: `+1555${id}`, full_name: `Name ${id}`, ...extra };
+  // registration_status defaults to "submitted" — survey sampling only targets registered households.
+  return { mumin_id: id, family_id: null, whatsapp_e164: `+1555${id}`, full_name: `Name ${id}`, registration_status: "submitted", ...extra };
 }
 
 beforeEach(() => {
@@ -56,6 +57,17 @@ describe("suggestSample", () => {
 
     expect(res.chosen.map((c) => c.muminId)).toEqual(["A", "B"]); // fresh A before reused B
     expect(res.funnel).toMatchObject({ candidates: 4, excludedToday: 1, excludedExhausted: 1, fresh: 1, reused: 1, chosen: 2 });
+  });
+
+  it("only samples registered households (excludes registration not_started)", async () => {
+    runFilter.mockResolvedValue([
+      row("A"),                                              // registered -> eligible
+      { ...row("U"), registration_status: "not_started" },   // unregistered -> excluded
+      { ...row("V"), registration_status: null },            // unregistered -> excluded
+    ]);
+    const res = await suggestSample(RULES, [], 10, TODAY);
+    expect(res.chosen.map((c) => c.muminId)).toEqual(["A"]);
+    expect(res.funnel).toMatchObject({ candidates: 1, excludedUnregistered: 2, chosen: 1 });
   });
 
   it("respects the sample size cap", async () => {

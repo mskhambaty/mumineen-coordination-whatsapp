@@ -33,10 +33,13 @@ responses through a per-recipient **tokenized web form** delivered over WhatsApp
 
 ## Sampling (`src/lib/surveys/sampling.ts`)
 
-`suggestSample(groupRules, formQuestionIds, size, eventDate)`:
-1. `runFilter` → reachable candidates.
+`suggestSample(groupRules, formQuestionIds, size, eventDate, opts)`:
+1. `runFilter` → reachable candidates. **Baseline (always):** roster-active, has a WhatsApp number,
+   and **registration `submitted`** — we only survey registered households, regardless of the
+   group/custom filter.
 2. Exclude anyone **already sampled today** (≤1 sample/day) and anyone **exposed to every** question
-   in this form.
+   in this form. Optional: `freeWindowOnly` (only people inside the 24h free window) and
+   `excludeAlreadySent` (drop anyone sent any survey this event).
 3. Rank **fresh first** (0 prior sends), then fewest sends, then longest-since-last.
 Returns the chosen set + a funnel for the admin preview. `suggestQuestionsForSection` rotates the
 databank by preferring least-exposed questions.
