@@ -237,6 +237,21 @@ function PersonModal({ its, onClose }: { its: string; onClose: () => void }) {
 
 const QUAL_OPTS = [{ label: "Excellent" }, { label: "Good" }, { label: "Fair" }, { label: "Poor" }];
 
+// Turn a "one option per line" textarea + a comma-list of negative labels into scored options.
+// Options are ordered best→worst (position scoring 5→1); any label marked negative is forced to a
+// low score AND added to negative_values (so it counts as a problem and opens the comment box).
+function parseChoiceOptions(optionsText: string, negText: string): { options: { label: string; score: number }[]; negative_values: string[] } | null {
+  const labels = optionsText.split("\n").map((s) => s.trim()).filter(Boolean);
+  if (labels.length < 2) return null;
+  const negs = new Set(negText.split(",").map((s) => s.trim()).filter(Boolean));
+  const n = labels.length;
+  const options = labels.map((label, i) => ({
+    label,
+    score: negs.has(label) ? 1 : Math.max(1, Math.min(5, Math.round(5 - (i / Math.max(1, n - 1)) * 4))),
+  }));
+  return { options, negative_values: labels.filter((l) => negs.has(l)) };
+}
+
 function EditableQuestion({ q, onChanged }: { q: Question; onChanged: () => void }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(q.text);
@@ -299,26 +314,59 @@ function AddQuestion({ sectionId, onAdded }: { sectionId: string; onAdded: () =>
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [type, setType] = useState("yesno");
+  const [optionsText, setOptionsText] = useState("");
+  const [negText, setNegText] = useState("");
   const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   async function add() {
-    setSaving(true);
+    setErr(null);
     const body: Record<string, unknown> = { section_id: sectionId, text: text.trim(), type };
-    if (type === "choice") body.options = [{ label: "Excellent" }, { label: "Good" }, { label: "Fair" }, { label: "Poor" }];
+    if (type === "choice") {
+      if (optionsText.trim()) {
+        const parsed = parseChoiceOptions(optionsText, negText);
+        if (!parsed) { setErr("Enter at least 2 options (one per line)."); return; }
+        body.options = parsed.options;
+        body.negative_values = parsed.negative_values;
+      } else {
+        body.options = QUAL_OPTS; // default to Excellent/Good/Fair/Poor
+        body.negative_values = ["Fair", "Poor"];
+      }
+    }
+    setSaving(true);
     const res = await apiFetch("/api/admin/surveys/questions", { method: "POST", body: JSON.stringify(body) });
     setSaving(false);
-    if (res.ok) { setText(""); setOpen(false); onAdded(); }
+    if (res.ok) { setText(""); setOptionsText(""); setNegText(""); setOpen(false); onAdded(); }
+    else setErr((await res.json().catch(() => ({}))).error ?? "Failed to add");
   }
 
   if (!open) return <button onClick={() => setOpen(true)} className="mt-2 text-xs font-medium text-blue-600 hover:underline dark:text-blue-400">+ Add question</button>;
   return (
-    <div className="mt-2 flex flex-wrap gap-2">
-      <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Question text" className={`flex-1 ${inputCls}`} />
-      <select value={type} onChange={(e) => setType(e.target.value)} className={inputCls}>
-        <option value="yesno">Yes/No</option><option value="choice">Choice (QUAL)</option>
-        <option value="scale10">Scale 1-10</option><option value="scale5">Scale 1-5</option><option value="text">Text</option>
-      </select>
-      <button onClick={add} disabled={saving || text.trim().length < 3} className="rounded bg-blue-600 px-3 py-1 text-sm text-white disabled:opacity-50">Add</button>
+    <div className="mt-2 space-y-2">
+      <div className="flex flex-wrap gap-2">
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Question text" className={`flex-1 ${inputCls}`} />
+        <select value={type} onChange={(e) => setType(e.target.value)} className={inputCls}>
+          <option value="yesno">Yes/No</option><option value="choice">Choice</option>
+          <option value="scale10">Scale 1-10</option><option value="scale5">Scale 1-5</option><option value="text">Text</option>
+        </select>
+      </div>
+      {type === "choice" && (
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-[11px] text-gray-500 dark:text-gray-400">Options — one per line, best → worst (blank = Excellent/Good/Fair/Poor)</label>
+            <textarea value={optionsText} onChange={(e) => setOptionsText(e.target.value)} rows={3} placeholder={"Just right\nToo hot\nToo cold"} className={`w-full ${inputCls}`} />
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] text-gray-500 dark:text-gray-400">Problem options (comma-separated) — open the comment box & score low</label>
+            <input value={negText} onChange={(e) => setNegText(e.target.value)} placeholder="Too hot, Too cold" className={`w-full ${inputCls}`} />
+          </div>
+        </div>
+      )}
+      {err && <p className="text-xs text-red-500 dark:text-red-400">{err}</p>}
+      <div className="flex items-center gap-2">
+        <button onClick={add} disabled={saving || text.trim().length < 3} className="rounded bg-blue-600 px-3 py-1 text-sm text-white disabled:opacity-50">Add</button>
+        <button onClick={() => { setOpen(false); setErr(null); }} className="text-xs text-gray-500 hover:underline dark:text-gray-400">Cancel</button>
+      </div>
     </div>
   );
 }
