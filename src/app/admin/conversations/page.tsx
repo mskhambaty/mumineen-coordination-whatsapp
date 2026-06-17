@@ -217,6 +217,11 @@ export default function ConversationsPage() {
   const [selectedPhone, setSelectedPhone] = useState<string | null>(
     () => (typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("phone")),
   );
+  // Always-current mirror of selectedPhone. An async loadConversations() captures selectedPhone in
+  // its closure; if it started before a navigation (e.g. while viewing an issue) it could resolve
+  // after and auto-select the first row, clobbering an explicit "View" selection. Guard on the ref.
+  const selectedPhoneRef = useRef<string | null>(selectedPhone);
+  selectedPhoneRef.current = selectedPhone;
   const [loading, setLoading] = useState(true);
   const [savingMode, setSavingMode] = useState(false);
   const [savingEscalation, setSavingEscalation] = useState(false);
@@ -587,7 +592,9 @@ export default function ConversationsPage() {
       const items = (data.conversations ?? []) as Conversation[];
       setConversations(items);
       setResolvedHasMore(Boolean(data.resolved_has_more));
-      if (!selectedPhone && items[0]) setSelectedPhone(items[0].phone_e164);
+      // Use the ref, not the closed-over value, so a late-resolving load can't overwrite a
+      // selection the user made after this fetch started.
+      if (!selectedPhoneRef.current && items[0]) setSelectedPhone(items[0].phone_e164);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load conversations");
     } finally {
