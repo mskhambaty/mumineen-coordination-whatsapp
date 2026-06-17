@@ -2458,6 +2458,19 @@ paths:
         "400": { description: "Not sendable (no group/questions/eligible recipients, or already sent)." }
 
   /api/admin/surveys/forms/{id}:
+    patch:
+      tags: [admin]
+      summary: Edit a form (sample size / title)
+      description: >-
+        Admin/leadership only. Body { sample_size?, title? }. Updates the form's editable fields;
+        sample_size sets how many mumineen the next Preview/Commit & send will sample. Does not
+        touch already-committed recipients.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ form }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { description: "Form not found." }
     delete:
       tags: [admin]
       summary: Delete a form

@@ -598,7 +598,7 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
             <div>
               <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{f.title}</p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                {f.group_name ?? "—"} · status {f.status} · {f.completed_count}/{f.recipient_count} responded · sample {f.sample_size}
+                {f.group_name ?? "—"} · status {f.status} · {f.completed_count}/{f.recipient_count} responded · sample <SampleSizeEditor formId={f.id} value={f.sample_size} reload={reload} />
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -617,6 +617,46 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
         </div>
       ))}
     </div>
+  );
+}
+
+// Inline-editable sample size in a form row. Click the number to edit; Enter/blur saves via PATCH.
+function SampleSizeEditor({ formId, value, reload }: { formId: string; value: number; reload: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(String(value));
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    const n = parseInt(val, 10);
+    if (!Number.isFinite(n) || n < 1) { setVal(String(value)); setEditing(false); return; }
+    if (n === value) { setEditing(false); return; }
+    setSaving(true);
+    const res = await apiFetch(`/api/admin/surveys/forms/${formId}`, { method: "PATCH", body: JSON.stringify({ sample_size: n }) });
+    setSaving(false);
+    setEditing(false);
+    if (res.ok) reload();
+    else setVal(String(value));
+  }
+
+  if (!editing) {
+    return (
+      <button onClick={() => { setVal(String(value)); setEditing(true); }} className="font-medium text-blue-600 underline decoration-dotted underline-offset-2 hover:text-blue-700 dark:text-blue-400" title="Edit sample size">
+        {value}
+      </button>
+    );
+  }
+  return (
+    <input
+      type="number"
+      min={1}
+      autoFocus
+      value={val}
+      disabled={saving}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={save}
+      onKeyDown={(e) => { if (e.key === "Enter") save(); else if (e.key === "Escape") { setVal(String(value)); setEditing(false); } }}
+      className="w-16 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-xs text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+    />
   );
 }
 
