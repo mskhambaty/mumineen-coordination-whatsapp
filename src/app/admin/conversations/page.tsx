@@ -221,6 +221,26 @@ function pinSelected(items: Conversation[], prev: Conversation[], sel: string | 
   return items;
 }
 
+// A background list reload carries only the recent-capped messages per thread. Don't let it clobber
+// the full thread the user has open (loaded via loadConversationThread, e.g. while scrolling history
+// on mobile) — keep the open conversation's already-loaded messages and only APPEND genuinely-new
+// ones from the refresh. Without this, a silent refresh mid-scroll snaps the thread to recent-only.
+function preserveSelectedThread(merged: Conversation[], prev: Conversation[], sel: string | null): Conversation[] {
+  if (!sel) return merged;
+  const prevSel = prev.find((c) => c.phone_e164 === sel);
+  if (!prevSel || !prevSel.messages?.length) return merged;
+  const seen = new Set(prevSel.messages.map((m) => m.id));
+  return merged.map((c) => {
+    if (c.phone_e164 !== sel) return c;
+    const fresh = (c.messages ?? []).filter((m) => !seen.has(m.id));
+    return {
+      ...c,
+      messages: [...prevSel.messages, ...fresh],
+      tool_calls: prevSel.tool_calls?.length ? prevSel.tool_calls : c.tool_calls,
+    };
+  });
+}
+
 // A message is "broadcast/automated" (noise) — vs a real conversational message — when it's a
 // template send (RSVP/feedback/digest/notification), an RSVP/feedback button or flow response, or a
 // system broadcast text. Mirrors the server-side classifier behind has_conversational_message.
@@ -686,7 +706,7 @@ export default function ConversationsPage() {
         throw new Error(data.error ?? "Failed to load conversations");
       }
       const items = (data.conversations ?? []) as Conversation[];
-      setConversations((prev) => pinSelected(items, prev, selectedPhoneRef.current));
+      setConversations((prev) => preserveSelectedThread(pinSelected(items, prev, selectedPhoneRef.current), prev, selectedPhoneRef.current));
       setResolvedHasMore(Boolean(data.resolved_has_more));
       if (Array.isArray(data.accounts)) setAccounts(data.accounts as InboxAccount[]);
       // Use the ref, not the closed-over value, so a late-resolving load can't overwrite a
@@ -707,7 +727,7 @@ export default function ConversationsPage() {
       if (!res.ok) return;
       const data = await res.json().catch(() => ({}));
       const items = (data.conversations ?? []) as Conversation[];
-      setConversations((prev) => pinSelected(items, prev, selectedPhoneRef.current));
+      setConversations((prev) => preserveSelectedThread(pinSelected(items, prev, selectedPhoneRef.current), prev, selectedPhoneRef.current));
       setResolvedHasMore(Boolean(data.resolved_has_more));
       if (Array.isArray(data.accounts)) setAccounts(data.accounts as InboxAccount[]);
     } catch {
