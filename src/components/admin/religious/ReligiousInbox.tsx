@@ -31,7 +31,10 @@ export default function ReligiousInbox() {
     if (inFlight.current) return; // don't stack overlapping polls
     inFlight.current = true;
     try {
-      const res = await apiFetch("/api/admin/religious/conversations");
+      // Cache-bust (`?t=`) + `no-store`: every poll must be a UNIQUE, uncacheable request so the
+      // browser / any edge cache can't replay a stale copy — the real cause of the old staleness
+      // (force-dynamic alone only kept the SERVER fresh; the client was serving a cached response).
+      const res = await apiFetch(`/api/admin/religious/conversations?t=${Date.now()}`, { cache: "no-store" });
       if (res.ok) setConversations(((await res.json()).conversations ?? []) as Conversation[]);
     } catch {
       // Silent — a transient poll failure must not disrupt the open thread.
@@ -135,12 +138,23 @@ export default function ReligiousInbox() {
       {/* List — full-screen on mobile until a chat is opened (master/detail) */}
       <div className={`min-h-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white md:flex dark:border-gray-800 dark:bg-gray-900 ${active ? "hidden" : "flex"}`}>
         <div className="space-y-2 border-b border-gray-100 p-3 dark:border-gray-800">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search name, number, message…"
-            className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
-          />
+          <div className="flex items-center gap-2">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search name, number, message…"
+              className="min-w-0 flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+            />
+            <button
+              type="button"
+              onClick={() => void load()}
+              title="Refresh"
+              aria-label="Refresh conversations"
+              className="shrink-0 rounded-md border border-gray-300 p-1.5 text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+            >
+              <svg viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor"><path d="M10 3a7 7 0 105.66 2.86l1.42-1.42A1 1 0 0018 5V1h-4a1 1 0 00-.71 1.71l1.13 1.13A5 5 0 1115 10h2a7 7 0 00-7-7z"/></svg>
+            </button>
+          </div>
           <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
             <input type="checkbox" checked={inWindowOnly} onChange={(e) => setInWindowOnly(e.target.checked)} />
             In-window only
