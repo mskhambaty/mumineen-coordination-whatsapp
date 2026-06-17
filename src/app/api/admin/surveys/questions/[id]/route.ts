@@ -17,6 +17,8 @@ const patchSchema = z
     negative_values: z.array(z.string()).nullable().optional(),
     polarity: z.enum(["positive", "negative"]).optional(),
     is_general: z.boolean().optional(),
+    collect_comment: z.boolean().optional(),
+    comment_threshold: z.number().int().min(1).max(10).nullable().optional(),
   })
   .refine((b) => Object.keys(b).length > 0, "No fields to update.");
 
@@ -33,7 +35,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  for (const k of ["text", "type", "options", "negative_values", "polarity", "is_general"] as const) {
+  for (const k of ["text", "type", "options", "negative_values", "polarity", "is_general", "collect_comment", "comment_threshold"] as const) {
     if (b[k] !== undefined) update[k] = b[k];
   }
 
@@ -42,7 +44,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .from("survey_questions")
     .update(update)
     .eq("id", id)
-    .select("id, section_id, text, type, options, negative_values, polarity, is_general, sort_order, active")
+    .select("id, section_id, text, type, options, negative_values, polarity, is_general, collect_comment, comment_threshold, sort_order, active")
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Question not found." }, { status: 404 });

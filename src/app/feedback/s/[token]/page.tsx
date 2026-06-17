@@ -16,6 +16,8 @@ type Question = {
     type: "choice" | "scale10" | "scale5" | "yesno" | "text";
     options?: { label: string }[] | null;
     negative_values?: string[] | null;
+    comment_threshold?: number | null;
+    collect_comment?: boolean;
   };
 };
 type Section = { section_id: string | null; title: string; questions: Question[] };
@@ -64,9 +66,10 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
     setTimeout(() => document.getElementById(`q-${nid}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 70);
   }
 
-  function setAnswer(qid: string, value: string, negativeValues?: string[] | null, type?: string) {
+  function setAnswer(qid: string, value: string, snap: Question["snapshot"]) {
+    const type = snap.type;
     setAnswers((a) => ({ ...a, [qid]: value }));
-    const isNeg = isProblemAnswer(type ?? "", value, negativeValues);
+    const isNeg = isProblemAnswer(type, value, snap.negative_values ?? [], { threshold: snap.comment_threshold, collectComment: snap.collect_comment });
     // Clear a stale reason if the new answer isn't a problem answer.
     if (!isNeg) setReasons((r) => ({ ...r, [qid]: "" }));
     // Free-text fires onChange per keystroke — never collapse/scroll it (would steal focus). Keep
@@ -168,7 +171,7 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
                 const qid = q.question_id ?? q.form_question_id;
                 const value = answers[qid] ?? "";
                 const negVals = q.snapshot.negative_values ?? [];
-                const isNeg = isProblemAnswer(q.snapshot.type, value, negVals);
+                const isNeg = isProblemAnswer(q.snapshot.type, value, negVals, { threshold: q.snapshot.comment_threshold, collectComment: q.snapshot.collect_comment });
                 const reason = reasons[qid] ?? "";
                 // Collapse once answered (so the next question surfaces). Negative answers also
                 // collapse — but only after the "why?" box (they stay expanded until then). Tap a
@@ -202,7 +205,7 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
                 return (
                   <div key={q.form_question_id} id={`q-${qid}`} className="scroll-mt-24 px-5 py-4">
                     <p className="mb-3 text-sm font-medium text-gray-100">{q.snapshot.text}</p>
-                    <QuestionInput question={q} value={value} onChange={(v) => setAnswer(qid, v, negVals, q.snapshot.type)} />
+                    <QuestionInput question={q} value={value} onChange={(v) => setAnswer(qid, v, q.snapshot)} />
                     {isNeg && (
                       <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
                         <label className="mb-1.5 block text-xs font-medium text-amber-300/90">Sorry to hear that — what was the main issue? <span className="text-amber-300/50">(optional)</span></label>

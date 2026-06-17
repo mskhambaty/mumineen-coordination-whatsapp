@@ -102,18 +102,22 @@ export function isNegativeAnswer(
 }
 
 // Whether an answer is a "problem" answer that should prompt the optional "why?" comment box:
-//  - scale10: rating ≤ 6   - scale5: rating ≤ 3   - choice/yes-no: in negative_values.
-// Single source of truth for both the form UI and the recorder's department routing.
+//  - scale10/scale5: rating ≤ threshold (per-question `comment_threshold`, default 6 / 3)
+//  - choice/yes-no: in negative_values.
+// `opts.collectComment === false` disables the box for the question entirely. Single source of truth
+// for both the form UI and the recorder's department routing.
 export function isProblemAnswer(
   type: string,
   answer: string | null | undefined,
   negativeValues: string[] | null | undefined,
+  opts?: { threshold?: number | null; collectComment?: boolean },
 ): boolean {
+  if (opts?.collectComment === false) return false; // comment box disabled for this question
   if (answer == null) return false;
   const a = String(answer).trim();
   if (!a) return false;
   if (isNotApplicable(a)) return false; // N/A is never a "problem" — no comment box, no routing.
-  if (type === "scale10") { const n = Number.parseInt(a, 10); return !Number.isNaN(n) && n <= 6; }
-  if (type === "scale5") { const n = Number.parseInt(a, 10); return !Number.isNaN(n) && n <= 3; }
+  if (type === "scale10") { const n = Number.parseInt(a, 10); return !Number.isNaN(n) && n <= (opts?.threshold ?? 6); }
+  if (type === "scale5") { const n = Number.parseInt(a, 10); return !Number.isNaN(n) && n <= (opts?.threshold ?? 3); }
   return isNegativeAnswer(a, negativeValues);
 }

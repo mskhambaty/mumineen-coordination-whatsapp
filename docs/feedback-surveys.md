@@ -53,6 +53,12 @@ databank by preferring least-exposed questions.
 from averages, never counted as negative or as a "problem" (no comment box / routing). Section
 sentiment = mean of its scored answers.
 
+The **"why?" comment box** is per-question configurable: `collect_comment` toggles it on/off, and
+`comment_threshold` (scale questions) sets the rating ≤ which an answer opens it (default scale10 ≤ 6,
+scale5 ≤ 3); choice/yes-no use `negative_values`. `isProblemAnswer(type, answer, negative_values, { threshold, collectComment })`
+is the single source of truth for both the form UI and the recorder's department routing. Editing a
+choice question's **options** (labels + which are "problem" options) is done inline in the Databank.
+
 ## Delivery (`src/lib/surveys/send.ts`)
 
 `commitAndSendForm(formId, templateCode?)` creates tokens + writes exposures (irreversible), then

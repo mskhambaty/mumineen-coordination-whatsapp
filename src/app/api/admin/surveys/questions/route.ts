@@ -17,6 +17,8 @@ const bodySchema = z.object({
   negative_values: z.array(z.string()).optional(),
   polarity: z.enum(["positive", "negative"]).optional(),
   is_general: z.boolean().optional(),
+  collect_comment: z.boolean().optional(),
+  comment_threshold: z.number().int().min(1).max(10).nullable().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -50,9 +52,11 @@ export async function POST(req: NextRequest) {
       negative_values: b.negative_values ?? (b.type === "yesno" ? ["No"] : null),
       polarity: b.polarity ?? "positive",
       is_general: b.is_general ?? false,
+      collect_comment: b.collect_comment ?? true,
+      comment_threshold: b.comment_threshold ?? null,
       sort_order: sortOrder,
     })
-    .select("id, section_id, text, type, options, negative_values, polarity, is_general, sort_order, active")
+    .select("id, section_id, text, type, options, negative_values, polarity, is_general, collect_comment, comment_threshold, sort_order, active")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ question: data }, { status: 201 });

@@ -16,6 +16,8 @@ type Question = {
   options?: { label: string; score?: number }[] | null;
   negative_values?: string[] | null;
   polarity?: "positive" | "negative" | null;
+  collect_comment?: boolean;
+  comment_threshold?: number | null;
 };
 type Section = { id: string; title: string; area: string; is_general: boolean; questions: Question[] };
 type Group = { id: string; name: string; description: string | null; area_focus: string | null };
@@ -285,19 +287,40 @@ function EditableQuestion({ q, onChanged, onMoveUp, onMoveDown }: { q: Question;
   const [type, setType] = useState(q.type);
   const [isGeneral, setIsGeneral] = useState(q.is_general);
   const [polarity, setPolarity] = useState<"positive" | "negative">(q.polarity ?? "positive");
+  const [collectComment, setCollectComment] = useState(q.collect_comment ?? true);
+  const [threshold, setThreshold] = useState(q.comment_threshold != null ? String(q.comment_threshold) : "");
+  const [optionsText, setOptionsText] = useState((q.options ?? []).map((o) => o.label).join("\n"));
+  const [negText, setNegText] = useState((q.negative_values ?? []).join(", "));
   const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-  function reset() { setText(q.text); setType(q.type); setIsGeneral(q.is_general); setPolarity(q.polarity ?? "positive"); }
+  function reset() {
+    setText(q.text); setType(q.type); setIsGeneral(q.is_general); setPolarity(q.polarity ?? "positive");
+    setCollectComment(q.collect_comment ?? true); setThreshold(q.comment_threshold != null ? String(q.comment_threshold) : "");
+    setOptionsText((q.options ?? []).map((o) => o.label).join("\n")); setNegText((q.negative_values ?? []).join(", "));
+    setErr(null);
+  }
 
   async function save() {
+    setErr(null);
+    const patch: Record<string, unknown> = { text: text.trim(), type, is_general: isGeneral, polarity, collect_comment: collectComment };
+    if (type === "choice") {
+      if (optionsText.trim()) {
+        const parsed = parseChoiceOptions(optionsText, negText);
+        if (!parsed) { setErr("Enter at least 2 options (one per line)."); return; }
+        patch.options = parsed.options; patch.negative_values = parsed.negative_values;
+      } else if (!q.options || q.options.length < 2) { patch.options = QUAL_OPTS; patch.negative_values = ["Fair", "Poor"]; }
+    } else if (type === "yesno") {
+      patch.negative_values = polarity === "negative" ? ["Yes"] : ["No"];
+    }
+    if (type === "scale10" || type === "scale5") {
+      patch.comment_threshold = threshold.trim() ? parseInt(threshold, 10) : null;
+    }
     setSaving(true);
-    const patch: Record<string, unknown> = { text: text.trim(), type, is_general: isGeneral, polarity };
-    // Keep options/negatives sensible when the type changes.
-    if (type === "choice" && (!q.options || q.options.length < 2)) { patch.options = QUAL_OPTS; patch.negative_values = ["Fair", "Poor"]; }
-    else if (type === "yesno") patch.negative_values = ["No"];
     const res = await apiFetch(`/api/admin/surveys/questions/${q.id}`, { method: "PATCH", body: JSON.stringify(patch) });
     setSaving(false);
     if (res.ok) { setEditing(false); onChanged(); }
+    else setErr((await res.json().catch(() => ({}))).error ?? "Failed to save");
   }
   async function remove() {
     if (!confirm("Remove this question from the databank? Existing forms keep it; it won't appear in new forms.")) return;
@@ -307,28 +330,57 @@ function EditableQuestion({ q, onChanged, onMoveUp, onMoveDown }: { q: Question;
 
   if (editing) {
     const small = "rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100";
+    const isScale = type === "scale10" || type === "scale5";
     return (
-      <li className="flex flex-wrap items-center gap-2 py-1.5">
-        <input value={text} onChange={(e) => setText(e.target.value)} className={`min-w-[14rem] flex-1 ${small}`} />
-        <select value={type} onChange={(e) => setType(e.target.value)} className={small}>
-          <option value="yesno">Yes/No</option><option value="choice">Choice (QUAL)</option>
-          <option value="scale10">Scale 1-10</option><option value="scale5">Scale 1-5</option><option value="text">Text</option>
-        </select>
-        {(type === "yesno" || type === "scale10" || type === "scale5") && (
-          <select value={polarity} onChange={(e) => setPolarity(e.target.value as "positive" | "negative")} className={small} title="How the answer scores">
-            <option value="positive">higher = better</option><option value="negative">inverted (yes = worse)</option>
+      <li className="space-y-2 rounded-md border border-blue-200 p-2 dark:border-blue-900">
+        <div className="flex flex-wrap items-center gap-2">
+          <input value={text} onChange={(e) => setText(e.target.value)} className={`min-w-[14rem] flex-1 ${small}`} />
+          <select value={type} onChange={(e) => setType(e.target.value)} className={small}>
+            <option value="yesno">Yes/No</option><option value="choice">Choice</option>
+            <option value="scale10">Scale 1-10</option><option value="scale5">Scale 1-5</option><option value="text">Text</option>
           </select>
+          {(type === "yesno" || isScale) && (
+            <select value={polarity} onChange={(e) => setPolarity(e.target.value as "positive" | "negative")} className={small} title="How the answer scores">
+              <option value="positive">higher = better</option><option value="negative">inverted (yes = worse)</option>
+            </select>
+          )}
+          <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300"><input type="checkbox" checked={isGeneral} onChange={(e) => setIsGeneral(e.target.checked)} className="accent-blue-600" /> general</label>
+        </div>
+        {type === "choice" && (
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-[11px] text-gray-500 dark:text-gray-400">Options — one per line, best → worst</label>
+              <textarea value={optionsText} onChange={(e) => setOptionsText(e.target.value)} rows={3} placeholder={"Excellent\nGood\nFair\nPoor"} className={`w-full ${small}`} />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] text-gray-500 dark:text-gray-400">Problem options (comma-separated) — open the comment box & score low</label>
+              <input value={negText} onChange={(e) => setNegText(e.target.value)} placeholder="Fair, Poor" className={`w-full ${small}`} />
+            </div>
+          </div>
         )}
-        <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300"><input type="checkbox" checked={isGeneral} onChange={(e) => setIsGeneral(e.target.checked)} className="accent-blue-600" /> general</label>
-        <button onClick={save} disabled={saving || text.trim().length < 3} className="rounded bg-blue-600 px-2 py-1 text-xs text-white disabled:opacity-50">Save</button>
-        <button onClick={() => { reset(); setEditing(false); }} className="text-xs text-gray-500 hover:underline dark:text-gray-400">Cancel</button>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300" title="When off, this question never asks for a 'why?' comment.">
+            <input type="checkbox" checked={collectComment} onChange={(e) => setCollectComment(e.target.checked)} className="accent-blue-600" /> Ask for a comment on negative answers
+          </label>
+          {isScale && collectComment && (
+            <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300" title={`Ratings at or below this open the comment box (default ${type === "scale10" ? 6 : 3}).`}>
+              Comment when rating ≤
+              <input type="number" min={1} max={type === "scale10" ? 10 : 5} value={threshold} onChange={(e) => setThreshold(e.target.value)} placeholder={type === "scale10" ? "6" : "3"} className={`w-16 ${small}`} />
+            </label>
+          )}
+        </div>
+        {err && <p className="text-xs text-red-500 dark:text-red-400">{err}</p>}
+        <div className="flex items-center gap-2">
+          <button onClick={save} disabled={saving || text.trim().length < 3} className="rounded bg-blue-600 px-2 py-1 text-xs text-white disabled:opacity-50">Save</button>
+          <button onClick={() => { reset(); setEditing(false); }} className="text-xs text-gray-500 hover:underline dark:text-gray-400">Cancel</button>
+        </div>
       </li>
     );
   }
 
   return (
     <li className="group flex items-start justify-between gap-3">
-      <span className="leading-snug"><span className="text-gray-400">•</span> {q.text} <span className="text-[10px] uppercase text-gray-400">({q.type})</span></span>
+      <span className="leading-snug"><span className="text-gray-400">•</span> {q.text} <span className="text-[10px] uppercase text-gray-400">({q.type})</span>{q.collect_comment === false ? <span className="text-[10px] text-gray-400"> · no comment</span> : (q.comment_threshold != null ? <span className="text-[10px] text-gray-400"> · comment ≤ {q.comment_threshold}</span> : null)}</span>
       <span className="flex flex-shrink-0 items-center gap-2 opacity-0 focus-within:opacity-100 group-hover:opacity-100">
         <button onClick={onMoveUp} disabled={!onMoveUp} title="Move up" className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30 dark:hover:text-gray-200">↑</button>
         <button onClick={onMoveDown} disabled={!onMoveDown} title="Move down" className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30 dark:hover:text-gray-200">↓</button>
@@ -471,12 +523,15 @@ function AddQuestion({ sectionId, onAdded }: { sectionId: string; onAdded: () =>
   const [type, setType] = useState("yesno");
   const [optionsText, setOptionsText] = useState("");
   const [negText, setNegText] = useState("");
+  const [collectComment, setCollectComment] = useState(true);
+  const [threshold, setThreshold] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const isScale = type === "scale10" || type === "scale5";
 
   async function add() {
     setErr(null);
-    const body: Record<string, unknown> = { section_id: sectionId, text: text.trim(), type };
+    const body: Record<string, unknown> = { section_id: sectionId, text: text.trim(), type, collect_comment: collectComment };
     if (type === "choice") {
       if (optionsText.trim()) {
         const parsed = parseChoiceOptions(optionsText, negText);
@@ -488,10 +543,11 @@ function AddQuestion({ sectionId, onAdded }: { sectionId: string; onAdded: () =>
         body.negative_values = ["Fair", "Poor"];
       }
     }
+    if (isScale && threshold.trim()) body.comment_threshold = parseInt(threshold, 10);
     setSaving(true);
     const res = await apiFetch("/api/admin/surveys/questions", { method: "POST", body: JSON.stringify(body) });
     setSaving(false);
-    if (res.ok) { setText(""); setOptionsText(""); setNegText(""); setOpen(false); onAdded(); }
+    if (res.ok) { setText(""); setOptionsText(""); setNegText(""); setThreshold(""); setCollectComment(true); setOpen(false); onAdded(); }
     else setErr((await res.json().catch(() => ({}))).error ?? "Failed to add");
   }
 
@@ -517,6 +573,17 @@ function AddQuestion({ sectionId, onAdded }: { sectionId: string; onAdded: () =>
           </div>
         </div>
       )}
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300" title="When off, this question never asks for a 'why?' comment.">
+          <input type="checkbox" checked={collectComment} onChange={(e) => setCollectComment(e.target.checked)} className="accent-blue-600" /> Ask for a comment on negative answers
+        </label>
+        {isScale && collectComment && (
+          <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300" title={`Ratings at or below this open the comment box (default ${type === "scale10" ? 6 : 3}).`}>
+            Comment when rating ≤
+            <input type="number" min={1} max={type === "scale10" ? 10 : 5} value={threshold} onChange={(e) => setThreshold(e.target.value)} placeholder={type === "scale10" ? "6" : "3"} className={`w-16 ${inputCls}`} />
+          </label>
+        )}
+      </div>
       {err && <p className="text-xs text-red-500 dark:text-red-400">{err}</p>}
       <div className="flex items-center gap-2">
         <button onClick={add} disabled={saving || text.trim().length < 3} className="rounded bg-blue-600 px-3 py-1 text-sm text-white disabled:opacity-50">Add</button>

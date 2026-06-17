@@ -36,6 +36,21 @@ describe("answerSentiment", () => {
     expect(isProblemAnswer("choice", "Do not apply", ["Do not apply"])).toBe(false);
   });
 
+  it("honors per-question comment threshold and enablement", () => {
+    // Default scale10 threshold is 6.
+    expect(isProblemAnswer("scale10", "6", null)).toBe(true);
+    expect(isProblemAnswer("scale10", "7", null)).toBe(false);
+    // Custom threshold: only ≤ 3 is a problem.
+    expect(isProblemAnswer("scale10", "4", null, { threshold: 3 })).toBe(false);
+    expect(isProblemAnswer("scale10", "3", null, { threshold: 3 })).toBe(true);
+    // scale5 custom threshold.
+    expect(isProblemAnswer("scale5", "2", null, { threshold: 2 })).toBe(true);
+    expect(isProblemAnswer("scale5", "3", null, { threshold: 2 })).toBe(false);
+    // Disabled: never a problem, even a clearly-negative answer.
+    expect(isProblemAnswer("scale5", "1", null, { collectComment: false })).toBe(false);
+    expect(isProblemAnswer("choice", "Poor", ["Poor"], { collectComment: false })).toBe(false);
+  });
+
   it("scales 1-10 to 1-5 and 1-5 directly", () => {
     expect(answerSentiment({ type: "scale10" }, "10")).toBe(5);
     expect(answerSentiment({ type: "scale10" }, "1")).toBe(1);
