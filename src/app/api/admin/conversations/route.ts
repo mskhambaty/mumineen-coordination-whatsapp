@@ -294,17 +294,23 @@ export async function GET(req: NextRequest) {
     ((religiousRows ?? []) as { phone_e164: string }[]).map((r) => r.phone_e164),
   );
 
-  // "Conversational" = the thread has at least one real message (not a template send, not an
-  // RSVP/feedback button/flow response). Pure broadcast recipients (RSVP/feedback only) have none.
-  // Drives the Conversations-tab "Broadcast-only" filter so a real conversation never gets hidden
-  // just because a broadcast was later sent to it. Computed over ALL messages (not the loaded cap).
+  // Latest CONVERSATIONAL message per loaded phone — skipping template sends (RSVP/feedback/digests/
+  // notifications) and RSVP/feedback button/flow responses. Powers (a) the "Broadcast-only" filter
+  // (a phone with none is broadcast-only) and (b) the list preview/timestamp/sort, so a thread shows
+  // its last REAL message — not a later broadcast that bumped it. Scoped to the loaded phones and
+  // ordered newest-first, so the first row seen per phone is its latest conversational message.
   const { data: convoRows } = await supabase
     .from("messages")
-    .select("phone_e164")
+    .select("phone_e164, body, created_at")
     .in("phone_e164", phoneNumbers)
-    .is("raw_payload->>template", null) // exclude template sends (RSVP/feedback/digests/notifications)
-    .not("message_type", "in", "(interactive,button)"); // exclude RSVP/feedback button & flow responses
-  const conversationalPhones = new Set(((convoRows ?? []) as { phone_e164: string }[]).map((r) => r.phone_e164));
+    .is("raw_payload->>template", null)
+    .not("message_type", "in", "(interactive,button)")
+    .order("created_at", { ascending: false })
+    .limit(5000);
+  const lastConvoByPhone = new Map<string, { body: string | null; created_at: string }>();
+  for (const r of (convoRows ?? []) as { phone_e164: string; body: string | null; created_at: string }[]) {
+    if (!lastConvoByPhone.has(r.phone_e164)) lastConvoByPhone.set(r.phone_e164, { body: r.body, created_at: r.created_at });
+  }
 
   const conversations = ((sessions ?? []) as SessionRow[]).map((session) => {
     const user = Array.isArray(session.user) ? session.user[0] : session.user;
@@ -347,7 +353,10 @@ export async function GET(req: NextRequest) {
       tool_calls: toolsByPhone.get(session.phone_e164) ?? [],
       used_religious_tool: religiousPhones.has(session.phone_e164),
       // False = "Broadcast-only" — the thread has no real message (RSVP/feedback broadcasts only).
-      has_conversational_message: conversationalPhones.has(session.phone_e164),
+      has_conversational_message: lastConvoByPhone.has(session.phone_e164),
+      // Latest real (non-broadcast) message — drives list preview/timestamp/sort so a thread reflects
+      // its last conversation, not a later broadcast. Null for broadcast-only threads.
+      conversational_last_message: lastConvoByPhone.get(session.phone_e164) ?? null,
     };
   });
 
