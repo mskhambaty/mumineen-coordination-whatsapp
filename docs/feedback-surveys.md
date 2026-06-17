@@ -16,7 +16,9 @@ responses through a per-recipient **tokenized web form** delivered over WhatsApp
 - **Groups** (`survey_groups`) — named target audiences stored as an audience-filter `RuleGroup`
   (reuses `runFilter` from [audience-filter.ts](../src/lib/whatsapp/audience-filter.ts)). Seeded:
   *All attending*, *Rahat / accessibility*, *Mehmaan — rental car*, *Local Chicago*, *VIP / category*,
-  *Accommodation — utaro*.
+  *Accommodation — utaro*, *All Mehman*, *Atfaal (kids under 7)*. The Atfaal group targets **adults**
+  in households with a child under 7 (via the `has_child_under_7` household field), deduped to the
+  head of family — so the survey greets a parent, not the toddler.
 - **Form** (`survey_forms` + `survey_form_questions`) — a composed run: a group + a chosen subset of
   questions (snapshotted for stability). ~5 forms/day → 5 samples.
 - **Recipients** (`survey_recipients`) — the sample; each row carries a unique opaque `token`.

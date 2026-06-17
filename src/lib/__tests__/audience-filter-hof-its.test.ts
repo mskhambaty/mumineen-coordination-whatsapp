@@ -37,6 +37,7 @@ function row(overrides: Partial<RosterRow>): RosterRow {
     acc_type: null,
     open_to_utaro: null,
     transport_mode: null,
+    has_child_under_7: false,
     inbound_count: 0,
     outbound_count: 0,
     last_inbound_at: null,
@@ -63,5 +64,27 @@ describe("hof_its custom-filter field", () => {
     const rule: Rule = { field: "hof_its", operator: "contains", value: "1234" };
     expect(evaluate(rule, row({ hof_its: "12345678" }))).toBe(true);
     expect(evaluate(rule, row({ hof_its: "87654321" }))).toBe(false);
+  });
+});
+
+describe("has_child_under_7 household field (Atfaal targeting)", () => {
+  // The Atfaal group targets ADULTS in young-child households so the survey greets a parent, not
+  // the toddler. The field is set per family member in loadRoster; here we just verify the rule.
+  it("validateRules accepts an equals rule on has_child_under_7", () => {
+    expect(validateRules({ field: "has_child_under_7", operator: "=", value: true })).toBeNull();
+  });
+
+  it("matches adults in a young-child household, not the kids", () => {
+    const rule: Rule = {
+      field: "has_child_under_7", operator: "=", value: true,
+    } as Rule;
+    const parent = row({ is_adult: true, age: 35, has_child_under_7: true });
+    const toddler = row({ is_adult: false, age: 3, has_child_under_7: true });
+    const childlessAdult = row({ is_adult: true, age: 40, has_child_under_7: false });
+    expect(evaluate(rule, parent)).toBe(true);
+    // The flag is true for the toddler too (household-level) — the group ANDs is_adult to exclude it.
+    expect(evaluate({ combinator: "and", rules: [rule, { field: "is_adult", operator: "=", value: true }] }, toddler)).toBe(false);
+    expect(evaluate({ combinator: "and", rules: [rule, { field: "is_adult", operator: "=", value: true }] }, parent)).toBe(true);
+    expect(evaluate(rule, childlessAdult)).toBe(false);
   });
 });

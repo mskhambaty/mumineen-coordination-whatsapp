@@ -43,6 +43,7 @@ export type RosterRow = {
   acc_type: string | null;
   open_to_utaro: boolean | null;
   transport_mode: string | null;
+  has_child_under_7: boolean; // household-level: someone in this family is under 7 (computed in loadRoster)
   // Behavioral signals attached in loadRoster() from the per-phone aggregate views (keyed by
   // whatsapp_e164). Default to zero / empty when the number has no history.
   inbound_count: number;
@@ -92,6 +93,7 @@ export const FIELD_CATALOG: FieldDef[] = [
   { key: "acc_type", label: "Accommodation", group: "Family", type: "enum", enumValues: ["hotel", "utaro"], get: (r) => r.acc_type },
   { key: "open_to_utaro", label: "Open to utaro", group: "Family", type: "bool", get: (r) => r.open_to_utaro },
   { key: "transport_mode", label: "Transport mode", group: "Family", type: "enum", enumValues: ["rideshare", "rental", "commute_with_utaro", "other"], get: (r) => r.transport_mode },
+  { key: "has_child_under_7", label: "Household has a child under 7", group: "Family", type: "bool", get: (r) => r.has_child_under_7 },
 
   // Engagement — conversation/messaging behavior, from phone_message_stats (see loadRoster).
   { key: "hours_since_last_inbound", label: "Hours since they last messaged us", group: "Engagement", type: "number", get: (r) => (r.last_inbound_at ? (Date.now() - new Date(r.last_inbound_at).getTime()) / 3.6e6 : NEVER) },
@@ -308,6 +310,22 @@ async function loadRoster(): Promise<RosterRow[]> {
     tplByPhone.set(p, m);
   }
 
+  // Households with at least one child under 7, by hof_its. Lets a "household has a young child"
+  // flag target the PARENT (deduped to head of family), not the toddler. Computed live so it never
+  // goes stale as the roster changes.
+  const youngChildHofs = new Set<string>();
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from("mumineen")
+      .select("hof_its")
+      .eq("roster_active", true)
+      .lt("age", 7)
+      .range(from, from + 999);
+    if (error) throw new Error(error.message);
+    for (const r of data ?? []) if (r.hof_its) youngChildHofs.add(r.hof_its);
+    if (!data || data.length < 1000) break;
+  }
+
   const rows: RosterRow[] = [];
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase
@@ -356,6 +374,7 @@ async function loadRoster(): Promise<RosterRow[]> {
         acc_type: fam?.acc_type ?? null,
         open_to_utaro: fam?.open_to_utaro ?? null,
         transport_mode: fam?.transport_mode ?? null,
+        has_child_under_7: m.hof_its ? youngChildHofs.has(m.hof_its) : false,
         inbound_count: msg?.inbound_count ?? 0,
         outbound_count: msg?.outbound_count ?? 0,
         last_inbound_at: msg?.last_inbound_at ?? null,

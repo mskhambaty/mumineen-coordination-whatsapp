@@ -17,6 +17,7 @@ function row(overrides: Partial<RosterRow>): RosterRow {
     whatsapp_link_clicked: null, arrival_at: null, departure_at: null, airport: null,
     rahat_seating: null, wheelchair: null, special_needs: null, wants_khidmat: null, khidmat_count: 0,
     not_attending: false, registration_status: null, acc_type: null, open_to_utaro: null, transport_mode: null,
+    has_child_under_7: false,
     inbound_count: 0, outbound_count: 0, last_inbound_at: null, last_outbound_at: null,
     tool_last_used: {}, template_last_sent: {},
     ...overrides,

@@ -23,6 +23,7 @@ vi.mock("@/lib/supabase/server", () => ({
         in: () => builder,
         not: () => builder,
         gte: () => builder,
+        lt: () => builder,
         like: () => builder,
         order: () => builder,
         range: () => Promise.resolve(result()),
