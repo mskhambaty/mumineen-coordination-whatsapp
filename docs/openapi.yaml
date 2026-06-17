@@ -462,7 +462,13 @@ paths:
         - name: scope
           in: query
           schema: { type: string, enum: [main, niyaz], default: main }
-          description: "Inbox split by the number a conversation is on (conversation_sessions.phone_number_id). main = exclude the niyaz RSVP/broadcast number; niyaz = only it."
+          description: >-
+            Inbox split by the number a conversation is on (conversation_sessions.phone_number_id).
+            main = exclude the niyaz RSVP/broadcast number; niyaz = only it. NOTE: this split applies
+            to the Conversations list only. Escalations (pending + resolved) are cross-cutting and are
+            returned regardless of number under scope=main, so a ticket that arrived on the broadcast
+            number is never hidden from the main Escalations tab. scope=niyaz still narrows escalations
+            to the niyaz number.
         - name: includeResolved
           in: query
           schema: { type: string, enum: ["1"] }

@@ -48,6 +48,15 @@ default "Active" stage filter and revealed via the **Resolved** / **All** stage 
 "Load more"). Resolved escalations linked to an issue are always loadable so an issue's "View →"
 link always reaches them.
 
+### Escalations are cross-scope
+
+The inbox `scope` split (`main` vs `niyaz`, by `conversation_sessions.phone_number_id`) applies to
+the **Conversations** list only. **Escalations are cross-cutting**: under the default `main` scope
+the Escalations tab loads pending + resolved escalations regardless of the number they arrived on,
+including the broadcast/niyaz number. Mumineen often reply to broadcast blasts and the AI escalates
+those threads — a breaching ticket must never be hidden just because it landed on the broadcast
+line. `scope=niyaz` still narrows escalations to the niyaz number for that focused view.
+
 ## Triggers & decision logic
 
 Escalate **only** when one of these holds:

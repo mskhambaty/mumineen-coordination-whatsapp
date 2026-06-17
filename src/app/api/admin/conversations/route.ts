@@ -105,6 +105,12 @@ export async function GET(req: NextRequest) {
   // Fetch recent sessions + ALL pending escalations in parallel so the
   // Escalations tab always shows every open ticket, not just those within
   // the recent-conversations window.
+  //
+  // Escalations are cross-cutting: in the default `main` inbox they surface regardless of which
+  // number they arrived on — people reply to broadcast blasts and the AI escalates those too, and
+  // a breaching ticket must not be hidden just because it's on the broadcast number. So we do NOT
+  // apply the `main` scope exclusion (scopeOr) here. The `niyaz` scope still narrows to its own
+  // number (scopeEq) so that view stays focused.
   let escalationsQuery = selectedPhone
     ? null
     : supabase
@@ -112,9 +118,8 @@ export async function GET(req: NextRequest) {
         .select(sessionColumns)
         .eq("escalation_status", "pending")
         .order("last_message_at", { ascending: false });
-  if (escalationsQuery) {
-    if (scopeOr) escalationsQuery = escalationsQuery.or(scopeOr);
-    if (scopeEq) escalationsQuery = escalationsQuery.eq("phone_number_id", scopeEq);
+  if (escalationsQuery && scopeEq) {
+    escalationsQuery = escalationsQuery.eq("phone_number_id", scopeEq);
   }
 
   // Resolved escalations belong to the Escalations tab too (the team browses them, and an
@@ -134,9 +139,9 @@ export async function GET(req: NextRequest) {
           .eq("escalation_status", "resolved")
           .order("last_message_at", { ascending: false })
           .range(0, resolvedLimit - 1);
-  if (resolvedQuery) {
-    if (scopeOr) resolvedQuery = resolvedQuery.or(scopeOr);
-    if (scopeEq) resolvedQuery = resolvedQuery.eq("phone_number_id", scopeEq);
+  // Same cross-scope rule as pending escalations above: don't apply the `main` exclusion.
+  if (resolvedQuery && scopeEq) {
+    resolvedQuery = resolvedQuery.eq("phone_number_id", scopeEq);
   }
 
   const [recentResult, escalationResult, resolvedResult] = await Promise.all([
