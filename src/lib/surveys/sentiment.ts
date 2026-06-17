@@ -13,6 +13,20 @@ function clamp1to5(n: number): number {
   return Math.max(1, Math.min(5, Math.round(n)));
 }
 
+// "Not applicable" answers (e.g. "Do not apply", "N/A") carry NO sentiment — the question simply
+// didn't apply to that person. They must be excluded from scoring, not counted as negative, so they
+// never drag a section/question average down.
+export function isNotApplicable(answer: string | null | undefined): boolean {
+  if (answer == null) return false;
+  const a = String(answer).trim().toLowerCase().replace(/[.\s]+/g, " ").trim();
+  return (
+    a === "n/a" || a === "na" || a === "n a" ||
+    a === "not applicable" || a === "do not apply" || a === "does not apply" ||
+    a === "doesn't apply" || a === "doesnt apply" || a === "did not apply" || a === "didn't apply" ||
+    a === "not apply" || a === "none"
+  );
+}
+
 // Map a 0-based option index within an N-option list (ordered best→worst) to 1..5.
 function scoreByPosition(index: number, count: number): number {
   if (count <= 1) return 3;
@@ -25,6 +39,7 @@ export function answerSentiment(question: ScoredQuestion, answer: string | null 
   if (answer == null) return null;
   const a = String(answer).trim();
   if (!a) return null;
+  if (isNotApplicable(a)) return null; // N/A carries no sentiment — excluded, never negative.
   const negative = question.polarity === "negative";
 
   switch (question.type) {
@@ -97,6 +112,7 @@ export function isProblemAnswer(
   if (answer == null) return false;
   const a = String(answer).trim();
   if (!a) return false;
+  if (isNotApplicable(a)) return false; // N/A is never a "problem" — no comment box, no routing.
   if (type === "scale10") { const n = Number.parseInt(a, 10); return !Number.isNaN(n) && n <= 6; }
   if (type === "scale5") { const n = Number.parseInt(a, 10); return !Number.isNaN(n) && n <= 3; }
   return isNegativeAnswer(a, negativeValues);

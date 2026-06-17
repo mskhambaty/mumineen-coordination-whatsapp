@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { aggregateSentiment, answerSentiment, isNegativeAnswer } from "@/lib/surveys/sentiment";
+import { aggregateSentiment, answerSentiment, isNegativeAnswer, isNotApplicable, isProblemAnswer } from "@/lib/surveys/sentiment";
 
 const QUAL = { type: "choice" as const, options: [{ label: "Excellent" }, { label: "Good" }, { label: "Fair" }, { label: "Poor" }] };
 
@@ -17,6 +17,23 @@ describe("answerSentiment", () => {
     expect(answerSentiment(QUAL, "Nonexistent")).toBeNull();
     expect(answerSentiment(QUAL, "")).toBeNull();
     expect(answerSentiment(QUAL, null)).toBeNull();
+  });
+
+  it("excludes 'not applicable' answers from sentiment (never negative)", () => {
+    // A wheelchair-need question scored 1 for "Do not apply" used to drag the average down.
+    const Q = { type: "choice" as const, options: [{ label: "Yes", score: 5 }, { label: "Do not apply", score: 1 }] };
+    expect(answerSentiment(Q, "Do not apply")).toBeNull();
+    expect(answerSentiment(Q, "N/A")).toBeNull();
+    expect(answerSentiment(Q, "Not applicable")).toBeNull();
+    expect(answerSentiment(Q, "Yes")).toBe(5);
+    // Aggregate of [Yes, Do not apply, Do not apply] should be a clean 5, not dragged down.
+    expect(aggregateSentiment([{ question: Q, answer: "Yes" }, { question: Q, answer: "Do not apply" }, { question: Q, answer: "Do not apply" }])).toBe(5);
+    // Yes/No N/A too.
+    expect(answerSentiment({ type: "yesno" }, "Does not apply")).toBeNull();
+    expect(isNotApplicable("do not apply")).toBe(true);
+    expect(isNotApplicable("Yes")).toBe(false);
+    // N/A never opens the comment box / routes to a department.
+    expect(isProblemAnswer("choice", "Do not apply", ["Do not apply"])).toBe(false);
   });
 
   it("scales 1-10 to 1-5 and 1-5 directly", () => {

@@ -49,7 +49,9 @@ databank by preferring least-exposed questions.
 
 `answerSentiment(question, answer) → 1..5 | null`. Choice = option position (best-first); scale10 =
 `ceil(v/2)`; scale5 = v; yes/no = Yes 5 / No 1, inverted for `polarity:'negative'`; text = null.
-Section sentiment = mean of its scored answers.
+**"Not applicable" answers** ("Do not apply", "N/A", …, via `isNotApplicable`) score `null` — excluded
+from averages, never counted as negative or as a "problem" (no comment box / routing). Section
+sentiment = mean of its scored answers.
 
 ## Delivery (`src/lib/surveys/send.ts`)
 
