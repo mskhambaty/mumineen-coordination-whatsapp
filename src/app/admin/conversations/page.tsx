@@ -1447,7 +1447,7 @@ export default function ConversationsPage() {
                           disabled={savingEscalation}
                           className="whitespace-nowrap rounded-md border border-amber-500 px-3 py-1.5 text-sm font-medium text-amber-600 hover:bg-amber-50 disabled:opacity-50 dark:text-amber-400 dark:hover:bg-amber-900/20"
                         >
-                          {savingEscalation ? "Saving…" : "Escalate"}
+                          {savingEscalation ? "Saving…" : selected.escalation_status === "resolved" ? "Re-escalate" : "Escalate"}
                         </button>
                       )}
                       <div className="flex items-center gap-1.5">
