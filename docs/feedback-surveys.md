@@ -87,7 +87,10 @@ no template selected, the per-recipient links are returned for manual sending.
 form), **Forms** (Test link · Preview sample funnel · Commit & send · Results), **Analytics**,
 **Lookup**, **Sends**, **Databank** (add/edit/delete/reorder sections and questions). A **sent** form
 locks down — its row shows only **Test to people** and **Results** (the pre-send actions are hidden to
-prevent mistakes); the Results panel is collapsible. APIs under `src/app/api/admin/surveys/**`
+prevent mistakes); the Results panel is collapsible. The **Questions** button opens the form's composed
+questions (grouped by section); for a not-yet-sent form you can edit each (text, required, comment box,
+options) or remove it — edits apply to that form's snapshot only. Compose has a per-section **Select
+all** toggle. APIs under `src/app/api/admin/surveys/**`
 (gated by `requirePortalCaller(isAdminOrLeadership)`). Sections and questions both **soft-delete**
 (`active=false`) so already-composed forms keep working off their snapshots; deleting a section also
 soft-deletes its questions.
