@@ -70,4 +70,35 @@ describe("suggestSample", () => {
     const res = await suggestSample(RULES, [], 10, TODAY);
     expect(res.chosen).toHaveLength(2);
   });
+
+  it("drops chronic non-responders (2+ real sends, never responded) but keeps responders", async () => {
+    runFilter.mockResolvedValue([row("A"), row("N"), row("Rsp")]);
+    recipientRows = [
+      // N: sent twice, never completed -> excluded.
+      { mumin_id: "N", event_date: "2026-06-12", created_at: "2026-06-12T10:00:00Z", completed_at: null, is_test: false },
+      { mumin_id: "N", event_date: "2026-06-14", created_at: "2026-06-14T10:00:00Z", completed_at: null, is_test: false },
+      // Rsp: sent twice but responded once -> still eligible.
+      { mumin_id: "Rsp", event_date: "2026-06-12", created_at: "2026-06-12T10:00:00Z", completed_at: "2026-06-12T11:00:00Z", is_test: false },
+      { mumin_id: "Rsp", event_date: "2026-06-14", created_at: "2026-06-14T10:00:00Z", completed_at: null, is_test: false },
+    ];
+    const res = await suggestSample(RULES, [], 10, TODAY);
+    const ids = res.chosen.map((c) => c.muminId);
+    expect(ids).toContain("A");
+    expect(ids).toContain("Rsp");
+    expect(ids).not.toContain("N");
+    expect(res.funnel.excludedNonResponder).toBe(1);
+  });
+
+  it("ignores is_test sends when counting history", async () => {
+    runFilter.mockResolvedValue([row("T")]);
+    recipientRows = [
+      { mumin_id: "T", event_date: "2026-06-12", created_at: "2026-06-12T10:00:00Z", completed_at: null, is_test: true },
+      { mumin_id: "T", event_date: "2026-06-14", created_at: "2026-06-14T10:00:00Z", completed_at: null, is_test: true },
+    ];
+    const res = await suggestSample(RULES, [], 10, TODAY);
+    // Two test sends shouldn't make T look like a non-responder, and T should rank as fresh.
+    expect(res.chosen.map((c) => c.muminId)).toContain("T");
+    expect(res.funnel.excludedNonResponder).toBe(0);
+    expect(res.funnel.fresh).toBe(1);
+  });
 });

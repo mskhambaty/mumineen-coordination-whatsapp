@@ -719,7 +719,7 @@ function PreviewSample({ detail, onPickMumin }: { detail: Detail; onPickMumin?: 
         <span><b>{f.chosen ?? 0}</b> chosen</span>
         <span className="text-emerald-600 dark:text-emerald-400">{f.fresh ?? 0} fresh</span>
         <span className="text-amber-600 dark:text-amber-400">{f.reused ?? 0} reused</span>
-        <span className="text-gray-400">{f.excludedToday ?? 0} already today · {f.excludedExhausted ?? 0} exhausted</span>
+        <span className="text-gray-400">{f.excludedToday ?? 0} already today · {f.excludedExhausted ?? 0} exhausted · {f.excludedNonResponder ?? 0} non-responders</span>
       </div>
       {sample.length > 0 && (
         <>

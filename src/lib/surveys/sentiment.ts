@@ -85,3 +85,19 @@ export function isNegativeAnswer(
   if (answer == null || !negativeValues?.length) return false;
   return negativeValues.includes(String(answer).trim());
 }
+
+// Whether an answer is a "problem" answer that should prompt the optional "why?" comment box:
+//  - scale10: rating ≤ 6   - scale5: rating ≤ 3   - choice/yes-no: in negative_values.
+// Single source of truth for both the form UI and the recorder's department routing.
+export function isProblemAnswer(
+  type: string,
+  answer: string | null | undefined,
+  negativeValues: string[] | null | undefined,
+): boolean {
+  if (answer == null) return false;
+  const a = String(answer).trim();
+  if (!a) return false;
+  if (type === "scale10") { const n = Number.parseInt(a, 10); return !Number.isNaN(n) && n <= 6; }
+  if (type === "scale5") { const n = Number.parseInt(a, 10); return !Number.isNaN(n) && n <= 3; }
+  return isNegativeAnswer(a, negativeValues);
+}

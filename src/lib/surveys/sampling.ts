@@ -26,11 +26,15 @@ export type SampleResult = {
     candidates: number; // matched the group + reachable
     excludedToday: number; // already in one of today's samples
     excludedExhausted: number; // already exposed to every question in this form
+    excludedNonResponder: number; // sent NON_RESPONDER_SEND_CAP+ times, never responded → stop asking
     fresh: number; // of chosen, never previously surveyed
     reused: number; // of chosen, surveyed before
     chosen: number;
   };
 };
+
+// Stop including someone once they've been SENT this many real surveys without ever responding.
+export const NON_RESPONDER_SEND_CAP = 2;
 
 // Suggest a sample of up to `size` mumineen for a form targeting `groupRules`, given the form's
 // question ids (for once-per-event dedup). Fresh-first, then least-previously-sent, then
@@ -47,16 +51,19 @@ export async function suggestSample(
   const rows: RosterRow[] = await runFilter(groupRules);
   const reachable = rows.filter((r) => r.whatsapp_e164 && r.mumin_id);
 
-  // 2. Prior survey history (all-time) + who was already sampled today.
+  // 2. Prior survey history (real sends only — is_test self/team links don't count): how many times
+  // each mumin was sent, when last, whether sampled today, and how many they've completed.
   const { data: recipientRows } = await supabase
     .from("survey_recipients")
-    .select("mumin_id, event_date, created_at");
+    .select("mumin_id, event_date, created_at, completed_at, is_test");
   const priorSends = new Map<string, number>();
+  const completedCount = new Map<string, number>();
   const lastSentAt = new Map<string, string>();
   const sampledToday = new Set<string>();
-  for (const r of (recipientRows ?? []) as { mumin_id: string | null; event_date: string | null; created_at: string }[]) {
-    if (!r.mumin_id) continue;
+  for (const r of (recipientRows ?? []) as { mumin_id: string | null; event_date: string | null; created_at: string; completed_at: string | null; is_test: boolean }[]) {
+    if (!r.mumin_id || r.is_test) continue;
     priorSends.set(r.mumin_id, (priorSends.get(r.mumin_id) ?? 0) + 1);
+    if (r.completed_at) completedCount.set(r.mumin_id, (completedCount.get(r.mumin_id) ?? 0) + 1);
     const prev = lastSentAt.get(r.mumin_id);
     if (!prev || r.created_at > prev) lastSentAt.set(r.mumin_id, r.created_at);
     if (r.event_date === eventDate) sampledToday.add(r.mumin_id);
@@ -87,11 +94,14 @@ export async function suggestSample(
   // 4. Filter + rank.
   let excludedToday = 0;
   let excludedExhausted = 0;
+  let excludedNonResponder = 0;
   const eligible: SampleCandidate[] = [];
   for (const r of reachable) {
     const id = r.mumin_id;
     if (sampledToday.has(id)) { excludedToday++; continue; }
     if (isExhausted(id)) { excludedExhausted++; continue; }
+    // Stop bothering chronic non-responders: sent NON_RESPONDER_SEND_CAP+ times, never responded.
+    if ((priorSends.get(id) ?? 0) >= NON_RESPONDER_SEND_CAP && (completedCount.get(id) ?? 0) === 0) { excludedNonResponder++; continue; }
     eligible.push({
       muminId: id,
       familyId: r.family_id,
@@ -118,6 +128,7 @@ export async function suggestSample(
       candidates: reachable.length,
       excludedToday,
       excludedExhausted,
+      excludedNonResponder,
       fresh: chosen.filter((c) => c.priorSends === 0).length,
       reused: chosen.filter((c) => c.priorSends > 0).length,
       chosen: chosen.length,

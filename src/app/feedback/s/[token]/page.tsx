@@ -2,6 +2,8 @@
 
 import { use, useEffect, useMemo, useState } from "react";
 
+import { isProblemAnswer } from "@/lib/surveys/sentiment";
+
 // Public, frictionless feedback-survey form. The token in the URL identifies the mumin + form;
 // we show their first name to confirm before submit. Mirrors the webinars page styling.
 
@@ -64,8 +66,8 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
 
   function setAnswer(qid: string, value: string, negativeValues?: string[] | null, type?: string) {
     setAnswers((a) => ({ ...a, [qid]: value }));
-    const isNeg = Boolean(negativeValues?.includes(value));
-    // Clear a stale reason if the new answer isn't negative.
+    const isNeg = isProblemAnswer(type ?? "", value, negativeValues);
+    // Clear a stale reason if the new answer isn't a problem answer.
     if (!isNeg) setReasons((r) => ({ ...r, [qid]: "" }));
     // Free-text fires onChange per keystroke — never collapse/scroll it (would steal focus). Keep
     // it expanded.
@@ -166,7 +168,7 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
                 const qid = q.question_id ?? q.form_question_id;
                 const value = answers[qid] ?? "";
                 const negVals = q.snapshot.negative_values ?? [];
-                const isNeg = Boolean(value) && negVals.includes(value);
+                const isNeg = isProblemAnswer(q.snapshot.type, value, negVals);
                 const reason = reasons[qid] ?? "";
                 // Collapse once answered (so the next question surfaces). Negative answers also
                 // collapse — but only after the "why?" box (they stay expanded until then). Tap a

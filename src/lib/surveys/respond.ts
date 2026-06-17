@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { answerSentiment, isNegativeAnswer, type ScoredQuestion } from "@/lib/surveys/sentiment";
+import { answerSentiment, isProblemAnswer, type ScoredQuestion } from "@/lib/surveys/sentiment";
 import { normalizeArea, resolveDepartmentIdForArea, type FeedbackArea } from "@/lib/feedback/areas";
 
 // Token-scoped survey collection: load the form a recipient's token points to, and record their
@@ -146,7 +146,7 @@ export async function recordSurveyResponse(token: string, answers: SubmittedAnsw
     const area = normalizeArea(m.area ?? "general");
     const sentiment = answerSentiment(m.snapshot, value);
     const numeric = m.snapshot.type === "scale10" || m.snapshot.type === "scale5" ? Number.parseInt(value, 10) : null;
-    const negative = isNegativeAnswer(value, m.snapshot.negative_values);
+    const negative = isProblemAnswer(m.snapshot.type, value, m.snapshot.negative_values);
     rows.push({
       recipient_id: r.id,
       form_id: r.form_id,
