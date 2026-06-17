@@ -100,7 +100,14 @@ describe("sendTemplateNotification", () => {
       issue_id: "issue-1",
     });
 
-    expect(touchConversationSession).toHaveBeenCalledWith({ phoneE164: "+13125550100", userId: "user-1", phoneNumberId: null });
+    // Outbound sends tag the conversation number only for brand-new sessions — a broadcast/template
+    // must never flip an existing helpline conversation onto the sending account's number.
+    expect(touchConversationSession).toHaveBeenCalledWith({
+      phoneE164: "+13125550100",
+      userId: "user-1",
+      phoneNumberId: null,
+      phoneNumberIdOnlyIfNew: true,
+    });
   });
 
   it("reuses a provided descriptor without re-fetching the template list", async () => {

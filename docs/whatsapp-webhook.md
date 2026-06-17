@@ -29,6 +29,18 @@ account's verify token (each Meta App sends its own during "Verify and Save").
 **Adding another number is env-only:** configure its account (`accounts.ts` registry) and point its
 Meta App's callback at this same URL — no new route or callback URL.
 
+### Which number a conversation "lives" on
+
+`conversation_sessions` has one row per `phone_e164` (upserted on conflict), so all of a person's
+messages — across every business number — collapse into a single conversation/thread. The session's
+`phone_number_id` records **where the conversation lives**, and **inbound messages are the authority**:
+the latest inbound's number wins. **Outbound template/broadcast sends do NOT flip an existing
+session's number** (`touchConversationSession({ phoneNumberIdOnlyIfNew: true })` in
+`send-template.ts`) — they only tag the number for a brand-new (reply-less) recipient. This prevents a
+niyaz blast from reclassifying a helpline conversation onto the broadcast number, which would
+otherwise hide it from the scope-filtered inbox. (Migration
+`20260616020000_backfill_flipped_broadcast_session_numbers` repaired sessions flipped before the fix.)
+
 ## GET — Webhook Verification
 
 Meta calls this once when you register the callback URL.

@@ -34,7 +34,7 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
     .select(`
       id, linked_at,
       session:conversation_sessions!inner(
-        id, phone_e164, escalation_stage, escalation_priority,
+        id, phone_e164, escalation_status, escalation_stage, escalation_priority,
         escalation_category, escalation_reason, escalated_at,
         escalation_sla_deadline, escalation_assigned_to,
         user:whatsapp_users!conversation_sessions_user_id_fkey(display_name)
@@ -82,17 +82,20 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
   const now = new Date();
   const escalations = ((links ?? []) as Array<{
     id: string; linked_at: string;
-    session: { id: string; phone_e164: string; escalation_stage: string; escalation_priority: string; escalation_category: string; escalation_reason: string | null; escalated_at: string | null; escalation_sla_deadline: string | null; escalation_assigned_to: string | null; user: { display_name: string | null } | Array<{ display_name: string | null }> | null } | Array<{ id: string; phone_e164: string; escalation_stage: string; escalation_priority: string; escalation_category: string; escalation_reason: string | null; escalated_at: string | null; escalation_sla_deadline: string | null; escalation_assigned_to: string | null; user: { display_name: string | null } | Array<{ display_name: string | null }> | null }>;
+    session: { id: string; phone_e164: string; escalation_status: string; escalation_stage: string; escalation_priority: string; escalation_category: string; escalation_reason: string | null; escalated_at: string | null; escalation_sla_deadline: string | null; escalation_assigned_to: string | null; user: { display_name: string | null } | Array<{ display_name: string | null }> | null } | Array<{ id: string; phone_e164: string; escalation_status: string; escalation_stage: string; escalation_priority: string; escalation_category: string; escalation_reason: string | null; escalated_at: string | null; escalation_sla_deadline: string | null; escalation_assigned_to: string | null; user: { display_name: string | null } | Array<{ display_name: string | null }> | null }>;
   }>).map((link) => {
     const s = Array.isArray(link.session) ? link.session[0] : link.session;
     const u = Array.isArray(s?.user) ? s.user[0] : s?.user;
-    const breaching = s?.escalation_sla_deadline && s.escalation_stage !== "resolved" && new Date(s.escalation_sla_deadline) < now;
+    // escalation_status is canonical for resolved-ness; stage is the work sub-state.
+    const resolved = s?.escalation_status === "resolved";
+    const breaching = !resolved && s?.escalation_sla_deadline && new Date(s.escalation_sla_deadline) < now;
     return {
       link_id: link.id,
       linked_at: link.linked_at,
       session_id: s?.id,
       phone_e164: s?.phone_e164,
       display_name: u?.display_name ?? null,
+      escalation_status: s?.escalation_status,
       escalation_stage: s?.escalation_stage,
       escalation_priority: s?.escalation_priority,
       escalation_category: s?.escalation_category,
