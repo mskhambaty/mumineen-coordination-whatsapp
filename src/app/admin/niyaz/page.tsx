@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { canAccessPortal } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 import EventFormModal, { type EditableInstance } from "@/components/admin/niyaz/EventFormModal";
+import InfoIcon from "@/components/admin/niyaz/InfoIcon";
 import { groupTalliesByDay } from "@/lib/rsvp/niyaz-day-grouping";
 
 type Meal = "lunch" | "dinner";
@@ -217,7 +218,12 @@ export default function NiyazPage() {
                           <tr>
                             <th className="px-3 py-1.5">Jaman</th>
                             <th className="px-3 py-1.5 text-right">Yes count</th>
-                            <th className="px-3 py-1.5 text-right" title="Yes count ÷ 8 (rounded up)">Thaals</th>
+                            <th className="px-3 py-1.5 text-right">
+                              <span className="inline-flex items-center gap-1">
+                                Thaals
+                                <InfoIcon label="Thaals = Yes count ÷ 8 (rounded up)" />
+                              </span>
+                            </th>
                             <th className="px-3 py-1.5"></th>
                           </tr>
                         </thead>
