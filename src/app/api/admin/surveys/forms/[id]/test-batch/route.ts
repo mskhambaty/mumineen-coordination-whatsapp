@@ -35,10 +35,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const itsList = Array.from(new Set(parsed.data.its.map((s) => s.trim()).filter(Boolean)));
   const { data: mumineen } = await supabase
     .from("mumineen")
-    .select("id, its, family_id, full_name, whatsapp_e164, gender")
+    .select("id, its, family_id, full_name, whatsapp_e164")
     .in("its", itsList)
     .eq("roster_active", true);
-  const byIts = new Map(((mumineen ?? []) as { id: string; its: string; family_id: string | null; full_name: string | null; whatsapp_e164: string | null; gender: string | null }[]).map((m) => [m.its, m]));
+  const byIts = new Map(((mumineen ?? []) as { id: string; its: string; family_id: string | null; full_name: string | null; whatsapp_e164: string | null }[]).map((m) => [m.its, m]));
 
   const results: Array<{ its: string; name: string | null; phone: string | null; link?: string; delivered?: boolean; error?: string }> = [];
   for (const its of itsList) {
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     };
     if (parsed.data.deliver) {
       if (!m.whatsapp_e164) row.error = "No WhatsApp number on file.";
-      else { const d = await deliverSurveyLink(m.whatsapp_e164, token, m.full_name, parsed.data.template, m.gender); row.delivered = d.delivered; if (d.error) row.error = d.error; }
+      else { const d = await deliverSurveyLink(m.whatsapp_e164, token, m.full_name, parsed.data.template); row.delivered = d.delivered; if (d.error) row.error = d.error; }
     }
     results.push(row);
   }

@@ -18,11 +18,10 @@ type Question = {
 };
 type Section = { section_id: string | null; title: string; questions: Question[] };
 type LoadedForm = {
-  status: "ok" | "not_found" | "closed";
+  status: "ok" | "not_found" | "closed" | "completed";
   recipientId?: string;
   firstName?: string | null;
   formTitle?: string;
-  alreadyCompleted?: boolean;
   sections?: Section[];
 };
 
@@ -54,6 +53,15 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
   const answeredCount = allQuestions.filter((q) => (answers[q.question_id ?? ""] ?? "").trim()).length;
   const progress = allQuestions.length ? Math.round((answeredCount / allQuestions.length) * 100) : 0;
 
+  // Smoothly bring the question after `qid` into view (the auto-advance transition).
+  function scrollToNext(qid: string) {
+    const idx = allQuestions.findIndex((q) => (q.question_id ?? q.form_question_id) === qid);
+    const next = allQuestions[idx + 1];
+    if (!next) return;
+    const nid = next.question_id ?? next.form_question_id;
+    setTimeout(() => document.getElementById(`q-${nid}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 70);
+  }
+
   function setAnswer(qid: string, value: string, negativeValues?: string[] | null, type?: string) {
     setAnswers((a) => ({ ...a, [qid]: value }));
     const isNeg = Boolean(negativeValues?.includes(value));
@@ -62,17 +70,11 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
     // Free-text fires onChange per keystroke — never collapse/scroll it (would steal focus). Keep
     // it expanded.
     if (type === "text") { setExpanded((e) => ({ ...e, [qid]: true })); return; }
-    // Discrete answers (choice/scale/yes-no): collapse so the next question surfaces. Keep negative
-    // answers expanded so the "why?" box stays visible. Then scroll the next question into view.
+    // Discrete answers (choice/scale/yes-no): a negative answer stays expanded so the "why?" box
+    // shows (it collapses + advances once they finish the comment — see the reason input's onBlur).
+    // A non-negative answer collapses immediately and auto-scrolls to the next question.
     setExpanded((e) => ({ ...e, [qid]: isNeg }));
-    if (!isNeg) {
-      const idx = allQuestions.findIndex((q) => (q.question_id ?? q.form_question_id) === qid);
-      const next = allQuestions[idx + 1];
-      if (next) {
-        const nid = next.question_id ?? next.form_question_id;
-        setTimeout(() => document.getElementById(`q-${nid}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 60);
-      }
-    }
+    if (!isNeg) scrollToNext(qid);
   }
 
   async function submit() {
@@ -108,7 +110,7 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
   if (loading) {
     return <div className="flex min-h-screen items-center justify-center bg-gray-950 text-gray-400">Loading…</div>;
   }
-  if (!form || form.status !== "ok") {
+  if (!form || (form.status !== "ok" && form.status !== "completed")) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-950 px-6 text-center">
         <div className="max-w-sm text-gray-300">
@@ -124,7 +126,8 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
       </div>
     );
   }
-  if (done) {
+  // Done: either just submitted (done) or re-opening an already-submitted (locked) link.
+  if (done || form.status === "completed") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-950 px-6 text-center">
         <div className="max-w-sm">
@@ -132,7 +135,9 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-8 w-8 text-white"><path strokeLinecap="round" strokeLinejoin="round" d="M20 6 9 17l-5-5" /></svg>
           </div>
           <h1 className="mb-1 text-xl font-bold text-white">Shukran{form.firstName ? `, ${form.firstName}` : ""}!</h1>
-          <p className="text-sm text-gray-400">Your feedback has been recorded. It helps us improve the khidmat for all mumineen.</p>
+          <p className="text-sm text-gray-400">
+            {done ? "Your feedback has been recorded. It helps us improve the khidmat for all mumineen." : "This feedback has already been submitted — it can only be filled once. Shukran for your response."}
+          </p>
         </div>
       </div>
     );
@@ -146,9 +151,6 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
       <header className="border-b border-white/10 bg-gradient-to-br from-blue-900/40 to-gray-950 px-5 py-6 text-center">
         <p className="text-xs uppercase tracking-widest text-blue-300/80">Ashara Mubaraka 1448H · Chicago Relay Centre</p>
         <h1 className="mt-1 text-xl font-bold">{form.formTitle ?? "Mumineen Feedback"}</h1>
-        {form.alreadyCompleted && (
-          <p className="mt-2 text-xs text-amber-300/90">You&apos;ve already submitted this — re-submitting will update your responses.</p>
-        )}
       </header>
 
       <main className="mx-auto max-w-2xl px-4 py-6">
@@ -162,10 +164,12 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
                 const qid = q.question_id ?? q.form_question_id;
                 const value = answers[qid] ?? "";
                 const negVals = q.snapshot.negative_values ?? [];
-                const showReason = Boolean(value) && negVals.includes(value);
-                // Collapsed once answered (so the next question surfaces) — except a negative answer
-                // stays open for its "why?" box. Tap a collapsed question to change the answer.
-                const collapsed = Boolean(value) && !expanded[qid] && !showReason;
+                const isNeg = Boolean(value) && negVals.includes(value);
+                const reason = reasons[qid] ?? "";
+                // Collapse once answered (so the next question surfaces). Negative answers also
+                // collapse — but only after the "why?" box (they stay expanded until then). Tap a
+                // collapsed question to change the answer.
+                const collapsed = Boolean(value) && !expanded[qid];
                 if (collapsed) {
                   return (
                     <button
@@ -173,12 +177,19 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
                       id={`q-${qid}`}
                       type="button"
                       onClick={() => setExpanded((e) => ({ ...e, [qid]: true }))}
-                      className="flex w-full items-center justify-between gap-3 px-5 py-3 text-left transition hover:bg-white/[0.03]"
+                      className="flex w-full items-start justify-between gap-3 px-5 py-3 text-left transition hover:bg-white/[0.03]"
                     >
-                      <span className="truncate text-sm text-gray-400">{q.snapshot.text}</span>
-                      <span className="flex flex-shrink-0 items-center gap-1.5 text-sm font-medium text-emerald-400">
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm text-gray-400">{q.snapshot.text}</span>
+                        {isNeg && reason && <span className="mt-0.5 block truncate text-xs italic text-amber-300/80">“{reason}”</span>}
+                      </span>
+                      <span className={`flex flex-shrink-0 items-center gap-1.5 text-sm font-medium ${isNeg ? "text-amber-400" : "text-emerald-400"}`}>
                         {value}
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-3.5 w-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M20 6 9 17l-5-5" /></svg>
+                        {isNeg ? (
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-3.5 w-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /></svg>
+                        ) : (
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-3.5 w-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M20 6 9 17l-5-5" /></svg>
+                        )}
                       </span>
                     </button>
                   );
@@ -187,14 +198,15 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
                   <div key={q.form_question_id} id={`q-${qid}`} className="scroll-mt-24 px-5 py-4">
                     <p className="mb-3 text-sm font-medium text-gray-100">{q.snapshot.text}</p>
                     <QuestionInput question={q} value={value} onChange={(v) => setAnswer(qid, v, negVals, q.snapshot.type)} />
-                    {showReason && (
+                    {isNeg && (
                       <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
-                        <label className="mb-1.5 block text-xs font-medium text-amber-300/90">Sorry to hear that — what was the main issue?</label>
+                        <label className="mb-1.5 block text-xs font-medium text-amber-300/90">Sorry to hear that — what was the main issue? <span className="text-amber-300/50">(optional)</span></label>
                         <input
                           type="text"
-                          value={reasons[qid] ?? ""}
+                          value={reason}
                           onChange={(e) => setReasons((r) => ({ ...r, [qid]: e.target.value }))}
-                          placeholder="Briefly tell us why…"
+                          onBlur={() => { setExpanded((e) => ({ ...e, [qid]: false })); scrollToNext(qid); }}
+                          placeholder="Briefly tell us why… (tap away to continue)"
                           className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
                         />
                       </div>

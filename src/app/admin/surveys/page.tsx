@@ -356,6 +356,12 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
     setBusy(null);
     reload();
   }
+  async function results(id: string, includeTest: boolean) {
+    setBusy(id);
+    const res = await apiFetch(`/api/admin/surveys/forms/${id}/results${includeTest ? "?includeTest=1" : ""}`);
+    setDetail({ kind: "results", id, ...(await res.json().catch(() => ({}))) });
+    setBusy(null);
+  }
   async function testLink(id: string) {
     const its = window.prompt("Send test to which ITS? (leave blank for an anonymous 'you' preview link):", "")?.trim() ?? "";
     let deliver = false;
@@ -413,12 +419,12 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
               <button onClick={() => send(f.id)} disabled={busy === f.id || f.status === "sent"} className="rounded bg-emerald-600 px-3 py-1 text-xs text-white disabled:opacity-50">
                 {f.status === "sent" ? "Sent" : "Commit & send"}
               </button>
-              <button onClick={() => call(f.id, "results", `/api/admin/surveys/forms/${f.id}/results`)} disabled={busy === f.id} className={ghostBtn}>Results</button>
+              <button onClick={() => results(f.id, false)} disabled={busy === f.id} className={ghostBtn}>Results</button>
               <button onClick={() => del(f.id)} disabled={busy === f.id} className="rounded border border-red-300 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40">Delete</button>
             </div>
           </div>
           {pickerFor === f.id && <ManualTestPanel formId={f.id} templateCode={templateCode} />}
-          {detail && detail.id === f.id && <DetailView detail={detail} onPickMumin={onPickMumin} />}
+          {detail && detail.id === f.id && <DetailView detail={detail} onPickMumin={onPickMumin} onResultsToggleTest={(inc) => results(f.id, inc)} />}
         </div>
       ))}
     </div>
@@ -694,7 +700,7 @@ function SentimentBadge({ value }: { value: number | null }) {
   );
 }
 
-function DetailView({ detail, onPickMumin }: { detail: Detail; onPickMumin?: (its: string) => void }) {
+function DetailView({ detail, onPickMumin, onResultsToggleTest }: { detail: Detail; onPickMumin?: (its: string) => void; onResultsToggleTest?: (include: boolean) => void }) {
   const box = "mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm dark:border-gray-700 dark:bg-gray-800/40";
   if (detail.error) return <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{String(detail.error)}</p>;
 
@@ -752,9 +758,17 @@ function DetailView({ detail, onPickMumin }: { detail: Detail; onPickMumin?: (it
     const questions = (detail.questions ?? []) as { question_id: string; text: string; sentiment: number | null; breakdown: Record<string, number>; comments: string[] }[];
     return (
       <div className={box}>
-        <p className="mb-3 text-sm font-medium text-gray-800 dark:text-gray-100">
-          Response rate: {resp.completed}/{resp.sent} ({Math.round((resp.rate ?? 0) * 100)}%)
-        </p>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
+            Response rate: {resp.completed}/{resp.sent} ({Math.round((resp.rate ?? 0) * 100)}%)
+            {detail.include_test ? <span className="ml-2 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] uppercase text-amber-700 dark:text-amber-400">test data</span> : null}
+          </p>
+          {(Boolean(detail.test_available) || Boolean(detail.include_test)) && (
+            <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+              <input type="checkbox" checked={Boolean(detail.include_test)} onChange={(e) => onResultsToggleTest?.(e.target.checked)} className="accent-blue-600" /> Include test submissions
+            </label>
+          )}
+        </div>
         {sections.length > 0 && (
           <div className="mb-3">
             <p className="mb-1 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">Section sentiment</p>

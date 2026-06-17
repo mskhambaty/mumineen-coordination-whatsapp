@@ -12,6 +12,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const guard = await requirePortalCaller(req, isAdminOrLeadership);
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
+  const includeTest = new URL(req.url).searchParams.get("includeTest") === "1";
   const supabase = getSupabaseAdmin();
 
   const [{ data: form }, { data: recips }, { data: answers }, { data: fqs }] = await Promise.all([
@@ -22,9 +23,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   ]);
   if (!form) return NextResponse.json({ error: "Form not found." }, { status: 404 });
 
-  // Exclude is_test recipients (admin self-test links) from counts and answer aggregation.
-  const recipients = ((recips ?? []) as { id: string; status: string; is_test: boolean }[]).filter((r) => !r.is_test);
-  const testIds = new Set(((recips ?? []) as { id: string; is_test: boolean }[]).filter((r) => r.is_test).map((r) => r.id));
+  // By default exclude is_test recipients (self-test / in-team links). includeTest=1 shows them
+  // (a separate "test results" view) so the team can validate against their own submissions.
+  const allRecips = (recips ?? []) as { id: string; status: string; is_test: boolean }[];
+  const recipients = includeTest ? allRecips : allRecips.filter((r) => !r.is_test);
+  const testIds = includeTest ? new Set<string>() : new Set(allRecips.filter((r) => r.is_test).map((r) => r.id));
   const sent = recipients.length;
   const completed = recipients.filter((r) => r.status === "completed").length;
 
@@ -59,6 +62,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   return NextResponse.json({
     form,
+    include_test: includeTest,
+    test_available: allRecips.some((r) => r.is_test),
     response: { sent, completed, rate: sent ? Number((completed / sent).toFixed(2)) : 0 },
     sections: Array.from(bySection.entries()).map(([section_id, s]) => ({ section_id, title: s.title, sentiment: mean(s.scores), responses: s.scores.length })),
     questions: Array.from(byQuestion.entries()).map(([question_id, q]) => ({ question_id, text: q.text, sentiment: mean(q.scores), breakdown: q.counts, comments: q.comments })),

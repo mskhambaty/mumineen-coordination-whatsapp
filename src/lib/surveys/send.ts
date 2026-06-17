@@ -6,17 +6,13 @@ import { resolveApprovedTemplateForAnyAccount } from "@/lib/whatsapp/send-templa
 import { suggestSample, type SampleResult } from "@/lib/surveys/sampling";
 import { generateSurveyToken, chicagoToday } from "@/lib/surveys/tokens";
 
-// Address a mumin as "<First name> bhai/bai" (bai for female, bhai for male; just the first name
-// when gender is unknown, to avoid mis-gendering). Used for the template's name body variable.
-export function honorificName(fullName: string | null | undefined, gender?: string | null): string {
-  const first = (fullName ?? "").trim().split(/\s+/)[0] || "Mumin";
-  const g = (gender ?? "").trim().toUpperCase();
-  if (g === "F") return `${first} bai`;
-  if (g === "M") return `${first} bhai`;
-  return first;
+// The roster's full_name already carries the honorific (e.g. "Murtaza bhai Alihusain bhai
+// Bhinderwala"), so the template's name variable uses the full name verbatim — no first-name split.
+export function displayName(fullName: string | null | undefined): string {
+  return (fullName ?? "").trim() || "Mumin";
 }
 
-type DispatchPerson = { phone: string; token: string; name: string | null; gender?: string | null; muminId?: string | null; familyId?: string | null };
+type DispatchPerson = { phone: string; token: string; name: string | null; muminId?: string | null; familyId?: string | null };
 
 // Queue the WhatsApp template to a set of recipients. Resolves the template (and the WABA/number it
 // lives in) from Meta, binds EVERY body variable the template declares to the name honorific, and
@@ -35,7 +31,7 @@ async function dispatchSurveyTemplate(templateCode: string, people: DispatchPers
     phone: p.phone,
     familyId: p.familyId ?? null,
     muminId: p.muminId ?? null,
-    fields: { url_suffix: `feedback/s/${p.token}`, display_name: honorificName(p.name, p.gender) },
+    fields: { url_suffix: `feedback/s/${p.token}`, display_name: displayName(p.name) },
   }));
   const result = await createBroadcast({
     templateCode,
@@ -75,12 +71,12 @@ export function resolveSurveyTemplate(explicit?: string | null): string | undefi
 // Send a single survey link to one phone via the WhatsApp template (used for "send a test to a
 // specific person"). Pass an explicit templateCode (admin dropdown) or rely on the env default.
 // Queues via the broadcast engine (the drain cron delivers). Returns delivered=true when queued.
-export async function deliverSurveyLink(phone: string, token: string, name: string | null, templateCodeOverride?: string | null, gender?: string | null): Promise<{ delivered: boolean; error?: string }> {
+export async function deliverSurveyLink(phone: string, token: string, name: string | null, templateCodeOverride?: string | null): Promise<{ delivered: boolean; error?: string }> {
   const templateCode = resolveSurveyTemplate(templateCodeOverride);
   if (!templateCode) {
     return { delivered: false, error: "No WhatsApp template selected (pick one from the dropdown, or set SURVEY_SEND_ENABLED + SURVEY_WA_TEMPLATE). Copy the link and send it manually." };
   }
-  const r = await dispatchSurveyTemplate(templateCode, [{ phone, token, name, gender }]);
+  const r = await dispatchSurveyTemplate(templateCode, [{ phone, token, name }]);
   if ("error" in r) return { delivered: false, error: r.error };
   return { delivered: true };
 }
@@ -158,7 +154,6 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
     .upsert(exposureRows, { onConflict: "mumin_id,question_id", ignoreDuplicates: true });
 
   const nameByMumin = new Map(sample.chosen.map((c) => [c.muminId, c.fullName]));
-  const genderByMumin = new Map(sample.chosen.map((c) => [c.muminId, c.gender]));
   const insertedRows = inserted as { id: string; mumin_id: string; phone_e164: string; token: string }[];
   const recipients: CommittedRecipient[] = insertedRows.map((r) => ({
     recipientId: r.id,
@@ -180,7 +175,7 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
 
   const dispatch = await dispatchSurveyTemplate(
     templateCode,
-    insertedRows.map((r) => ({ phone: r.phone_e164, token: r.token, name: nameByMumin.get(r.mumin_id) ?? null, gender: genderByMumin.get(r.mumin_id), muminId: r.mumin_id })),
+    insertedRows.map((r) => ({ phone: r.phone_e164, token: r.token, name: nameByMumin.get(r.mumin_id) ?? null, muminId: r.mumin_id })),
   );
   if ("error" in dispatch) {
     return { formId, funnel: sample.funnel, recipients, sent: false, sendError: dispatch.error };

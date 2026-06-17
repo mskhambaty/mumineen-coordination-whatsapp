@@ -24,7 +24,7 @@ export type FormQuestion = {
 };
 
 export type LoadedForm = {
-  status: "ok" | "not_found" | "closed";
+  status: "ok" | "not_found" | "closed" | "completed";
   recipientId?: string;
   firstName?: string | null;
   formTitle?: string;
@@ -45,6 +45,16 @@ export async function loadFormForToken(token: string): Promise<LoadedForm> {
 
   const { data: form } = await supabase.from("survey_forms").select("title, status").eq("id", r.form_id).maybeSingle();
   if (form && (form as { status: string }).status === "closed") return { status: "closed" };
+
+  // One-time submission: a completed token is locked (no re-open / re-edit).
+  if (r.completed_at) {
+    let firstName: string | null = null;
+    if (r.mumin_id) {
+      const { data: mm } = await supabase.from("mumineen").select("full_name").eq("id", r.mumin_id).maybeSingle();
+      firstName = (mm as { full_name: string | null } | null)?.full_name?.trim() ?? null;
+    }
+    return { status: "completed", firstName, formTitle: (form as { title: string } | null)?.title };
+  }
 
   const { data: fqs } = await supabase
     .from("survey_form_questions")
@@ -75,7 +85,7 @@ export async function loadFormForToken(token: string): Promise<LoadedForm> {
   let firstName: string | null = null;
   if (r.mumin_id) {
     const { data: mumin } = await supabase.from("mumineen").select("full_name").eq("id", r.mumin_id).maybeSingle();
-    firstName = (mumin as { full_name: string | null } | null)?.full_name?.trim().split(/\s+/)[0] ?? null;
+    firstName = (mumin as { full_name: string | null } | null)?.full_name?.trim() ?? null;
   }
 
   // Mark opened (best-effort, don't overwrite a completion).
@@ -101,11 +111,13 @@ export async function recordSurveyResponse(token: string, answers: SubmittedAnsw
   const supabase = getSupabaseAdmin();
   const { data: recipient } = await supabase
     .from("survey_recipients")
-    .select("id, form_id, mumin_id, family_id, event_date")
+    .select("id, form_id, mumin_id, family_id, event_date, completed_at")
     .eq("token", token)
     .maybeSingle();
   if (!recipient) return { error: "Invalid or expired survey link." };
-  const r = recipient as { id: string; form_id: string; mumin_id: string | null; family_id: string | null; event_date: string | null };
+  const r = recipient as { id: string; form_id: string; mumin_id: string | null; family_id: string | null; event_date: string | null; completed_at: string | null };
+  // One-time submission: once completed, the response is locked.
+  if (r.completed_at) return { error: "This survey has already been submitted." };
 
   // Question metadata for this form (snapshot drives scoring; section_id/area drive routing).
   const { data: fqs } = await supabase
