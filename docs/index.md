@@ -107,7 +107,12 @@ src/app/admin/surveys/page.tsx + src/app/api/admin/surveys/** — Survey console
 src/lib/rsvp/meal-rsvp.ts                — Per-mumin Niyaz RSVP (niyaz_rsvp): grids, family/individual set-cascade, tallies (max/min), unregistered RSVP helpers, daily-button recording
 src/lib/rsvp/niyaz-prompt.ts             — Daily RSVP-template audiences (ITS/mumineen/HOF/adults, requireRegistered) + button payloads + per-recipient fields (mumin_id, family_members, eligible_family_count) + single-prompt creation for unregistered callers
 src/lib/rsvp/event-config.ts             — Day-level Niyaz event config (niyaz_event_config): rsvp_event_title, lunch/dinner menus, rsvp_end_time, meals, template_code
-src/app/admin/niyaz/days/page.tsx        — Niyaz days view: lists prefilled 1st–10th Moharram days; click a day to configure + send RSVP (composer)
+src/lib/rsvp/niyaz-day-grouping.ts       — Pure, client-safe groupTalliesByDay(): groups per-meal events by date (lunch→dinner) for the admin days overview
+src/app/admin/niyaz/page.tsx             — Niyaz days overview: days (grouped instances) with Yes count; expand → jaman; Send RSVP → composer; Edit/New via modal; click jaman → event detail
+src/app/admin/niyaz/events/[id]/page.tsx — Niyaz event detail: Yes count, No count, and the RSVP response list (GET …/instances/[id]/responses)
+src/components/admin/niyaz/EventFormModal.tsx — Create/Edit Niyaz event modal (POST/PATCH /api/admin/niyaz/instances)
+src/app/api/admin/niyaz/instances/[id]/responses/route.ts — GET per-event responses + summary + event instance meta
+src/app/admin/niyaz/days/page.tsx        — Niyaz days view: lists prefilled 1st–10th Moharram days; click a day (or ?date=) to configure + send RSVP (composer)
 src/app/api/admin/niyaz/days/route.ts    — GET list of Niyaz days (config + representative instance id per date)
 src/app/api/admin/niyaz/days/[date]/route.ts — GET/PUT day-level config by date
 src/app/api/admin/niyaz/instances/[id]/config/route.ts — GET/PUT day-level event config (by instance id)

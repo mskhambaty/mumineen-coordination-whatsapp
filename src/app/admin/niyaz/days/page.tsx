@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
 
 import { canAccessPortal } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
@@ -38,8 +38,10 @@ function mealLabel(d: Day): string {
   return "—";
 }
 
-export default function NiyazDaysPage() {
+function NiyazDaysPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const preselectDate = searchParams.get("date");
   const [days, setDays] = useState<Day[]>([]);
   const [selected, setSelected] = useState<Day | null>(null);
 
@@ -48,10 +50,14 @@ export default function NiyazDaysPage() {
     if (res.ok) {
       const list = ((await res.json()).days as Day[]) ?? [];
       setDays(list);
-      // Keep the selected day in sync after a save (meal badges etc.).
-      setSelected((cur) => (cur ? list.find((d) => d.date === cur.date) ?? cur : cur));
+      // Keep the selected day in sync after a save (meal badges etc.); otherwise honor ?date=.
+      setSelected((cur) => {
+        if (cur) return list.find((d) => d.date === cur.date) ?? cur;
+        if (preselectDate) return list.find((d) => d.date === preselectDate) ?? null;
+        return null;
+      });
     }
-  }, []);
+  }, [preselectDate]);
 
   useEffect(() => {
     const user = readAdminUser();
@@ -157,5 +163,13 @@ export default function NiyazDaysPage() {
         />
       )}
     </main>
+  );
+}
+
+export default function NiyazDaysPage() {
+  return (
+    <Suspense fallback={<main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8" />}>
+      <NiyazDaysPageInner />
+    </Suspense>
   );
 }

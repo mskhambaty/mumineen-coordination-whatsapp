@@ -2158,11 +2158,12 @@ paths:
     get:
       tags: [admin]
       summary: Recorded Niyaz RSVP responses for an event
-      description: Admin/leadership (portal). Per-mumin niyaz_rsvp rows for the event (name, attending, source) plus a yes/no summary.
+      description: Admin/leadership (portal). Per-mumin niyaz_rsvp rows for the event (name, attending, source), unregistered RSVPs, family head-counts, a yes/no summary, and the event's own instance meta (title, event_date, hijri_date, meal, serving_type) for the detail-page header.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        "200": { description: Responses + summary. }
+        "200": { description: "JSON { instance, responses, unregistered, headcounts, summary }." }
+        "404": { description: Niyaz event not found. }
         "403": { $ref: "#/components/responses/Forbidden" }
 
   /api/admin/niyaz/instances/{id}/broadcast:
