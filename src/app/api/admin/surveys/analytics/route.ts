@@ -55,8 +55,8 @@ export async function POST(req: NextRequest) {
   const supabase = getSupabaseAdmin();
 
   // Forms in scope (for the filter dropdown + default = all forms).
-  const { data: formsRaw } = await supabase.from("survey_forms").select("id, title, status, group_id, rules").order("created_at", { ascending: false });
-  const allForms = (formsRaw ?? []) as { id: string; title: string; status: string }[];
+  const { data: formsRaw } = await supabase.from("survey_forms").select("id, title, status, tags, group_id, rules").order("created_at", { ascending: false });
+  const allForms = (formsRaw ?? []) as { id: string; title: string; status: string; tags: string[] | null }[];
   const scopeFormIds = f.formIds && f.formIds.length ? f.formIds : allForms.map((x) => x.id);
 
   // Recipients (response-rate denominators + test exclusion) and answers, scoped to those forms.
@@ -97,11 +97,12 @@ export async function POST(req: NextRequest) {
     return true;
   };
 
-  // Recipients in filter (non-test unless includeTest) → response-rate.
+  // Recipients in filter (non-test unless includeTest) → response-rate. Counted as DISTINCT people:
+  // "sent" = unique mumineen the survey went to, "responded" = unique mumineen who completed it.
   const testRecipIds = new Set(recips.filter((r) => r.is_test).map((r) => r.id));
   const fRecips = recips.filter((r) => (f.includeTest || !r.is_test) && passesPersonal(r.mumin_id));
-  const sentRespondents = new Set(fRecips.map((r) => r.mumin_id));
-  const completedRecips = fRecips.filter((r) => r.status === "completed");
+  const sentMumin = new Set(fRecips.map((r) => r.mumin_id).filter((x): x is string => Boolean(x)));
+  const respondedMumin = new Set(fRecips.filter((r) => r.status === "completed").map((r) => r.mumin_id).filter((x): x is string => Boolean(x)));
 
   // Answers in filter: area/section + personal + (test exclusion via recipient).
   const fAnswers = answers.filter((a) => {
@@ -177,14 +178,14 @@ export async function POST(req: NextRequest) {
   const categoryOpts = Array.from(new Set(Array.from(attr.values()).map((a) => a.category).filter((x): x is string => Boolean(x)))).sort();
 
   return NextResponse.json({
-    forms: allForms.map((x) => ({ id: x.id, title: x.title, status: x.status })),
+    forms: allForms.map((x) => ({ id: x.id, title: x.title, status: x.status, tags: x.tags ?? [] })),
     options: { jamaats: jamaatOpts, categories: categoryOpts, sections: Array.from(sectionTitle.entries()).map(([id, title]) => ({ id, title })) },
     overview: {
-      respondents: sentRespondents.size,
-      completed: completedRecips.length,
-      response_rate: fRecips.length ? Number((completedRecips.length / fRecips.length).toFixed(2)) : 0,
-      answers: fAnswers.length,
+      sent: sentMumin.size,
+      responded: respondedMumin.size,
+      response_rate: sentMumin.size ? Number((respondedMumin.size / sentMumin.size).toFixed(2)) : 0,
       avg_sentiment: mean(scored),
+      scored_answers: scored.length, // # of scored answers behind the distribution/avg (caption only)
       comment_count: comments.length,
     },
     distribution,

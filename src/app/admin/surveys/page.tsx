@@ -20,7 +20,7 @@ type Question = {
 type Section = { id: string; title: string; area: string; is_general: boolean; questions: Question[] };
 type Group = { id: string; name: string; description: string | null; area_focus: string | null };
 type FormRow = {
-  id: string; title: string; group_name: string | null; sample_size: number;
+  id: string; title: string; group_name: string | null; tags: string[]; sample_size: number;
   status: string; event_date: string | null; recipient_count: number; completed_count: number;
 };
 
@@ -39,6 +39,7 @@ export default function SurveysAdminPage() {
   const [msg, setMsg] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
+  const [tagsInput, setTagsInput] = useState("");
   const [groupId, setGroupId] = useState("");
   const [targetMode, setTargetMode] = useState<"group" | "custom">("group");
   // Independent-combinators query (no top-level combinator) so AND/OR can be mixed per junction.
@@ -87,14 +88,15 @@ export default function SurveysAdminPage() {
     if (useCustom && customRules.rules.length === 0) { setMsg("Add at least one rule to the custom filter (or switch to a saved group)."); return; }
     if (!useCustom && !groupId) { setMsg("Pick a target group (or switch to a custom filter)."); return; }
     const target = useCustom ? { rules: customRules } : { group_id: groupId };
+    const tags = tagsInput.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 12);
     const res = await apiFetch("/api/admin/surveys/forms", {
       method: "POST",
-      body: JSON.stringify({ title: title.trim(), ...target, sample_size: sampleSize, question_ids: [...selected] }),
+      body: JSON.stringify({ title: title.trim(), tags, ...target, sample_size: sampleSize, question_ids: [...selected] }),
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) { setMsg(json.error ?? "Failed to create form"); return; }
     setMsg(`Form created with ${json.question_count} questions.`);
-    setTitle(""); setSelected(new Set()); setCustomRules({ rules: [] } as RuleGroupTypeIC);
+    setTitle(""); setTagsInput(""); setSelected(new Set()); setCustomRules({ rules: [] } as RuleGroupTypeIC);
     await loadForms();
     setTab("forms");
   }
@@ -123,6 +125,7 @@ export default function SurveysAdminPage() {
             <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Form title (e.g. Rahat — Day 3)" className={`${inputCls} sm:col-span-2`} />
             <input type="number" value={sampleSize} min={1} onChange={(e) => setSampleSize(parseInt(e.target.value || "0", 10))} placeholder="Sample size" className={inputCls} />
           </div>
+          <input value={tagsInput} onChange={(e) => setTagsInput(e.target.value)} placeholder="Tags (comma-separated, e.g. rahat, day-2) — to tell same-named forms apart" className={`w-full ${inputCls}`} />
           <div className="space-y-2">
             <div className="inline-flex rounded-lg border border-gray-200 p-0.5 text-xs dark:border-gray-700">
               <button onClick={() => setTargetMode("group")} className={`rounded-md px-3 py-1 font-medium ${targetMode === "group" ? "bg-blue-600 text-white" : "text-gray-500 dark:text-gray-400"}`}>Saved group</button>
@@ -631,7 +634,10 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
         <div key={f.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{f.title}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{f.title}</p>
+                <TagsEditor formId={f.id} tags={f.tags ?? []} reload={reload} />
+              </div>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 {f.group_name ?? "—"} · status {f.status} · {f.completed_count}/{f.recipient_count} responded · sample <SampleSizeEditor formId={f.id} value={f.sample_size} reload={reload} />
               </p>
@@ -696,6 +702,44 @@ function SampleSizeEditor({ formId, value, reload }: { formId: string; value: nu
       onKeyDown={(e) => { if (e.key === "Enter") save(); else if (e.key === "Escape") { setVal(String(value)); setEditing(false); } }}
       className="w-16 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-xs text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
     />
+  );
+}
+
+// Inline tag chips + editor for a form row. Tags identify forms that share a title but target
+// different audiences (e.g. "rahat", "mehman"). Click to edit a comma-separated list.
+function TagsEditor({ formId, tags, reload }: { formId: string; tags: string[]; reload: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(tags.join(", "));
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    const next = val.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 12);
+    setSaving(true);
+    const res = await apiFetch(`/api/admin/surveys/forms/${formId}`, { method: "PATCH", body: JSON.stringify({ tags: next }) });
+    setSaving(false);
+    setEditing(false);
+    if (res.ok) reload(); else setVal(tags.join(", "));
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus value={val} disabled={saving}
+        onChange={(e) => setVal(e.target.value)} onBlur={save}
+        onKeyDown={(e) => { if (e.key === "Enter") save(); else if (e.key === "Escape") { setVal(tags.join(", ")); setEditing(false); } }}
+        placeholder="tags, comma-separated"
+        className="w-48 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-xs text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+      />
+    );
+  }
+  return (
+    <button onClick={() => { setVal(tags.join(", ")); setEditing(true); }} className="flex items-center gap-1" title="Edit tags">
+      {tags.length === 0 ? (
+        <span className="text-xs text-blue-600 hover:underline dark:text-blue-400">+ tag</span>
+      ) : (
+        tags.map((t) => <span key={t} className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">{t}</span>)
+      )}
+    </button>
   );
 }
 

@@ -14,9 +14,9 @@ type Row = { key: string; sentiment: number | null; responses: number };
 type QRow = { question_id: string; text: string; sentiment: number | null; responses: number; breakdown: Record<string, number> };
 type Comment = { text: string; area: string | null; section: string | null; question: string | null; sentiment: number | null };
 type Data = {
-  forms: { id: string; title: string; status: string }[];
+  forms: { id: string; title: string; status: string; tags: string[] }[];
   options: { jamaats: string[]; categories: string[]; sections: { id: string; title: string }[] };
-  overview: { respondents: number; completed: number; response_rate: number; answers: number; avg_sentiment: number | null; comment_count: number };
+  overview: { sent: number; responded: number; response_rate: number; avg_sentiment: number | null; scored_answers: number; comment_count: number };
   distribution: { score: number; count: number }[];
   by_section: Row[];
   by_area: Row[];
@@ -125,7 +125,9 @@ export function AnalyticsTab() {
           <p className="mb-1 text-[11px] text-gray-500 dark:text-gray-400">Forms / samples {filters.formIds.length ? `(${filters.formIds.length})` : "(all)"}</p>
           <div className="flex flex-wrap gap-1.5">
             {(data?.forms ?? []).map((fm) => (
-              <button key={fm.id} onClick={() => toggleArr("formIds", fm.id)} className={chip(filters.formIds.includes(fm.id))}>{fm.title} · {fm.status}</button>
+              <button key={fm.id} onClick={() => toggleArr("formIds", fm.id)} className={chip(filters.formIds.includes(fm.id))}>
+                {fm.title}{fm.tags.length ? ` · ${fm.tags.join(", ")}` : ""} · {fm.status}
+              </button>
             ))}
           </div>
         </div>
@@ -173,30 +175,37 @@ export function AnalyticsTab() {
           {/* Overview cards */}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             {[
-              { label: "Respondents", value: o.respondents },
-              { label: "Response rate", value: `${Math.round(o.response_rate * 100)}%` },
-              { label: "Avg sentiment", value: o.avg_sentiment != null ? `${o.avg_sentiment}/5` : "—" },
-              { label: "Answers", value: o.answers },
-              { label: "Comments", value: o.comment_count },
+              { label: "Responded", value: o.responded, sub: "people who submitted" },
+              { label: "Sent to", value: o.sent, sub: "people surveyed" },
+              { label: "Response rate", value: `${Math.round(o.response_rate * 100)}%`, sub: `${o.responded} of ${o.sent}` },
+              { label: "Avg sentiment", value: o.avg_sentiment != null ? `${o.avg_sentiment}/5` : "—", sub: "across scored answers" },
+              { label: "Comments", value: o.comment_count, sub: "free-text / reasons" },
             ].map((c) => (
               <div key={c.label} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
                 <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{c.value}</p>
                 <p className="text-[11px] uppercase text-gray-500 dark:text-gray-400">{c.label}</p>
+                <p className="text-[10px] text-gray-400 dark:text-gray-500">{c.sub}</p>
               </div>
             ))}
           </div>
 
           {/* Sentiment distribution */}
           <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
-            <p className="mb-2 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">Sentiment distribution</p>
-            <div className="flex items-end gap-2" style={{ height: 80 }}>
-              {data.distribution.map((d) => (
-                <div key={d.score} className="flex flex-1 flex-col items-center justify-end gap-1">
-                  <span className="text-[10px] text-gray-500 dark:text-gray-400">{d.count}</span>
-                  <div className={`w-full rounded-t ${d.score >= 4 ? "bg-emerald-600" : d.score >= 3 ? "bg-amber-500" : "bg-red-600"}`} style={{ height: `${(d.count / maxDist) * 60}px` }} />
-                  <span className="text-[10px] text-gray-500 dark:text-gray-400">{d.score}</span>
-                </div>
-              ))}
+            <div className="mb-2 flex items-baseline justify-between">
+              <p className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">Scored answers by sentiment</p>
+              <p className="text-[10px] text-gray-400 dark:text-gray-500">{o.scored_answers} scored answers · 1 = very negative → 5 = very positive</p>
+            </div>
+            <div className="flex items-end gap-2" style={{ height: 90 }}>
+              {data.distribution.map((d) => {
+                const pct = o.scored_answers ? Math.round((d.count / o.scored_answers) * 100) : 0;
+                return (
+                  <div key={d.score} className="flex flex-1 flex-col items-center justify-end gap-1">
+                    <span className="text-[10px] font-medium text-gray-600 dark:text-gray-300">{d.count} <span className="text-gray-400">({pct}%)</span></span>
+                    <div className={`w-full rounded-t ${d.score >= 4 ? "bg-emerald-600" : d.score === 3 ? "bg-amber-500" : "bg-red-600"}`} style={{ height: `${Math.max(d.count ? 3 : 0, (d.count / maxDist) * 60)}px` }} />
+                    <span className="text-[10px] text-gray-500 dark:text-gray-400">{d.score}{d.score === 1 ? " ★" : d.score === 5 ? " ★★★★★" : ""}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
 

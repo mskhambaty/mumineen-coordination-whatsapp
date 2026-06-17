@@ -20,7 +20,8 @@ responses through a per-recipient **tokenized web form** delivered over WhatsApp
   **head of family** in households with a child under 7 (via the `has_child_under_7` household
   field) — strictly one message per household, greeting a parent rather than the toddler.
 - **Form** (`survey_forms` + `survey_form_questions`) — a composed run: a target + a chosen subset of
-  questions (snapshotted for stability). ~5 forms/day → 5 samples. The target is EITHER a saved group
+  questions (snapshotted for stability). ~5 forms/day → 5 samples. Forms carry free-form **`tags`**
+  (editable inline) to tell same-titled forms apart when they target different audiences. The target is EITHER a saved group
   (`group_id`) OR an ad-hoc **custom filter** (`rules`) built in the composer with the same
   react-querybuilder UI as WhatsApp templates ([AudienceFilterBuilder](../src/components/admin/AudienceFilterBuilder.tsx)).
   Custom filters support **NOT** groups, so a broad form can exclude segments already covered by a
