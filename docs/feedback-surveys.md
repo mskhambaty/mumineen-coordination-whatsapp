@@ -90,7 +90,8 @@ locks down — its row shows only **Test to people** and **Results** (the pre-se
 prevent mistakes); the Results panel is collapsible. The **Questions** button opens the form's composed
 questions (grouped by section); for a not-yet-sent form you can edit each (text, required, comment box,
 options) or remove it — edits apply to that form's snapshot only. Compose has a per-section **Select
-all** toggle. APIs under `src/app/api/admin/surveys/**`
+all** toggle. **Duplicate** copies a form's questions/title/tags/sample/target into Compose (retired
+questions skipped) so you can change the target audience and create a variant quickly. APIs under `src/app/api/admin/surveys/**`
 (gated by `requirePortalCaller(isAdminOrLeadership)`). Sections and questions both **soft-delete**
 (`active=false`) so already-composed forms keep working off their snapshots; deleting a section also
 soft-deletes its questions.
