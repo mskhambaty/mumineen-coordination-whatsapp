@@ -155,9 +155,7 @@ export default function SurveysAdminPage() {
           {sections.map((s) => (
             <div key={s.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
               <EditableSection s={s} onChanged={loadDatabank} />
-              <ul className="mt-1 space-y-0.5 text-sm text-gray-600 dark:text-gray-300">
-                {s.questions.map((q) => <EditableQuestion key={q.id} q={q} onChanged={loadDatabank} />)}
-              </ul>
+              <SectionQuestions sectionId={s.id} questions={s.questions} onChanged={loadDatabank} />
               <AddQuestion sectionId={s.id} onAdded={loadDatabank} />
             </div>
           ))}
@@ -253,7 +251,7 @@ function parseChoiceOptions(optionsText: string, negText: string): { options: { 
   return { options, negative_values: labels.filter((l) => negs.has(l)) };
 }
 
-function EditableQuestion({ q, onChanged }: { q: Question; onChanged: () => void }) {
+function EditableQuestion({ q, onChanged, onMoveUp, onMoveDown }: { q: Question; onChanged: () => void; onMoveUp?: () => void; onMoveDown?: () => void }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(q.text);
   const [type, setType] = useState(q.type);
@@ -303,11 +301,49 @@ function EditableQuestion({ q, onChanged }: { q: Question; onChanged: () => void
   return (
     <li className="group flex items-start justify-between gap-3">
       <span className="leading-snug"><span className="text-gray-400">•</span> {q.text} <span className="text-[10px] uppercase text-gray-400">({q.type})</span></span>
-      <span className="flex flex-shrink-0 gap-2 opacity-0 focus-within:opacity-100 group-hover:opacity-100">
+      <span className="flex flex-shrink-0 items-center gap-2 opacity-0 focus-within:opacity-100 group-hover:opacity-100">
+        <button onClick={onMoveUp} disabled={!onMoveUp} title="Move up" className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30 dark:hover:text-gray-200">↑</button>
+        <button onClick={onMoveDown} disabled={!onMoveDown} title="Move down" className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30 dark:hover:text-gray-200">↓</button>
         <button onClick={() => setEditing(true)} className="text-xs text-blue-500 hover:underline dark:text-blue-400">Edit</button>
         <button onClick={remove} className="text-xs text-red-500 hover:underline dark:text-red-400">Remove</button>
       </span>
     </li>
+  );
+}
+
+// Renders a section's questions in order with ↑/↓ controls. Reordering optimistically updates the
+// local order, persists it via the reorder endpoint, then refreshes the databank.
+function SectionQuestions({ sectionId, questions, onChanged }: { sectionId: string; questions: Question[]; onChanged: () => void }) {
+  const [order, setOrder] = useState<Question[]>(questions);
+  // Keep local order in sync when the databank reloads (add/edit/delete elsewhere).
+  useEffect(() => { setOrder(questions); }, [questions]);
+
+  async function move(index: number, dir: -1 | 1) {
+    const next = [...order];
+    const target = index + dir;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    setOrder(next);
+    const res = await apiFetch("/api/admin/surveys/questions/reorder", {
+      method: "POST",
+      body: JSON.stringify({ section_id: sectionId, ordered_ids: next.map((q) => q.id) }),
+    });
+    if (res.ok) onChanged();
+    else setOrder(questions); // revert on failure
+  }
+
+  return (
+    <ul className="mt-1 space-y-0.5 text-sm text-gray-600 dark:text-gray-300">
+      {order.map((q, i) => (
+        <EditableQuestion
+          key={q.id}
+          q={q}
+          onChanged={onChanged}
+          onMoveUp={i > 0 ? () => move(i, -1) : undefined}
+          onMoveDown={i < order.length - 1 ? () => move(i, 1) : undefined}
+        />
+      ))}
+    </ul>
   );
 }
 
