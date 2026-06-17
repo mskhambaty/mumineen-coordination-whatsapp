@@ -18,6 +18,7 @@ type Question = {
     negative_values?: string[] | null;
     comment_threshold?: number | null;
     collect_comment?: boolean;
+    required?: boolean;
   };
 };
 type Section = { section_id: string | null; title: string; questions: Question[] };
@@ -86,6 +87,20 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
   async function submit() {
     setSubmitting(true);
     setError(null);
+    // Enforce mandatory questions before sending.
+    const firstMissing = allQuestions.find((q) => {
+      if (!q.snapshot.required) return false;
+      const qid = q.question_id ?? q.form_question_id;
+      return !(answers[qid] ?? "").trim();
+    });
+    if (firstMissing) {
+      const qid = firstMissing.question_id ?? firstMissing.form_question_id;
+      setExpanded((e) => ({ ...e, [qid]: true }));
+      setError("Please answer the required questions (marked *).");
+      setSubmitting(false);
+      setTimeout(() => document.getElementById(`q-${qid}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 60);
+      return;
+    }
     const payload = {
       answers: allQuestions
         .map((q) => {
@@ -188,7 +203,7 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
                       className="flex w-full items-start justify-between gap-3 px-5 py-3 text-left transition hover:bg-white/[0.03]"
                     >
                       <span className="min-w-0">
-                        <span className="block truncate text-sm text-gray-400">{q.snapshot.text}</span>
+                        <span className="block truncate text-sm text-gray-400">{q.snapshot.text}{q.snapshot.required ? <span className="text-red-400">*</span> : null}</span>
                         {isNeg && reason && <span className="mt-0.5 block truncate text-xs italic text-amber-300/80">“{reason}”</span>}
                       </span>
                       <span className={`flex flex-shrink-0 items-center gap-1.5 text-sm font-medium ${isNeg ? "text-amber-400" : "text-emerald-400"}`}>
@@ -204,7 +219,7 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
                 }
                 return (
                   <div key={q.form_question_id} id={`q-${qid}`} className="scroll-mt-24 px-5 py-4">
-                    <p className="mb-3 text-sm font-medium text-gray-100">{q.snapshot.text}</p>
+                    <p className="mb-3 text-sm font-medium text-gray-100">{q.snapshot.text}{q.snapshot.required ? <span className="ml-0.5 text-red-400" title="Required">*</span> : null}</p>
                     <QuestionInput question={q} value={value} onChange={(v) => setAnswer(qid, v, q.snapshot)} />
                     {isNeg && (
                       <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">

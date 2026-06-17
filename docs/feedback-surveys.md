@@ -58,6 +58,8 @@ The **"why?" comment box** is per-question configurable: `collect_comment` toggl
 scale5 ≤ 3); choice/yes-no use `negative_values`. `isProblemAnswer(type, answer, negative_values, { threshold, collectComment })`
 is the single source of truth for both the form UI and the recorder's department routing. Editing a
 choice question's **options** (labels + which are "problem" options) is done inline in the Databank.
+Questions can be marked **`required`** (mandatory) — the public form shows a `*`, blocks submit until
+answered, and `recordSurveyResponse` rejects a submission missing any required answer.
 
 ## Delivery (`src/lib/surveys/send.ts`)
 

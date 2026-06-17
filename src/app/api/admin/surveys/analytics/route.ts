@@ -121,18 +121,23 @@ export async function POST(req: NextRequest) {
   const scored = fAnswers.filter((a) => a.sentiment_1_5 != null).map((a) => a.sentiment_1_5 as number);
   const distribution = [1, 2, 3, 4, 5].map((n) => ({ score: n, count: scored.filter((s) => s === n).length }));
 
+  // Group scored answers by a key, tracking both the score list (for the mean / answer count) and
+  // the distinct mumineen (so a row reads "60 people · 278 answers · 4.6/5").
   const group = <K extends string>(keyFn: (a: (typeof fAnswers)[number]) => K | null) => {
-    const m = new Map<K, number[]>();
+    const m = new Map<K, { scores: number[]; people: Set<string> }>();
     for (const a of fAnswers) {
       if (a.sentiment_1_5 == null) continue;
       const k = keyFn(a);
       if (k == null) continue;
-      (m.get(k) ?? m.set(k, []).get(k)!).push(a.sentiment_1_5);
+      let g = m.get(k);
+      if (!g) m.set(k, (g = { scores: [], people: new Set<string>() }));
+      g.scores.push(a.sentiment_1_5);
+      if (a.mumin_id) g.people.add(a.mumin_id);
     }
     return m;
   };
-  const toRows = <K extends string>(m: Map<K, number[]>) =>
-    Array.from(m.entries()).map(([key, xs]) => ({ key, sentiment: mean(xs), responses: xs.length })).sort((a, b) => (a.sentiment ?? 0) - (b.sentiment ?? 0));
+  const toRows = <K extends string>(m: Map<K, { scores: number[]; people: Set<string> }>) =>
+    Array.from(m.entries()).map(([key, g]) => ({ key, sentiment: mean(g.scores), responses: g.scores.length, people: g.people.size })).sort((a, b) => (a.sentiment ?? 0) - (b.sentiment ?? 0));
 
   const bySection = toRows(group((a) => (a.section_id ? (sectionTitle.get(a.section_id) ?? "Section") : null)));
   const byArea = toRows(group((a) => a.area));
