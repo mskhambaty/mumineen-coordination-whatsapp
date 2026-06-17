@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { apiFetch } from "@/lib/admin/client";
 import { Badge, Conversation, HandlingMode, MessageBubble, ModeToggle, fmt } from "./ui";
 
-// The Inbox, scoped to religious chats: list │ thread + AI/Manual toggle + reply. The toggle flips
-// conversation_sessions.handling_mode (shared with the agent); the reply is allowed only in Manual +
-// inside WhatsApp's 24h window (mirrors the general Inbox).
-export default function ChatsTab({ conversations, onReload }: { conversations: Conversation[]; onReload: () => Promise<void> | void }) {
+const POLL_MS = 5000;
+
+// Religious-scoped Inbox — a self-contained clone of the inbox's conversation surface, but only the
+// chats that used a religious / Lisan tool (the endpoint is server-scoped, so no logistics PII).
+// Stays LIVE by polling every 5s while visible + refetching on tab focus (religious monitors can't
+// use the inbox's SSE stream, which is canAccessInbox-gated). Mobile is WhatsApp-style master/detail:
+// list → tap a chat → thread opens full-screen with a ← back button. Desktop is two-pane.
+export default function ReligiousInbox() {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [activePhone, setActivePhone] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [inWindowOnly, setInWindowOnly] = useState(false);
@@ -16,10 +22,38 @@ export default function ChatsTab({ conversations, onReload }: { conversations: C
   const [sending, setSending] = useState(false);
   const [savingMode, setSavingMode] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  // Optimistically-shown sent messages per phone, so a reply appears instantly instead of waiting
-  // for the heavy full reload (loadAll re-fetches every conversation). Cleared once the real data
-  // lands; deduped against the fetched thread so there's never a flicker of a doubled bubble.
+  // Optimistically-shown sent messages per phone, so a reply appears instantly; cleared once a poll
+  // brings back the real outbound (deduped by body so there's never a doubled bubble).
   const [pendingSent, setPendingSent] = useState<Record<string, { body: string; created_at: string }[]>>({});
+
+  const inFlight = useRef(false);
+  const load = useCallback(async () => {
+    if (inFlight.current) return; // don't stack overlapping polls
+    inFlight.current = true;
+    try {
+      const res = await apiFetch("/api/admin/religious/conversations");
+      if (res.ok) setConversations(((await res.json()).conversations ?? []) as Conversation[]);
+    } catch {
+      // Silent — a transient poll failure must not disrupt the open thread.
+    } finally {
+      inFlight.current = false;
+      setLoaded(true);
+    }
+  }, []);
+
+  // Initial load + live refresh: poll while the tab is visible, and refetch immediately on focus.
+  useEffect(() => {
+    void load();
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const start = () => { if (!timer) timer = setInterval(() => void load(), POLL_MS); };
+    const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+    const onVis = () => {
+      if (document.visibilityState === "visible") { void load(); start(); } else stop();
+    };
+    start();
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop(); document.removeEventListener("visibilitychange", onVis); };
+  }, [load]);
 
   const q = search.trim().toLowerCase();
   const list = conversations.filter((c) => {
@@ -34,8 +68,7 @@ export default function ChatsTab({ conversations, onReload }: { conversations: C
   const active = conversations.find((c) => c.phone === activePhone) ?? null;
   const canReply = !!active && active.handling_mode === "manual" && active.in_window;
 
-  // The thread to render = the fetched messages plus any optimistic sends not yet reflected in them
-  // (dedup by body, so once the reload includes the real outbound the optimistic copy drops out).
+  // Thread = the fetched messages + any optimistic sends a poll hasn't reflected yet (dedup by body).
   const threadMessages = (() => {
     if (!active) return [];
     const seen = new Set(active.messages.map((m) => `${m.direction}:${m.body}`));
@@ -45,8 +78,7 @@ export default function ChatsTab({ conversations, onReload }: { conversations: C
     return [...active.messages, ...extra];
   })();
 
-  // Auto-scroll the thread to the newest message when a conversation opens or a message arrives
-  // (mirrors the general Inbox).
+  // Auto-scroll to the newest message when a conversation opens or a message arrives.
   const messagePaneRef = useRef<HTMLDivElement>(null);
   const lastAt = threadMessages[threadMessages.length - 1]?.created_at;
   useEffect(() => {
@@ -63,7 +95,7 @@ export default function ChatsTab({ conversations, onReload }: { conversations: C
     try {
       const res = await apiFetch("/api/admin/religious/mode", { method: "PUT", body: JSON.stringify({ phone: active.phone, mode }) });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to switch mode");
-      await onReload();
+      await load();
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "Failed to switch mode");
     } finally {
@@ -81,13 +113,11 @@ export default function ChatsTab({ conversations, onReload }: { conversations: C
       const res = await apiFetch("/api/admin/religious/reply", { method: "POST", body: JSON.stringify({ phone, text }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Send failed");
-      // Show it instantly, then refresh in the background and drop the optimistic copy once the
-      // real message is in the fetched thread.
       setReply("");
       setNotice("Reply sent.");
       setPendingSent((p) => ({ ...p, [phone]: [...(p[phone] ?? []), { body: text, created_at: new Date().toISOString() }] }));
       setSending(false);
-      await onReload();
+      await load();
       setPendingSent((p) => {
         if (!p[phone]) return p;
         const next = { ...p };
@@ -140,7 +170,9 @@ export default function ChatsTab({ conversations, onReload }: { conversations: C
               </li>
             );
           })}
-          {list.length === 0 && <li className="px-3 py-6 text-center text-sm text-gray-500 dark:text-gray-400">No chats.</li>}
+          {list.length === 0 && (
+            <li className="px-3 py-6 text-center text-sm text-gray-500 dark:text-gray-400">{loaded ? "No chats." : "Loading…"}</li>
+          )}
         </ul>
       </div>
 

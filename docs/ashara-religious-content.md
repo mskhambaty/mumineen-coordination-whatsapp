@@ -103,15 +103,19 @@ Never throws into the agent or the admin add flow.
 
 **Waaz Talaqqi hub (`/admin/religious`, nav label "Waaz Talaqqi").** A single **tabbed** page
 (`src/app/admin/religious/page.tsx` shell + `src/components/admin/religious/*` tabs) — a KPI band over
-underline tabs (each shows a one-line description), **access-gated per tab**: **Overview · Chats · Flags** for monitors; **Dictionary**
+underline tabs (each shows a one-line description), **access-gated per tab**: **Overview · Inbox · Flags** for monitors; **Dictionary**
 (+ Content, see below) for managers/admins; **Team** for admins. A date-range selector drives the
 metrics. The **Overview** is action-oriented: **Today's uploads** (managers — today's majlis cell
 status for the active year, from the topics list), **Content gaps** (recent Waaz questions the bot
 couldn't answer — `metrics.recent_gaps`, i.e. `answer_religious_questions` with `decision`
 not_found/offer_last), **Needs attention** (missing words / ruling flags), and top words + Lisan
-miss-rate. The **Chats** tab is an inbox with the same **AI ⇄ Manual** switch as the general Inbox —
-`PUT /api/admin/religious/mode` (monitor-gated; the Inbox's own mode route is `canAccessInbox`). The
-reply box is enabled only in **Manual + inside the 24h window**; flipping to Manual takes the member
+miss-rate. The **Inbox** tab (`ReligiousInbox`) is a religious-scoped clone of the inbox conversation
+surface — only chats that used a religious/Lisan tool (server-scoped endpoint, no logistics PII). It
+**stays live by polling `/api/admin/religious/conversations` every 5s + on tab focus** (the endpoint is
+`force-dynamic`; religious monitors can't use the inbox's `canAccessInbox`-gated SSE stream). Mobile is
+WhatsApp-style master/detail (list → tap → thread + ← back). Same **AI ⇄ Manual** switch as the general
+Inbox — `PUT /api/admin/religious/mode` (monitor-gated; the Inbox's own mode route is `canAccessInbox`).
+The reply box is enabled only in **Manual + inside the 24h window**; flipping to Manual takes the member
 off the AI for everything (same shared `handling_mode` as the Inbox). The **Content** tab holds the
 Ashara **majlis × category grid** (`AsharaContent` — the daily-content ingest for the active year,
 e.g. 1448, with the overview block + translation queue + theme generation); `/admin/ashara` now

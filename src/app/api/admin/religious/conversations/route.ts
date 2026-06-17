@@ -6,6 +6,9 @@ import { RELIGIOUS_TOOL_NAMES } from "@/lib/admin/religious-transcript";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
+// Never cache: the religious Inbox polls this for live updates (without it the GET response is
+// served stale — the cause of the old Chats tab going out of date).
+export const dynamic = "force-dynamic";
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_CONVERSATIONS = 200;
