@@ -99,7 +99,9 @@ export async function resolveNiyazAudience(opts: {
   onlyNonResponders?: boolean;
   level: NiyazLevel;
   // Default true (legacy: only families with a submitted registration). Pass false to target every
-  // roster-active, not-attending=false family — the double-RSVP audience definition.
+  // roster-active, not-attending=false family — the double-RSVP audience definition. NOTE: this flag
+  // only governs `all_mumineen`; `all_adults` / `all_hof` apply their own local-vs-mehman
+  // registration rule (locals always, mehman only if submitted) and ignore this flag.
   requireRegistered?: boolean;
 }): Promise<{ recipients: Recipient[]; unresolvedIts: string[] }> {
   const supabase = getSupabaseAdmin();
@@ -143,9 +145,17 @@ export async function resolveNiyazAudience(opts: {
     recipients = dedupeByPhone(rows.map(toRecipient));
   } else {
     // Filter to active families via a server-side inner join instead of a huge .in(familyIds) list
-    // (1000+ family UUIDs blew past the request URL limit, returning nothing). require_registered
-    // (default true) additionally requires a submitted registration.
+    // (1000+ family UUIDs blew past the request URL limit, returning nothing).
+    //
+    // Registration handling depends on the audience:
+    //   - all_adults / all_hof: include all LOCAL members regardless of registration, but only
+    //     MEHMAN members whose family registration is `submitted`. This local-vs-mehman split is
+    //     decided per-row in TS below (a PostgREST OR across the embedded families table is brittle),
+    //     so no blanket registration filter is applied for these two.
+    //   - all_mumineen: legacy behavior — require_registered (default true) requires a submitted
+    //     registration for everyone.
     const selFam = `${sel}, families!inner(roster_active, registration_status)`;
+    const conditionalReg = opts.audience === "all_adults" || opts.audience === "all_hof";
     // Page through ALL matching rows. PostgREST caps a single response at 1000 rows, so a bare
     // `await` silently truncated large audiences — "All Adults" (2k+ member rows) read as 1000 and,
     // after dedupe-by-phone, collapsed to ~930. fetchAllRows windows the query in 1000-row pages
@@ -160,13 +170,23 @@ export async function resolveNiyazAudience(opts: {
         .not("whatsapp_e164", "is", null)
         .eq("families.roster_active", true)
         .order("id", { ascending: true });
-      if (opts.requireRegistered ?? true) q = q.eq("families.registration_status", "submitted");
+      if (!conditionalReg && (opts.requireRegistered ?? true)) q = q.eq("families.registration_status", "submitted");
       // all_adults narrows to adults; all_mumineen / all_hof scan every reachable member.
       if (opts.audience === "all_adults") q = q.eq("is_adult", true);
       return q;
     };
 
-    const rows = await fetchAllRows<MuminRow>(() => baseQuery() as unknown as Pageable<MuminRow>);
+    let rows = await fetchAllRows<MuminRow>(() => baseQuery() as unknown as Pageable<MuminRow>);
+
+    if (conditionalReg) {
+      // Mehman need a submitted family registration; Local (and any non-Mehman) members are included
+      // regardless. families!inner guarantees the embed is present. Runs BEFORE the all_hof family
+      // collapse so an unsubmitted-mehman family drops out before its head is picked as the rep.
+      rows = rows.filter((m) => {
+        const reg = (m as { families?: { registration_status?: string | null } | null }).families?.registration_status ?? null;
+        return (m as { local_mehman?: string | null }).local_mehman !== "Mehman" || reg === "submitted";
+      });
+    }
 
     if (opts.audience === "all_hof") {
       const byFamily = new Map<string, MuminRow>();

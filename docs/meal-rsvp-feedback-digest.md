@@ -105,7 +105,11 @@ RSVP is collected day-by-day via WhatsApp templates with **quick-reply buttons**
 only / Dinner only / Not attending). An admin opens an event on `/admin/niyaz` and **sends** the
 template from a composer: pick an **audience** (Specific ITS (test) / All mumineen / All HOF / All
 adults), an optional **"only those who haven't responded"** filter, a **level** (Individual = records
-the responder; Family = records the whole family), and an approved **template**. The send goes through
+the responder; Family = records the whole family), and an approved **template**. For **All Adults**
+and **All HOF** (and their "not responded" variants), the registration filter is conditional on
+local-vs-mehman: **local** members are included regardless of their family's registration status,
+while **mehman** members are included only when their family registration is `submitted` (both must
+be attending). All mumineen and the manual "All adults with HOF ITS" audience are unaffected. The send goes through
 the broadcast queue (`POST /api/admin/niyaz/instances/[id]/broadcast` →
 `resolveNiyazAudience` + `buildNiyazSend` → `createBroadcast` with explicit `recipients` +
 `quickReplyButtons`); a `GET` on the same route previews the recipient count.
