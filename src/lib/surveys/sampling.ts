@@ -23,8 +23,9 @@ export type SampleCandidate = {
 export type SampleResult = {
   chosen: SampleCandidate[];
   funnel: {
-    candidates: number; // matched the group + reachable + registration submitted
-    excludedUnregistered: number; // matched + reachable but registration not submitted
+    candidates: number; // matched the group + reachable + attending + registration submitted
+    excludedNotAttending: number; // matched + reachable but flagged not attending
+    excludedUnregistered: number; // matched + reachable + attending but registration not submitted
     excludedToday: number; // already in one of today's samples
     excludedExhausted: number; // already exposed to every question in this form
     excludedNonResponder: number; // sent NON_RESPONDER_SEND_CAP+ times, never responded → stop asking
@@ -57,12 +58,15 @@ export async function suggestSample(
     ? { combinator: "and", rules: [groupRules, { field: "hours_since_last_inbound", operator: "<=", value: opts.windowHours ?? 24 }] }
     : groupRules;
   const rows: RosterRow[] = await runFilter(effectiveRules);
-  // Baseline for ALL survey sampling: a reachable candidate is roster-active (already enforced by
-  // runFilter), has a WhatsApp number, AND belongs to a household whose registration is submitted.
-  // We only survey registered mumineen, regardless of the group/custom filter chosen.
+  // Baseline for ALL survey sampling (every group AND custom filter): a reachable candidate is
+  // roster-active (enforced by runFilter), has a WhatsApp number, is ATTENDING, and belongs to a
+  // household whose registration is submitted. We never survey not-attending or unregistered people,
+  // regardless of the chosen filter.
   const withContact = rows.filter((r) => r.whatsapp_e164 && r.mumin_id);
-  const reachable = withContact.filter((r) => r.registration_status === "submitted");
-  const excludedUnregistered = withContact.length - reachable.length;
+  const attending = withContact.filter((r) => r.not_attending !== true);
+  const excludedNotAttending = withContact.length - attending.length;
+  const reachable = attending.filter((r) => r.registration_status === "submitted");
+  const excludedUnregistered = attending.length - reachable.length;
 
   // 2. Prior survey history (real sends only — is_test self/team links don't count): how many times
   // each mumin was sent, when last, whether sampled today, and how many they've completed.
@@ -143,6 +147,7 @@ export async function suggestSample(
     chosen,
     funnel: {
       candidates: reachable.length,
+      excludedNotAttending,
       excludedUnregistered,
       excludedToday,
       excludedExhausted,
