@@ -3456,7 +3456,7 @@ components:
       tags: [issues]
       summary: List issues with optional filters.
       parameters:
-        - { name: status, in: query, schema: { type: string, enum: [open, in_progress, resolved, all] } }
+        - { name: status, in: query, description: "active = open + in_progress; all/omitted = every status", schema: { type: string, enum: [active, open, in_progress, resolved, all] } }
         - { name: department_id, in: query, schema: { type: string, format: uuid } }
         - { name: priority, in: query, schema: { type: string, enum: [low, medium, high, all] } }
         - { name: search, in: query, schema: { type: string } }

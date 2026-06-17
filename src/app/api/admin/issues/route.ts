@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   const { searchParams } = req.nextUrl;
-  const status = searchParams.get("status"); // "open" | "in_progress" | "resolved"
+  const status = searchParams.get("status"); // "active" | "open" | "in_progress" | "resolved" | "all"
   const departmentId = searchParams.get("department_id");
   const priority = searchParams.get("priority"); // "low" | "medium" | "high"
   const search = searchParams.get("search");
@@ -29,7 +29,9 @@ export async function GET(req: NextRequest) {
     .order("created_at", { ascending: false })
     .limit(200);
 
-  if (status && status !== "all") {
+  if (status === "active") {
+    query = query.in("status", ["open", "in_progress"]);
+  } else if (status && status !== "all") {
     query = query.eq("status", status);
   }
   if (departmentId && departmentId !== "all") {
