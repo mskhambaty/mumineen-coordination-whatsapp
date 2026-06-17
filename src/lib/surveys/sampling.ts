@@ -27,6 +27,7 @@ export type SampleResult = {
     excludedToday: number; // already in one of today's samples
     excludedExhausted: number; // already exposed to every question in this form
     excludedNonResponder: number; // sent NON_RESPONDER_SEND_CAP+ times, never responded → stop asking
+    excludedAlreadySent: number; // opt-in: already sent ANY survey this event (cross-form de-overlap)
     fresh: number; // of chosen, never previously surveyed
     reused: number; // of chosen, surveyed before
     chosen: number;
@@ -44,7 +45,7 @@ export async function suggestSample(
   formQuestionIds: string[],
   size: number,
   eventDate: string = chicagoToday(),
-  opts: { freeWindowOnly?: boolean; windowHours?: number } = {},
+  opts: { freeWindowOnly?: boolean; windowHours?: number; excludeAlreadySent?: boolean } = {},
 ): Promise<SampleResult> {
   const supabase = getSupabaseAdmin();
 
@@ -101,11 +102,15 @@ export async function suggestSample(
   let excludedToday = 0;
   let excludedExhausted = 0;
   let excludedNonResponder = 0;
+  let excludedAlreadySent = 0;
   const eligible: SampleCandidate[] = [];
   for (const r of reachable) {
     const id = r.mumin_id;
     if (sampledToday.has(id)) { excludedToday++; continue; }
     if (isExhausted(id)) { excludedExhausted++; continue; }
+    // Opt-in: drop anyone who's already been sent ANY real survey this event, so a broad form
+    // doesn't re-survey people a narrower one already reached (regardless of which questions).
+    if (opts.excludeAlreadySent && (priorSends.get(id) ?? 0) > 0) { excludedAlreadySent++; continue; }
     // Stop bothering chronic non-responders: sent NON_RESPONDER_SEND_CAP+ times, never responded.
     if ((priorSends.get(id) ?? 0) >= NON_RESPONDER_SEND_CAP && (completedCount.get(id) ?? 0) === 0) { excludedNonResponder++; continue; }
     eligible.push({
@@ -135,6 +140,7 @@ export async function suggestSample(
       excludedToday,
       excludedExhausted,
       excludedNonResponder,
+      excludedAlreadySent,
       fresh: chosen.filter((c) => c.priorSends === 0).length,
       reused: chosen.filter((c) => c.priorSends > 0).length,
       chosen: chosen.length,

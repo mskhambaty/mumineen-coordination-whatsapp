@@ -2440,7 +2440,11 @@ paths:
     post:
       tags: [admin]
       summary: Dry-run the sample (no writes)
-      description: Admin/leadership only. Returns the sampling funnel (candidates/excludedToday/excludedExhausted/fresh/reused/chosen) + first-name preview.
+      description: >-
+        Admin/leadership only. Body { freeWindowOnly?, excludeAlreadySent? }. Returns the sampling
+        funnel (candidates/excludedToday/excludedExhausted/excludedNonResponder/excludedAlreadySent/
+        fresh/reused/chosen) + first-name preview. excludeAlreadySent drops anyone already sent any
+        survey this event (cross-form de-overlap).
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -2452,9 +2456,11 @@ paths:
       tags: [admin]
       summary: Commit the sample and (optionally) dispatch the WhatsApp template
       description: >-
-        Admin/leadership only. Creates per-recipient tokens + writes (mumin, question) exposures
-        (once-per-event). Dispatches via WhatsApp when SURVEY_SEND_ENABLED + SURVEY_WA_TEMPLATE are
-        set; otherwise returns the per-recipient links for manual sending.
+        Admin/leadership only. Body { template?, freeWindowOnly?, excludeAlreadySent? }. Creates
+        per-recipient tokens + writes (mumin, question) exposures (once-per-event). Dispatches via
+        WhatsApp when a template is selected (or SURVEY_SEND_ENABLED + SURVEY_WA_TEMPLATE are set);
+        otherwise returns the per-recipient links for manual sending. excludeAlreadySent drops anyone
+        already sent any survey this event.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:

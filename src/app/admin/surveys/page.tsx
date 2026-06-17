@@ -530,6 +530,7 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templateCode, setTemplateCode] = useState("");
   const [freeWindow, setFreeWindow] = useState(false);
+  const [excludeSent, setExcludeSent] = useState(false);
 
   // Approved WhatsApp templates that have a dynamic URL button (needed to carry the survey link).
   useEffect(() => {
@@ -547,7 +548,7 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
   }
   async function preview(id: string) {
     setBusy(id);
-    const res = await apiFetch(`/api/admin/surveys/forms/${id}/preview`, { method: "POST", body: JSON.stringify({ freeWindowOnly: freeWindow }) });
+    const res = await apiFetch(`/api/admin/surveys/forms/${id}/preview`, { method: "POST", body: JSON.stringify({ freeWindowOnly: freeWindow, excludeAlreadySent: excludeSent }) });
     setDetail({ kind: "preview", id, freeWindow, ...(await res.json().catch(() => ({}))) });
     setBusy(null);
   }
@@ -556,7 +557,7 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
     setBusy(id);
     const res = await apiFetch(`/api/admin/surveys/forms/${id}/send`, {
       method: "POST",
-      body: JSON.stringify({ template: templateCode || undefined, freeWindowOnly: freeWindow }),
+      body: JSON.stringify({ template: templateCode || undefined, freeWindowOnly: freeWindow, excludeAlreadySent: excludeSent }),
     });
     setDetail({ kind: "send", id, ...(await res.json().catch(() => ({}))) });
     setBusy(null);
@@ -610,6 +611,10 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
         <label className="ml-auto flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300" title="Only sample people who messaged us in the last 24h, so the template send is free (no paid quota).">
           <input type="checkbox" checked={freeWindow} onChange={(e) => setFreeWindow(e.target.checked)} className="accent-emerald-600" />
           Free-window only (no quota cost)
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300" title="Skip anyone who's already been sent ANY survey this event — avoids re-surveying people a previous form already reached.">
+          <input type="checkbox" checked={excludeSent} onChange={(e) => setExcludeSent(e.target.checked)} className="accent-emerald-600" />
+          Exclude already-surveyed
         </label>
       </div>
       {forms.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">No forms yet — compose one.</p>}
@@ -967,7 +972,7 @@ function PreviewSample({ detail, onPickMumin }: { detail: Detail; onPickMumin?: 
         <span><b>{f.chosen ?? 0}</b> chosen</span>
         <span className="text-emerald-600 dark:text-emerald-400">{f.fresh ?? 0} fresh</span>
         <span className="text-amber-600 dark:text-amber-400">{f.reused ?? 0} reused</span>
-        <span className="text-gray-400">{f.excludedToday ?? 0} already today · {f.excludedExhausted ?? 0} exhausted · {f.excludedNonResponder ?? 0} non-responders</span>
+        <span className="text-gray-400">{f.excludedToday ?? 0} already today · {f.excludedExhausted ?? 0} exhausted · {f.excludedNonResponder ?? 0} non-responders{(f.excludedAlreadySent ?? 0) > 0 ? ` · ${f.excludedAlreadySent} already surveyed` : ""}</span>
       </div>
       {sample.length > 0 && (
         <>

@@ -33,9 +33,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { data: fqs } = await supabase.from("survey_form_questions").select("question_id").eq("form_id", id);
   const questionIds = ((fqs ?? []) as { question_id: string | null }[]).map((q) => q.question_id).filter((q): q is string => Boolean(q));
 
-  const body = (await req.json().catch(() => ({}))) as { freeWindowOnly?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { freeWindowOnly?: unknown; excludeAlreadySent?: unknown };
   const freeWindowOnly = body.freeWindowOnly === true;
-  const sample = await suggestSample(targetRules, questionIds, f.sample_size, chicagoToday(), { freeWindowOnly });
+  const excludeAlreadySent = body.excludeAlreadySent === true;
+  const sample = await suggestSample(targetRules, questionIds, f.sample_size, chicagoToday(), { freeWindowOnly, excludeAlreadySent });
   // Admin-gated preview: return the chosen sample (name + ITS + freshness) so the admin can search
   // it and verify a specific person was selected. No phone numbers.
   return NextResponse.json({
