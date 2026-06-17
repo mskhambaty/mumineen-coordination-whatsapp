@@ -22,7 +22,7 @@ type ResponseRow = {
   responded_by_phone: string | null;
   recorded_by: string | null;
   updated_at: string;
-  mumin: { full_name: string | null; its: string | null; is_adult: boolean | null } | null;
+  mumin: { full_name: string | null; its: string | null; is_adult: boolean | null; local_mehman: string | null } | null;
   family: { hof_its: string | null } | null;
 };
 
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       .from("niyaz_rsvp")
       .select(
         "id, mumin_id, family_id, attending, source, responded_by_phone, recorded_by, updated_at, " +
-          "mumin:mumineen!niyaz_rsvp_mumin_id_fkey(full_name, its, is_adult), " +
+          "mumin:mumineen!niyaz_rsvp_mumin_id_fkey(full_name, its, is_adult, local_mehman), " +
           "family:families!niyaz_rsvp_family_id_fkey(hof_its)",
       )
       .eq("registration_instance_id", id)

@@ -1,10 +1,12 @@
 "use client";
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import { canAccessPortal } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
+import InfoIcon from "@/components/admin/niyaz/InfoIcon";
+import { computeNiyazBreakdown, hasResponded, isKid, isMehman } from "@/lib/rsvp/niyaz-breakdown";
 
 type RespRow = {
   id: string;
@@ -13,7 +15,7 @@ type RespRow = {
   responded_by_phone: string | null;
   recorded_by: string | null;
   updated_at: string;
-  mumin: { full_name: string | null; its: string | null; is_adult: boolean | null } | null;
+  mumin: { full_name: string | null; its: string | null; is_adult: boolean | null; local_mehman: string | null } | null;
   family: { hof_its: string | null } | null;
 };
 
@@ -32,6 +34,10 @@ type Tally = {
   mode: "min" | "max";
   yes: number;
   no: number;
+  yesAdults: number;
+  yesKids: number;
+  noAdults: number;
+  noKids: number;
 };
 
 type Instance = {
@@ -65,6 +71,43 @@ function dayLabel(date: string | null): string {
   return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
+const pct = (rate: number) => `${Math.round(rate * 100)}%`;
+
+// Small segmented control used for the responses-table filters.
+function FilterChips<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-xs uppercase tracking-wide text-gray-400">{label}</span>
+      <div className="inline-flex rounded-md border border-gray-300 dark:border-gray-700">
+        {options.map((opt, i) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={`px-2 py-1 text-xs font-medium ${i > 0 ? "border-l border-gray-300 dark:border-gray-700" : ""} ${
+              value === opt.value
+                ? "bg-blue-600 text-white"
+                : "bg-white text-gray-600 hover:bg-gray-50 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+            } ${i === 0 ? "rounded-l-md" : ""} ${i === options.length - 1 ? "rounded-r-md" : ""}`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function NiyazEventPageInner() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -77,6 +120,10 @@ function NiyazEventPageInner() {
   const [unregResponses, setUnregResponses] = useState<UnregRow[]>([]);
   const [tally, setTally] = useState<Tally | null>(null);
   const [respSearch, setRespSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState<"all" | "local" | "mehman">("all");
+  const [ageFilter, setAgeFilter] = useState<"all" | "adults" | "kids">("all");
+  const [rsvpFilter, setRsvpFilter] = useState<"all" | "yes" | "no">("all");
+  const [responseFilter, setResponseFilter] = useState<"all" | "responded" | "not">("all");
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -109,18 +156,38 @@ function NiyazEventPageInner() {
   }, [router, id, mode, load]);
 
   const q = respSearch.trim().toLowerCase();
-  const filteredResponses = q
-    ? responses.filter(
-        (r) =>
-          (r.mumin?.full_name ?? "").toLowerCase().includes(q) ||
-          (r.mumin?.its ?? "").toLowerCase().includes(q) ||
-          (r.family?.hof_its ?? "").toLowerCase().includes(q) ||
-          (r.responded_by_phone ?? "").toLowerCase().includes(q),
-      )
-    : responses;
-  const filteredUnreg = q
-    ? unregResponses.filter((u) => u.phone_e164.toLowerCase().includes(q) || (u.its_number ?? "").toLowerCase().includes(q))
-    : unregResponses;
+  const chipFiltersActive = typeFilter !== "all" || ageFilter !== "all" || rsvpFilter !== "all" || responseFilter !== "all";
+  const filteredResponses = responses.filter((r) => {
+    if (q) {
+      const matchesSearch =
+        (r.mumin?.full_name ?? "").toLowerCase().includes(q) ||
+        (r.mumin?.its ?? "").toLowerCase().includes(q) ||
+        (r.family?.hof_its ?? "").toLowerCase().includes(q) ||
+        (r.responded_by_phone ?? "").toLowerCase().includes(q);
+      if (!matchesSearch) return false;
+    }
+    if (typeFilter !== "all" && (typeFilter === "mehman") !== isMehman(r.mumin?.local_mehman ?? null)) return false;
+    if (ageFilter !== "all" && (ageFilter === "kids") !== isKid(r.mumin?.is_adult ?? null)) return false;
+    if (rsvpFilter !== "all" && (rsvpFilter === "yes") !== r.attending) return false;
+    if (responseFilter !== "all" && (responseFilter === "responded") !== hasResponded(r.source)) return false;
+    return true;
+  });
+  // The chip filters describe per-mumin attributes that unregistered guests don't carry, so any active
+  // chip hides the unregistered table; the search box still applies to it.
+  const filteredUnreg = chipFiltersActive
+    ? []
+    : q
+      ? unregResponses.filter((u) => u.phone_e164.toLowerCase().includes(q) || (u.its_number ?? "").toLowerCase().includes(q))
+      : unregResponses;
+
+  // Local-vs-Mehmaan × Yes/No/responded breakdown, derived from the full row set in the active mode
+  // so the group Yes/No counts reconcile with the headline tally above.
+  const breakdown = useMemo(() => computeNiyazBreakdown(responses.map((r) => ({
+    attending: r.attending,
+    source: r.source,
+    is_adult: r.mumin?.is_adult ?? null,
+    local_mehman: r.mumin?.local_mehman ?? null,
+  })), mode), [responses, mode]);
 
   // Yes/No headline from the mode-aware DB aggregate (matches the days overview exactly).
   const yesCount = tally?.yes ?? 0;
@@ -156,14 +223,69 @@ function NiyazEventPageInner() {
             <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
               <div className="text-xs uppercase tracking-wide text-gray-400">Yes count</div>
               <div className="mt-1 text-3xl font-bold tabular-nums text-green-600 dark:text-green-400">{yesCount}</div>
+              <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {tally?.yesAdults ?? 0} adults · {tally?.yesKids ?? 0} kids
+              </div>
             </div>
             <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
               <div className="text-xs uppercase tracking-wide text-gray-400">No count</div>
               <div className="mt-1 text-3xl font-bold tabular-nums text-red-500">{noCount}</div>
+              <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {tally?.noAdults ?? 0} adults · {tally?.noKids ?? 0} kids
+              </div>
             </div>
             <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-              <div className="text-xs uppercase tracking-wide text-gray-400" title="Yes count ÷ 8 (rounded up)">Thaals</div>
+              <div className="flex items-center gap-1 text-xs uppercase tracking-wide text-gray-400">
+                Thaals
+                <InfoIcon label="Thaals = Yes count ÷ 8 (rounded up)" />
+              </div>
               <div className="mt-1 text-3xl font-bold tabular-nums text-gray-700 dark:text-gray-200">{thaals}</div>
+            </div>
+          </div>
+
+          <div className="mb-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <h2 className="mb-3 flex items-center gap-1 text-lg font-semibold">
+              Breakdown
+              <InfoIcon label="Yes/No use the same min/max mode as the headline. Responded = confirmed via WhatsApp or admin; everyone else is still on a seeded/registration default. Unregistered guests are not included here." />
+            </h2>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="text-xs uppercase text-gray-400">
+                  <tr>
+                    <th className="px-2 py-1.5">Group</th>
+                    <th className="px-2 py-1.5 text-right">Yes</th>
+                    <th className="px-2 py-1.5 text-right">No</th>
+                    <th className="px-2 py-1.5 text-right">Responded</th>
+                    <th className="px-2 py-1.5 text-right">Not responded</th>
+                    <th className="px-2 py-1.5 text-right">Response rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {([
+                    { key: "local", label: "Local", g: breakdown.local },
+                    { key: "mehman", label: "Mehmaan", g: breakdown.mehman },
+                    { key: "total", label: "Total", g: breakdown.total },
+                  ] as const).map(({ key, label, g }) => (
+                    <tr
+                      key={key}
+                      className={`border-t border-gray-100 dark:border-gray-800 ${key === "total" ? "font-semibold" : ""}`}
+                    >
+                      <td className="px-2 py-1.5">{label}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-green-600 dark:text-green-400">
+                        {g.yes}
+                        <span className="ml-1 text-xs font-normal text-gray-400">({g.yesAdults}a · {g.yesKids}k)</span>
+                      </td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-red-500">
+                        {g.no}
+                        <span className="ml-1 text-xs font-normal text-gray-400">({g.noAdults}a · {g.noKids}k)</span>
+                      </td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{g.responded}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{g.notResponded}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-gray-500 dark:text-gray-400">{pct(g.responseRate)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
 
@@ -171,19 +293,63 @@ function NiyazEventPageInner() {
             <h2 className="mb-3 text-lg font-semibold">RSVP responses</h2>
 
             {(responses.length > 0 || unregResponses.length > 0) && (
-              <div className="mb-3 flex items-center gap-2">
-                <input
-                  type="search"
-                  value={respSearch}
-                  onChange={(e) => setRespSearch(e.target.value)}
-                  placeholder="Search by name, ITS, or phone…"
-                  className={`${inputCls} max-w-xs`}
-                />
-                {q && (
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
-                    {filteredResponses.length + filteredUnreg.length} of {responses.length + unregResponses.length}
-                  </span>
-                )}
+              <div className="mb-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="search"
+                    value={respSearch}
+                    onChange={(e) => setRespSearch(e.target.value)}
+                    placeholder="Search by name, ITS, or phone…"
+                    className={`${inputCls} max-w-xs`}
+                  />
+                  {(q || chipFiltersActive) && (
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {filteredResponses.length + filteredUnreg.length} of {responses.length + unregResponses.length}
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <FilterChips
+                    label="Type"
+                    value={typeFilter}
+                    onChange={setTypeFilter}
+                    options={[
+                      { value: "all", label: "All" },
+                      { value: "local", label: "Local" },
+                      { value: "mehman", label: "Mehmaan" },
+                    ]}
+                  />
+                  <FilterChips
+                    label="Age"
+                    value={ageFilter}
+                    onChange={setAgeFilter}
+                    options={[
+                      { value: "all", label: "All" },
+                      { value: "adults", label: "Adults" },
+                      { value: "kids", label: "Kids" },
+                    ]}
+                  />
+                  <FilterChips
+                    label="RSVP"
+                    value={rsvpFilter}
+                    onChange={setRsvpFilter}
+                    options={[
+                      { value: "all", label: "All" },
+                      { value: "yes", label: "Yes" },
+                      { value: "no", label: "No" },
+                    ]}
+                  />
+                  <FilterChips
+                    label="Response"
+                    value={responseFilter}
+                    onChange={setResponseFilter}
+                    options={[
+                      { value: "all", label: "All" },
+                      { value: "responded", label: "Responded" },
+                      { value: "not", label: "Not" },
+                    ]}
+                  />
+                </div>
               </div>
             )}
 
@@ -193,8 +359,8 @@ function NiyazEventPageInner() {
               <p className="text-sm text-gray-500 dark:text-gray-400">No responses yet.</p>
             ) : (
               <>
-                {filteredResponses.length === 0 && filteredUnreg.length === 0 && q ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">No responses match &quot;{respSearch}&quot;.</p>
+                {filteredResponses.length === 0 && filteredUnreg.length === 0 && (q || chipFiltersActive) ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">No responses match the current filters.</p>
                 ) : null}
 
                 {filteredResponses.length > 0 && (

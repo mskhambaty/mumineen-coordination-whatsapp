@@ -2161,7 +2161,9 @@ paths:
       description: >-
         Admin/leadership (portal). Returns the event's instance meta (title, event_date, hijri_date,
         meal, serving_type), a mode-aware Yes/No `tally`, the per-mumin niyaz_rsvp rows (name,
-        attending, source), unregistered RSVPs, and family head-counts. The `tally` is sourced from
+        attending, source, plus the member's `is_adult` and `local_mehman` so the detail page can
+        break Yes/No and responded/not-responded down by local vs mehmaan), unregistered RSVPs, and
+        family head-counts. The `tally` is sourced from
         the DB aggregate (getEventTallies — the same numbers as the days overview), NOT by counting
         the returned rows, so it is correct even when the event has more than 1000 responses.
       parameters:
