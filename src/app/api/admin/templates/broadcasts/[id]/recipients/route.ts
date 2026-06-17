@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
-import { normalizePhone, resolveRosterByPhone } from "@/lib/whatsapp/audience";
+import { fetchAllRows, normalizePhone, resolveRosterByPhone, type Pageable } from "@/lib/whatsapp/audience";
 import { categorizeFailure } from "@/lib/whatsapp/broadcast";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -28,19 +28,25 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     .maybeSingle();
   if (!broadcast) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const { data: recips } = await supabase
-    .from("template_broadcast_recipients")
-    .select("phone_e164, send_status, error_detail, skip_reason, was_in_window, sent_at")
-    .eq("broadcast_id", id)
-    .order("send_status", { ascending: true });
-  const rows = (recips ?? []) as {
+  // Page through every recipient: a bare await caps at PostgREST's 1000-row limit, which silently
+  // truncated the audience CSV for large broadcasts (e.g. 1858 sent, only 1000 exported). Page on a
+  // stable .order("id"); the send_status grouping for the CSV is reapplied in JS below.
+  type Row = {
     phone_e164: string;
     send_status: string;
     error_detail: string | null;
     skip_reason: string | null;
     was_in_window: boolean | null;
     sent_at: string | null;
-  }[];
+  };
+  const rows = await fetchAllRows<Row>(() =>
+    supabase
+      .from("template_broadcast_recipients")
+      .select("phone_e164, send_status, error_detail, skip_reason, was_in_window, sent_at")
+      .eq("broadcast_id", id)
+      .order("id", { ascending: true }) as unknown as Pageable<Row>,
+  );
+  rows.sort((a, b) => a.send_status.localeCompare(b.send_status));
 
   // Best-effort identity resolution by phone, via the shared resolver (picks up names through
   // mumin_phone_links, not just a direct whatsapp_e164 match).

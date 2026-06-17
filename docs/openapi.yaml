@@ -2754,7 +2754,7 @@ paths:
     get:
       tags: [admin, templates]
       summary: Broadcast send log with metrics
-      description: Admin/leadership only. Optionally filter by audience_key (e.g. niyaz_rsvp for the Niyaz RSVP sends).
+      description: Admin/leadership only. Optionally filter by audience_key (e.g. niyaz_rsvp for the Niyaz RSVP sends). count_sent / count_failed are delivery-aware: bumped at send time, then kept in sync as Meta's async delivery-status webhooks report messages undeliverable (so they match the per-recipient rollup, not just send-time outcomes).
       parameters:
         - { name: audience_key, in: query, required: false, schema: { type: string }, description: "Filter to broadcasts with this audience_key (e.g. niyaz_rsvp)." }
       responses:
@@ -2777,7 +2777,7 @@ paths:
     get:
       tags: [admin, templates]
       summary: Full recipient list for a broadcast — every status (JSON or CSV)
-      description: Admin/leadership only. Returns the entire audience the broadcast sent to (sent/failed/skipped/queued/delivered/read/replied), each with phone, best-effort identity (name/ITS resolved by phone), send status, window flag, sent_at, and a detail field (failure reason for failed rows, skip reason for skipped). Exposes PII to authorized staff (same level as /failures); never shown to visitors. ?format=csv returns a download.
+      description: Admin/leadership only. Returns the entire audience the broadcast sent to (sent/failed/skipped/queued/delivered/read/replied), each with phone, best-effort identity (name/ITS resolved by phone), send status, window flag, sent_at, and a detail field (failure reason for failed rows, skip reason for skipped). Paged server-side, so the full audience is returned even past PostgREST's 1000-row response cap. Exposes PII to authorized staff (same level as /failures); never shown to visitors. ?format=csv returns a download.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: format, in: query, required: false, schema: { type: string, enum: [csv] } }
@@ -2790,7 +2790,7 @@ paths:
     get:
       tags: [admin, templates]
       summary: Per-recipient failure list for a broadcast (JSON or CSV)
-      description: Admin/leadership only. Returns each failed recipient with phone, best-effort identity (name/ITS resolved by phone), window flag, and failure reason. The reason is Meta's captured error code/title (e.g. "131026: Undeliverable …") when the delivery-status webhook supplied one, otherwise a free/paid 24h-window fallback label. Exposes PII to authorized staff (same level as the audience CSV export); never shown to visitors. ?format=csv returns a download.
+      description: Admin/leadership only. Returns each failed recipient with phone, best-effort identity (name/ITS resolved by phone), window flag, and failure reason. The reason is Meta's captured error code/title (e.g. "131026: Undeliverable …") when the delivery-status webhook supplied one, otherwise a free/paid 24h-window fallback label. Paged server-side, so all failures are returned even past PostgREST's 1000-row response cap. Exposes PII to authorized staff (same level as the audience CSV export); never shown to visitors. ?format=csv returns a download.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: format, in: query, required: false, schema: { type: string, enum: [csv] } }

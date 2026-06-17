@@ -402,6 +402,12 @@ and Single-recipient dropdowns** (the popup still lists them so they can be reac
   hint for common codes, e.g. `131049` engagement/frequency cap, `131026` undeliverable) is stored in
   the recipient's `error_detail` — never any PII. Most large-broadcast failures are Meta *delivery*
   decisions reported async (not send-time rejections), so this is the only place the real reason exists.
+  A `failed` callback also keeps the broadcast's aggregate columns honest: on the **first** transition
+  of a recipient into `failed`, the webhook adjusts `template_broadcasts.count_failed +1` (and
+  `count_sent -1` when the row had been counted as sent) via the `adjust_broadcast_counters` RPC. Without
+  this the columns reflected send-time outcomes only, so the Broadcast-log header undercounted failures
+  (e.g. header `Failed 1` vs the live rollup's `Failed 65`). The first-transition guard makes it
+  idempotent against Meta's at-least-once webhook redelivery.
 - Failure visibility: send-time and delivery-status failures are surfaced per broadcast in the console —
   expand a Broadcast-log row for the status rollup + a grouped failure-reason breakdown
   (`failure_reasons` on `GET .../broadcasts/[id]`), with a per-recipient list / CSV from
@@ -429,7 +435,9 @@ and Single-recipient dropdowns** (the popup still lists them so they can be reac
   `createBroadcast()`; older broadcasts predating the columns read as "not recorded". The **full
   recipient list** (every status, not just failures) is available — loaded on demand (PII) and as a
   CSV — from `GET .../broadcasts/[id]/recipients` (admin/leadership only), reusing the failures route's
-  roster resolution.
+  roster resolution. Both the recipients and failures reads page server-side via `fetchAllRows`, so the
+  full set is returned even past PostgREST's 1000-row response cap (a bare query silently truncated the
+  CSV — e.g. 1000 of 1858 recipients).
 - API: `GET /api/admin/templates` (catalog + friendly-name/active annotations),
   `PUT /api/admin/templates/settings` (friendly name / active flag),
   `GET /api/admin/templates/segments` (reach-segment sizes),

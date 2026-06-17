@@ -20,20 +20,21 @@ let broadcastRow: unknown = { id: "b1", template_code: "t" };
 let failedRecips: unknown[] = [];
 let people: unknown[] = [];
 
-// Minimal chainable Supabase stub: maybeSingle() resolves the single-row reads; awaiting the builder
-// resolves the list reads, keyed by table.
+// Minimal chainable Supabase stub: maybeSingle() resolves the single-row reads. The recipient list
+// read is paged via fetchAllRows → .range(from, to), so it returns a 1000-row window each call;
+// awaiting the builder (.then) still resolves the un-paged reads (e.g. the mumineen identity lookup).
 const supabase = {
   from: (table: string) => {
+    const listData = (): unknown[] =>
+      table === "template_broadcast_recipients" ? failedRecips : table === "mumineen" ? people : [];
     const builder: Record<string, unknown> = {
       select: () => builder,
       eq: () => builder,
       in: () => builder,
+      order: () => builder,
+      range: (from: number, to: number) => Promise.resolve({ data: listData().slice(from, to + 1), error: null }),
       maybeSingle: () => Promise.resolve({ data: broadcastRow, error: null }),
-      then: (resolve: (v: unknown) => unknown) => {
-        if (table === "template_broadcast_recipients") return Promise.resolve({ data: failedRecips, error: null }).then(resolve);
-        if (table === "mumineen") return Promise.resolve({ data: people, error: null }).then(resolve);
-        return Promise.resolve({ data: [], error: null }).then(resolve);
-      },
+      then: (resolve: (v: unknown) => unknown) => Promise.resolve({ data: listData(), error: null }).then(resolve),
     };
     return builder;
   },
@@ -91,6 +92,23 @@ describe("broadcast failures route", () => {
     expect(body).toContain("Test Person");
     expect(body).toContain("+13125550001");
     expect(body).toContain("boom");
+  });
+
+  it("exports every failure past the 1000-row cap (pages, no silent truncation)", async () => {
+    requirePortalCaller.mockResolvedValue(allow());
+    // 1500 distinct failed rows: a single un-paged read caps at PostgREST's 1000-row limit, so a
+    // truncated implementation would yield only 1000 CSV data lines.
+    failedRecips = Array.from({ length: 1500 }, (_, i) => ({
+      phone_e164: `+1312555${String(i).padStart(4, "0")}`,
+      error_detail: "boom",
+      was_in_window: true,
+    }));
+
+    const res = await failuresGet(req("http://localhost/x?format=csv"), { params });
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    // 1 header line + 1500 data lines.
+    expect(body.split("\r\n")).toHaveLength(1501);
   });
 
   it("404s when the broadcast does not exist", async () => {
