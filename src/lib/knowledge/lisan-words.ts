@@ -22,12 +22,42 @@ export function normalizeWord(s: string): string {
     .trim();
 }
 
-// Consonant skeleton of a normalized transliteration: drop spaces + vowels and collapse
-// runs of the same letter. Dawat transliteration varies the vowels/endings a lot
-// ("sadqe"/"sadaqe"/"sadaqah" all share the skeleton "sdq" with "Sadaqa"), so a skeleton
-// match recovers words that trigram similarity misses. Empty for all-vowel inputs.
+// Aspirated/variant consonant digraphs that are pure spelling noise in Dawat transliteration
+// (raghbat≈ragbat, khubi≈kubi). Folded ONLY into the skeleton (the fuzzy fallback) — never the
+// exact `norm` — so precise matches like "khamr" vs "kamar" stay distinct on the exact tier.
+function foldDigraphs(s: string): string {
+  return s.replace(/gh/g, "g").replace(/kh/g, "k");
+}
+
+// Consonant skeleton of a normalized transliteration: fold variant digraphs, drop spaces + vowels,
+// and collapse runs of the same letter. Dawat transliteration varies the vowels/endings a lot
+// ("sadqe"/"sadaqe"/"sadaqah" all share the skeleton "sdq" with "Sadaqa"; "raghbat"→"ragbat"), so a
+// skeleton match recovers words that trigram similarity misses. Empty for all-vowel inputs.
 export function skeleton(norm: string): string {
-  return norm.replace(/ /g, "").replace(/[aeiou]/g, "").replace(/(.)\1+/g, "$1");
+  return foldDigraphs(norm).replace(/ /g, "").replace(/[aeiou]/g, "").replace(/(.)\1+/g, "$1");
+}
+
+// Lisan ud Dawat is STORED in standard Arabic letters, encoding the special Bohra sounds as DOUBLED
+// standard letters (verified from the data): ch→حح, p→ثث, g→كك, retroflex-ṭ→ضض. Members, however,
+// type the modern Perso-Arabic letters (چ پ گ ٹ …). Map the modern letters to the stored convention
+// and strip harakat/tatweel/ZWNJ so a member's "لالچ" matches the stored "لالحح".
+export function normalizeLisanScript(s: string): string {
+  return (s ?? "")
+    .normalize("NFC")
+    .replace(/چ/g, "حح")
+    .replace(/پ/g, "ثث")
+    .replace(/گ/g, "كك")
+    .replace(/ٹ/g, "ضض")
+    .replace(/ڈ/g, "دد")
+    .replace(/ڑ/g, "رر")
+    .replace(/ژ/g, "زز")
+    .replace(/ک/g, "ك")
+    .replace(/[یۍێ]/g, "ي")
+    .replace(/ے/g, "ي")
+    .replace(/[ہھۀ]/g, "ه")
+    .replace(/[ً-ٰٟـ‌‍]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // ~7% of dictionary rows bundle several word-forms in one entry, e.g.
@@ -132,27 +162,31 @@ export async function lookupLisanWord(query: string): Promise<LisanLookup> {
   if (!q) return { status: "not_found" };
   if (isTrivialLookup(q)) return { status: "not_found" }; // "Yes" / "2" / "ok" are not words
 
-  // Lisan-script input: match the lisan column directly.
+  // Lisan-script input: members type the modern Perso-Arabic letters (چ پ گ ٹ …) but the dictionary
+  // stores the doubled-standard convention (ch→حح …). Normalize the query the same way the stored
+  // `lisan_norm` / `lisan_forms_norm` columns were normalized, then match on those.
   if (ARABIC_RE.test(q)) {
-    // Exact match against an individual form (handles compound entries like
-    // "نعمة - نعم، انعم" where the whole `lisan` field never equals a single word).
+    const qn = normalizeLisanScript(q);
+    if (!qn) return { status: "not_found" };
+    // Exact normalized-form match (per-form array handles compound entries like "نعمة - نعم، انعم").
     const { data: formData } = await supabase
       .from("lisan_words")
       .select("transliteration, lisan, meaning, example")
-      .contains("lisan_forms", [q])
+      .contains("lisan_forms_norm", [qn])
       .limit(3);
     const formRows = (formData ?? []) as LisanEntry[];
     if (formRows.length) return { status: "ok", matches: formRows.slice(0, 3) };
 
+    // Substring over the normalized whole field → exact (whole == qn) or did-you-mean.
     const { data } = await supabase
       .from("lisan_words")
-      .select("transliteration, lisan, meaning, example")
-      .ilike("lisan", `%${q}%`)
+      .select("transliteration, lisan, meaning, example, lisan_norm")
+      .ilike("lisan_norm", `%${qn}%`)
       .limit(5);
-    const rows = (data ?? []) as LisanEntry[];
-    const exact = rows.filter((r) => (r.lisan ?? "").trim() === q);
-    if (exact.length) return { status: "ok", matches: exact.slice(0, 3) };
-    if (rows.length) return { status: "did_you_mean", suggestions: rows.slice(0, 3) };
+    const rows = (data ?? []) as (LisanEntry & { lisan_norm?: string | null })[];
+    const exact = rows.filter((r) => (r.lisan_norm ?? "").trim() === qn);
+    if (exact.length) return { status: "ok", matches: exact.slice(0, 3).map(pick) };
+    if (rows.length) return { status: "did_you_mean", suggestions: rows.slice(0, 3).map(pick) };
     return { status: "not_found" };
   }
 
@@ -268,6 +302,8 @@ export type PreparedLisanRow = {
   norm_skeleton: string;
   skeleton_forms: string[];
   lisan_forms: string[];
+  lisan_norm: string;
+  lisan_forms_norm: string[];
   meaning_terms: string[];
 };
 
@@ -292,6 +328,8 @@ export function prepareLisanRow(r: LisanImportRow): PreparedLisanRow | null {
     norm_skeleton: skeleton(norm),
     skeleton_forms,
     lisan_forms,
+    lisan_norm: normalizeLisanScript(lisan ?? ""),
+    lisan_forms_norm: Array.from(new Set(lisan_forms.map(normalizeLisanScript).filter(Boolean))),
     meaning_terms: meaningTerms((r.meaning ?? "").trim() || null),
   };
 }
