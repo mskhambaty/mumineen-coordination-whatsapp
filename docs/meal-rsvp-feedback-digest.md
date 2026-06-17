@@ -161,13 +161,16 @@ the attendance it represents is already counted in `niyaz_rsvp`, so adding it wo
   (`/admin/niyaz/events/[id]?mode=`) showing **Yes count, No count (each with an adults/kids breakdown), Thaals (⌈yes ÷ 8⌉), and the response list** via
   `GET /api/admin/niyaz/instances/[id]/responses?mode=`. The Yes/No headline comes from the mode-aware
   DB aggregate (`getEventTallies`) returned as `tally`, **not** by counting the fetched rows — so it
-  matches the overview and is correct past the 1000-row PostgREST cap (the response list itself is
-  fetched with an explicit high `.range()` so it isn't silently truncated). A **Breakdown** table
-  splits Yes/No (with adults/kids) and **responded vs not responded** by **local vs mehmaan**
-  (`src/lib/rsvp/niyaz-breakdown.ts`, derived client-side from the fetched rows in the active mode so
-  the group Yes/No reconciles with the headline; responded = `whatsapp`/`admin` source, mode-
-  independent; unregistered guests are excluded). The response list also has **Type / Age / RSVP /
-  Response** chip filters. The detail page inherits the overview's Max/Min via the `?mode=` link. (`GET/PUT /api/admin/niyaz/instances/[id]/config`
+  matches the overview and is correct past the 1000-row PostgREST `db-max-rows` cap. **That cap is
+  real and not overridable by `.range()`**, so the returned `responses` list (and its chip filters)
+  reflect at most 1000 rows — the page shows a notice when truncated. A **Breakdown** table splits
+  Yes/No (with adults/kids) and **responded vs not responded** by **local vs mehmaan**; it comes from
+  the `niyaz_event_breakdown(id)` DB aggregate (RPC, `20260617230000_*`) — **not** counted from the
+  capped row list — so its group totals reconcile with the headline. `assembleBreakdown`
+  (`src/lib/rsvp/niyaz-breakdown.ts`) picks the min/max columns for the active mode; responded =
+  `whatsapp`/`admin` source (mode-independent); unregistered guests are excluded. The response list
+  also has **Type / Age / RSVP / Response** chip filters. The detail page inherits the overview's
+  Max/Min via the `?mode=` link. (`GET/PUT /api/admin/niyaz/instances/[id]/config`
   still exists as an instance-keyed alias.)
 
 The composer sends `ashara_relay_double_rsvp` (a **Flow** button "Attending" + a "Not attending"

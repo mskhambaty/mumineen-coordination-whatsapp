@@ -1,12 +1,12 @@
 "use client";
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 
 import { canAccessPortal } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 import InfoIcon from "@/components/admin/niyaz/InfoIcon";
-import { computeNiyazBreakdown, hasResponded, isKid, isMehman } from "@/lib/rsvp/niyaz-breakdown";
+import { hasResponded, isKid, isMehman, type NiyazBreakdown } from "@/lib/rsvp/niyaz-breakdown";
 
 type RespRow = {
   id: string;
@@ -64,6 +64,10 @@ function sourceMeta(source: string) {
 const inputCls =
   "block w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-950";
 
+// PostgREST caps the per-mumin response list at db-max-rows (1000); the list/filters reflect at most
+// this many rows. The headline tally and the Breakdown panel are DB aggregates and cover every row.
+const RESPONSE_LIST_CAP = 1000;
+
 function dayLabel(date: string | null): string {
   if (!date) return "—";
   const d = new Date(`${date}T12:00:00`);
@@ -119,6 +123,7 @@ function NiyazEventPageInner() {
   const [responses, setResponses] = useState<RespRow[]>([]);
   const [unregResponses, setUnregResponses] = useState<UnregRow[]>([]);
   const [tally, setTally] = useState<Tally | null>(null);
+  const [breakdown, setBreakdown] = useState<NiyazBreakdown | null>(null);
   const [respSearch, setRespSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "local" | "mehman">("all");
   const [ageFilter, setAgeFilter] = useState<"all" | "adults" | "kids">("all");
@@ -139,6 +144,7 @@ function NiyazEventPageInner() {
     setResponses((data.responses as RespRow[]) ?? []);
     setUnregResponses((data.unregistered as UnregRow[]) ?? []);
     setTally((data.tally as Tally) ?? null);
+    setBreakdown((data.breakdown as NiyazBreakdown) ?? null);
     setLoaded(true);
   }, []);
 
@@ -179,15 +185,6 @@ function NiyazEventPageInner() {
     : q
       ? unregResponses.filter((u) => u.phone_e164.toLowerCase().includes(q) || (u.its_number ?? "").toLowerCase().includes(q))
       : unregResponses;
-
-  // Local-vs-Mehmaan × Yes/No/responded breakdown, derived from the full row set in the active mode
-  // so the group Yes/No counts reconcile with the headline tally above.
-  const breakdown = useMemo(() => computeNiyazBreakdown(responses.map((r) => ({
-    attending: r.attending,
-    source: r.source,
-    is_adult: r.mumin?.is_adult ?? null,
-    local_mehman: r.mumin?.local_mehman ?? null,
-  })), mode), [responses, mode]);
 
   // Yes/No headline from the mode-aware DB aggregate (matches the days overview exactly).
   const yesCount = tally?.yes ?? 0;
@@ -246,8 +243,11 @@ function NiyazEventPageInner() {
           <div className="mb-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <h2 className="mb-3 flex items-center gap-1 text-lg font-semibold">
               Breakdown
-              <InfoIcon label="Yes/No use the same min/max mode as the headline. Responded = confirmed via WhatsApp or admin; everyone else is still on a seeded/registration default. Unregistered guests are not included here." />
+              <InfoIcon label="Counts come from a DB aggregate, so they cover the whole event (not the 1000-row response list). Yes/No use the same min/max mode as the headline. Responded = confirmed via WhatsApp or admin; everyone else is still on a seeded/registration default. Unregistered guests are not included here." />
             </h2>
+            {!breakdown ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
+            ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="text-xs uppercase text-gray-400">
@@ -287,10 +287,17 @@ function NiyazEventPageInner() {
                 </tbody>
               </table>
             </div>
+            )}
           </div>
 
           <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <h2 className="mb-3 text-lg font-semibold">RSVP responses</h2>
+
+            {responses.length >= RESPONSE_LIST_CAP && (
+              <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+                This list and its filters show the most recent {RESPONSE_LIST_CAP.toLocaleString()} responses only. The headline counts and the Breakdown above cover the whole event.
+              </p>
+            )}
 
             {(responses.length > 0 || unregResponses.length > 0) && (
               <div className="mb-3 space-y-2">

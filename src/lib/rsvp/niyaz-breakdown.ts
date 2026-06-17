@@ -1,21 +1,15 @@
-// Pure, React-free breakdown math for the admin Niyaz event-detail page.
+// Local-vs-Mehmaan breakdown for the admin Niyaz event-detail "Breakdown" panel.
 //
-// The page already holds the full per-mumin niyaz_rsvp row set, so we derive the Local-vs-Mehmaan
-// and responded-vs-not-responded splits client-side rather than adding new SQL views. To stay exactly
-// consistent with the mode-aware headline tally:
-//   - "max" counts every row (matches the niyaz_event_tallies view)
-//   - "min" counts only source in (whatsapp, admin) (matches niyaz_event_tallies_min)
-// Responded/not-responded is source-based and therefore mode-independent.
-// Unregistered guests are excluded here (no local/mehmaan or person-level source), same as the headline.
+// IMPORTANT: this must NOT be computed from the per-mumin niyaz_rsvp list the API returns — that list
+// is capped by PostgREST's db-max-rows (1000), so on a large event it is a truncated slice and any
+// count derived from it is wrong. The counts come from the DB aggregate `niyaz_event_breakdown(id)`
+// (see the matching migration), exactly as the headline Yes/No tally already does.
+//
+// The RPC returns one row per local/mehman group with both min and max columns; assembleBreakdown
+// picks the columns for the active mode and rolls the groups up into a total. The classifier helpers
+// below are still used client-side for the responses-table chip filters.
 
 export type TallyMode = "min" | "max";
-
-export type BreakdownRow = {
-  attending: boolean;
-  source: string;
-  is_adult: boolean | null;
-  local_mehman: string | null;
-};
 
 // is_adult is null for adults (roster convention); only an explicit false is a kid.
 export function isKid(isAdult: boolean | null): boolean {
@@ -32,10 +26,25 @@ export function hasResponded(source: string): boolean {
   return source === "whatsapp" || source === "admin";
 }
 
-// Whether a row contributes to the Yes/No counts in the given mode.
-export function countsInMode(source: string, mode: TallyMode): boolean {
-  return mode === "max" || hasResponded(source);
-}
+// One group row as returned by the niyaz_event_breakdown RPC. Counts may arrive as number or string
+// (Postgres bigint over PostgREST), so callers coerce with Number().
+export type BreakdownRpcRow = {
+  is_mehman: boolean;
+  yes_min: number | string;
+  no_min: number | string;
+  yes_adults_min: number | string;
+  yes_kids_min: number | string;
+  no_adults_min: number | string;
+  no_kids_min: number | string;
+  yes_max: number | string;
+  no_max: number | string;
+  yes_adults_max: number | string;
+  yes_kids_max: number | string;
+  no_adults_max: number | string;
+  no_kids_max: number | string;
+  responded: number | string;
+  not_responded: number | string;
+};
 
 export type GroupBreakdown = {
   yes: number;
@@ -60,44 +69,55 @@ function emptyGroup(): GroupBreakdown {
   return { yes: 0, no: 0, yesAdults: 0, yesKids: 0, noAdults: 0, noKids: 0, responded: 0, notResponded: 0, responseRate: 0 };
 }
 
-function accumulate(group: GroupBreakdown, row: BreakdownRow, mode: TallyMode): void {
-  // Responded/not-responded reflects engagement regardless of mode.
-  if (hasResponded(row.source)) group.responded += 1;
-  else group.notResponded += 1;
+const n = (v: number | string): number => Number(v) || 0;
 
-  // Yes/No (and the adult/kid split) honour the active mode so they reconcile with the headline.
-  if (!countsInMode(row.source, mode)) return;
-  const kid = isKid(row.is_adult);
-  if (row.attending) {
-    group.yes += 1;
-    if (kid) group.yesKids += 1;
-    else group.yesAdults += 1;
-  } else {
-    group.no += 1;
-    if (kid) group.noKids += 1;
-    else group.noAdults += 1;
-  }
+// Map one RPC row to a GroupBreakdown for the active mode. Yes/No (and the adult/kid split) honour
+// min vs max so they reconcile with the headline; responded/not-responded is source-based (same in
+// both modes).
+function fromRpcRow(row: BreakdownRpcRow, mode: TallyMode): GroupBreakdown {
+  const min = mode === "min";
+  const responded = n(row.responded);
+  const notResponded = n(row.not_responded);
+  const people = responded + notResponded;
+  return {
+    yes: n(min ? row.yes_min : row.yes_max),
+    no: n(min ? row.no_min : row.no_max),
+    yesAdults: n(min ? row.yes_adults_min : row.yes_adults_max),
+    yesKids: n(min ? row.yes_kids_min : row.yes_kids_max),
+    noAdults: n(min ? row.no_adults_min : row.no_adults_max),
+    noKids: n(min ? row.no_kids_min : row.no_kids_max),
+    responded,
+    notResponded,
+    responseRate: people > 0 ? responded / people : 0,
+  };
 }
 
-function finalizeRate(group: GroupBreakdown): void {
-  const people = group.responded + group.notResponded;
-  group.responseRate = people > 0 ? group.responded / people : 0;
+function addInto(total: GroupBreakdown, g: GroupBreakdown): void {
+  total.yes += g.yes;
+  total.no += g.no;
+  total.yesAdults += g.yesAdults;
+  total.yesKids += g.yesKids;
+  total.noAdults += g.noAdults;
+  total.noKids += g.noKids;
+  total.responded += g.responded;
+  total.notResponded += g.notResponded;
 }
 
-export function computeNiyazBreakdown(rows: BreakdownRow[], mode: TallyMode): NiyazBreakdown {
+export function assembleBreakdown(rows: BreakdownRpcRow[], mode: TallyMode): NiyazBreakdown {
   const local = emptyGroup();
   const mehman = emptyGroup();
   const total = emptyGroup();
 
   for (const row of rows) {
-    const group = isMehman(row.local_mehman) ? mehman : local;
-    accumulate(group, row, mode);
-    accumulate(total, row, mode);
+    const g = fromRpcRow(row, mode);
+    addInto(row.is_mehman ? mehman : local, g);
+    addInto(total, g);
   }
 
-  finalizeRate(local);
-  finalizeRate(mehman);
-  finalizeRate(total);
+  for (const grp of [local, mehman, total]) {
+    const people = grp.responded + grp.notResponded;
+    grp.responseRate = people > 0 ? grp.responded / people : 0;
+  }
 
   return { local, mehman, total };
 }
