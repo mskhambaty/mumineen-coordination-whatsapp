@@ -269,23 +269,28 @@ All notification sends are fire-and-forget (failures never block the agent reply
    clears `contact_for_issues` (the user/membership is kept); removing a `reference` deletes the
    row.
 
-## Issue Deduplication
+## Issue grouping — suggestion-only (no auto-link)
 
-When `POST /api/escalations` creates an escalation, it checks for matching open issues
-**before** creating a new one. The flow:
+`POST /api/escalations` **always creates its own issue + workspace task** for each escalation and
+links only that conversation. It does **not** auto-link to an existing issue.
 
-1. Fetch the user's last 8 inbound messages (24h window) for context.
-2. Call `matchIssuesToEscalation()` (AI matching with keyword fallback) against all
-   open/in-progress issues.
-3. **Match found** → link the escalation to the existing issue via `issue_escalation_links`
-   and `linked_issue_id`. No new issue or workspace task is created. The activity log
-   records `linked_to_issue` with `deduplicated: true` and the matched issue number.
-4. **No match** → create a new issue + workspace task + link + notify (original flow).
+This replaced an earlier auto-dedupe that linked each new escalation to the best AI/keyword match.
+That over-grouped on topical adjacency — e.g. parking-pass requests (and even a registration
+request) were auto-linked onto a carpool issue because they shared the `transport` department and
+words like "car / parking / masjid". Auto-linking the model into a consequential action also runs
+against the agent guardrails in `AGENTS.md`.
 
-The response includes `deduplicated: true/false` so callers know which path was taken.
+Grouping is now **human-confirmed**:
 
-The matching logic lives in `src/lib/escalation/issue-match.ts` and is shared with the
-portal AI Suggestions endpoint.
+- When a triager opens an escalation, `GET /api/admin/escalations/[phone]/suggestions` surfaces
+  matching open issues via `matchIssuesToEscalation()` (`src/lib/escalation/issue-match.ts`).
+- Each match carries a `confidence` (`high` | `medium` | `low`). Only matches at or above
+  `SUGGESTION_CONFIDENCE_THRESHOLD` (default **`high`**) are surfaced — the matcher over-matches on
+  topical adjacency, so weaker matches would just be noise. Keyword-fallback matches are capped at
+  `medium` (never auto-surface under the `high` threshold).
+- The triager applies the link deliberately (or uses the AI Grouping modal for batch grouping).
+
+`POST /api/escalations` still returns `deduplicated: false` for backward compatibility.
 
 ## AI Suggestions
 

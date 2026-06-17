@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { matchIssuesToEscalation } from "@/lib/escalation/issue-match";
 import { notifyEscalationTeam } from "@/lib/escalation/notify";
 import { notifyDepartmentIssueContacts } from "@/lib/issues/notify";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -140,77 +139,16 @@ export async function POST(req: NextRequest) {
     // fire-and-forget
   }
 
-  // --- Dedupe: check for matching open issues before creating a new one ---
+  // Each escalation gets its own issue + workspace task. We intentionally do NOT auto-link to an
+  // existing issue: AI topical matching over-grouped unrelated escalations (e.g. parking-pass
+  // requests onto a carpool issue). Grouping is now human-confirmed — the inbox surfaces
+  // high-confidence match suggestions (GET /api/admin/escalations/[phone]/suggestions) that a
+  // triager applies deliberately.
   const issueTitle = title || reason || "Escalation";
   const issuePriority = priority === "urgent" ? "high" : "medium";
   let issueId: string | null = null;
-  let deduplicated = false;
 
-  try {
-    // Gather recent inbound messages for matching context
-    const { data: recentMsgs } = await supabase
-      .from("messages")
-      .select("body")
-      .eq("phone_e164", phone)
-      .eq("direction", "inbound")
-      .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-      .order("created_at", { ascending: false })
-      .limit(8);
-
-    const msgContext = (recentMsgs ?? [])
-      .filter((m) => m.body)
-      .map((m) => (m.body as string).slice(0, 150))
-      .reverse()
-      .join(" → ");
-
-    const matchContext = `${issueTitle} ${description || ""} ${reason}`.trim();
-    const matches = await matchIssuesToEscalation(
-      supabase,
-      matchContext,
-      category,
-      priority,
-      msgContext,
-    );
-
-    if (matches.length > 0) {
-      // Link this escalation to the existing issue instead of creating a new one
-      const matched = matches[0];
-      issueId = matched.id;
-      deduplicated = true;
-
-      await supabase.from("issue_escalation_links").insert({
-        issue_id: matched.id,
-        conversation_session_id: data.id,
-      });
-
-      await supabase
-        .from("conversation_sessions")
-        .update({ linked_issue_id: matched.id })
-        .eq("id", data.id);
-
-      try {
-        const { logEscalationActivity } = await import("@/lib/escalation/activity");
-        await logEscalationActivity({
-          sessionId: data.id,
-          issueId: matched.id,
-          phoneE164: phone,
-          action: "linked_to_issue",
-          actorLabel: "AI Agent",
-          details: {
-            deduplicated: true,
-            matched_issue: `ISS-${matched.issue_number}`,
-            reason: matched.relevance_reason,
-          },
-        });
-      } catch {
-        // fire-and-forget
-      }
-    }
-  } catch (err) {
-    console.error("Issue dedup check failed, will create new issue:", err);
-  }
-
-  // No match found — create a new issue + workspace task
+  // Create the new issue + workspace task.
   if (!issueId) {
     try {
       const { data: issue } = await supabase
@@ -309,7 +247,7 @@ export async function POST(req: NextRequest) {
     priority,
     category,
     issue_id: issueId,
-    deduplicated,
+    deduplicated: false,
     message:
       priority === "urgent"
         ? "Escalated to the support team as urgent. Reassure the user that someone will reach out right away."

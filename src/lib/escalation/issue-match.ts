@@ -7,6 +7,8 @@ import {
 } from "@/lib/ai/model";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
+export type MatchConfidence = "high" | "medium" | "low";
+
 export type MatchingIssue = {
   id: string;
   issue_number: number;
@@ -15,7 +17,20 @@ export type MatchingIssue = {
   priority: string;
   department_name: string | null;
   relevance_reason: string;
+  confidence: MatchConfidence;
 };
+
+// Minimum confidence for a match to be surfaced as a grouping suggestion. Set to "high" because
+// the matcher tends to over-match on topical adjacency (e.g. parking-pass requests look "related"
+// to a carpool issue); only genuinely same-problem matches should reach the triager. Lower to
+// "medium" to surface more (noisier) suggestions.
+export const SUGGESTION_CONFIDENCE_THRESHOLD: MatchConfidence = "high";
+
+const CONFIDENCE_RANK: Record<MatchConfidence, number> = { low: 0, medium: 1, high: 2 };
+
+export function meetsConfidence(c: MatchConfidence, threshold: MatchConfidence): boolean {
+  return CONFIDENCE_RANK[c] >= CONFIDENCE_RANK[threshold];
+}
 
 type IssueRow = {
   id: string;
@@ -90,7 +105,13 @@ export function keywordMatch(
     priority: s.issue.priority as string,
     department_name: deptName(s.issue),
     relevance_reason: `Keyword match based on escalation context`,
+    // Keyword overlap is a weak signal — never "high". Cap at "medium" for strong overlap.
+    confidence: (s.score >= 6 ? "medium" : "low") as MatchConfidence,
   }));
+}
+
+function normalizeConfidence(value: unknown): MatchConfidence {
+  return value === "high" || value === "medium" || value === "low" ? value : "low";
 }
 
 export async function matchIssuesToEscalation(
@@ -133,7 +154,7 @@ export async function matchIssuesToEscalation(
       messages: [
         {
           role: "system",
-          content: `You are a support triage assistant. Given an escalation and a list of open issues, identify the top 1-3 issues most likely related to this escalation. Use the escalation reason AND the user's recent messages to determine what the issue is about. For each match, explain in one sentence why it's relevant. Only include genuinely relevant matches — if nothing is relevant, return an empty array. Return valid JSON: { "matches": [{ "issue_number": N, "reason": "..." }] }`,
+          content: `You are a support triage assistant. Given an escalation and a list of open issues, identify which open issues describe the SAME underlying problem or request as this escalation — not merely the same topic, department, or category. Two transport items can be unrelated (e.g. a parking-pass request is NOT the same as a carpool offer). Use the escalation reason AND the user's recent messages. For each match, give a one-sentence reason and a confidence: "high" only when it is clearly the same incident/request; "medium" when plausibly the same; "low" when only loosely related (prefer omitting low matches). If nothing is genuinely the same problem, return an empty array. Return valid JSON: { "matches": [{ "issue_number": N, "reason": "...", "confidence": "high|medium|low" }] }`,
         },
         {
           role: "user",
@@ -143,7 +164,7 @@ export async function matchIssuesToEscalation(
     });
 
     const text = resp.choices[0]?.message?.content ?? "{}";
-    const parsed = JSON.parse(text) as { matches?: Array<{ issue_number: number; reason: string }> };
+    const parsed = JSON.parse(text) as { matches?: Array<{ issue_number: number; reason: string; confidence?: unknown }> };
     const matches = parsed.matches ?? [];
 
     if (matches.length > 0) {
@@ -158,6 +179,7 @@ export async function matchIssuesToEscalation(
           priority: issue.priority as string,
           department_name: deptName(issue as IssueRow),
           relevance_reason: m.reason,
+          confidence: normalizeConfidence(m.confidence),
         }];
       });
       if (aiResults.length > 0) return aiResults;

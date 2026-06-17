@@ -20,6 +20,16 @@ type Message = {
   whatsapp_message_id: string | null;
   created_at: string;
   raw_payload: unknown;
+  // Which WABA number this message went to/from (NULL = primary account).
+  phone_number_id?: string | null;
+};
+
+// WABA account directory returned by the conversations API; maps phone_number_id → human label.
+type InboxAccount = {
+  phoneNumberId: string;
+  label: string;
+  displayNumber: string | null;
+  isPrimary: boolean;
 };
 
 type ToolCall = {
@@ -224,6 +234,8 @@ export default function ConversationsPage() {
     return `/api/admin/conversations${qs ? `?${qs}` : ""}`;
   };
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  // WABA account directory (for showing which number a message went to/from).
+  const [accounts, setAccounts] = useState<InboxAccount[]>([]);
   // Initialize selection/tab from the URL so escalation email deep links land
   // directly on the right thread (?phone=...&tab=escalations).
   const [selectedPhone, setSelectedPhone] = useState<string | null>(
@@ -443,6 +455,35 @@ export default function ConversationsPage() {
     }
     return searchedConversations[0] ?? visibleConversations[0] ?? null;
   }, [conversations, visibleConversations, searchedConversations, selectedPhone]);
+
+  // WABA-number attribution for the open thread. A message's phone_number_id (NULL = primary) maps
+  // to an account; we badge each message only when the thread spans more than one number, and show a
+  // single "via <number>" line otherwise (for any single number, including the primary).
+  const accountByPnid = useMemo(() => {
+    const m = new Map<string, InboxAccount>();
+    for (const a of accounts) m.set(a.phoneNumberId, a);
+    return m;
+  }, [accounts]);
+  const primaryAccount = useMemo(() => accounts.find((a) => a.isPrimary) ?? null, [accounts]);
+  const messageAccountLabel = (pnid: string | null | undefined): string => {
+    const a = pnid ? accountByPnid.get(pnid) : primaryAccount;
+    if (a) return a.label;
+    return pnid ? "Other" : primaryAccount?.label ?? "Primary";
+  };
+  const threadAccounts = useMemo(() => {
+    if (!selected) return [] as Array<{ key: string; account: InboxAccount | null }>;
+    const seen = new Map<string, InboxAccount | null>();
+    for (const m of selected.messages) {
+      const account = m.phone_number_id ? accountByPnid.get(m.phone_number_id) ?? null : primaryAccount;
+      const key = account?.phoneNumberId ?? m.phone_number_id ?? "primary";
+      if (!seen.has(key)) seen.set(key, account);
+    }
+    return [...seen.entries()].map(([key, account]) => ({ key, account }));
+  }, [selected, accountByPnid, primaryAccount]);
+  const threadSpansNumbers = threadAccounts.length > 1;
+  // Single-number thread: show a "via <number>" line for whichever number it's on — including the
+  // primary. Null only when the number can't be resolved to a configured account.
+  const singleViaAccount = !threadSpansNumbers ? threadAccounts[0]?.account ?? null : null;
   const latestMessageId = selected?.messages[selected.messages.length - 1]?.id ?? null;
   const unreadInboundCount = selected?.unread_inbound_count ?? 0;
   const unreadMessageStartIndex = selected
@@ -604,6 +645,7 @@ export default function ConversationsPage() {
       const items = (data.conversations ?? []) as Conversation[];
       setConversations((prev) => pinSelected(items, prev, selectedPhoneRef.current));
       setResolvedHasMore(Boolean(data.resolved_has_more));
+      if (Array.isArray(data.accounts)) setAccounts(data.accounts as InboxAccount[]);
       // Use the ref, not the closed-over value, so a late-resolving load can't overwrite a
       // selection the user made after this fetch started.
       if (!selectedPhoneRef.current && items[0]) setSelectedPhone(items[0].phone_e164);
@@ -624,6 +666,7 @@ export default function ConversationsPage() {
       const items = (data.conversations ?? []) as Conversation[];
       setConversations((prev) => pinSelected(items, prev, selectedPhoneRef.current));
       setResolvedHasMore(Boolean(data.resolved_has_more));
+      if (Array.isArray(data.accounts)) setAccounts(data.accounts as InboxAccount[]);
     } catch {
       // Ignore transient polling failures.
     }
@@ -1474,6 +1517,13 @@ export default function ConversationsPage() {
             </div>
 
             <div ref={messagePaneRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-gray-50 p-5 dark:bg-gray-950/40">
+              {singleViaAccount && (
+                <div className="flex justify-center">
+                  <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                    via {singleViaAccount.label}{singleViaAccount.displayNumber ? ` · ${singleViaAccount.displayNumber}` : ""}
+                  </span>
+                </div>
+              )}
               {selected?.messages.map((message, index) => {
                 const isNewInbound =
                   unreadInboundCount > 0 &&
@@ -1492,6 +1542,11 @@ export default function ConversationsPage() {
                       <MessageContent message={message} />
                       <div className={`mt-2 flex items-center gap-2 text-xs ${message.direction === "outbound" ? "text-blue-100" : isNewInbound ? "text-green-700 dark:text-green-300" : "text-gray-400 dark:text-gray-500"}`}>
                         <span>{formatDate(message.created_at)}</span>
+                        {threadSpansNumbers && (
+                          <span className="rounded-full bg-black/10 px-2 py-0.5 font-medium dark:bg-white/15" title="WABA number this message used">
+                            {message.direction === "inbound" ? "to " : "from "}{messageAccountLabel(message.phone_number_id)}
+                          </span>
+                        )}
                         {isNewInbound && <span className="rounded-full bg-green-100 px-2 py-0.5 font-medium text-green-700 dark:bg-green-900 dark:text-green-200">New</span>}
                       </div>
                     </div>

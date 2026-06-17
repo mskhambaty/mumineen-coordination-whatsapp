@@ -486,8 +486,11 @@ paths:
           description: >-
             Conversations with handling mode, messages, and tool calls. Body also includes
             `resolved_has_more` (boolean) — true when more resolved escalations exist beyond
-            `resolvedLimit`. Each conversation carries `escalation_status` (none|pending|resolved),
-            the canonical open/resolved lifecycle field.
+            `resolvedLimit` — and `accounts`: an array of WABA numbers
+            (`{ phoneNumberId, label, displayNumber, isPrimary }`) the UI uses to attribute each
+            message to the number it went to/from. Each conversation carries `escalation_status`
+            (none|pending|resolved), the canonical open/resolved lifecycle field; each message carries
+            `phone_number_id` (NULL = primary account) identifying which WABA number it used.
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
   /admin/conversations/religious-export:
