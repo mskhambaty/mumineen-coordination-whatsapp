@@ -417,12 +417,12 @@ export default function ConversationsPage() {
   }
 
   const selected = useMemo(() => {
-    // An explicit selection (row click or an issue's "View" link) must win even when the active
-    // list filters would hide that thread from the rail — resolve it from the full loaded set,
-    // not just the filtered/visible list. Otherwise the detail pane snaps to the first queue item.
+    // An explicit selection (row click or an issue's "View" link) resolves to THAT thread from the
+    // full loaded set — or to nothing while it's still loading. Never fall back to a different
+    // conversation here: doing so makes the detail pane snap to the first queue item mid-navigation
+    // (the target is fetched async via loadConversationThread and appears a tick later).
     if (selectedPhone) {
-      const exact = conversations.find((c) => c.phone_e164 === selectedPhone);
-      if (exact) return exact;
+      return conversations.find((c) => c.phone_e164 === selectedPhone) ?? null;
     }
     return searchedConversations[0] ?? visibleConversations[0] ?? null;
   }, [conversations, visibleConversations, searchedConversations, selectedPhone]);
