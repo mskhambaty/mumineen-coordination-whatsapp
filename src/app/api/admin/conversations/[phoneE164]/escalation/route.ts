@@ -28,10 +28,11 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
 
   // A manual escalation from the inbox also stamps when/by-what, so it surfaces
   // like an AI escalation (reason left null — an admin can see the thread).
+  // escalation_status is derived from escalation_stage by a DB trigger — set stage only.
   const updates: Record<string, unknown> =
     status === "pending"
-      ? { escalation_status: "pending", escalation_stage: "pending", escalated_at: new Date().toISOString(), escalation_source: "manual" }
-      : { escalation_status: status, escalation_stage: status === "resolved" ? "resolved" : "none" };
+      ? { escalation_stage: "pending", escalated_at: new Date().toISOString(), escalation_source: "manual" }
+      : { escalation_stage: status === "resolved" ? "resolved" : "none" };
 
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase

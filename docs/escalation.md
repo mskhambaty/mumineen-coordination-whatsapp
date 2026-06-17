@@ -30,15 +30,24 @@ escalation_status = 'resolved' ──►  stays in the Escalations tab as histor
 
 Re-escalation is allowed (sets `pending` again). The AI keeps replying throughout.
 
-### Canonical status vs. work stage
+### Status is derived from stage (single source of truth)
 
-`escalation_status` (`none` / `pending` / `resolved`) is the **authoritative** open-vs-resolved
-lifecycle and drives tab membership. `escalation_stage` (`pending` / `picked_up` /
-`waiting_on_department` / `resolved`) is the fine-grained **work sub-state while pending** — never
-the authority on resolved-ness. All resolved-ness checks (tab membership, the issue panel's SLA
-"breaching" flag) read `escalation_status`. Resolve writes set both columns; the
-`20260616010000_reconcile_escalation_stage_status` migration realigns any legacy rows where they
-diverged.
+`escalation_stage` (`none` / `pending` / `picked_up` / `waiting_on_department` / `resolved`) is the
+**single source of truth**. `escalation_status` (`none` / `pending` / `resolved`) is a coarse
+projection of it and drives tab membership / the hot conversations query (it stays a real, indexed
+column for that). The two used to be hand-maintained separately and **diverged** (a real prod bug);
+now a DB trigger derives `escalation_status` from `escalation_stage` on every insert/update
+(`escalation_status_from_stage()` + `set_escalation_status_from_stage`, migration
+`20260617043459_escalation_status_derived_from_stage`), so they can never diverge again:
+
+| `escalation_stage` | derived `escalation_status` |
+|---|---|
+| `resolved` | `resolved` |
+| `none` / null | `none` |
+| `pending` / `picked_up` / `waiting_on_department` | `pending` |
+
+**Write only `escalation_stage`** — never set `escalation_status` in app code (the trigger overrides
+it). Reads of `escalation_status` are fine and encouraged for the open/resolved/none lifecycle.
 
 ### Resolved escalations in the inbox
 
