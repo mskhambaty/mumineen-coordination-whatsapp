@@ -155,6 +155,8 @@ type IssueEscalation = {
   session_id: string;
   phone_e164: string;
   display_name: string | null;
+  link_status: "open" | "resolved";
+  link_resolved_at: string | null;
   escalation_status: string;
   escalation_stage: string;
   escalation_priority: string;
@@ -259,6 +261,9 @@ export default function ConversationsPage() {
   // Issues tab state
   const [issues, setIssues] = useState<Issue[]>([]);
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  // Issues tab status filter. "active" = open + in_progress; resolved issues (incl. ones auto-closed
+  // when all their links resolved) are hidden unless "Resolved"/"All" is selected.
+  const [issueStatusFilter, setIssueStatusFilter] = useState<"active" | "open" | "in_progress" | "resolved" | "all">("active");
   const [issueDetail, setIssueDetail] = useState<{ issue: IssueDetail; escalations: IssueEscalation[]; activities: ActivityEntry[] } | null>(null);
   const [issueDetailLoading, setIssueDetailLoading] = useState(false);
   const [showCreateIssue, setShowCreateIssue] = useState(false);
@@ -596,11 +601,11 @@ export default function ConversationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedIssueId]);
 
-  // Refresh issues when switching to the Issues tab.
+  // Refresh issues when switching to the Issues tab or changing the status filter.
   useEffect(() => {
     if (tab === "issues" && hasInboxAccess) void fetchIssues();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
+  }, [tab, issueStatusFilter]);
 
   // Resolved escalations aren't loaded by default — refetch with them included when the team
   // selects the "Resolved"/"All" stage filter, or asks for an older page via "Load more".
@@ -709,7 +714,7 @@ export default function ConversationsPage() {
 
   async function fetchIssues() {
     try {
-      const res = await apiFetch("/api/admin/issues?status=open");
+      const res = await apiFetch(`/api/admin/issues?status=${issueStatusFilter}`);
       if (!res.ok) return;
       const data = await res.json().catch(() => ({}));
       setIssues((data.issues ?? []) as Issue[]);
@@ -1204,10 +1209,23 @@ export default function ConversationsPage() {
                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>
                       New Issue
                     </button>
+                    <select
+                      value={issueStatusFilter}
+                      onChange={(e) => setIssueStatusFilter(e.target.value as typeof issueStatusFilter)}
+                      className={`mt-2 w-full rounded-md border px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 ${issueStatusFilter !== "active" ? "ring-1 ring-purple-400 dark:ring-purple-600" : ""}`}
+                    >
+                      <option value="active">Active (open + in progress)</option>
+                      <option value="open">Open</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="resolved">Resolved</option>
+                      <option value="all">All</option>
+                    </select>
                   </div>
                   {/* Issues list */}
                   {issues.length === 0 ? (
-                    <p className="p-4 text-sm text-gray-500 dark:text-gray-400">No open issues.</p>
+                    <p className="p-4 text-sm text-gray-500 dark:text-gray-400">
+                      {issueStatusFilter === "resolved" ? "No resolved issues." : issueStatusFilter === "active" ? "No active issues." : "No issues."}
+                    </p>
                   ) : (
                     issues.map((issue) => (
                       <button
@@ -2350,13 +2368,13 @@ function IssueDetailPanel({
           <div className="space-y-1">
             {[...escalations]
               .sort((a, b) => {
-                // Resolved escalations sink to the bottom — open ones stay on top.
-                const ar = a.escalation_status === "resolved";
-                const br = b.escalation_status === "resolved";
+                // Resolved links (this conversation's episode in THIS issue) sink to the bottom.
+                const ar = a.link_status === "resolved";
+                const br = b.link_status === "resolved";
                 return ar === br ? 0 : ar ? 1 : -1;
               })
               .map((esc) => {
-              const resolved = esc.escalation_status === "resolved";
+              const resolved = esc.link_status === "resolved";
               return (
               <div
                 key={esc.link_id}

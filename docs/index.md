@@ -52,6 +52,7 @@ src/lib/lost-found/reporter.ts           — Phone→roster/user identity enrich
 src/lib/ai/model.ts                      — Central OpenAI model/client configuration
 src/lib/email/postmark.ts                — Postmark email service
 src/lib/issues/notify.ts                 — Department issue-contact email + WhatsApp template notifications
+src/lib/issues/link-status.ts            — Per-link episode lifecycle: resolve a conversation's open links, resolve all of an issue's links, and auto-close/reopen an issue from its links' statuses
 src/lib/agent/tools.ts                   — Tool definitions + execution
 src/lib/permissions.ts                   — Agent tool roles + canUseTool()
 src/lib/admin/access.ts                  — Portal page/route access predicates (see docs/access-control.md)

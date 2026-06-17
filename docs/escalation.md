@@ -292,6 +292,32 @@ Grouping is now **human-confirmed**:
 
 `POST /api/escalations` still returns `deduplicated: false` for backward compatibility.
 
+## Per-link episode lifecycle + issue auto-close
+
+A `conversation_session` is one row per person and its `escalation_*` fields track only the
+**current** episode. So a person can offer a carpool (escalates → issue A), get resolved, then later
+ask about something else (escalates → issue B) on the *same* conversation. To support this, each
+**link** carries its own lifecycle on `issue_escalation_links`:
+
+- `status` (`open` | `resolved`), `resolved_at`, `resolved_by`.
+
+Rules:
+
+- **Resolved-ness is per link, not per conversation.** The issue detail panel marks a linked
+  escalation resolved (and computes SLA "breaching") from the **link's** `status` — so issue A shows
+  that person resolved even after they re-escalate into issue B.
+- **Resolving a conversation** (inbox de-escalate or the escalation "Resolve" action) marks that
+  conversation's currently-**open** link(s) `resolved`. In practice a conversation has at most one
+  open link (past episodes are already resolved).
+- **Resolving an issue** (bulk-resolve) marks all its links `resolved`.
+- **Auto-close:** when an issue's links are *all* resolved, the issue is set to `resolved`
+  automatically. **Auto-reopen:** adding a fresh (open) link to a resolved issue sets it back to
+  `open`. Manual `open`/`in_progress` and link-less issues are never touched.
+
+The status-sync logic lives in `src/lib/issues/link-status.ts`
+(`resolveOpenLinksForSession`, `resolveAllLinksForIssue`, `syncIssueStatusFromLinks`) and is called
+from the resolve and link/unlink routes (non-critically — a sync failure never fails the action).
+
 ## AI Suggestions
 
 When a support member views an escalation in the admin portal, an **AI Suggestions** panel
