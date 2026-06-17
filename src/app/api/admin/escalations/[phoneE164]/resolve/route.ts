@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { canAccessInbox } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { logEscalationActivity } from "@/lib/escalation/activity";
+import { resolveOpenLinksForSession, syncIssuesStatusFromLinks } from "@/lib/issues/link-status";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 type RouteContext = { params: Promise<{ phoneE164: string }> };
@@ -51,6 +52,13 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
       details: note ? { resolution_note: note } : undefined,
     });
   } catch { /* swallowed */ }
+
+  // Resolve this conversation's open issue link(s) — the episode is done — and auto-close any issue
+  // whose links are now all resolved.
+  try {
+    const affected = await resolveOpenLinksForSession(supabase, data.id, auth.caller.user_id);
+    await syncIssuesStatusFromLinks(supabase, affected);
+  } catch { /* non-critical */ }
 
   return NextResponse.json(data);
 }

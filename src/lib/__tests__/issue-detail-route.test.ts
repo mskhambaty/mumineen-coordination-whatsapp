@@ -51,7 +51,7 @@ function mockSupabase(tables: Record<string, unknown>) {
 
 const PAST = "2000-01-01T00:00:00.000Z"; // SLA deadline well in the past
 
-function tablesWith(sessionOverrides: Record<string, unknown>) {
+function tablesWith(sessionOverrides: Record<string, unknown>, linkStatus: "open" | "resolved" = "open") {
   return {
     issues: {
       id: "iss1",
@@ -73,6 +73,8 @@ function tablesWith(sessionOverrides: Record<string, unknown>) {
       {
         id: "link1",
         linked_at: PAST,
+        status: linkStatus,
+        resolved_at: linkStatus === "resolved" ? PAST : null,
         session: {
           id: "sess1",
           phone_e164: "+15551234567",
@@ -105,24 +107,26 @@ describe("GET /api/admin/issues/[issueId] — linked-escalation resolved-ness", 
     expect(res.status).toBe(403);
   });
 
-  it("does NOT flag a resolved escalation as breaching, even with a stale stage + past deadline", async () => {
-    // The exact bug: escalation_status='resolved' but escalation_stage still 'picked_up'.
+  it("does NOT flag a resolved LINK as breaching, even with a past deadline", async () => {
+    // Resolved-ness is per-link (this conversation's episode in this issue), independent of the
+    // conversation's current escalation_status (which may have moved on to another topic).
     getSupabaseAdmin.mockReturnValue(
-      mockSupabase(tablesWith({ escalation_status: "resolved", escalation_stage: "picked_up" })),
+      mockSupabase(tablesWith({ escalation_status: "pending", escalation_stage: "picked_up" }, "resolved")),
     );
     const res = await GET(req(), ctx);
     const json = await res.json();
     expect(json.escalations).toHaveLength(1);
-    expect(json.escalations[0].escalation_status).toBe("resolved");
+    expect(json.escalations[0].link_status).toBe("resolved");
     expect(json.escalations[0].breaching).toBe(false);
   });
 
-  it("flags a still-pending escalation past its SLA deadline as breaching", async () => {
+  it("flags an open link past its SLA deadline as breaching", async () => {
     getSupabaseAdmin.mockReturnValue(
-      mockSupabase(tablesWith({ escalation_status: "pending", escalation_stage: "picked_up" })),
+      mockSupabase(tablesWith({ escalation_status: "pending", escalation_stage: "picked_up" }, "open")),
     );
     const res = await GET(req(), ctx);
     const json = await res.json();
+    expect(json.escalations[0].link_status).toBe("open");
     expect(json.escalations[0].breaching).toBe(true);
   });
 });

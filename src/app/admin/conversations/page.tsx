@@ -155,6 +155,8 @@ type IssueEscalation = {
   session_id: string;
   phone_e164: string;
   display_name: string | null;
+  link_status: "open" | "resolved";
+  link_resolved_at: string | null;
   escalation_status: string;
   escalation_stage: string;
   escalation_priority: string;
@@ -2350,13 +2352,13 @@ function IssueDetailPanel({
           <div className="space-y-1">
             {[...escalations]
               .sort((a, b) => {
-                // Resolved escalations sink to the bottom — open ones stay on top.
-                const ar = a.escalation_status === "resolved";
-                const br = b.escalation_status === "resolved";
+                // Resolved links (this conversation's episode in THIS issue) sink to the bottom.
+                const ar = a.link_status === "resolved";
+                const br = b.link_status === "resolved";
                 return ar === br ? 0 : ar ? 1 : -1;
               })
               .map((esc) => {
-              const resolved = esc.escalation_status === "resolved";
+              const resolved = esc.link_status === "resolved";
               return (
               <div
                 key={esc.link_id}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { canAccessInbox } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
+import { resolveOpenLinksForSession, syncIssuesStatusFromLinks } from "@/lib/issues/link-status";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 type RouteContext = {
@@ -45,6 +46,15 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
   }
   if (!data) {
     return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
+  }
+
+  // Resolving the conversation closes its open issue link(s) (the episode is done) and auto-closes
+  // any issue whose links are now all resolved.
+  if (status === "resolved") {
+    try {
+      const affected = await resolveOpenLinksForSession(supabase, data.id, auth.caller.user_id);
+      await syncIssuesStatusFromLinks(supabase, affected);
+    } catch { /* non-critical */ }
   }
 
   return NextResponse.json(data);

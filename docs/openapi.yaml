@@ -3488,9 +3488,12 @@ components:
       tags: [issues]
       summary: Issue detail with linked escalations and activity log.
       description: >-
-        Each linked escalation carries `escalation_status` (canonical open/resolved lifecycle) plus
-        `escalation_stage`. `breaching` is computed from `escalation_status` — a resolved escalation
-        is never breaching, even if its SLA deadline has passed.
+        Each linked escalation carries a per-link episode lifecycle: `link_status` (open|resolved)
+        and `link_resolved_at`, plus the conversation's `escalation_status`/`escalation_stage`.
+        Resolved-ness and `breaching` are computed from `link_status` (this conversation's episode in
+        THIS issue) — not the conversation's current state, which may have moved on to another issue.
+        Resolving a conversation resolves its open link(s); when all of an issue's links are resolved
+        the issue auto-closes (and auto-reopens if a fresh link is added).
       responses:
         200:
           description: Issue detail.
