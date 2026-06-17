@@ -194,6 +194,18 @@ function loadSavedFilters(): EscalationFilters {
   }
 }
 
+// A list reload (scope/window-bounded) must not evict the conversation the user is actively
+// viewing. An issue's linked escalation can live on a phone number the current inbox scope
+// excludes (e.g. the broadcast number); it's loaded by-phone into `prev`, so pin it onto the
+// fresh list when the reload drops it.
+function pinSelected(items: Conversation[], prev: Conversation[], sel: string | null): Conversation[] {
+  if (sel && !items.some((c) => c.phone_e164 === sel)) {
+    const keep = prev.find((c) => c.phone_e164 === sel);
+    if (keep) return [...items, keep];
+  }
+  return items;
+}
+
 export default function ConversationsPage() {
   const router = useRouter();
   // Inbox scope: ?scope=niyaz shows only the niyaz RSVP number's conversations; default 'main'
@@ -590,7 +602,7 @@ export default function ConversationsPage() {
         throw new Error(data.error ?? "Failed to load conversations");
       }
       const items = (data.conversations ?? []) as Conversation[];
-      setConversations(items);
+      setConversations((prev) => pinSelected(items, prev, selectedPhoneRef.current));
       setResolvedHasMore(Boolean(data.resolved_has_more));
       // Use the ref, not the closed-over value, so a late-resolving load can't overwrite a
       // selection the user made after this fetch started.
@@ -609,7 +621,8 @@ export default function ConversationsPage() {
       const res = await apiFetch(convListUrl(religiousOnly));
       if (!res.ok) return;
       const data = await res.json().catch(() => ({}));
-      setConversations((data.conversations ?? []) as Conversation[]);
+      const items = (data.conversations ?? []) as Conversation[];
+      setConversations((prev) => pinSelected(items, prev, selectedPhoneRef.current));
       setResolvedHasMore(Boolean(data.resolved_has_more));
     } catch {
       // Ignore transient polling failures.
