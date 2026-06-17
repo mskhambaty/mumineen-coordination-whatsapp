@@ -416,10 +416,16 @@ export default function ConversationsPage() {
     }
   }
 
-  const selected = useMemo(
-    () => visibleConversations.find((conversation) => conversation.phone_e164 === selectedPhone) ?? searchedConversations[0] ?? visibleConversations[0] ?? null,
-    [visibleConversations, searchedConversations, selectedPhone],
-  );
+  const selected = useMemo(() => {
+    // An explicit selection (row click or an issue's "View" link) must win even when the active
+    // list filters would hide that thread from the rail — resolve it from the full loaded set,
+    // not just the filtered/visible list. Otherwise the detail pane snaps to the first queue item.
+    if (selectedPhone) {
+      const exact = conversations.find((c) => c.phone_e164 === selectedPhone);
+      if (exact) return exact;
+    }
+    return searchedConversations[0] ?? visibleConversations[0] ?? null;
+  }, [conversations, visibleConversations, searchedConversations, selectedPhone]);
   const latestMessageId = selected?.messages[selected.messages.length - 1]?.id ?? null;
   const unreadInboundCount = selected?.unread_inbound_count ?? 0;
   const unreadMessageStartIndex = selected
@@ -1301,8 +1307,9 @@ export default function ConversationsPage() {
                   <IssueDetailPanel
                     detail={issueDetail}
                     onNavigateToEscalation={(phone) => {
-                      // Show all stages so the target is visible whether it's still open or resolved.
-                      setEscalationFilters((f) => ({ ...f, stage: "all" }));
+                      // Clear filters (and show all stages) so the target appears in the rail
+                      // regardless of its assignee/priority/stage — and never snaps to another row.
+                      setEscalationFilters({ ...DEFAULT_ESCALATION_FILTERS, stage: "all" });
                       setTab("escalations");
                       setSelectedPhone(phone);
                     }}
