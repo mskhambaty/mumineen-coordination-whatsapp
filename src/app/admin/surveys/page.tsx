@@ -904,7 +904,7 @@ function SendsTab() {
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Survey sends — delivery results</p>
           <button onClick={() => setRefreshKey((k) => k + 1)} className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400">Refresh</button>
         </div>
-        <BroadcastHistory refreshKey={refreshKey} audienceKey="feedback_survey" />
+        <BroadcastHistory refreshKey={refreshKey} audienceKey="feedback_survey" emptyLabel="No survey broadcasts yet. (Sends only appear here when you Commit & send with a WhatsApp template selected — not 'Manual links only'.)" />
       </div>
     </div>
   );

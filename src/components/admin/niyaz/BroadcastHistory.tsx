@@ -41,7 +41,7 @@ function when(ts: string | null): string {
 
 const cell = "px-2 py-1 text-right tabular-nums";
 
-export default function BroadcastHistory({ refreshKey, highlightId, audienceKey = "niyaz_rsvp" }: { refreshKey: number; highlightId?: string | null; audienceKey?: string }) {
+export default function BroadcastHistory({ refreshKey, highlightId, audienceKey = "niyaz_rsvp", emptyLabel }: { refreshKey: number; highlightId?: string | null; audienceKey?: string; emptyLabel?: string }) {
   const [rows, setRows] = useState<BroadcastRow[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -82,7 +82,7 @@ export default function BroadcastHistory({ refreshKey, highlightId, audienceKey 
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">No Niyaz broadcasts yet.</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">{emptyLabel ?? "No Niyaz broadcasts yet."}</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
