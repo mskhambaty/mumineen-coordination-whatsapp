@@ -114,6 +114,9 @@ type Conversation = {
   messages: Message[];
   tool_calls: ToolCall[];
   used_religious_tool?: boolean;
+  // False = "Survey-only" (pure broadcast recipient, never texted the helpline). Drives the
+  // Helpline/Survey focus so a real helpline conversation isn't hidden after a broadcast reaches it.
+  has_helpline_activity?: boolean;
   quality_score: "good" | "poor" | null;
   quality_reason: string | null;
   quality_analyzed_at: string | null;
@@ -316,12 +319,11 @@ export default function ConversationsPage() {
 
   // Non-primary WABA numbers = "Survey" (niyaz feedback/RSVP broadcasts).
   const surveyPnids = useMemo(() => new Set(accounts.filter((a) => !a.isPrimary).map((a) => a.phoneNumberId)), [accounts]);
-  // A conversation is "Survey" when its most-recent message went to/from a broadcast number.
-  // (The session's phone_number_id is unreliable here — it's often null even for broadcast threads.)
-  const isSurveyConversation = (c: Conversation): boolean => {
-    const pnid = c.last_message?.phone_number_id ?? null;
-    return pnid != null && surveyPnids.has(pnid);
-  };
+  // "Survey-only" = the person never texted the helpline (no non-broadcast inbound); their thread
+  // exists only because of feedback/RSVP broadcasts. Keyed off the server-computed has_helpline_activity
+  // (NOT the latest message) so a real helpline conversation stays in Helpline even after a broadcast
+  // is later sent to it. Undefined flag → treat as helpline (don't hide).
+  const isSurveyConversation = (c: Conversation): boolean => c.has_helpline_activity === false;
 
   // Conversations tab KPI stats (non-escalated threads only, respecting the Helpline/Survey focus).
   const conversationStats = useMemo(() => {
