@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
+import BroadcastHistory from "@/components/admin/niyaz/BroadcastHistory";
 
 type Question = {
   id: string; section_id: string; text: string; type: string; is_general: boolean;
@@ -19,7 +20,7 @@ type FormRow = {
   status: string; event_date: string | null; recipient_count: number; completed_count: number;
 };
 
-type Tab = "compose" | "databank" | "forms" | "lookup";
+type Tab = "compose" | "databank" | "forms" | "lookup" | "sends";
 
 const inputCls =
   "rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500";
@@ -95,7 +96,7 @@ export default function SurveysAdminPage() {
       <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">Compose targeted surveys, sample a group, and review section sentiment.</p>
 
       <div className="mb-5 flex gap-1 border-b border-gray-200 dark:border-gray-700">
-        {(["compose", "forms", "lookup", "databank"] as Tab[]).map((t) => (
+        {(["compose", "forms", "lookup", "sends", "databank"] as Tab[]).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm font-medium capitalize ${tab === t ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}>
             {t}
@@ -145,6 +146,8 @@ export default function SurveysAdminPage() {
       {tab === "forms" && <FormsTab forms={forms} reload={loadForms} onPickMumin={openMumin} />}
 
       {tab === "lookup" && <LookupTab initialIts={lookupIts} />}
+
+      {tab === "sends" && <SendsTab />}
 
       {tab === "databank" && (
         <div className="space-y-3">
@@ -632,6 +635,71 @@ function LookupTab({ initialIts }: { initialIts?: string | null }) {
               </div>}
         </div>
       )}
+    </div>
+  );
+}
+
+// "Sends" tab — the free messaging window (who we can template-message for free right now) + the
+// survey broadcast history & delivery results (reuses the niyaz BroadcastHistory, scoped to
+// feedback_survey sends).
+function SendsTab() {
+  const [refreshKey, setRefreshKey] = useState(0);
+  return (
+    <div className="space-y-5">
+      <FreeWindowPanel />
+      <div>
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Survey sends — delivery results</p>
+          <button onClick={() => setRefreshKey((k) => k + 1)} className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400">Refresh</button>
+        </div>
+        <BroadcastHistory refreshKey={refreshKey} audienceKey="feedback_survey" />
+      </div>
+    </div>
+  );
+}
+
+// Static custom-filter view: mumineen who messaged us in the last 24h = reachable for FREE
+// (inside WhatsApp's customer-care window). Reuses the broadcast console's preview/export endpoints.
+const FREE_WINDOW_RULES = { combinator: "and", rules: [{ field: "hours_since_last_inbound", operator: "<=", value: 24 }] };
+
+function FreeWindowPanel() {
+  const [data, setData] = useState<{ total?: number; in_window?: number; out_window?: number; funnel?: { matched: number; with_whatsapp: number; unique: number } } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const preview = useCallback(async () => {
+    setBusy(true);
+    const res = await apiFetch("/api/admin/templates/preview", { method: "POST", body: JSON.stringify({ audience_key: "custom", rules: FREE_WINDOW_RULES }) });
+    setData(await res.json().catch(() => ({})));
+    setBusy(false);
+  }, []);
+  useEffect(() => { void preview(); }, [preview]);
+
+  async function exportCsv() {
+    setExporting(true);
+    const res = await apiFetch("/api/admin/templates/audience-export", { method: "POST", body: JSON.stringify({ audience_key: "custom", rules: FREE_WINDOW_RULES }) });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `free-window-${Date.now()}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    setExporting(false);
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Free messaging window</p>
+      <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+        Mumineen who messaged us in the last 24 hours — reachable now at no template cost (deduped by WhatsApp number).
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2">
+        <div><span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{busy ? "…" : data?.in_window ?? 0}</span> <span className="text-xs text-gray-500 dark:text-gray-400">free now</span></div>
+        <div><span className="text-lg font-semibold text-gray-700 dark:text-gray-200">{data?.total ?? 0}</span> <span className="text-xs text-gray-500 dark:text-gray-400">match the filter</span></div>
+        {data?.funnel && <span className="text-xs text-gray-400">{data.funnel.matched} matched · {data.funnel.with_whatsapp} with WhatsApp · {data.funnel.unique} unique numbers</span>}
+        <div className="ml-auto flex gap-2">
+          <button onClick={preview} disabled={busy} className="rounded border border-gray-300 px-3 py-1 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800">Refresh</button>
+          <button onClick={exportCsv} disabled={exporting} className="rounded bg-blue-600 px-3 py-1 text-xs text-white disabled:opacity-50">{exporting ? "Exporting…" : "Export CSV"}</button>
+        </div>
+      </div>
     </div>
   );
 }

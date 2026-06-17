@@ -41,16 +41,16 @@ function when(ts: string | null): string {
 
 const cell = "px-2 py-1 text-right tabular-nums";
 
-export default function BroadcastHistory({ refreshKey, highlightId }: { refreshKey: number; highlightId?: string | null }) {
+export default function BroadcastHistory({ refreshKey, highlightId, audienceKey = "niyaz_rsvp" }: { refreshKey: number; highlightId?: string | null; audienceKey?: string }) {
   const [rows, setRows] = useState<BroadcastRow[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
   const load = useCallback(async () => {
-    const res = await apiFetch("/api/admin/templates/broadcasts?audience_key=niyaz_rsvp");
+    const res = await apiFetch(`/api/admin/templates/broadcasts?audience_key=${encodeURIComponent(audienceKey)}`);
     if (res.ok) setRows(((await res.json()).broadcasts as BroadcastRow[]) ?? []);
-  }, []);
+  }, [audienceKey]);
 
   const openDetail = useCallback(async (id: string) => {
     setOpenId(id);

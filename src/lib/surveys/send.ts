@@ -1,6 +1,11 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { createBroadcast } from "@/lib/whatsapp/broadcast";
-import type { Recipient } from "@/lib/whatsapp/audience";
+import type { AudienceKey, Recipient } from "@/lib/whatsapp/audience";
+
+// audience_key tag stamped on survey broadcasts so the feedback console can list/scope their
+// delivery history (mirrors the Niyaz "niyaz_rsvp" tag). Not a resolvable audience — recipients are
+// always passed explicitly — so it's cast onto the label field only.
+export const SURVEY_AUDIENCE_KEY = "feedback_survey" as AudienceKey;
 import type { RuleGroup } from "@/lib/whatsapp/audience-filter";
 import { resolveApprovedTemplateForAnyAccount } from "@/lib/whatsapp/send-template";
 import { suggestSample, type SampleResult } from "@/lib/surveys/sampling";
@@ -37,7 +42,7 @@ async function dispatchSurveyTemplate(templateCode: string, people: DispatchPers
     templateCode,
     account,
     recipients,
-    audienceKey: "custom",
+    audienceKey: SURVEY_AUDIENCE_KEY,
     variableBindings: { urlButton: { kind: "field", field: "url_suffix" }, body },
   });
   if ("error" in result) return { error: result.error };
