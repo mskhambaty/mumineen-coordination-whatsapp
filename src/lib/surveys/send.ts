@@ -97,7 +97,7 @@ export type CommitResult = {
 
 type FormRow = { id: string; group_id: string | null; sample_size: number; status: string };
 
-export async function commitAndSendForm(formId: string, templateCodeOverride?: string | null): Promise<CommitResult | { error: string }> {
+export async function commitAndSendForm(formId: string, templateCodeOverride?: string | null, freeWindowOnly = false): Promise<CommitResult | { error: string }> {
   const supabase = getSupabaseAdmin();
   const eventDate = chicagoToday();
 
@@ -128,7 +128,7 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
   if (questionIds.length === 0) return { error: "Form has no questions composed." };
 
   // Sample fresh-first, excluding today's other samples and question-exhausted mumineen.
-  const sample = await suggestSample((group as { rules: RuleGroup }).rules, questionIds, f.sample_size, eventDate);
+  const sample = await suggestSample((group as { rules: RuleGroup }).rules, questionIds, f.sample_size, eventDate, { freeWindowOnly });
   if (sample.chosen.length === 0) {
     return { formId, funnel: sample.funnel, recipients: [], sent: false, sendError: "No eligible recipients to sample." };
   }

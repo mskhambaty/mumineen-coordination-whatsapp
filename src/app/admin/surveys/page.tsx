@@ -333,6 +333,7 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
   const [pickerFor, setPickerFor] = useState<string | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templateCode, setTemplateCode] = useState("");
+  const [freeWindow, setFreeWindow] = useState(false);
 
   // Approved WhatsApp templates that have a dynamic URL button (needed to carry the survey link).
   useEffect(() => {
@@ -348,12 +349,18 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
     setDetail({ kind, id, ...(await res.json().catch(() => ({}))) });
     setBusy(null);
   }
+  async function preview(id: string) {
+    setBusy(id);
+    const res = await apiFetch(`/api/admin/surveys/forms/${id}/preview`, { method: "POST", body: JSON.stringify({ freeWindowOnly: freeWindow }) });
+    setDetail({ kind: "preview", id, freeWindow, ...(await res.json().catch(() => ({}))) });
+    setBusy(null);
+  }
   async function send(id: string) {
-    if (!confirm("Commit this sample? This locks the questions for those mumineen (they won't be re-asked).")) return;
+    if (!confirm(`Commit this sample${freeWindow ? " (free-window only)" : ""}? This locks the questions for those mumineen (they won't be re-asked).`)) return;
     setBusy(id);
     const res = await apiFetch(`/api/admin/surveys/forms/${id}/send`, {
       method: "POST",
-      body: JSON.stringify({ template: templateCode || undefined }),
+      body: JSON.stringify({ template: templateCode || undefined, freeWindowOnly: freeWindow }),
     });
     setDetail({ kind: "send", id, ...(await res.json().catch(() => ({}))) });
     setBusy(null);
@@ -404,6 +411,10 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
         </select>
         {templates.length === 0 && <span className="text-xs text-amber-600 dark:text-amber-400">No approved URL-button templates found.</span>}
         {templateCode && <span className="text-xs text-emerald-600 dark:text-emerald-400">Commit &amp; send (and Test deliver) will use this template.</span>}
+        <label className="ml-auto flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300" title="Only sample people who messaged us in the last 24h, so the template send is free (no paid quota).">
+          <input type="checkbox" checked={freeWindow} onChange={(e) => setFreeWindow(e.target.checked)} className="accent-emerald-600" />
+          Free-window only (no quota cost)
+        </label>
       </div>
       {forms.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">No forms yet — compose one.</p>}
       {forms.map((f) => (
@@ -418,7 +429,7 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
             <div className="flex flex-wrap gap-2">
               <button onClick={() => testLink(f.id)} disabled={busy === f.id} className={ghostBtn}>Test link</button>
               <button onClick={() => setPickerFor(pickerFor === f.id ? null : f.id)} className={ghostBtn}>Test to people</button>
-              <button onClick={() => call(f.id, "preview", `/api/admin/surveys/forms/${f.id}/preview`, "POST")} disabled={busy === f.id} className={ghostBtn}>Preview sample</button>
+              <button onClick={() => preview(f.id)} disabled={busy === f.id} className={ghostBtn}>Preview sample</button>
               <button onClick={() => send(f.id)} disabled={busy === f.id || f.status === "sent"} className="rounded bg-emerald-600 px-3 py-1 text-xs text-white disabled:opacity-50">
                 {f.status === "sent" ? "Sent" : "Commit & send"}
               </button>
@@ -714,8 +725,9 @@ function PreviewSample({ detail, onPickMumin }: { detail: Detail; onPickMumin?: 
   const filtered = ql ? sample.filter((s) => s.name.toLowerCase().includes(ql) || s.its.includes(ql)) : sample;
   return (
     <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/40">
+      {detail.freeWindow ? <p className="mb-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">Free-window only — sampled from people reachable now at no quota cost.</p> : null}
       <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-700 dark:text-gray-300">
-        <span><b>{f.candidates ?? 0}</b> qualify</span>
+        <span><b>{f.candidates ?? 0}</b> {detail.freeWindow ? "in window" : "qualify"}</span>
         <span><b>{f.chosen ?? 0}</b> chosen</span>
         <span className="text-emerald-600 dark:text-emerald-400">{f.fresh ?? 0} fresh</span>
         <span className="text-amber-600 dark:text-amber-400">{f.reused ?? 0} reused</span>

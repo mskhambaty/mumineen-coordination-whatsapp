@@ -13,10 +13,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const guard = await requirePortalCaller(req, isAdminOrLeadership);
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
-  const body = (await req.json().catch(() => ({}))) as { template?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { template?: unknown; freeWindowOnly?: unknown };
   const template = typeof body.template === "string" ? body.template : undefined;
+  const freeWindowOnly = body.freeWindowOnly === true;
 
-  const result = await commitAndSendForm(id, template);
+  const result = await commitAndSendForm(id, template, freeWindowOnly);
   if ("error" in result) return NextResponse.json(result, { status: 400 });
   return NextResponse.json(result);
 }

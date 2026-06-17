@@ -44,11 +44,17 @@ export async function suggestSample(
   formQuestionIds: string[],
   size: number,
   eventDate: string = chicagoToday(),
+  opts: { freeWindowOnly?: boolean; windowHours?: number } = {},
 ): Promise<SampleResult> {
   const supabase = getSupabaseAdmin();
 
   // 1. Resolve the group to reachable mumineen (runFilter already dedups by phone + requires a number).
-  const rows: RosterRow[] = await runFilter(groupRules);
+  // Optionally restrict to the free messaging window — people who messaged us within `windowHours`
+  // — so the template send costs nothing. Done by AND-ing the group with the engagement rule.
+  const effectiveRules: RuleGroup = opts.freeWindowOnly
+    ? { combinator: "and", rules: [groupRules, { field: "hours_since_last_inbound", operator: "<=", value: opts.windowHours ?? 24 }] }
+    : groupRules;
+  const rows: RosterRow[] = await runFilter(effectiveRules);
   const reachable = rows.filter((r) => r.whatsapp_e164 && r.mumin_id);
 
   // 2. Prior survey history (real sends only — is_test self/team links don't count): how many times
