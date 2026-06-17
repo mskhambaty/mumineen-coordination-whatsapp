@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
   const { data, error } = await supabase
     .from("conversation_sessions")
     .update({
-      escalation_status: "pending",
+      // escalation_status is derived from escalation_stage by a DB trigger — set stage only.
       escalation_stage: "pending",
       escalation_reason: reason || null,
       escalation_priority: priority,

@@ -156,8 +156,8 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
       const { error } = await supabase
         .from("conversation_sessions")
         .update({
+          // escalation_status is derived from escalation_stage by a DB trigger — set stage only.
           escalation_stage: "resolved",
-          escalation_status: "resolved",
           handling_mode: "ai",
           handling_mode_at: new Date().toISOString(),
         })
