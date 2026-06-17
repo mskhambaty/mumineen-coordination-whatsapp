@@ -294,21 +294,17 @@ export async function GET(req: NextRequest) {
     ((religiousRows ?? []) as { phone_e164: string }[]).map((r) => r.phone_e164),
   );
 
-  // "Helpline activity" = the person sent at least one INBOUND message on a non-broadcast number
-  // (i.e. they actually texted the helpline). Drives the Conversations-tab Helpline/Survey focus:
-  // a conversation stays "Helpline" even after a broadcast is later sent to it (which would make its
-  // latest message a broadcast). Survey-only = pure broadcast recipients (never texted the helpline).
-  // Reliable — not limited by the message-load cap. `is.null` keeps legacy/primary (untagged) inbound.
-  let helplinePhones = new Set<string>();
-  if (broadcastPhoneNumberId) {
-    const { data: helplineRows } = await supabase
-      .from("messages")
-      .select("phone_e164")
-      .in("phone_e164", phoneNumbers)
-      .eq("direction", "inbound")
-      .or(`phone_number_id.is.null,phone_number_id.neq.${broadcastPhoneNumberId}`);
-    helplinePhones = new Set(((helplineRows ?? []) as { phone_e164: string }[]).map((r) => r.phone_e164));
-  }
+  // "Conversational" = the thread has at least one real message (not a template send, not an
+  // RSVP/feedback button/flow response). Pure broadcast recipients (RSVP/feedback only) have none.
+  // Drives the Conversations-tab "Broadcast-only" filter so a real conversation never gets hidden
+  // just because a broadcast was later sent to it. Computed over ALL messages (not the loaded cap).
+  const { data: convoRows } = await supabase
+    .from("messages")
+    .select("phone_e164")
+    .in("phone_e164", phoneNumbers)
+    .is("raw_payload->>template", null) // exclude template sends (RSVP/feedback/digests/notifications)
+    .not("message_type", "in", "(interactive,button)"); // exclude RSVP/feedback button & flow responses
+  const conversationalPhones = new Set(((convoRows ?? []) as { phone_e164: string }[]).map((r) => r.phone_e164));
 
   const conversations = ((sessions ?? []) as SessionRow[]).map((session) => {
     const user = Array.isArray(session.user) ? session.user[0] : session.user;
@@ -350,9 +346,8 @@ export async function GET(req: NextRequest) {
       messages: sessionMessages,
       tool_calls: toolsByPhone.get(session.phone_e164) ?? [],
       used_religious_tool: religiousPhones.has(session.phone_e164),
-      // Survey-only (no helpline activity) when a broadcast account is configured and this phone
-      // never sent a non-broadcast inbound message.
-      has_helpline_activity: !broadcastPhoneNumberId || helplinePhones.has(session.phone_e164),
+      // False = "Broadcast-only" — the thread has no real message (RSVP/feedback broadcasts only).
+      has_conversational_message: conversationalPhones.has(session.phone_e164),
     };
   });
 
