@@ -151,9 +151,10 @@ export default function SurveysAdminPage() {
 
       {tab === "databank" && (
         <div className="space-y-3">
+          <AddSection onAdded={loadDatabank} />
           {sections.map((s) => (
             <div key={s.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
-              <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{s.title} <span className="text-[11px] uppercase text-gray-400 dark:text-gray-500">{s.area}</span></p>
+              <EditableSection s={s} onChanged={loadDatabank} />
               <ul className="mt-1 space-y-0.5 text-sm text-gray-600 dark:text-gray-300">
                 {s.questions.map((q) => <EditableQuestion key={q.id} q={q} onChanged={loadDatabank} />)}
               </ul>
@@ -307,6 +308,96 @@ function EditableQuestion({ q, onChanged }: { q: Question; onChanged: () => void
         <button onClick={remove} className="text-xs text-red-500 hover:underline dark:text-red-400">Remove</button>
       </span>
     </li>
+  );
+}
+
+// Feedback areas a section can map to (drives department routing). Kept in sync with
+// FEEDBACK_AREAS in src/lib/feedback/areas.ts — duplicated here because that module is server-only.
+const AREAS = ["general", "mawaid", "flow", "parking_transport", "audio_video", "accommodation", "seating"] as const;
+
+// Section header in the Databank tab: inline-edit the name/area/general flag, or delete the whole
+// section (soft-delete — already-composed forms keep working off their snapshots).
+function EditableSection({ s, onChanged }: { s: Section; onChanged: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(s.title);
+  const [area, setArea] = useState(s.area);
+  const [isGeneral, setIsGeneral] = useState(s.is_general);
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    const res = await apiFetch(`/api/admin/surveys/sections/${s.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title: title.trim(), area, is_general: isGeneral }),
+    });
+    setSaving(false);
+    if (res.ok) { setEditing(false); onChanged(); }
+  }
+  async function remove() {
+    if (!confirm(`Delete the "${s.title}" section and its ${s.questions.length} question(s)? Already-sent forms keep working; it won't appear in new forms.`)) return;
+    await apiFetch(`/api/admin/surveys/sections/${s.id}`, { method: "DELETE" });
+    onChanged();
+  }
+
+  const small = "rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100";
+  if (editing) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <input value={title} onChange={(e) => setTitle(e.target.value)} className={`min-w-[14rem] flex-1 ${small}`} />
+        <select value={area} onChange={(e) => setArea(e.target.value)} className={small}>
+          {AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300"><input type="checkbox" checked={isGeneral} onChange={(e) => setIsGeneral(e.target.checked)} className="accent-blue-600" /> general</label>
+        <button onClick={save} disabled={saving || title.trim().length < 3} className="rounded bg-blue-600 px-2 py-1 text-xs text-white disabled:opacity-50">Save</button>
+        <button onClick={() => { setTitle(s.title); setArea(s.area); setIsGeneral(s.is_general); setEditing(false); }} className="text-xs text-gray-500 hover:underline dark:text-gray-400">Cancel</button>
+      </div>
+    );
+  }
+  return (
+    <div className="group flex items-center justify-between gap-3">
+      <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{s.title} <span className="text-[11px] uppercase text-gray-400 dark:text-gray-500">{s.area}{s.is_general ? " · general" : ""}</span></p>
+      <span className="flex flex-shrink-0 gap-2 opacity-0 focus-within:opacity-100 group-hover:opacity-100">
+        <button onClick={() => setEditing(true)} className="text-xs text-blue-500 hover:underline dark:text-blue-400">Edit</button>
+        <button onClick={remove} className="text-xs text-red-500 hover:underline dark:text-red-400">Delete</button>
+      </span>
+    </div>
+  );
+}
+
+function AddSection({ onAdded }: { onAdded: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [area, setArea] = useState<string>("general");
+  const [isGeneral, setIsGeneral] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function add() {
+    setErr(null);
+    setSaving(true);
+    const res = await apiFetch("/api/admin/surveys/sections", {
+      method: "POST",
+      body: JSON.stringify({ title: title.trim(), area, is_general: isGeneral }),
+    });
+    setSaving(false);
+    if (res.ok) { setTitle(""); setArea("general"); setIsGeneral(false); setOpen(false); onAdded(); }
+    else setErr((await res.json().catch(() => ({}))).error ?? "Failed to add");
+  }
+
+  if (!open) return <button onClick={() => setOpen(true)} className="rounded border border-dashed border-gray-300 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-gray-50 dark:border-gray-600 dark:text-blue-400 dark:hover:bg-gray-800">+ Add section</button>;
+  return (
+    <div className="rounded-lg border border-blue-200 p-3 dark:border-blue-900">
+      <div className="flex flex-wrap items-center gap-2">
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Section name" className={`min-w-[14rem] flex-1 ${inputCls}`} />
+        <select value={area} onChange={(e) => setArea(e.target.value)} className={inputCls}>
+          {AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300"><input type="checkbox" checked={isGeneral} onChange={(e) => setIsGeneral(e.target.checked)} className="accent-blue-600" /> general (asked of everyone)</label>
+        <button onClick={add} disabled={saving || title.trim().length < 3} className="rounded bg-blue-600 px-3 py-1 text-sm text-white disabled:opacity-50">Add</button>
+        <button onClick={() => { setOpen(false); setErr(null); }} className="text-xs text-gray-500 hover:underline dark:text-gray-400">Cancel</button>
+      </div>
+      {err && <p className="mt-1 text-xs text-red-500 dark:text-red-400">{err}</p>}
+    </div>
   );
 }
 

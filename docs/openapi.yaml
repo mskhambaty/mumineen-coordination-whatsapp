@@ -2313,6 +2313,42 @@ paths:
         "200": { description: "{ sections: [{ ..., questions: [...] }], groups: [...] }." }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /api/admin/surveys/sections:
+    post:
+      tags: [admin]
+      summary: Add a databank section
+      description: >-
+        Admin/leadership only. Body { title, area (one of the 7 feedback areas), description?,
+        is_general? }. The slug `key` is derived from the title (made unique automatically). New
+        sections sort to the end of the databank.
+      responses:
+        "201": { description: "{ section } (with empty questions)." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/surveys/sections/{id}:
+    patch:
+      tags: [admin]
+      summary: Edit a databank section (name / area / general flag)
+      description: Admin/leadership only. Updates any of { title, area, description, is_general }.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ section }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { description: "Section not found." }
+    delete:
+      tags: [admin]
+      summary: Delete a databank section (soft-delete, cascades to its questions)
+      description: >-
+        Admin/leadership only. Sets active=false on the section and all its questions — they leave
+        the databank and compose picker. Already-composed forms keep working off their snapshots.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ ok: true }." }
+        "404": { description: "Section not found." }
+
   /api/admin/surveys/questions:
     post:
       tags: [admin]

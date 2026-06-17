@@ -65,8 +65,10 @@ no template selected, the per-recipient links are returned for manual sending.
 
 `/admin/surveys` (admin/leadership) — tabs: **Compose** (group + sample size + questions → create
 form), **Forms** (Test link · Preview sample funnel · Commit & send · Results dashboard),
-**Databank** (view + add questions). APIs under `src/app/api/admin/surveys/**` (gated by
-`requirePortalCaller(isAdminOrLeadership)`).
+**Databank** (add/edit/delete sections and questions). APIs under `src/app/api/admin/surveys/**`
+(gated by `requirePortalCaller(isAdminOrLeadership)`). Sections and questions both **soft-delete**
+(`active=false`) so already-composed forms keep working off their snapshots; deleting a section also
+soft-deletes its questions.
 
 **Self-test:** *Test link* on any form mints an `is_test` recipient (no exposures, excluded from
 results) and returns a real `/feedback/s/<token>` link. Optionally pass an **ITS** to target a
