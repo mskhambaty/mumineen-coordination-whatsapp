@@ -28,7 +28,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const supabase = getSupabaseAdmin();
 
-  const [regResult, unregResult] = await Promise.all([
+  const [instanceResult, regResult, unregResult] = await Promise.all([
+    supabase
+      .from("rsvp_registration_instance")
+      .select("id, title, event_date, hijri_date, meal, serving_type")
+      .eq("id", id)
+      .maybeSingle(),
     supabase
       .from("niyaz_rsvp")
       .select(
@@ -45,6 +50,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       .order("created_at", { ascending: false }),
   ]);
 
+  if (instanceResult.error) {
+    return NextResponse.json({ error: instanceResult.error.message }, { status: 500 });
+  }
+  if (!instanceResult.data) {
+    return NextResponse.json({ error: "Niyaz event not found." }, { status: 404 });
+  }
   if (regResult.error) {
     return NextResponse.json({ error: regResult.error.message }, { status: 500 });
   }
@@ -59,6 +70,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const headcountTotal = headcounts.reduce((sum, h) => sum + (h.head_count ?? 0), 0);
 
   return NextResponse.json({
+    instance: instanceResult.data,
     responses: rows,
     unregistered: (unregResult.data ?? []).map((u) => ({
       id: u.id,
