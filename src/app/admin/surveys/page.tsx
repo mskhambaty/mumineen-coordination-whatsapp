@@ -23,7 +23,8 @@ type Question = {
 type Section = { id: string; title: string; area: string; is_general: boolean; questions: Question[] };
 type Group = { id: string; name: string; description: string | null; area_focus: string | null };
 type FormRow = {
-  id: string; title: string; group_name: string | null; tags: string[]; sample_size: number;
+  id: string; title: string; group_name: string | null; group_id: string | null; rules: RuleGroupTypeIC | null;
+  tags: string[]; sample_size: number;
   status: string; event_date: string | null; recipient_count: number; completed_count: number;
 };
 
@@ -115,6 +116,27 @@ export default function SurveysAdminPage() {
     setTab("forms");
   }
 
+  // Duplicate a form into the Compose tab: prefill its questions, title (+" (copy)"), tags, sample
+  // size, and target — so you reconcile (change the audience, tweak questions) and create quickly.
+  async function duplicateForm(f: FormRow) {
+    const res = await apiFetch(`/api/admin/surveys/forms/${f.id}/questions`);
+    const json = await res.json().catch(() => ({}));
+    const dbIds = new Set(sections.flatMap((s) => s.questions.map((q) => q.id)));
+    const qids = ((json.questions ?? []) as { question_id: string | null }[])
+      .map((q) => q.question_id)
+      .filter((id): id is string => Boolean(id) && dbIds.has(id as string));
+    const dropped = ((json.questions ?? []) as unknown[]).length - qids.length;
+    setSelected(new Set(qids));
+    setTitle(`${f.title} (copy)`);
+    setTagsInput((f.tags ?? []).join(", "));
+    setSampleSize(f.sample_size);
+    if (f.group_id) { setTargetMode("group"); setGroupId(f.group_id); }
+    else if (f.rules) { setTargetMode("custom"); setCustomRules(f.rules); }
+    else { setTargetMode("group"); setGroupId(""); }
+    setTab("compose");
+    setMsg(`Duplicated “${f.title}” — change the target audience / questions, then Create form.${dropped ? ` (${dropped} retired question${dropped === 1 ? "" : "s"} skipped.)` : ""}`);
+  }
+
   if (!ready) return null;
 
   return (
@@ -188,7 +210,7 @@ export default function SurveysAdminPage() {
         </div>
       )}
 
-      {tab === "forms" && <FormsTab forms={forms} reload={loadForms} onPickMumin={openMumin} />}
+      {tab === "forms" && <FormsTab forms={forms} reload={loadForms} onPickMumin={openMumin} onDuplicate={duplicateForm} />}
 
       {tab === "lookup" && <LookupTab initialIts={lookupIts} />}
 
@@ -621,7 +643,7 @@ type Detail = { kind: string; id: string; [k: string]: unknown };
 
 type Template = { name: string; language: string; displayNumber?: string | null; accountLabel?: string; urlButtons?: { hasVar: boolean }[]; bodyVars?: string[] };
 
-function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: () => void; onPickMumin: (its: string) => void }) {
+function FormsTab({ forms, reload, onPickMumin, onDuplicate }: { forms: FormRow[]; reload: () => void; onPickMumin: (its: string) => void; onDuplicate: (f: FormRow) => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [pickerFor, setPickerFor] = useState<string | null>(null);
@@ -749,6 +771,7 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
               <button onClick={() => toggleResults(f.id)} disabled={busy === f.id} className={`${ghostBtn} ${detail?.kind === "results" && detail.id === f.id ? "bg-gray-100 dark:bg-gray-800" : ""}`}>
                 {detail?.kind === "results" && detail.id === f.id ? "Hide results" : "Results"}
               </button>
+              <button onClick={() => onDuplicate(f)} disabled={busy === f.id} className={ghostBtn} title="Copy this form's questions into Compose to create a new one (e.g. for a different audience)">Duplicate</button>
               {f.status !== "sent" && <button onClick={() => del(f.id)} disabled={busy === f.id} className="rounded border border-red-300 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40">Delete</button>}
             </div>
           </div>
