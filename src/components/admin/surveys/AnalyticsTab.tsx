@@ -47,7 +47,7 @@ function Badge({ value }: { value: number | null }) {
   );
 }
 
-function RowTable({ title, rows, unit = "responses" }: { title: string; rows: Row[]; unit?: string }) {
+function RowTable({ title, rows, unit = "answers" }: { title: string; rows: Row[]; unit?: string }) {
   if (!rows.length) return null;
   return (
     <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
@@ -319,7 +319,7 @@ export function AnalyticsTab() {
                 {data.by_question.map((q) => (
                   <div key={q.question_id} className="border-t border-gray-100 pt-1.5 dark:border-gray-800">
                     <div className="flex items-start justify-between gap-3">
-                      <span className="text-xs text-gray-700 dark:text-gray-300">{q.text} <span className="text-gray-400">({q.responses})</span></span>
+                      <span className="text-xs text-gray-700 dark:text-gray-300">{q.text} <span className="text-gray-400">({q.responses} answered)</span></span>
                       <Badge value={q.sentiment} />
                     </div>
                     {Object.keys(q.breakdown).length > 0 && <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">{Object.entries(q.breakdown).map(([k, v]) => `${k}: ${v}`).join("  ·  ")}</p>}
