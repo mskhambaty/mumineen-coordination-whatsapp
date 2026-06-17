@@ -100,23 +100,30 @@ export async function POST(req: NextRequest) {
   }
 
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
+  const sel = "id, display_name, phone_e164, email, role, global_role, status";
+
+  // A person who already messaged the bot exists as a (usually visitor) row keyed by their unique
+  // phone. "Add User" must PROMOTE that existing row — set the name/email/role + activate it —
+  // instead of failing on the unique-phone constraint. So: find-or-update on phone_e164.
+  const { data: existing } = await supabase
     .from("whatsapp_users")
-    .insert({
-      display_name,
-      phone_e164,
-      email: email || null,
-      global_role: globalRole,
-      role,
-      status: "active",
-      transcript_aliases: [display_name],
-    })
-    .select("id, display_name, phone_e164, email, role, global_role, status")
-    .single();
+    .select("id")
+    .eq("phone_e164", phone_e164)
+    .maybeSingle();
+
+  const fields = { display_name, email: email || null, global_role: globalRole, role, status: "active" as const };
+
+  const { data, error } = existing?.id
+    ? await supabase.from("whatsapp_users").update(fields).eq("id", existing.id).select(sel).single()
+    : await supabase
+        .from("whatsapp_users")
+        .insert({ ...fields, phone_e164, transcript_aliases: [display_name] })
+        .select(sel)
+        .single();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json(data, { status: 201 });
+  return NextResponse.json(data, { status: existing?.id ? 200 : 201 });
 }
