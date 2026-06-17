@@ -117,6 +117,9 @@ type Conversation = {
   // False = "Broadcast-only" (thread has no real message — RSVP/feedback broadcasts only). Drives the
   // Conversations/Broadcast-only filter so a real conversation isn't hidden after a broadcast reaches it.
   has_conversational_message?: boolean;
+  // Latest non-broadcast message — used for the list preview/timestamp/sort so a thread reflects its
+  // last real conversation, not a later broadcast that bumped it. Null for broadcast-only threads.
+  conversational_last_message?: { body: string | null; created_at: string } | null;
   quality_score: "good" | "poor" | null;
   quality_reason: string | null;
   quality_analyzed_at: string | null;
@@ -239,6 +242,15 @@ function preserveSelectedThread(merged: Conversation[], prev: Conversation[], se
       tool_calls: prevSel.tool_calls?.length ? prevSel.tool_calls : c.tool_calls,
     };
   });
+}
+
+// List row should reflect a thread's last REAL conversation, not a later broadcast that bumped it.
+// Falls back to the raw last message (e.g. broadcast-only threads have no conversational message).
+function convListTime(c: Conversation): string {
+  return c.conversational_last_message?.created_at ?? c.last_message_at;
+}
+function convListPreview(c: Conversation): string {
+  return c.conversational_last_message?.body || c.last_message?.body || "No message body";
 }
 
 // A message is "broadcast/automated" (noise) — vs a real conversational message — when it's a
@@ -457,9 +469,13 @@ export default function ConversationsPage() {
         return b.last_message_at.localeCompare(a.last_message_at);
       });
     }
-    // Conversations tab: focus on real Conversations (hide broadcast-only threads) or Broadcast-only.
-    if (tab === "conversations" && messageScope !== "all") {
-      return list.filter((c) => (messageScope === "broadcast" ? isBroadcastOnlyConversation(c) : !isBroadcastOnlyConversation(c)));
+    // Conversations tab: focus on real Conversations (hide broadcast-only threads) or Broadcast-only,
+    // and order by the last REAL message so broadcasts don't reshuffle the list to the top.
+    if (tab === "conversations") {
+      const filtered = messageScope === "all"
+        ? list
+        : list.filter((c) => (messageScope === "broadcast" ? isBroadcastOnlyConversation(c) : !isBroadcastOnlyConversation(c)));
+      return [...filtered].sort((a, b) => convListTime(b).localeCompare(convListTime(a)));
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1398,13 +1414,13 @@ export default function ConversationsPage() {
                     {conversation.escalation_status === "pending" && conversation.escalation_category && (
                       <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">#{conversation.escalation_category}</p>
                     )}
-                    <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">{conversation.last_message?.body || "No message body"}</p>
+                    <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">{tab === "conversations" ? convListPreview(conversation) : (conversation.last_message?.body || "No message body")}</p>
                     <div className="mt-2 flex items-center justify-between text-xs text-gray-400 dark:text-gray-500">
                       <div className="flex items-center gap-2">
                         {tab === "escalations" && conversation.escalation_sla_deadline ? (
                           <SLACountdown deadline={conversation.escalation_sla_deadline} />
                         ) : (
-                          <span>{formatDate(conversation.last_message_at)}</span>
+                          <span>{formatDate(tab === "conversations" ? convListTime(conversation) : conversation.last_message_at)}</span>
                         )}
                         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600 dark:bg-gray-700 dark:text-gray-300">{conversation.messages.length} msg{conversation.messages.length !== 1 ? "s" : ""}</span>
                       </div>
