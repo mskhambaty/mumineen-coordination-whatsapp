@@ -2307,7 +2307,7 @@ function IssueDetailPanel({
                   <button
                     type="button"
                     onClick={() => onNavigateToEscalation(esc.phone_e164)}
-                    className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 whitespace-nowrap"
+                    className="cursor-pointer text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 whitespace-nowrap"
                   >
                     View →
                   </button>
