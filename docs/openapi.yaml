@@ -2427,7 +2427,11 @@ paths:
     post:
       tags: [admin]
       summary: Create a form and compose its questions
-      description: Admin/leadership only. Body { title, group_id, sample_size?, question_ids[] }. Snapshots each question for stability.
+      description: >-
+        Admin/leadership only. Body { title, sample_size?, question_ids[] } plus EXACTLY ONE target:
+        `group_id` (a saved survey_group) OR `rules` (an inline audience-filter RuleGroup, supporting
+        NOT groups for exclusions like "attending AND NOT rahat"). Snapshots each question for
+        stability; the custom filter is validated against the field catalog before saving.
       responses:
         "201": { description: "{ form_id, question_count }." }
         "400": { $ref: "#/components/responses/BadRequest" }

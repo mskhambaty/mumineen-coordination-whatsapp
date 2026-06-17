@@ -67,6 +67,29 @@ describe("hof_its custom-filter field", () => {
   });
 });
 
+describe("NOT groups (custom-filter exclusions)", () => {
+  // Powers "attending AND NOT (rahat OR wheelchair)" in the survey custom-audience builder, so a
+  // broad form doesn't re-survey people already covered by a narrower one.
+  const exclude: Rule | { combinator: "and"; rules: unknown[] } = {
+    combinator: "and",
+    rules: [
+      { field: "not_attending", operator: "=", value: false },
+      { combinator: "or", not: true, rules: [
+        { field: "rahat_seating", operator: "=", value: true },
+        { field: "wheelchair", operator: "=", value: true },
+      ] },
+    ],
+  };
+
+  it("excludes rows matching the negated subgroup", () => {
+    const q = exclude as Parameters<typeof evaluate>[0];
+    expect(evaluate(q, row({ not_attending: false, rahat_seating: false, wheelchair: false }))).toBe(true);
+    expect(evaluate(q, row({ not_attending: false, rahat_seating: true, wheelchair: false }))).toBe(false);
+    expect(evaluate(q, row({ not_attending: false, rahat_seating: false, wheelchair: true }))).toBe(false);
+    expect(evaluate(q, row({ not_attending: true, rahat_seating: false, wheelchair: false }))).toBe(false);
+  });
+});
+
 describe("has_child_under_7 household field (Atfaal targeting)", () => {
   // The Atfaal group targets ADULTS in young-child households so the survey greets a parent, not
   // the toddler. The field is set per family member in loadRoster; here we just verify the rule.

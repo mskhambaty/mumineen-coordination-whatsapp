@@ -19,8 +19,12 @@ responses through a per-recipient **tokenized web form** delivered over WhatsApp
   *Accommodation — utaro*, *All Mehman*, *Atfaal (kids under 7)*. The Atfaal group targets the
   **head of family** in households with a child under 7 (via the `has_child_under_7` household
   field) — strictly one message per household, greeting a parent rather than the toddler.
-- **Form** (`survey_forms` + `survey_form_questions`) — a composed run: a group + a chosen subset of
-  questions (snapshotted for stability). ~5 forms/day → 5 samples.
+- **Form** (`survey_forms` + `survey_form_questions`) — a composed run: a target + a chosen subset of
+  questions (snapshotted for stability). ~5 forms/day → 5 samples. The target is EITHER a saved group
+  (`group_id`) OR an ad-hoc **custom filter** (`rules`) built in the composer with the same
+  react-querybuilder UI as WhatsApp templates ([AudienceFilterBuilder](../src/components/admin/AudienceFilterBuilder.tsx)).
+  Custom filters support **NOT** groups, so a broad form can exclude segments already covered by a
+  narrower one (e.g. *attending AND NOT (rahat OR wheelchair)*) and avoid re-surveying them.
 - **Recipients** (`survey_recipients`) — the sample; each row carries a unique opaque `token`.
 - **Exposures** (`survey_question_exposures`) — `unique (mumin_id, question_id)`; enforces
   **once-per-event** no-repeat. Written when a form is committed.

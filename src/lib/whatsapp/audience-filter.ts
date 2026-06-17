@@ -123,7 +123,7 @@ export const OPS_BY_TYPE: Record<FieldType, string[]> = {
 };
 
 export type Rule = { field: string; operator: string; value?: unknown };
-export type RuleGroup = { combinator: "and" | "or"; rules: Array<Rule | RuleGroup> };
+export type RuleGroup = { combinator: "and" | "or"; not?: boolean; rules: Array<Rule | RuleGroup> };
 
 function isGroup(node: Rule | RuleGroup): node is RuleGroup {
   return (node as RuleGroup).combinator !== undefined && Array.isArray((node as RuleGroup).rules);
@@ -243,8 +243,12 @@ function evalRule(rule: Rule, row: RosterRow): boolean {
 
 export function evaluate(node: Rule | RuleGroup, row: RosterRow): boolean {
   if (isGroup(node)) {
-    if (node.rules.length === 0) return true;
-    return node.combinator === "and" ? node.rules.every((c) => evaluate(c, row)) : node.rules.some((c) => evaluate(c, row));
+    // Empty group matches everyone; a `not` group inverts its result (powers exclusions like
+    // "attending AND NOT (rahat OR wheelchair)" built in the custom-audience UI).
+    const inner = node.rules.length === 0
+      ? true
+      : node.combinator === "and" ? node.rules.every((c) => evaluate(c, row)) : node.rules.some((c) => evaluate(c, row));
+    return node.not ? !inner : inner;
   }
   return evalRule(node, row);
 }

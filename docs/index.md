@@ -121,6 +121,7 @@ src/lib/whatsapp/audience.ts             — Send-console audience resolution + 
 src/lib/whatsapp/audience-filter.ts      — Custom-audience rule engine (FIELD_CATALOG, evaluate/runFilter); behavioral fields (Engagement / AI tool usage / Template history) attached in loadRoster() from the phone_message_stats / phone_tool_usage / phone_template_sends views; `set` type = recency-windowed multiselect
 src/lib/agent/tool-names.ts              — FILTERABLE_AGENT_TOOLS: curated mumineen-facing agent tools surfaced in the "AI tool usage" audience filter
 src/components/admin/RecentSetValueEditor.tsx — Custom rqb value editor for `set` fields (multiselect + "within last N hours")
+src/components/admin/AudienceFilterBuilder.tsx — Reusable react-querybuilder custom-audience builder (survey composer custom filters)
 src/lib/whatsapp/audience-csv.ts         — Parse an uploaded audience CSV (export/failures format) into broadcast recipients (csv_upload)
 src/lib/whatsapp/broadcast.ts            — Throttled template broadcast engine (queue + drain; drainUntilEmpty + failure categorization); persists audience toggles (window_filter/hours, selected_user_ids)
 src/lib/whatsapp/phone.ts                — Shared normalizePhone (leaf module; re-exported from audience.ts)

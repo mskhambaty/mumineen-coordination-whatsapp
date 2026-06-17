@@ -95,7 +95,7 @@ export type CommitResult = {
   sendError?: string;
 };
 
-type FormRow = { id: string; group_id: string | null; sample_size: number; status: string };
+type FormRow = { id: string; group_id: string | null; rules: RuleGroup | null; sample_size: number; status: string };
 
 export async function commitAndSendForm(formId: string, templateCodeOverride?: string | null, freeWindowOnly = false): Promise<CommitResult | { error: string }> {
   const supabase = getSupabaseAdmin();
@@ -103,20 +103,25 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
 
   const { data: form } = await supabase
     .from("survey_forms")
-    .select("id, group_id, sample_size, status")
+    .select("id, group_id, rules, sample_size, status")
     .eq("id", formId)
     .maybeSingle();
   if (!form) return { error: "Form not found." };
   const f = form as FormRow;
   if (f.status === "sent") return { error: "This form has already been sent." };
-  if (!f.group_id) return { error: "Form has no target group." };
 
-  const { data: group } = await supabase
-    .from("survey_groups")
-    .select("id, rules")
-    .eq("id", f.group_id)
-    .maybeSingle();
-  if (!group) return { error: "Target group not found." };
+  // Target is a saved group (group_id) OR an ad-hoc custom filter (rules) stored on the form.
+  let targetRules: RuleGroup | null = f.rules;
+  if (f.group_id) {
+    const { data: group } = await supabase
+      .from("survey_groups")
+      .select("id, rules")
+      .eq("id", f.group_id)
+      .maybeSingle();
+    if (!group) return { error: "Target group not found." };
+    targetRules = (group as { rules: RuleGroup }).rules;
+  }
+  if (!targetRules) return { error: "Form has no target group or filter." };
 
   const { data: fqs } = await supabase
     .from("survey_form_questions")
@@ -128,7 +133,7 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
   if (questionIds.length === 0) return { error: "Form has no questions composed." };
 
   // Sample fresh-first, excluding today's other samples and question-exhausted mumineen.
-  const sample = await suggestSample((group as { rules: RuleGroup }).rules, questionIds, f.sample_size, eventDate, { freeWindowOnly });
+  const sample = await suggestSample(targetRules, questionIds, f.sample_size, eventDate, { freeWindowOnly });
   if (sample.chosen.length === 0) {
     return { formId, funnel: sample.funnel, recipients: [], sent: false, sendError: "No eligible recipients to sample." };
   }

@@ -3,9 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import type { RuleGroupType } from "react-querybuilder";
+
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 import BroadcastHistory from "@/components/admin/niyaz/BroadcastHistory";
+import { AudienceFilterBuilder } from "@/components/admin/AudienceFilterBuilder";
 
 type Question = {
   id: string; section_id: string; text: string; type: string; is_general: boolean;
@@ -36,6 +39,8 @@ export default function SurveysAdminPage() {
 
   const [title, setTitle] = useState("");
   const [groupId, setGroupId] = useState("");
+  const [targetMode, setTargetMode] = useState<"group" | "custom">("group");
+  const [customRules, setCustomRules] = useState<RuleGroupType>({ combinator: "and", rules: [] });
   const [sampleSize, setSampleSize] = useState(40);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lookupIts, setLookupIts] = useState<string | null>(null);
@@ -75,15 +80,19 @@ export default function SurveysAdminPage() {
 
   async function createForm() {
     setMsg(null);
-    if (!title.trim() || !groupId || selected.size === 0) { setMsg("Pick a title, a group, and at least one question."); return; }
+    const useCustom = targetMode === "custom";
+    if (!title.trim() || selected.size === 0) { setMsg("Pick a title and at least one question."); return; }
+    if (useCustom && customRules.rules.length === 0) { setMsg("Add at least one rule to the custom filter (or switch to a saved group)."); return; }
+    if (!useCustom && !groupId) { setMsg("Pick a target group (or switch to a custom filter)."); return; }
+    const target = useCustom ? { rules: customRules } : { group_id: groupId };
     const res = await apiFetch("/api/admin/surveys/forms", {
       method: "POST",
-      body: JSON.stringify({ title: title.trim(), group_id: groupId, sample_size: sampleSize, question_ids: [...selected] }),
+      body: JSON.stringify({ title: title.trim(), ...target, sample_size: sampleSize, question_ids: [...selected] }),
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) { setMsg(json.error ?? "Failed to create form"); return; }
     setMsg(`Form created with ${json.question_count} questions.`);
-    setTitle(""); setSelected(new Set());
+    setTitle(""); setSelected(new Set()); setCustomRules({ combinator: "and", rules: [] });
     await loadForms();
     setTab("forms");
   }
@@ -112,10 +121,22 @@ export default function SurveysAdminPage() {
             <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Form title (e.g. Rahat — Day 3)" className={`${inputCls} sm:col-span-2`} />
             <input type="number" value={sampleSize} min={1} onChange={(e) => setSampleSize(parseInt(e.target.value || "0", 10))} placeholder="Sample size" className={inputCls} />
           </div>
-          <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className={`w-full ${inputCls}`}>
-            <option value="">— Target group —</option>
-            {groups.map((g) => <option key={g.id} value={g.id}>{g.name}{g.area_focus ? ` (${g.area_focus})` : ""}</option>)}
-          </select>
+          <div className="space-y-2">
+            <div className="inline-flex rounded-lg border border-gray-200 p-0.5 text-xs dark:border-gray-700">
+              <button onClick={() => setTargetMode("group")} className={`rounded-md px-3 py-1 font-medium ${targetMode === "group" ? "bg-blue-600 text-white" : "text-gray-500 dark:text-gray-400"}`}>Saved group</button>
+              <button onClick={() => setTargetMode("custom")} className={`rounded-md px-3 py-1 font-medium ${targetMode === "custom" ? "bg-blue-600 text-white" : "text-gray-500 dark:text-gray-400"}`}>Custom filter</button>
+            </div>
+            {targetMode === "group" ? (
+              <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className={`w-full ${inputCls}`}>
+                <option value="">— Target group —</option>
+                {groups.map((g) => <option key={g.id} value={g.id}>{g.name}{g.area_focus ? ` (${g.area_focus})` : ""}</option>)}
+              </select>
+            ) : (
+              <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+                <AudienceFilterBuilder query={customRules} onChange={setCustomRules} />
+              </div>
+            )}
+          </div>
 
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Questions ({selected.size} selected)</p>

@@ -5,6 +5,7 @@ import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { chicagoToday } from "@/lib/surveys/tokens";
+import { validateRules, type RuleGroup } from "@/lib/whatsapp/audience-filter";
 
 export const runtime = "nodejs";
 
@@ -16,10 +17,10 @@ export async function GET(req: NextRequest) {
 
   const { data: forms } = await supabase
     .from("survey_forms")
-    .select("id, title, group_id, sample_size, event_date, status, created_at, sent_at")
+    .select("id, title, group_id, rules, sample_size, event_date, status, created_at, sent_at")
     .order("created_at", { ascending: false })
     .limit(100);
-  const formRows = (forms ?? []) as { id: string; group_id: string | null }[];
+  const formRows = (forms ?? []) as { id: string; group_id: string | null; rules: unknown }[];
 
   const [{ data: groups }, { data: recips }] = await Promise.all([
     supabase.from("survey_groups").select("id, name"),
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     forms: formRows.map((f) => ({
       ...f,
-      group_name: f.group_id ? groupName.get(f.group_id) ?? null : null,
+      group_name: f.group_id ? groupName.get(f.group_id) ?? null : f.rules ? "Custom filter" : null,
       recipient_count: counts.get(f.id)?.sent ?? 0,
       completed_count: counts.get(f.id)?.completed ?? 0,
     })),
@@ -45,12 +46,18 @@ export async function GET(req: NextRequest) {
 }
 
 // POST — create a form and compose its questions (snapshotting text/type/options for stability).
-const bodySchema = z.object({
-  title: z.string().min(2).max(160),
-  group_id: z.string().uuid(),
-  sample_size: z.number().int().min(1).max(2000).optional(),
-  question_ids: z.array(z.string().uuid()).min(1).max(200),
-});
+// Target is EITHER a saved group (group_id) OR an ad-hoc custom audience filter (rules) — the latter
+// lets the admin carve out exclusions (e.g. attending AND NOT rahat) so a broad form doesn't re-hit
+// people already covered by a narrower one.
+const bodySchema = z
+  .object({
+    title: z.string().min(2).max(160),
+    group_id: z.string().uuid().optional(),
+    rules: z.object({ combinator: z.string(), rules: z.array(z.unknown()) }).passthrough().optional(),
+    sample_size: z.number().int().min(1).max(2000).optional(),
+    question_ids: z.array(z.string().uuid()).min(1).max(200),
+  })
+  .refine((b) => Boolean(b.group_id) !== Boolean(b.rules), "Provide exactly one of group_id or rules.");
 
 export async function POST(req: NextRequest) {
   const guard = await requirePortalCaller(req, isAdminOrLeadership);
@@ -59,6 +66,11 @@ export async function POST(req: NextRequest) {
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid body", details: parsed.error.flatten() }, { status: 400 });
   const b = parsed.data;
+  // Validate a custom filter against the field catalog before storing it.
+  if (b.rules) {
+    const err = validateRules(b.rules as unknown as RuleGroup);
+    if (err) return NextResponse.json({ error: `Invalid filter: ${err}` }, { status: 400 });
+  }
   const supabase = getSupabaseAdmin();
 
   // Load chosen questions + their sections to snapshot.
@@ -77,7 +89,8 @@ export async function POST(req: NextRequest) {
     .from("survey_forms")
     .insert({
       title: b.title,
-      group_id: b.group_id,
+      group_id: b.group_id ?? null,
+      rules: b.rules ?? null,
       sample_size: b.sample_size ?? 40,
       event_date: chicagoToday(),
       status: "draft",
