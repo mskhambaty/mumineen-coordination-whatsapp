@@ -70,11 +70,12 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
     // Free-text fires onChange per keystroke — never collapse/scroll it (would steal focus). Keep
     // it expanded.
     if (type === "text") { setExpanded((e) => ({ ...e, [qid]: true })); return; }
-    // Discrete answers (choice/scale/yes-no): a negative answer stays expanded so the "why?" box
-    // shows (it collapses + advances once they finish the comment — see the reason input's onBlur).
-    // A non-negative answer collapses immediately and auto-scrolls to the next question.
-    setExpanded((e) => ({ ...e, [qid]: isNeg }));
-    if (!isNeg) scrollToNext(qid);
+    // Negative answers stay expanded so the "why?" box shows (they collapse on the reason's onBlur).
+    if (isNeg) { setExpanded((e) => ({ ...e, [qid]: true })); return; }
+    // Non-negative: keep the selection visible for a beat, then collapse + auto-scroll — a calmer,
+    // smoother transition than an instant snap.
+    setExpanded((e) => ({ ...e, [qid]: true }));
+    window.setTimeout(() => { setExpanded((e) => ({ ...e, [qid]: false })); scrollToNext(qid); }, 320);
   }
 
   async function submit() {
@@ -145,6 +146,7 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
+      <style>{`@keyframes surveyCollapseIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}`}</style>
       <div className="sticky top-0 z-20 h-1.5 w-full bg-white/10">
         <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all" style={{ width: `${progress}%` }} />
       </div>
@@ -177,6 +179,7 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
                       id={`q-${qid}`}
                       type="button"
                       onClick={() => setExpanded((e) => ({ ...e, [qid]: true }))}
+                      style={{ animation: "surveyCollapseIn 0.35s ease" }}
                       className="flex w-full items-start justify-between gap-3 px-5 py-3 text-left transition hover:bg-white/[0.03]"
                     >
                       <span className="min-w-0">
