@@ -294,20 +294,22 @@ export async function GET(req: NextRequest) {
     ((religiousRows ?? []) as { phone_e164: string }[]).map((r) => r.phone_e164),
   );
 
-  // "Helpline activity" = the person sent at least one INBOUND message on a non-broadcast number
-  // (i.e. they actually texted the helpline). Drives the Conversations-tab Helpline/Survey focus:
-  // a conversation stays "Helpline" even after a broadcast is later sent to it (which would make its
-  // latest message a broadcast). Survey-only = pure broadcast recipients (never texted the helpline).
-  // Reliable — not limited by the message-load cap. `is.null` keeps legacy/primary (untagged) inbound.
-  let helplinePhones = new Set<string>();
-  if (broadcastPhoneNumberId) {
-    const { data: helplineRows } = await supabase
-      .from("messages")
-      .select("phone_e164")
-      .in("phone_e164", phoneNumbers)
-      .eq("direction", "inbound")
-      .or(`phone_number_id.is.null,phone_number_id.neq.${broadcastPhoneNumberId}`);
-    helplinePhones = new Set(((helplineRows ?? []) as { phone_e164: string }[]).map((r) => r.phone_e164));
+  // Latest CONVERSATIONAL message per loaded phone — skipping template sends (RSVP/feedback/digests/
+  // notifications) and RSVP/feedback button/flow responses. Powers (a) the "Broadcast-only" filter
+  // (a phone with none is broadcast-only) and (b) the list preview/timestamp/sort, so a thread shows
+  // its last REAL message — not a later broadcast that bumped it. Scoped to the loaded phones and
+  // ordered newest-first, so the first row seen per phone is its latest conversational message.
+  const { data: convoRows } = await supabase
+    .from("messages")
+    .select("phone_e164, body, created_at")
+    .in("phone_e164", phoneNumbers)
+    .is("raw_payload->>template", null)
+    .not("message_type", "in", "(interactive,button)")
+    .order("created_at", { ascending: false })
+    .limit(5000);
+  const lastConvoByPhone = new Map<string, { body: string | null; created_at: string }>();
+  for (const r of (convoRows ?? []) as { phone_e164: string; body: string | null; created_at: string }[]) {
+    if (!lastConvoByPhone.has(r.phone_e164)) lastConvoByPhone.set(r.phone_e164, { body: r.body, created_at: r.created_at });
   }
 
   const conversations = ((sessions ?? []) as SessionRow[]).map((session) => {
@@ -350,9 +352,11 @@ export async function GET(req: NextRequest) {
       messages: sessionMessages,
       tool_calls: toolsByPhone.get(session.phone_e164) ?? [],
       used_religious_tool: religiousPhones.has(session.phone_e164),
-      // Survey-only (no helpline activity) when a broadcast account is configured and this phone
-      // never sent a non-broadcast inbound message.
-      has_helpline_activity: !broadcastPhoneNumberId || helplinePhones.has(session.phone_e164),
+      // False = "Broadcast-only" — the thread has no real message (RSVP/feedback broadcasts only).
+      has_conversational_message: lastConvoByPhone.has(session.phone_e164),
+      // Latest real (non-broadcast) message — drives list preview/timestamp/sort so a thread reflects
+      // its last conversation, not a later broadcast. Null for broadcast-only threads.
+      conversational_last_message: lastConvoByPhone.get(session.phone_e164) ?? null,
     };
   });
 
