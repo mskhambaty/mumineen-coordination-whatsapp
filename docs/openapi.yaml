@@ -2435,9 +2435,10 @@ paths:
       tags: [admin]
       summary: Create a form and compose its questions
       description: >-
-        Admin/leadership only. Body { title, sample_size?, question_ids[] } plus EXACTLY ONE target:
-        `group_id` (a saved survey_group) OR `rules` (an inline audience-filter RuleGroup, supporting
-        NOT groups for exclusions like "attending AND NOT rahat"). Snapshots each question for
+        Admin/leadership only. Body { title, tags?, sample_size?, question_ids[] } plus EXACTLY ONE
+        target: `group_id` (a saved survey_group) OR `rules` (an inline audience-filter RuleGroup,
+        supporting mixed AND/OR and NOT groups for exclusions like "attending AND NOT rahat"). `tags`
+        are free-form labels to tell same-titled forms apart. Snapshots each question for
         stability; the custom filter is validated against the field catalog before saving.
       responses:
         "201": { description: "{ form_id, question_count }." }
@@ -2478,11 +2479,11 @@ paths:
   /api/admin/surveys/forms/{id}:
     patch:
       tags: [admin]
-      summary: Edit a form (sample size / title)
+      summary: Edit a form (sample size / title / tags)
       description: >-
-        Admin/leadership only. Body { sample_size?, title? }. Updates the form's editable fields;
-        sample_size sets how many mumineen the next Preview/Commit & send will sample. Does not
-        touch already-committed recipients.
+        Admin/leadership only. Body { sample_size?, title?, tags? }. Updates the form's editable
+        fields; sample_size sets how many mumineen the next Preview/Commit & send will sample. Does
+        not touch already-committed recipients.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -2588,8 +2589,8 @@ paths:
       description: >-
         Admin/leadership only. Read-only (POST carries the filter object). Body { formIds?, areas?,
         sectionIds?, includeTest?, gender?, ageMin?, ageMax?, localMehman?, rahatOnly?, jamaats?,
-        categories? }. Every aggregate reflects the active filters. Returns overview (respondents,
-        response_rate, avg_sentiment, comment_count), sentiment distribution, sentiment by
+        categories? }. Every aggregate reflects the active filters. Returns overview (sent, responded
+        [distinct people], response_rate, avg_sentiment, comment_count), sentiment distribution, by
         section/area/question, by-attribute breakdowns (local/mehman, gender, age, rahat, jamaat),
         the comment list, and the filter-option universe.
       responses:

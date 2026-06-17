@@ -17,10 +17,10 @@ export async function GET(req: NextRequest) {
 
   const { data: forms } = await supabase
     .from("survey_forms")
-    .select("id, title, group_id, rules, sample_size, event_date, status, created_at, sent_at")
+    .select("id, title, group_id, rules, tags, sample_size, event_date, status, created_at, sent_at")
     .order("created_at", { ascending: false })
     .limit(100);
-  const formRows = (forms ?? []) as { id: string; group_id: string | null; rules: unknown }[];
+  const formRows = (forms ?? []) as { id: string; group_id: string | null; rules: unknown; tags: string[] | null }[];
 
   const [{ data: groups }, { data: recips }] = await Promise.all([
     supabase.from("survey_groups").select("id, name"),
@@ -38,6 +38,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     forms: formRows.map((f) => ({
       ...f,
+      tags: f.tags ?? [],
       group_name: f.group_id ? groupName.get(f.group_id) ?? null : f.rules ? "Custom filter" : null,
       recipient_count: counts.get(f.id)?.sent ?? 0,
       completed_count: counts.get(f.id)?.completed ?? 0,
@@ -54,6 +55,7 @@ const bodySchema = z
     title: z.string().min(2).max(160),
     group_id: z.string().uuid().optional(),
     rules: z.object({ combinator: z.string().optional(), rules: z.array(z.unknown()) }).passthrough().optional(),
+    tags: z.array(z.string().min(1).max(40)).max(12).optional(),
     sample_size: z.number().int().min(1).max(2000).optional(),
     question_ids: z.array(z.string().uuid()).min(1).max(200),
   })
@@ -91,6 +93,7 @@ export async function POST(req: NextRequest) {
       title: b.title,
       group_id: b.group_id ?? null,
       rules: b.rules ?? null,
+      tags: b.tags ?? [],
       sample_size: b.sample_size ?? 40,
       event_date: chicagoToday(),
       status: "draft",

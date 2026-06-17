@@ -12,6 +12,7 @@ export const runtime = "nodejs";
 const patchSchema = z.object({
   sample_size: z.number().int().min(1).max(2000).optional(),
   title: z.string().min(3).max(200).optional(),
+  tags: z.array(z.string().min(1).max(40)).max(12).optional(),
 });
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -28,7 +29,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .from("survey_forms")
     .update(parsed.data)
     .eq("id", id)
-    .select("id, title, sample_size, status")
+    .select("id, title, sample_size, status, tags")
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Form not found." }, { status: 404 });
