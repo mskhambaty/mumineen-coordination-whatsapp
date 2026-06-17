@@ -12,6 +12,8 @@ vi.mock("@/lib/knowledge/lisan-word-requests", () => ({ markWordRequestAdded: vi
 
 import {
   normalizeWord,
+  normalizeLisanScript,
+  skeleton,
   lookupLisanWord,
   lookupEnglishMeaning,
   meaningTerms,
@@ -23,7 +25,7 @@ import {
   listAllLisanWords,
 } from "@/lib/knowledge/lisan-words";
 
-type Row = { transliteration: string | null; lisan: string | null; meaning: string | null; example: string | null; norm?: string | null; similarity?: number; meaning_terms?: string[] | null };
+type Row = { transliteration: string | null; lisan: string | null; meaning: string | null; example: string | null; norm?: string | null; lisan_norm?: string | null; similarity?: number; meaning_terms?: string[] | null };
 
 // Wire the supabase mock:
 //   .eq("norm",…) → exactData,  .eq("norm_skeleton",…) → skelData (legacy fallback)
@@ -36,7 +38,7 @@ function wire(
   mocks.from.mockReturnValue({
     select: () => ({
       eq: (col: string) => ({ limit: () => Promise.resolve({ data: col === "norm_skeleton" ? skelData : exactData }) }),
-      contains: (col: string) => ({ limit: () => Promise.resolve({ data: col === "lisan_forms" ? lisanFormData : skelData }) }),
+      contains: (col: string) => ({ limit: () => Promise.resolve({ data: col.startsWith("lisan_forms") ? lisanFormData : skelData }) }),
       ilike: () => ({ limit: () => Promise.resolve({ data: arabicData }) }),
     }),
   });
@@ -59,6 +61,22 @@ describe("normalizeWord", () => {
     expect(normalizeWord("Aaeen")).toBe("aaeen");
     expect(normalizeWord("Aā-eén!")).toBe("aa een");
     expect(normalizeWord("  Aaeen  si ")).toBe("aaeen si");
+  });
+});
+
+describe("normalizeLisanScript", () => {
+  it("maps modern Perso-Arabic letters to the stored doubled-standard convention", () => {
+    expect(normalizeLisanScript("لالچ")).toBe("لالحح"); // ch → حح ; matches stored "Laalach"
+    expect(normalizeLisanScript("لالحح")).toBe("لالحح"); // already in stored form → idempotent
+    expect(normalizeLisanScript("لالچْ")).toBe("لالحح"); // harakat (sukun) stripped
+    expect(normalizeLisanScript("پاني")).toBe("ثثاني"); // p → ثث
+  });
+});
+
+describe("skeleton (digraph folding)", () => {
+  it("folds gh/kh so spelling variants share a skeleton", () => {
+    expect(skeleton("raghbat")).toBe(skeleton("ragbat")); // the reported raghbat≈ragbat miss
+    expect(skeleton("khubi")).toBe(skeleton("kubi"));
   });
 });
 
@@ -139,18 +157,26 @@ describe("lookupLisanWord", () => {
     expect((await lookupLisanWord("zzzzz")).status).toBe("not_found");
   });
 
-  it("matches Lisan-script input against the lisan column", async () => {
-    wire({ arabicData: [{ transliteration: "Aaeen", lisan: "اْئين", meaning: "Regulation", example: "" }] });
+  it("matches Lisan-script input against the normalized lisan column", async () => {
+    wire({ arabicData: [{ transliteration: "Aaeen", lisan: "اْئين", lisan_norm: normalizeLisanScript("اْئين"), meaning: "Regulation", example: "" }] });
     const res = await lookupLisanWord("اْئين");
     expect(res.status).toBe("ok");
   });
 
   it("matches a Lisan-script word that is one form of a compound entry", async () => {
-    // "نعمة" is a form of "نعمة - نعم، انعم"; lisan_forms exact match answers directly.
+    // "نعمة" is a form of "نعمة - نعم، انعم"; lisan_forms_norm exact match answers directly.
     wire({ lisanFormData: [{ transliteration: "Ne'mat - Ne'am, An'um", lisan: "نعمة - نعم، انعم", meaning: "A blessing, favor, or grace", example: "" }] });
     const res = await lookupLisanWord("نعمة");
     expect(res.status).toBe("ok");
     expect(res.status === "ok" && res.matches[0].meaning).toContain("blessing");
+  });
+
+  it("matches modern Perso-Arabic script to the stored doubled-letter form (لالچ → Laalach)", async () => {
+    // Stored "Laalach" is لالحح (ch→حح); the member types لالچ. Normalizing both makes them match.
+    wire({ lisanFormData: [{ transliteration: "Laalach", lisan: "لالحح", meaning: "Greed", example: "" }] });
+    const res = await lookupLisanWord("لالچ");
+    expect(res.status).toBe("ok");
+    expect(res.status === "ok" && res.matches[0].transliteration).toBe("Laalach");
   });
 
   it("returns not_found for empty input", async () => {
