@@ -125,18 +125,22 @@ export async function resolveNiyazAudience(opts: {
     }
     recipients = dedupeByPhone(recipients);
   } else if (opts.audience === "all_adults_hof") {
-    // Every adult of ONE family, addressed by the entered HOF ITS (opts.its[0]).
+    // Every adult of the entered HOF families (by hof_its). Paged so a large HOF list isn't capped
+    // at 1000 member rows by the PostgREST single-response limit. Stable .order("id").
     const hofList = [...new Set((opts.its ?? []).map((s) => s.trim()).filter(Boolean))];
     if (hofList.length === 0) return { recipients: [], unresolvedIts: [] };
-    const { data } = await supabase
-      .from("mumineen")
-      .select(sel)
-      .in("hof_its", hofList)
-      .eq("roster_active", true)
-      .eq("not_attending", false)
-      .eq("is_adult", true)
-      .not("whatsapp_e164", "is", null);
-    recipients = dedupeByPhone(((data ?? []) as unknown as MuminRow[]).map(toRecipient));
+    const rows = await fetchAllRows<MuminRow>(() =>
+      supabase
+        .from("mumineen")
+        .select(sel)
+        .in("hof_its", hofList)
+        .eq("roster_active", true)
+        .eq("not_attending", false)
+        .eq("is_adult", true)
+        .not("whatsapp_e164", "is", null)
+        .order("id", { ascending: true }) as unknown as Pageable<MuminRow>,
+    );
+    recipients = dedupeByPhone(rows.map(toRecipient));
   } else {
     // Filter to active families via a server-side inner join instead of a huge .in(familyIds) list
     // (1000+ family UUIDs blew past the request URL limit, returning nothing). require_registered
