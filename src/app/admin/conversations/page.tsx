@@ -458,7 +458,7 @@ export default function ConversationsPage() {
 
   // WABA-number attribution for the open thread. A message's phone_number_id (NULL = primary) maps
   // to an account; we badge each message only when the thread spans more than one number, and show a
-  // single "via <number>" line otherwise (suppressed for the default primary number to avoid noise).
+  // single "via <number>" line otherwise (for any single number, including the primary).
   const accountByPnid = useMemo(() => {
     const m = new Map<string, InboxAccount>();
     for (const a of accounts) m.set(a.phoneNumberId, a);
@@ -481,10 +481,9 @@ export default function ConversationsPage() {
     return [...seen.entries()].map(([key, account]) => ({ key, account }));
   }, [selected, accountByPnid, primaryAccount]);
   const threadSpansNumbers = threadAccounts.length > 1;
-  const singleViaAccount =
-    !threadSpansNumbers && threadAccounts[0]?.account && !threadAccounts[0].account.isPrimary
-      ? threadAccounts[0].account
-      : null;
+  // Single-number thread: show a "via <number>" line for whichever number it's on — including the
+  // primary. Null only when the number can't be resolved to a configured account.
+  const singleViaAccount = !threadSpansNumbers ? threadAccounts[0]?.account ?? null : null;
   const latestMessageId = selected?.messages[selected.messages.length - 1]?.id ?? null;
   const unreadInboundCount = selected?.unread_inbound_count ?? 0;
   const unreadMessageStartIndex = selected
