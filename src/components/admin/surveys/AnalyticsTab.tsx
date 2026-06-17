@@ -10,7 +10,7 @@ import { apiFetch } from "@/lib/admin/client";
 
 const AREAS = ["general", "mawaid", "flow", "parking_transport", "audio_video", "accommodation", "seating"];
 
-type Row = { key: string; sentiment: number | null; responses: number };
+type Row = { key: string; sentiment: number | null; responses: number; people: number };
 type QRow = { question_id: string; text: string; sentiment: number | null; responses: number; breakdown: Record<string, number> };
 type Comment = { text: string; area: string | null; section: string | null; question: string | null; sentiment: number | null };
 type Data = {
@@ -47,14 +47,14 @@ function Badge({ value }: { value: number | null }) {
   );
 }
 
-function RowTable({ title, rows, unit = "answers" }: { title: string; rows: Row[]; unit?: string }) {
+function RowTable({ title, rows }: { title: string; rows: Row[] }) {
   if (!rows.length) return null;
   return (
     <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
       <p className="mb-1 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">{title}</p>
       {rows.map((r) => (
         <div key={r.key} className="flex items-center justify-between gap-3 py-0.5">
-          <span className="truncate text-xs text-gray-700 dark:text-gray-300">{r.key} <span className="text-gray-400">({r.responses} {unit})</span></span>
+          <span className="truncate text-xs text-gray-700 dark:text-gray-300">{r.key} <span className="text-gray-400">({r.people} {r.people === 1 ? "person" : "people"} · {r.responses} answers)</span></span>
           <Badge value={r.sentiment} />
         </div>
       ))}
