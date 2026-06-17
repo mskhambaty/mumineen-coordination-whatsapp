@@ -66,6 +66,22 @@ const chip = (on: boolean) =>
   `rounded-full border px-2.5 py-1 text-xs font-medium ${on ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-300"}`;
 const inputCls = "rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100";
 
+type DrillRow = { name: string | null; its: string | null; question: string | null; answer: string | null; section: string | null; area: string | null; reason: string | null };
+
+function buildBody(fl: Filters): Record<string, unknown> {
+  const body: Record<string, unknown> = { includeTest: fl.includeTest, rahatOnly: fl.rahatOnly };
+  if (fl.formIds.length) body.formIds = fl.formIds;
+  if (fl.areas.length) body.areas = fl.areas;
+  if (fl.sectionIds.length) body.sectionIds = fl.sectionIds;
+  if (fl.gender) body.gender = fl.gender;
+  if (fl.localMehman) body.localMehman = fl.localMehman;
+  if (fl.ageMin != null) body.ageMin = fl.ageMin;
+  if (fl.ageMax != null) body.ageMax = fl.ageMax;
+  if (fl.jamaats.length) body.jamaats = fl.jamaats;
+  if (fl.categories.length) body.categories = fl.categories;
+  return body;
+}
+
 export function AnalyticsTab() {
   const [filters, setFilters] = useState<Filters>(EMPTY);
   const [data, setData] = useState<Data | null>(null);
@@ -73,25 +89,23 @@ export function AnalyticsTab() {
   const [ai, setAi] = useState<Ai | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiErr, setAiErr] = useState<string | null>(null);
+  const [drill, setDrill] = useState<{ score: number; rows: DrillRow[]; loading: boolean } | null>(null);
 
   const load = useCallback(async (fl: Filters) => {
     setLoading(true);
-    const body: Record<string, unknown> = { includeTest: fl.includeTest, rahatOnly: fl.rahatOnly };
-    if (fl.formIds.length) body.formIds = fl.formIds;
-    if (fl.areas.length) body.areas = fl.areas;
-    if (fl.sectionIds.length) body.sectionIds = fl.sectionIds;
-    if (fl.gender) body.gender = fl.gender;
-    if (fl.localMehman) body.localMehman = fl.localMehman;
-    if (fl.ageMin != null) body.ageMin = fl.ageMin;
-    if (fl.ageMax != null) body.ageMax = fl.ageMax;
-    if (fl.jamaats.length) body.jamaats = fl.jamaats;
-    if (fl.categories.length) body.categories = fl.categories;
-    const res = await apiFetch("/api/admin/surveys/analytics", { method: "POST", body: JSON.stringify(body) });
+    const res = await apiFetch("/api/admin/surveys/analytics", { method: "POST", body: JSON.stringify(buildBody(fl)) });
     setData(res.ok ? await res.json() : null);
     setLoading(false);
   }, []);
 
   useEffect(() => { void load(EMPTY); }, [load]);
+
+  async function openDrill(score: number) {
+    setDrill({ score, rows: [], loading: true });
+    const res = await apiFetch("/api/admin/surveys/analytics", { method: "POST", body: JSON.stringify({ ...buildBody(filters), drillScore: score }) });
+    const json = await res.json().catch(() => ({}));
+    setDrill({ score, rows: (json.responses as DrillRow[]) ?? [], loading: false });
+  }
 
   function toggleArr(key: "formIds" | "areas" | "sectionIds" | "jamaats" | "categories", v: string) {
     setFilters((f) => ({ ...f, [key]: f[key].includes(v) ? f[key].filter((x) => x !== v) : [...f[key], v] }));
@@ -193,21 +207,61 @@ export function AnalyticsTab() {
           <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
             <div className="mb-2 flex items-baseline justify-between">
               <p className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">Scored answers by sentiment</p>
-              <p className="text-[10px] text-gray-400 dark:text-gray-500">{o.scored_answers} scored answers · 1 = very negative → 5 = very positive</p>
+              <p className="text-[10px] text-gray-400 dark:text-gray-500">{o.scored_answers} scored answers · click a bar to see who · 1 = very negative → 5 = very positive</p>
             </div>
             <div className="flex items-end gap-2" style={{ height: 90 }}>
               {data.distribution.map((d) => {
                 const pct = o.scored_answers ? Math.round((d.count / o.scored_answers) * 100) : 0;
                 return (
-                  <div key={d.score} className="flex flex-1 flex-col items-center justify-end gap-1">
+                  <button
+                    key={d.score}
+                    type="button"
+                    disabled={d.count === 0}
+                    onClick={() => openDrill(d.score)}
+                    title={d.count ? `See the ${d.count} who answered at ${d.score}/5` : "No answers at this score"}
+                    className="flex flex-1 flex-col items-center justify-end gap-1 rounded enabled:hover:bg-gray-100 disabled:cursor-default dark:enabled:hover:bg-gray-800/60"
+                  >
                     <span className="text-[10px] font-medium text-gray-600 dark:text-gray-300">{d.count} <span className="text-gray-400">({pct}%)</span></span>
                     <div className={`w-full rounded-t ${d.score >= 4 ? "bg-emerald-600" : d.score === 3 ? "bg-amber-500" : "bg-red-600"}`} style={{ height: `${Math.max(d.count ? 3 : 0, (d.count / maxDist) * 60)}px` }} />
                     <span className="text-[10px] text-gray-500 dark:text-gray-400">{d.score}{d.score === 1 ? " ★" : d.score === 5 ? " ★★★★★" : ""}</span>
-                  </div>
+                  </button>
                 );
               })}
             </div>
           </div>
+
+          {/* Drill-down side pane: who answered what at the clicked score */}
+          {drill && (
+            <div className="fixed inset-0 z-40 flex justify-end" onClick={() => setDrill(null)}>
+              <div className="absolute inset-0 bg-black/40" />
+              <div onClick={(e) => e.stopPropagation()} className="relative z-50 flex h-full w-full max-w-md flex-col border-l border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900">
+                <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Answers scored {drill.score}/5</p>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">{drill.loading ? "Loading…" : `${drill.rows.length} response${drill.rows.length === 1 ? "" : "s"} · current filters`}</p>
+                  </div>
+                  <button onClick={() => setDrill(null)} className="rounded px-2 py-1 text-sm text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800">✕</button>
+                </div>
+                <div className="flex-1 overflow-auto p-3">
+                  {!drill.loading && drill.rows.length === 0 && <p className="text-xs text-gray-500 dark:text-gray-400">No responses at this score for the active filters.</p>}
+                  <ul className="space-y-2">
+                    {drill.rows.map((r, i) => (
+                      <li key={i} className="rounded-lg border border-gray-200 p-2 dark:border-gray-700">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-xs font-medium text-gray-800 dark:text-gray-100">{r.name ?? "—"}</span>
+                          <span className="flex-shrink-0 font-mono text-[10px] text-gray-400">{r.its ?? ""}</span>
+                        </div>
+                        <p className="mt-0.5 text-[11px] text-gray-600 dark:text-gray-300">{r.question ?? r.section ?? "—"}</p>
+                        <p className="text-xs font-medium text-gray-800 dark:text-gray-200">→ {r.answer ?? "—"}</p>
+                        {r.reason && <p className="mt-0.5 text-[11px] italic text-amber-600 dark:text-amber-400">“{r.reason}”</p>}
+                        <p className="mt-0.5 text-[10px] uppercase text-gray-400">{[r.section, r.area].filter(Boolean).join(" · ")}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* AI analysis */}
           <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3 dark:border-indigo-900 dark:bg-indigo-950/20">

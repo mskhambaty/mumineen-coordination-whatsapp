@@ -23,9 +23,14 @@ const filterSchema = z.object({
   rahatOnly: z.boolean().optional(),
   jamaats: z.array(z.string()).optional(),
   categories: z.array(z.string()).optional(),
+  // Drill-down: when set, also return the individual responses whose sentiment equals this score
+  // (who answered what), so the distribution bars can open a "who responded" side pane.
+  drillScore: z.number().int().min(1).max(5).optional(),
 });
 
 type MuminAttr = {
+  name: string | null;
+  its: string | null;
   age: number | null;
   gender: string | null;
   local_mehman: string | null;
@@ -75,10 +80,10 @@ export async function POST(req: NextRequest) {
   for (let i = 0; i < muminIds.length; i += 500) {
     const { data } = await supabase
       .from("mumineen")
-      .select("id, age, gender, local_mehman, rahat_seating, wheelchair, jamaat, category")
+      .select("id, full_name, its, age, gender, local_mehman, rahat_seating, wheelchair, jamaat, category")
       .in("id", muminIds.slice(i, i + 500));
-    for (const m of (data ?? []) as { id: string; age: number | null; gender: string | null; local_mehman: string | null; rahat_seating: boolean | null; wheelchair: boolean | null; jamaat: string | null; category: string | null }[]) {
-      attr.set(m.id, { age: m.age, gender: m.gender, local_mehman: m.local_mehman, rahat: Boolean(m.rahat_seating || m.wheelchair), jamaat: m.jamaat, category: m.category });
+    for (const m of (data ?? []) as { id: string; full_name: string | null; its: string | null; age: number | null; gender: string | null; local_mehman: string | null; rahat_seating: boolean | null; wheelchair: boolean | null; jamaat: string | null; category: string | null }[]) {
+      attr.set(m.id, { name: m.full_name, its: m.its, age: m.age, gender: m.gender, local_mehman: m.local_mehman, rahat: Boolean(m.rahat_seating || m.wheelchair), jamaat: m.jamaat, category: m.category });
     }
   }
 
@@ -177,6 +182,27 @@ export async function POST(req: NextRequest) {
   const jamaatOpts = Array.from(new Set(Array.from(attr.values()).map((a) => a.jamaat).filter((x): x is string => Boolean(x)))).sort();
   const categoryOpts = Array.from(new Set(Array.from(attr.values()).map((a) => a.category).filter((x): x is string => Boolean(x)))).sort();
 
+  // Drill-down: who answered what at the requested sentiment score (admin-only detail view).
+  let responses: Array<{ name: string | null; its: string | null; question: string | null; answer: string | null; section: string | null; area: string | null; reason: string | null }> | undefined;
+  if (f.drillScore != null) {
+    responses = fAnswers
+      .filter((a) => a.sentiment_1_5 === f.drillScore)
+      .map((a) => {
+        const m = a.mumin_id ? attr.get(a.mumin_id) : undefined;
+        return {
+          name: m?.name ?? null,
+          its: m?.its ?? null,
+          question: a.question_id ? qText.get(a.question_id) ?? null : null,
+          answer: a.answer_text,
+          section: a.section_id ? sectionTitle.get(a.section_id) ?? null : null,
+          area: a.area,
+          reason: a.reason_text,
+        };
+      })
+      .sort((x, y) => (x.name ?? "").localeCompare(y.name ?? ""))
+      .slice(0, 2000);
+  }
+
   return NextResponse.json({
     forms: allForms.map((x) => ({ id: x.id, title: x.title, status: x.status, tags: x.tags ?? [] })),
     options: { jamaats: jamaatOpts, categories: categoryOpts, sections: Array.from(sectionTitle.entries()).map(([id, title]) => ({ id, title })) },
@@ -194,5 +220,6 @@ export async function POST(req: NextRequest) {
     by_question: byQuestion,
     by_attribute: { local_mehman: byMehman, gender: byGender, age: byAge, rahat: byRahat, jamaat: byJamaat },
     comments,
+    ...(responses ? { drill_score: f.drillScore, responses } : {}),
   });
 }
