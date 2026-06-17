@@ -143,7 +143,15 @@ export async function sendTemplateNotification(input: SendTemplateNotificationIn
       },
       phoneNumberId: input.account?.phoneNumberId ?? null,
     });
-    await touchConversationSession({ phoneE164: input.phoneE164, userId: input.userId ?? undefined, phoneNumberId: input.account?.phoneNumberId ?? null });
+    // Tag the conversation's number only for brand-new sessions; never flip an existing
+    // conversation onto the sending account's number (a broadcast must not reclassify a
+    // helpline thread). Inbound messages remain the authority on where a conversation lives.
+    await touchConversationSession({
+      phoneE164: input.phoneE164,
+      userId: input.userId ?? undefined,
+      phoneNumberId: input.account?.phoneNumberId ?? null,
+      phoneNumberIdOnlyIfNew: true,
+    });
 
     return { status: "sent", waMessageId };
   } catch (err) {

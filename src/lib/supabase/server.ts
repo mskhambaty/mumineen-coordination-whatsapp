@@ -287,7 +287,24 @@ export async function touchConversationSession(input: {
   // The number this conversation is on (NULL = primary). Latest message wins; OMITTED leaves the
   // existing value untouched on conflict (so callers that don't know the account don't clobber it).
   phoneNumberId?: string | null;
+  // When true, phoneNumberId is applied only if this is a brand-new session; an existing
+  // conversation's number is preserved. Outbound broadcast/template sends use this so a blast never
+  // reclassifies ("flips") a person's helpline conversation onto the broadcast number — only inbound
+  // messages define where a conversation lives. New (reply-less) recipients are still tagged.
+  phoneNumberIdOnlyIfNew?: boolean;
 }) {
+  const supabase = getSupabaseAdmin();
+
+  let phoneNumberId = input.phoneNumberId;
+  if (input.phoneNumberIdOnlyIfNew && phoneNumberId !== undefined) {
+    const { data: existing } = await supabase
+      .from("conversation_sessions")
+      .select("id")
+      .eq("phone_e164", input.phoneE164)
+      .maybeSingle();
+    if (existing) phoneNumberId = undefined; // preserve the existing conversation's number
+  }
+
   const row: Record<string, unknown> = {
     phone_e164: input.phoneE164,
     user_id: input.userId,
@@ -295,9 +312,9 @@ export async function touchConversationSession(input: {
     state: input.state ?? {},
     last_message_at: new Date().toISOString(),
   };
-  if (input.phoneNumberId !== undefined) row.phone_number_id = input.phoneNumberId;
+  if (phoneNumberId !== undefined) row.phone_number_id = phoneNumberId;
 
-  const { error } = await getSupabaseAdmin().from("conversation_sessions").upsert(row, { onConflict: "phone_e164" });
+  const { error } = await supabase.from("conversation_sessions").upsert(row, { onConflict: "phone_e164" });
 
   if (error) {
     throw error;
