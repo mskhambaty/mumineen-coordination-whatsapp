@@ -2581,6 +2581,36 @@ paths:
         "200": { description: "{ form, response: { sent, completed, rate }, sections: [{ title, sentiment, responses }], questions: [{ text, sentiment, breakdown, comments }] }." }
         "404": { description: "Form not found." }
 
+  /api/admin/surveys/analytics:
+    post:
+      tags: [admin]
+      summary: Cross-form feedback analytics (fully filterable)
+      description: >-
+        Admin/leadership only. Read-only (POST carries the filter object). Body { formIds?, areas?,
+        sectionIds?, includeTest?, gender?, ageMin?, ageMax?, localMehman?, rahatOnly?, jamaats?,
+        categories? }. Every aggregate reflects the active filters. Returns overview (respondents,
+        response_rate, avg_sentiment, comment_count), sentiment distribution, sentiment by
+        section/area/question, by-attribute breakdowns (local/mehman, gender, age, rahat, jamaat),
+        the comment list, and the filter-option universe.
+      responses:
+        "200": { description: "{ forms, options, overview, distribution, by_section, by_area, by_question, by_attribute, comments }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/surveys/analytics/ai:
+    post:
+      tags: [admin]
+      summary: AI qualitative analysis of feedback comments
+      description: >-
+        Admin/leadership only. Body { comments: [{ text, area? }], scope? }. Sends only the comment
+        TEXT (no PII) to the LLM (via getAIClient / AI_MODEL) and returns structured analysis:
+        overall_sentiment, sentiment_score_1_5, summary, themes, ranked improvements, positives.
+      responses:
+        "200": { description: "{ analysis, analyzed }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { description: "AI call failed or returned unparseable output." }
+
   /api/feedback:
     post:
       tags: [feedback]

@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import type { RuleGroupType } from "react-querybuilder";
+import type { RuleGroupTypeIC } from "react-querybuilder";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 import BroadcastHistory from "@/components/admin/niyaz/BroadcastHistory";
 import { AudienceFilterBuilder } from "@/components/admin/AudienceFilterBuilder";
+import { AnalyticsTab } from "@/components/admin/surveys/AnalyticsTab";
 
 type Question = {
   id: string; section_id: string; text: string; type: string; is_general: boolean;
@@ -23,7 +24,7 @@ type FormRow = {
   status: string; event_date: string | null; recipient_count: number; completed_count: number;
 };
 
-type Tab = "compose" | "databank" | "forms" | "lookup" | "sends";
+type Tab = "compose" | "databank" | "forms" | "lookup" | "sends" | "analytics";
 
 const inputCls =
   "rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500";
@@ -40,7 +41,8 @@ export default function SurveysAdminPage() {
   const [title, setTitle] = useState("");
   const [groupId, setGroupId] = useState("");
   const [targetMode, setTargetMode] = useState<"group" | "custom">("group");
-  const [customRules, setCustomRules] = useState<RuleGroupType>({ combinator: "and", rules: [] });
+  // Independent-combinators query (no top-level combinator) so AND/OR can be mixed per junction.
+  const [customRules, setCustomRules] = useState<RuleGroupTypeIC>({ rules: [] } as RuleGroupTypeIC);
   const [sampleSize, setSampleSize] = useState(40);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lookupIts, setLookupIts] = useState<string | null>(null);
@@ -92,7 +94,7 @@ export default function SurveysAdminPage() {
     const json = await res.json().catch(() => ({}));
     if (!res.ok) { setMsg(json.error ?? "Failed to create form"); return; }
     setMsg(`Form created with ${json.question_count} questions.`);
-    setTitle(""); setSelected(new Set()); setCustomRules({ combinator: "and", rules: [] });
+    setTitle(""); setSelected(new Set()); setCustomRules({ rules: [] } as RuleGroupTypeIC);
     await loadForms();
     setTab("forms");
   }
@@ -105,7 +107,7 @@ export default function SurveysAdminPage() {
       <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">Compose targeted surveys, sample a group, and review section sentiment.</p>
 
       <div className="mb-5 flex gap-1 border-b border-gray-200 dark:border-gray-700">
-        {(["compose", "forms", "lookup", "sends", "databank"] as Tab[]).map((t) => (
+        {(["compose", "forms", "analytics", "lookup", "sends", "databank"] as Tab[]).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm font-medium capitalize ${tab === t ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}>
             {t}
@@ -169,6 +171,8 @@ export default function SurveysAdminPage() {
       {tab === "lookup" && <LookupTab initialIts={lookupIts} />}
 
       {tab === "sends" && <SendsTab />}
+
+      {tab === "analytics" && <AnalyticsTab />}
 
       {tab === "databank" && (
         <div className="space-y-3">
@@ -569,6 +573,11 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
     setDetail({ kind: "results", id, ...(await res.json().catch(() => ({}))) });
     setBusy(null);
   }
+  // Toggle: open results, or collapse them if already showing for this form.
+  function toggleResults(id: string) {
+    if (detail?.kind === "results" && detail.id === id) { setDetail(null); return; }
+    void results(id, false);
+  }
   async function testLink(id: string) {
     const its = window.prompt("Send test to which ITS? (leave blank for an anonymous 'you' preview link):", "")?.trim() ?? "";
     let deliver = false;
@@ -628,18 +637,22 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button onClick={() => testLink(f.id)} disabled={busy === f.id} className={ghostBtn}>Test link</button>
+              {/* A sent form is locked in — only "Test to people" and "Results" are relevant; the
+                  pre-send actions (test link, preview, commit, delete) are hidden to prevent mistakes. */}
+              {f.status !== "sent" && <button onClick={() => testLink(f.id)} disabled={busy === f.id} className={ghostBtn}>Test link</button>}
               <button onClick={() => setPickerFor(pickerFor === f.id ? null : f.id)} className={ghostBtn}>Test to people</button>
-              <button onClick={() => preview(f.id)} disabled={busy === f.id} className={ghostBtn}>Preview sample</button>
-              <button onClick={() => send(f.id)} disabled={busy === f.id || f.status === "sent"} className="rounded bg-emerald-600 px-3 py-1 text-xs text-white disabled:opacity-50">
-                {f.status === "sent" ? "Sent" : "Commit & send"}
+              {f.status !== "sent" && <button onClick={() => preview(f.id)} disabled={busy === f.id} className={ghostBtn}>Preview sample</button>}
+              {f.status !== "sent" && (
+                <button onClick={() => send(f.id)} disabled={busy === f.id} className="rounded bg-emerald-600 px-3 py-1 text-xs text-white disabled:opacity-50">Commit &amp; send</button>
+              )}
+              <button onClick={() => toggleResults(f.id)} disabled={busy === f.id} className={`${ghostBtn} ${detail?.kind === "results" && detail.id === f.id ? "bg-gray-100 dark:bg-gray-800" : ""}`}>
+                {detail?.kind === "results" && detail.id === f.id ? "Hide results" : "Results"}
               </button>
-              <button onClick={() => results(f.id, false)} disabled={busy === f.id} className={ghostBtn}>Results</button>
-              <button onClick={() => del(f.id)} disabled={busy === f.id} className="rounded border border-red-300 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40">Delete</button>
+              {f.status !== "sent" && <button onClick={() => del(f.id)} disabled={busy === f.id} className="rounded border border-red-300 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40">Delete</button>}
             </div>
           </div>
           {pickerFor === f.id && <ManualTestPanel formId={f.id} templateCode={templateCode} />}
-          {detail && detail.id === f.id && <DetailView detail={detail} onPickMumin={onPickMumin} onResultsToggleTest={(inc) => results(f.id, inc)} />}
+          {detail && detail.id === f.id && <DetailView detail={detail} onPickMumin={onPickMumin} onResultsToggleTest={(inc) => results(f.id, inc)} onClose={() => setDetail(null)} />}
         </div>
       ))}
     </div>
@@ -1021,7 +1034,7 @@ function SentimentBadge({ value }: { value: number | null }) {
   );
 }
 
-function DetailView({ detail, onPickMumin, onResultsToggleTest }: { detail: Detail; onPickMumin?: (its: string) => void; onResultsToggleTest?: (include: boolean) => void }) {
+function DetailView({ detail, onPickMumin, onResultsToggleTest, onClose }: { detail: Detail; onPickMumin?: (its: string) => void; onResultsToggleTest?: (include: boolean) => void; onClose?: () => void }) {
   const box = "mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm dark:border-gray-700 dark:bg-gray-800/40";
   if (detail.error) return <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{String(detail.error)}</p>;
 
@@ -1084,11 +1097,14 @@ function DetailView({ detail, onPickMumin, onResultsToggleTest }: { detail: Deta
             Response rate: {resp.completed}/{resp.sent} ({Math.round((resp.rate ?? 0) * 100)}%)
             {detail.include_test ? <span className="ml-2 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] uppercase text-amber-700 dark:text-amber-400">test data</span> : null}
           </p>
-          {(Boolean(detail.test_available) || Boolean(detail.include_test)) && (
-            <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
-              <input type="checkbox" checked={Boolean(detail.include_test)} onChange={(e) => onResultsToggleTest?.(e.target.checked)} className="accent-blue-600" /> Include test submissions
-            </label>
-          )}
+          <div className="flex items-center gap-3">
+            {(Boolean(detail.test_available) || Boolean(detail.include_test)) && (
+              <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+                <input type="checkbox" checked={Boolean(detail.include_test)} onChange={(e) => onResultsToggleTest?.(e.target.checked)} className="accent-blue-600" /> Include test submissions
+              </label>
+            )}
+            {onClose && <button onClick={onClose} className="text-xs text-gray-500 hover:underline dark:text-gray-400">Hide ▲</button>}
+          </div>
         </div>
         {sections.length > 0 && (
           <div className="mb-3">

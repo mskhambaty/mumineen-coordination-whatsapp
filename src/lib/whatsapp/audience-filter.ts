@@ -123,22 +123,46 @@ export const OPS_BY_TYPE: Record<FieldType, string[]> = {
 };
 
 export type Rule = { field: string; operator: string; value?: unknown };
+// Two group shapes are accepted (both produced by react-querybuilder):
+//  - standard:    { combinator: "and"|"or", rules: [node, node, ...] }
+//  - independent: { rules: [node, "and"|"or", node, "or", node, ...] } (per-junction combinators,
+//    evaluated left-to-right) — lets one filter mix AND and OR without nesting subgroups.
 export type RuleGroup = { combinator: "and" | "or"; not?: boolean; rules: Array<Rule | RuleGroup> };
 
-function isGroup(node: Rule | RuleGroup): node is RuleGroup {
-  return (node as RuleGroup).combinator !== undefined && Array.isArray((node as RuleGroup).rules);
+type AnyGroupNode = { combinator?: string; not?: boolean; rules: unknown[] };
+function isGroup(node: unknown): node is AnyGroupNode {
+  return typeof node === "object" && node !== null && Array.isArray((node as { rules?: unknown }).rules);
 }
 
-export function validateRules(node: Rule | RuleGroup, depth = 0): string | null {
+export function validateRules(node: unknown, depth = 0): string | null {
   if (isGroup(node)) {
     if (depth > 2) return "Filters can nest at most 2 levels deep.";
-    if (node.combinator !== "and" && node.combinator !== "or") return "Invalid combinator.";
-    for (const child of node.rules) {
-      const err = validateRules(child, depth + 1);
+    const rules = node.rules;
+    if (typeof node.combinator === "string") {
+      if (node.combinator !== "and" && node.combinator !== "or") return "Invalid combinator.";
+      for (const child of rules) {
+        const err = validateRules(child, depth + 1);
+        if (err) return err;
+      }
+      return null;
+    }
+    // Independent-combinators group: even indices are nodes, odd indices are "and"/"or".
+    for (let i = 0; i < rules.length; i++) {
+      if (i % 2 === 1) {
+        if (rules[i] !== "and" && rules[i] !== "or") return "Invalid combinator.";
+        continue;
+      }
+      const err = validateRules(rules[i], depth + 1);
       if (err) return err;
     }
     return null;
   }
+  if (typeof node !== "object" || node === null) return "Invalid rule.";
+  const ruleNode = node as Rule;
+  return validateLeaf(ruleNode);
+}
+
+function validateLeaf(node: Rule): string | null {
   const def = FIELD_BY_KEY.get(node.field);
   if (!def) return `Unknown field: ${node.field}`;
   if (!OPS_BY_TYPE[def.type].includes(node.operator)) return `Operator ${node.operator} not allowed for ${node.field}.`;
@@ -241,16 +265,27 @@ function evalRule(rule: Rule, row: RosterRow): boolean {
   return false;
 }
 
-export function evaluate(node: Rule | RuleGroup, row: RosterRow): boolean {
+export function evaluate(node: unknown, row: RosterRow): boolean {
   if (isGroup(node)) {
+    const rules = node.rules;
     // Empty group matches everyone; a `not` group inverts its result (powers exclusions like
     // "attending AND NOT (rahat OR wheelchair)" built in the custom-audience UI).
-    const inner = node.rules.length === 0
-      ? true
-      : node.combinator === "and" ? node.rules.every((c) => evaluate(c, row)) : node.rules.some((c) => evaluate(c, row));
+    let inner: boolean;
+    if (rules.length === 0) {
+      inner = true;
+    } else if (typeof node.combinator === "string") {
+      inner = node.combinator === "and" ? rules.every((c) => evaluate(c, row)) : rules.some((c) => evaluate(c, row));
+    } else {
+      // Independent-combinators group: evaluate left-to-right with the per-junction "and"/"or".
+      inner = evaluate(rules[0], row);
+      for (let i = 1; i + 1 < rules.length; i += 2) {
+        const next = evaluate(rules[i + 1], row);
+        inner = rules[i] === "or" ? inner || next : inner && next;
+      }
+    }
     return node.not ? !inner : inner;
   }
-  return evalRule(node, row);
+  return evalRule(node as Rule, row);
 }
 
 function normalizePhone(input: string): string {

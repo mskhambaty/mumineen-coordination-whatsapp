@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { QueryBuilder, formatQuery, type Field, type RuleGroupType } from "react-querybuilder";
+import { QueryBuilder, formatQuery, type Field, type RuleGroupTypeIC } from "react-querybuilder";
 import "react-querybuilder/dist/query-builder.css";
 
 import { RecentSetValueEditor } from "@/components/admin/RecentSetValueEditor";
@@ -24,8 +24,8 @@ export function AudienceFilterBuilder({
   query,
   onChange,
 }: {
-  query: RuleGroupType;
-  onChange: (q: RuleGroupType) => void;
+  query: RuleGroupTypeIC;
+  onChange: (q: RuleGroupTypeIC) => void;
 }) {
   const [catalog, setCatalog] = useState<CatalogField[]>([]);
 
@@ -64,8 +64,10 @@ export function AudienceFilterBuilder({
   return (
     <div className="space-y-2">
       <p className="text-xs text-gray-500 dark:text-gray-400">
-        Build a custom audience. Use <span className="font-medium">NOT</span> groups to exclude people
-        already covered by another form (e.g. attending <span className="font-medium">AND NOT</span> rahat).
+        Build a custom audience. The <span className="font-medium">AND / OR</span> selector between each
+        rule is independent, so you can mix them freely (e.g. <span className="font-medium">mehman OR rahat</span>,
+        then <span className="font-medium">AND</span> attending). Use <span className="font-medium">NOT</span>{" "}
+        groups to exclude people already covered by another form.
       </p>
       {rqbFields.length === 0 ? (
         <p className="text-xs text-gray-400 dark:text-gray-500">Loading filter fields…</p>

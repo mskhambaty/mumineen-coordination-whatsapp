@@ -72,9 +72,11 @@ no template selected, the per-recipient links are returned for manual sending.
 
 ## Admin
 
-`/admin/surveys` (admin/leadership) — tabs: **Compose** (group + sample size + questions → create
-form), **Forms** (Test link · Preview sample funnel · Commit & send · Results dashboard),
-**Databank** (add/edit/delete sections and questions). APIs under `src/app/api/admin/surveys/**`
+`/admin/surveys` (admin/leadership) — tabs: **Compose** (target + sample size + questions → create
+form), **Forms** (Test link · Preview sample funnel · Commit & send · Results), **Analytics**,
+**Lookup**, **Sends**, **Databank** (add/edit/delete/reorder sections and questions). A **sent** form
+locks down — its row shows only **Test to people** and **Results** (the pre-send actions are hidden to
+prevent mistakes); the Results panel is collapsible. APIs under `src/app/api/admin/surveys/**`
 (gated by `requirePortalCaller(isAdminOrLeadership)`). Sections and questions both **soft-delete**
 (`active=false`) so already-composed forms keep working off their snapshots; deleting a section also
 soft-deletes its questions.
@@ -92,8 +94,23 @@ mumin by name/ITS and shows their full survey history — every answer with its 
 section, 1-5 sentiment and reason, plus per-section and overall sentiment, and which forms they
 were sent.
 
-**Sample size** is admin-controlled per form: `suggestSample` resolves *all* qualifying mumineen,
-then takes the top N (fresh-first). Set N high to target everyone who qualifies.
+**Sample size** is admin-controlled per form and **editable inline** on the Forms row: `suggestSample`
+resolves *all* qualifying mumineen, then takes the top N (fresh-first). Set N high to target everyone.
+
+## Analytics (`/admin/surveys` → Analytics tab)
+
+`POST /api/admin/surveys/analytics` ([route](../src/app/api/admin/surveys/analytics/route.ts)) powers a
+fully filterable dashboard ([AnalyticsTab](../src/components/admin/surveys/AnalyticsTab.tsx)). Filter by
+**which forms/samples**, **area**, **section**, and the responder's **personal attributes** (age,
+gender, local/mehman, rahat/accessibility, jamaat, category) — every aggregate recomputes for the
+active filter. Shows overview KPIs (respondents, response rate, avg sentiment, comments), a sentiment
+distribution, sentiment **by section / area / question**, and **by-attribute breakdowns** (local vs
+mehman, gender, age band, rahat vs general, jamaat) so you can see *who* feels *what*.
+
+**AI comment analysis** — `POST /api/admin/surveys/analytics/ai` sends the filtered free-text +
+negative-reason comments (text only, no PII) to the LLM (`getAIClient` / `AI_MODEL`) and returns
+overall sentiment, recurring **themes**, ranked **areas of improvement** (with severity), and what
+worked well. Decision-useful summary on top of the raw comments.
 
 ## Key files
 

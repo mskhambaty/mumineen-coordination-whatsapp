@@ -53,7 +53,7 @@ const bodySchema = z
   .object({
     title: z.string().min(2).max(160),
     group_id: z.string().uuid().optional(),
-    rules: z.object({ combinator: z.string(), rules: z.array(z.unknown()) }).passthrough().optional(),
+    rules: z.object({ combinator: z.string().optional(), rules: z.array(z.unknown()) }).passthrough().optional(),
     sample_size: z.number().int().min(1).max(2000).optional(),
     question_ids: z.array(z.string().uuid()).min(1).max(200),
   })
