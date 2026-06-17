@@ -1159,21 +1159,6 @@ export default function ConversationsPage() {
               </label>
               {tab === "conversations" && (
                 <>
-                  {surveyPnids.size > 0 && (
-                    <div className="mt-2 flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-                      <span>Show</span>
-                      <select
-                        value={messageScope}
-                        onChange={(e) => setMessageScope(e.target.value as typeof messageScope)}
-                        className={`rounded-md border px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 ${messageScope !== "conversations" ? "ring-1 ring-blue-400 dark:ring-blue-600" : ""}`}
-                        title="Conversations hides threads that are only broadcast (RSVP/feedback) with no real message"
-                      >
-                        <option value="conversations">Conversations</option>
-                        <option value="broadcast">Broadcast-only</option>
-                        <option value="all">All</option>
-                      </select>
-                    </div>
-                  )}
                   <label className="mt-1.5 flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
                     <input
                       type="checkbox"
@@ -1218,6 +1203,21 @@ export default function ConversationsPage() {
                       >
                         {exporting ? "Exporting…" : "Export HTML"}
                       </button>
+                    </div>
+                  )}
+                  {surveyPnids.size > 0 && (
+                    <div className="mt-2 flex items-center gap-2 border-t pt-2 text-xs text-gray-600 dark:border-gray-800 dark:text-gray-400">
+                      <span className="font-medium">Show</span>
+                      <select
+                        value={messageScope}
+                        onChange={(e) => setMessageScope(e.target.value as typeof messageScope)}
+                        className={`flex-1 rounded-md border px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 ${messageScope !== "conversations" ? "ring-1 ring-blue-400 dark:ring-blue-600" : ""}`}
+                        title="Conversations hides threads that are only broadcast (RSVP/feedback) with no real message"
+                      >
+                        <option value="conversations">Conversations</option>
+                        <option value="broadcast">Broadcast-only</option>
+                        <option value="all">All</option>
+                      </select>
                     </div>
                   )}
                 </>
