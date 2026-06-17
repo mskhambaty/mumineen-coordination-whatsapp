@@ -2367,8 +2367,9 @@ paths:
       summary: Add a question to a section (databank grows during the event)
       description: >-
         Admin/leadership only. Body { section_id, text, type, options?, negative_values?, polarity?,
-        is_general?, collect_comment?, comment_threshold? }. `collect_comment` toggles the "why?"
-        box; `comment_threshold` (scale questions) is the rating ≤ which an answer opens it.
+        is_general?, collect_comment?, comment_threshold?, required? }. `collect_comment` toggles the
+        "why?" box; `comment_threshold` (scale questions) is the rating ≤ which an answer opens it;
+        `required` makes the question mandatory on the public form (client + server enforced).
       responses:
         "201": { description: "Created question." }
         "400": { $ref: "#/components/responses/BadRequest" }
@@ -2393,8 +2394,8 @@ paths:
       summary: Edit a databank question
       description: >-
         Admin/leadership only. Updates any of { text, type, options, negative_values, polarity,
-        is_general, collect_comment, comment_threshold }. Edits affect FUTURE forms only — existing
-        forms snapshot the question, so already-sent surveys are unchanged.
+        is_general, collect_comment, comment_threshold, required }. Edits affect FUTURE forms only —
+        existing forms snapshot the question, so already-sent surveys are unchanged.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -2508,6 +2509,43 @@ paths:
         "200": { description: "{ status: deleted }." }
         "404": { description: "Form not found." }
 
+  /api/admin/surveys/forms/{id}/questions:
+    get:
+      tags: [admin]
+      summary: The form's composed questions (snapshots), in order
+      description: Admin/leadership only. Powers the per-form "Questions" review/edit panel.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ form, questions: [{ id, question_id, section_id, area, snapshot, sort_order }] }." }
+        "404": { description: "Form not found." }
+
+  /api/admin/surveys/forms/{id}/questions/{fqId}:
+    patch:
+      tags: [admin]
+      summary: Edit one composed question on a form (its snapshot)
+      description: >-
+        Admin/leadership only. Body { text?, options?, negative_values?, polarity?, comment_threshold?,
+        collect_comment?, required? } merged into this form's snapshot. Applies ONLY to this form (the
+        databank is untouched). Blocked once the form is sent.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: fqId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ snapshot }." }
+        "400": { description: "Invalid body, or form already sent." }
+        "404": { description: "Question not found on this form." }
+    delete:
+      tags: [admin]
+      summary: Remove one question from a form
+      description: Admin/leadership only. Drops the composed question from this form. Blocked once the form is sent.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: fqId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ ok: true }." }
+        "400": { description: "Form already sent." }
+
   /api/admin/surveys/mumin:
     get:
       tags: [admin]
@@ -2594,8 +2632,10 @@ paths:
       description: >-
         Admin/leadership only. Read-only (POST carries the filter object). Body { formIds?, areas?,
         sectionIds?, includeTest?, gender?, ageMin?, ageMax?, localMehman?, rahatOnly?, jamaats?,
-        categories? }. Every aggregate reflects the active filters. Returns overview (sent, responded
-        [distinct people], response_rate, avg_sentiment, comment_count), sentiment distribution, by
+        categories?, drillScore? }. Every aggregate reflects the active filters. When `drillScore`
+        (1-5) is set, also returns `responses` — the individual answers at that sentiment score
+        (name, ITS, question, answer, reason) for the "who responded" side pane. Returns overview
+        (sent, responded [distinct people], response_rate, avg_sentiment, comment_count), by
         section/area/question, by-attribute breakdowns (local/mehman, gender, age, rahat, jamaat),
         the comment list, and the filter-option universe.
       responses:

@@ -114,6 +114,9 @@ type Conversation = {
   messages: Message[];
   tool_calls: ToolCall[];
   used_religious_tool?: boolean;
+  // False = "Survey-only" (pure broadcast recipient, never texted the helpline). Drives the
+  // Helpline/Survey focus so a real helpline conversation isn't hidden after a broadcast reaches it.
+  has_helpline_activity?: boolean;
   quality_score: "good" | "poor" | null;
   quality_reason: string | null;
   quality_analyzed_at: string | null;
@@ -276,6 +279,10 @@ export default function ConversationsPage() {
   const [search, setSearch] = useState("");
   const [qualityFilter, setQualityFilter] = useState<"all" | "poor">("all");
   const [religiousOnly, setReligiousOnly] = useState(false);
+  // Conversations-tab number focus: Helpline (default, hide threads whose latest message is a
+  // Survey/broadcast send), Survey (feedback + RSVP broadcasts), or All. Classified by the
+  // conversation's most-recent message's WABA number (the session number is unreliable — often null).
+  const [messageScope, setMessageScope] = useState<"helpline" | "survey" | "all">("helpline");
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -310,10 +317,21 @@ export default function ConversationsPage() {
     [conversations],
   );
 
-  // Conversations tab KPI stats (non-escalated threads only).
+  // Non-primary WABA numbers = "Survey" (niyaz feedback/RSVP broadcasts).
+  const surveyPnids = useMemo(() => new Set(accounts.filter((a) => !a.isPrimary).map((a) => a.phoneNumberId)), [accounts]);
+  // "Survey-only" = the person never texted the helpline (no non-broadcast inbound); their thread
+  // exists only because of feedback/RSVP broadcasts. Keyed off the server-computed has_helpline_activity
+  // (NOT the latest message) so a real helpline conversation stays in Helpline even after a broadcast
+  // is later sent to it. Undefined flag → treat as helpline (don't hide).
+  const isSurveyConversation = (c: Conversation): boolean => c.has_helpline_activity === false;
+
+  // Conversations tab KPI stats (non-escalated threads only, respecting the Helpline/Survey focus).
   const conversationStats = useMemo(() => {
     const nonEsc = conversations.filter(
-      (c) => c.escalation_status !== "pending" && c.escalation_status !== "resolved",
+      (c) =>
+        c.escalation_status !== "pending" &&
+        c.escalation_status !== "resolved" &&
+        (messageScope === "all" || (messageScope === "survey" ? isSurveyConversation(c) : !isSurveyConversation(c))),
     );
     return {
       total: nonEsc.length,
@@ -322,7 +340,8 @@ export default function ConversationsPage() {
       ai: nonEsc.filter((c) => c.handling_mode === "ai").length,
       poor: nonEsc.filter((c) => c.quality_score === "poor").length,
     };
-  }, [conversations]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations, messageScope, surveyPnids]);
 
   // Issues tab KPI stats.
   const issueStats = useMemo(() => ({
@@ -404,8 +423,13 @@ export default function ConversationsPage() {
         return b.last_message_at.localeCompare(a.last_message_at);
       });
     }
+    // Conversations tab: focus on Helpline (hide Survey/broadcast-topped threads) or Survey only.
+    if (tab === "conversations" && messageScope !== "all") {
+      return list.filter((c) => (messageScope === "survey" ? isSurveyConversation(c) : !isSurveyConversation(c)));
+    }
     return list;
-  }, [conversations, tab, escalationFilters, currentUserId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations, tab, escalationFilters, currentUserId, messageScope, surveyPnids]);
 
   // Keyword search over the loaded chats: matches name, phone, and any message body.
   const searchedConversations = useMemo(() => {
@@ -1085,6 +1109,21 @@ export default function ConversationsPage() {
               </label>
               {tab === "conversations" && (
                 <>
+                  {surveyPnids.size > 0 && (
+                    <div className="mt-2 flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                      <span>Number</span>
+                      <select
+                        value={messageScope}
+                        onChange={(e) => setMessageScope(e.target.value as typeof messageScope)}
+                        className={`rounded-md border px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 ${messageScope !== "helpline" ? "ring-1 ring-blue-400 dark:ring-blue-600" : ""}`}
+                        title="Focus the list by the conversation's most-recent message: Helpline hides Survey (feedback/RSVP) broadcasts"
+                      >
+                        <option value="helpline">Helpline</option>
+                        <option value="survey">Survey (feedback + RSVP)</option>
+                        <option value="all">All</option>
+                      </select>
+                    </div>
+                  )}
                   <label className="mt-1.5 flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
                     <input
                       type="checkbox"

@@ -78,9 +78,9 @@ export async function POST(req: NextRequest) {
   // Load chosen questions + their sections to snapshot.
   const { data: questions } = await supabase
     .from("survey_questions")
-    .select("id, section_id, text, type, options, negative_values, polarity, comment_threshold, collect_comment")
+    .select("id, section_id, text, type, options, negative_values, polarity, comment_threshold, collect_comment, required")
     .in("id", b.question_ids);
-  const qs = (questions ?? []) as Array<{ id: string; section_id: string; text: string; type: string; options: unknown; negative_values: unknown; polarity: string; comment_threshold: number | null; collect_comment: boolean }>;
+  const qs = (questions ?? []) as Array<{ id: string; section_id: string; text: string; type: string; options: unknown; negative_values: unknown; polarity: string; comment_threshold: number | null; collect_comment: boolean; required: boolean }>;
   if (qs.length === 0) return NextResponse.json({ error: "No valid questions." }, { status: 400 });
 
   const sectionIds = Array.from(new Set(qs.map((q) => q.section_id)));
@@ -120,6 +120,7 @@ export async function POST(req: NextRequest) {
           polarity: q.polarity,
           comment_threshold: q.comment_threshold,
           collect_comment: q.collect_comment,
+          required: q.required,
           section_title: sec?.title ?? "Feedback",
         },
         sort_order: (sec?.sort_order ?? 0) * 1000 + (orderOfQ.get(q.id) ?? 0),
