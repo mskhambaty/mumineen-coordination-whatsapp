@@ -27,7 +27,14 @@ vi.mock("@/lib/rsvp/meal-rsvp", () => ({
   getEventTallies: (...a: unknown[]) => getEventTallies(...a),
   getFamilyHeadCounts: (...a: unknown[]) => getFamilyHeadCounts(...a),
 }));
-vi.mock("@/lib/supabase/server", () => ({ getSupabaseAdmin: () => ({ from: (t: string) => builder(t) }) }));
+// The breakdown RPC rows the route assembles into body.breakdown.
+let breakdownRows: unknown[] = [];
+vi.mock("@/lib/supabase/server", () => ({
+  getSupabaseAdmin: () => ({
+    from: (t: string) => builder(t),
+    rpc: () => Promise.resolve({ data: breakdownRows, error: null }),
+  }),
+}));
 
 import { GET } from "@/app/api/admin/niyaz/instances/[id]/responses/route";
 
@@ -73,6 +80,13 @@ beforeEach(() => {
     error: null,
   };
   tableData["unregistered_rsvps"] = { data: [], error: null };
+  // Eligible-to-RSVP breakdown aggregate (DB-side, not row-capped): local 833/335 + mehman 575/72,
+  // guests 88 yes (separate from the member total).
+  breakdownRows = [
+    { grp: "local", eligible: 1526, yes: 833, no: 335, yes_adults: 685, yes_kids: 148, no_adults: 244, no_kids: 91, responded: 1168, not_responded: 358 },
+    { grp: "mehman", eligible: 789, yes: 575, no: 72, yes_adults: 500, yes_kids: 75, no_adults: 53, no_kids: 19, responded: 647, not_responded: 142 },
+    { grp: "guest", eligible: 0, yes: 88, no: 0, yes_adults: 88, yes_kids: 0, no_adults: 0, no_kids: 0, responded: 88, not_responded: 0 },
+  ];
 });
 
 describe("GET niyaz responses", () => {
@@ -94,6 +108,19 @@ describe("GET niyaz responses", () => {
     expect(body.tally.mode).toBe("min");
     expect(body.responses).toHaveLength(2);
     expect(body.instance).toMatchObject({ id: "e1", title: "4th Moharram ul Haram", meal: "lunch" });
+  });
+
+  it("returns an eligible-population breakdown from the DB aggregate, not the capped rows", async () => {
+    getEventTallies.mockResolvedValue([tally("e1")]);
+    const res = await GET(req("min"), { params });
+    const body = await res.json();
+    // Only 2 rows were fetched, but the breakdown reflects the full-event aggregate.
+    expect(body.breakdown.local).toMatchObject({ eligible: 1526, yes: 833, no: 335, responded: 1168, notResponded: 358 });
+    expect(body.breakdown.mehman).toMatchObject({ eligible: 789, yes: 575, no: 72 });
+    expect(body.breakdown.guest).toMatchObject({ yes: 88 });
+    // Member total = local + mehman (guests excluded).
+    expect(body.breakdown.total).toMatchObject({ eligible: 2315, yes: 1408, no: 407 });
+    expect(body.breakdown.total.yes).toBe(body.breakdown.local.yes + body.breakdown.mehman.yes);
   });
 
   it("threads the mode through to getEventTallies (defaulting to min)", async () => {

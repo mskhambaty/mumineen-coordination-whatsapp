@@ -114,14 +114,17 @@ Escalate **only** when one of these holds:
 **Add two API-first tools** (call internal API routes like the task tools do, via
 `callInternalApi`):
 
-- **`move_to_escalation`** — unified escalation + issue creation. Params: `reason`, `title`,
-  `description`, `priority`, `category`, `department`. In one call it:
+- **`move_to_escalation`** — hand-off to the human team. Params: `reason`, `title`,
+  `description`, `priority`, `category`, `department`, `requires_department_coordination`. In one call it:
   1. Tags the conversation as pending escalation and notifies on-call support.
-  2. Creates an issue in the `issues` table (appears in the Inbox Issues tab).
-  3. Links the escalation conversation to the issue via `issue_escalation_links`.
-  4. Creates a workspace task (`item_type='issue'`) in the `tasks` table.
-  5. Notifies department issue contacts (email + WhatsApp `department_ticket_assigned` template).
-  6. Notifies escalation team (email + WhatsApp escalation template).
+  2. Notifies escalation team (email + WhatsApp escalation template).
+  3. **Only when `requires_department_coordination` is true** (an actionable problem a department must
+     coordinate to fix — not an individual request/question/hand-off) does it also create a tracked
+     issue: insert into `issues`, link the conversation via `issue_escalation_links`, create a
+     workspace task (`item_type='issue'`), and notify department issue contacts
+     (`department_ticket_assigned`). **Escalation ≠ issue** — a single person's request being
+     escalated does not create an issue. Issue creation is idempotent per conversation (a
+     re-escalation reuses the conversation's existing open issue — see ISS-21/ISS-22).
 
 ## Data model
 
@@ -278,12 +281,27 @@ All notification sends are fire-and-forget (failures never block the agent reply
    clears `contact_for_issues` (the user/membership is kept); removing a `reference` deletes the
    row.
 
-## Issue grouping — suggestion-only (no auto-link)
+## Escalation ≠ issue, and grouping is suggestion-only (no topical auto-link)
 
-`POST /api/escalations` **always creates its own issue + workspace task** for each escalation and
-links only that conversation. It does **not** auto-link to an existing issue.
+`POST /api/escalations` creates a tracked issue **only when `requires_department_coordination` is
+true** — an actionable problem a department must coordinate to fix. A plain escalation of one
+person's request/question/hand-off creates **no** issue (the on-call team follows up with that
+person). When it does create an issue it links only that conversation, and is idempotent per
+conversation (a re-escalation reuses the conversation's open issue rather than duplicating — the
+ISS-21/ISS-22 bug). It still does **not** topically auto-link to OTHER conversations' issues.
 
-This replaced an earlier auto-dedupe that linked each new escalation to the best AI/keyword match.
+**Trigger B — cross-conversation promotion (auto, cron).** When MULTIPLE distinct conversations
+report the SAME problem, that pattern is a real issue. `/api/cron/escalation-grouping` (hourly, see
+`vercel.json`) scans ungrouped active escalations (`escalation_status='pending'`, no linked issue,
+last 72h), asks the model to cluster genuinely same-problem ones, and promotes each cluster into one
+shared issue + task linking all its conversations (`src/lib/escalation/issue-grouping.ts`). It is
+deliberately conservative — the pure `selectPromotableClusters` gate requires **high** confidence and
+**≥2 distinct** conversations, dedupes ids, and assigns each conversation to at most one cluster — so
+the model can't over-group or promote a lone escalation. Created issues are visible/reversible in the
+Issues tab. (Auto-creating issues is consequential — watch the first runs; thresholds live in
+`issue-grouping.ts`.) Single-source, manual grouping still uses the suggestions endpoint below.
+
+An earlier auto-dedupe linked each new escalation to the best AI/keyword match.
 That over-grouped on topical adjacency — e.g. parking-pass requests (and even a registration
 request) were auto-linked onto a carpool issue because they shared the `transport` department and
 words like "car / parking / masjid". Auto-linking the model into a consequential action also runs

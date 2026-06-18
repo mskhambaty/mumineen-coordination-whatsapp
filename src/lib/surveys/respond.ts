@@ -12,6 +12,9 @@ export type QuestionSnapshot = {
   options?: Array<{ label: string; score?: number }> | null;
   negative_values?: string[] | null;
   polarity?: "positive" | "negative" | null;
+  comment_threshold?: number | null;
+  collect_comment?: boolean;
+  required?: boolean;
   section_title?: string | null;
 };
 
@@ -129,6 +132,14 @@ export async function recordSurveyResponse(token: string, answers: SubmittedAnsw
     if (row.question_id) meta.set(row.question_id, { section_id: row.section_id, area: row.area, snapshot: row.snapshot });
   }
 
+  // Enforce mandatory questions: every snapshot.required question must have a non-empty answer.
+  const answered = new Set(answers.filter((a) => a.value != null && String(a.value).trim() !== "").map((a) => a.question_id));
+  const missingRequired: string[] = [];
+  for (const [qid, m] of meta) if (m.snapshot.required && !answered.has(qid)) missingRequired.push(qid);
+  if (missingRequired.length > 0) {
+    return { error: `Please answer all required questions (${missingRequired.length} remaining).` };
+  }
+
   // Resolve area → department id once per distinct area (general → none).
   const deptCache = new Map<string, string | null>();
   async function deptFor(area: FeedbackArea): Promise<string[]> {
@@ -146,7 +157,7 @@ export async function recordSurveyResponse(token: string, answers: SubmittedAnsw
     const area = normalizeArea(m.area ?? "general");
     const sentiment = answerSentiment(m.snapshot, value);
     const numeric = m.snapshot.type === "scale10" || m.snapshot.type === "scale5" ? Number.parseInt(value, 10) : null;
-    const negative = isProblemAnswer(m.snapshot.type, value, m.snapshot.negative_values);
+    const negative = isProblemAnswer(m.snapshot.type, value, m.snapshot.negative_values, { threshold: m.snapshot.comment_threshold, collectComment: m.snapshot.collect_comment });
     rows.push({
       recipient_id: r.id,
       form_id: r.form_id,

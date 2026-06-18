@@ -70,6 +70,16 @@ describe("suggestSample", () => {
     expect(res.funnel).toMatchObject({ candidates: 1, excludedUnregistered: 2, chosen: 1 });
   });
 
+  it("excludes not-attending people from every group/filter", async () => {
+    runFilter.mockResolvedValue([
+      row("A"),                                    // attending -> eligible
+      { ...row("X"), not_attending: true },        // not attending -> excluded
+    ]);
+    const res = await suggestSample(RULES, [], 10, TODAY);
+    expect(res.chosen.map((c) => c.muminId)).toEqual(["A"]);
+    expect(res.funnel).toMatchObject({ candidates: 1, excludedNotAttending: 1, chosen: 1 });
+  });
+
   it("respects the sample size cap", async () => {
     runFilter.mockResolvedValue([row("A"), row("B"), row("C")]);
     const res = await suggestSample(RULES, [], 2, TODAY);

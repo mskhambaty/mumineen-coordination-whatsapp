@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { aggregateSentiment, answerSentiment, isNegativeAnswer } from "@/lib/surveys/sentiment";
+import { aggregateSentiment, answerSentiment, isNegativeAnswer, isNotApplicable, isProblemAnswer } from "@/lib/surveys/sentiment";
 
 const QUAL = { type: "choice" as const, options: [{ label: "Excellent" }, { label: "Good" }, { label: "Fair" }, { label: "Poor" }] };
 
@@ -17,6 +17,38 @@ describe("answerSentiment", () => {
     expect(answerSentiment(QUAL, "Nonexistent")).toBeNull();
     expect(answerSentiment(QUAL, "")).toBeNull();
     expect(answerSentiment(QUAL, null)).toBeNull();
+  });
+
+  it("excludes 'not applicable' answers from sentiment (never negative)", () => {
+    // A wheelchair-need question scored 1 for "Do not apply" used to drag the average down.
+    const Q = { type: "choice" as const, options: [{ label: "Yes", score: 5 }, { label: "Do not apply", score: 1 }] };
+    expect(answerSentiment(Q, "Do not apply")).toBeNull();
+    expect(answerSentiment(Q, "N/A")).toBeNull();
+    expect(answerSentiment(Q, "Not applicable")).toBeNull();
+    expect(answerSentiment(Q, "Yes")).toBe(5);
+    // Aggregate of [Yes, Do not apply, Do not apply] should be a clean 5, not dragged down.
+    expect(aggregateSentiment([{ question: Q, answer: "Yes" }, { question: Q, answer: "Do not apply" }, { question: Q, answer: "Do not apply" }])).toBe(5);
+    // Yes/No N/A too.
+    expect(answerSentiment({ type: "yesno" }, "Does not apply")).toBeNull();
+    expect(isNotApplicable("do not apply")).toBe(true);
+    expect(isNotApplicable("Yes")).toBe(false);
+    // N/A never opens the comment box / routes to a department.
+    expect(isProblemAnswer("choice", "Do not apply", ["Do not apply"])).toBe(false);
+  });
+
+  it("honors per-question comment threshold and enablement", () => {
+    // Default scale10 threshold is 6.
+    expect(isProblemAnswer("scale10", "6", null)).toBe(true);
+    expect(isProblemAnswer("scale10", "7", null)).toBe(false);
+    // Custom threshold: only ≤ 3 is a problem.
+    expect(isProblemAnswer("scale10", "4", null, { threshold: 3 })).toBe(false);
+    expect(isProblemAnswer("scale10", "3", null, { threshold: 3 })).toBe(true);
+    // scale5 custom threshold.
+    expect(isProblemAnswer("scale5", "2", null, { threshold: 2 })).toBe(true);
+    expect(isProblemAnswer("scale5", "3", null, { threshold: 2 })).toBe(false);
+    // Disabled: never a problem, even a clearly-negative answer.
+    expect(isProblemAnswer("scale5", "1", null, { collectComment: false })).toBe(false);
+    expect(isProblemAnswer("choice", "Poor", ["Poor"], { collectComment: false })).toBe(false);
   });
 
   it("scales 1-10 to 1-5 and 1-5 directly", () => {

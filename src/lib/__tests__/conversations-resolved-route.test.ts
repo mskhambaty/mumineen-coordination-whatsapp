@@ -84,6 +84,7 @@ function mockSupabase() {
         eq: () => chain,
         in: () => chain,
         is: () => chain,
+        not: () => chain,
         order: () => chain,
         limit: () => chain,
         range: () => chain,

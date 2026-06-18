@@ -77,11 +77,27 @@ each `{attending,total}` or null); POST entries are `{attending, titles?, dates?
 day row's `date` + `meal` — copying the server-provided `date` **verbatim** (never computing it). Since
 `(event_date, meal)` is unique, this hits exactly one jaman, so the displayed day title is presentation-only
 and never a write selector — eliminating any hijri night-shift mis-target. `titles`+`meal` remains accepted
-server-side as a legacy fallback (`decideEvents` resolves title→date). For registered families, `adults`/`kids` enable **partial attendance**: only that many
+server-side as a legacy fallback (`decideEvents` resolves title→date). **Global-cascade guard:** `decideEvents`
+applies an entry globally **only** when `all:true` is set explicitly; an entry with no `dates`/`titles` and no
+`all:true` (a bare `{attending}` or `meal`-only entry) matches **nothing** and is skipped — so a mis-scoped
+single-day change can never silently overwrite the whole Ashara. A genuine "every day" change must pass `all:true`.
+All internal callers (`scopeToEntries`, `recordFamilyHeadCount`, `recordNiyazDayRsvp`) already pass explicit
+`dates`, so only the agent path is affected. **Per-day RSVP cutoff:** every write
+funnels through `applyNiyazRsvp` / `recordUnregisteredRsvp`, which drop any decision whose **day** has a passed
+`niyaz_event_config.rsvp_end_at` (`getClosedEventDates` + the pure `partitionDecisionsByCutoff`) — so once a day
+closes, its count is locked and can't be changed in either direction. The cutoff applies to **every source**
+— no bypass, including an admin acting as their own registrant. Blocked days are returned as a `blocked`
+array (`{date, title, endAt}`, plus `endLabel` from the API) so the agent tells the user RSVP for that day has
+closed. The **GET** also tags each day with `closed`/`closedAt`/`closedLabel` so the agent can mark closed days
+and not offer to change them on read-back. This mirrors the Flow/button cutoff guard in `niyaz-interactive.ts`
+(which gates upstream by `day_id`). For registered families, `adults`/`kids` enable **partial attendance**: only that many
 members are marked attending (head of family kept first, then other adults, then kids), and the rest
 are marked not-attending for those events; for unregistered callers they record the head count.
 Changes go to `unregistered_rsvps` for unlinked phones). Agent tools: `get_family_meal_rsvps`, `set_family_meal_rsvps`
-(public; the agent mainly records *changes* — guidance in `MEAL_RSVP_FEEDBACK_RULE`). That rule
+(public; the agent mainly records *changes* — guidance in `MEAL_RSVP_FEEDBACK_RULE`). **Read-back is
+day-scoped, not the full plan:** when the caller names a day/meal the agent answers only that day's line; with
+no day named it shows only the next upcoming day and asks which day they meant; the full multi-day list is shown
+only on explicit request ("all my days"), and after a change only the changed day(s) are read back. That rule
 also routes intent: "register / sign up for Pehli Raat / a Moharram day / Ashura / a jaman" is a
 **meal RSVP**, not in-person event registration — the agent must not answer it from the registration
 FAQ, and must never tell an already-registered caller (Sender Context: `Registration: submitted`) to
@@ -90,14 +106,22 @@ come to the masjid to register again. Admin:
 min = confirmed only — an inline legend on the page spells out each definition + the thaal formula),
 registered + unregistered count columns, backed by
 `GET /api/admin/niyaz/instances?mode=max|min` (reads the tallies view / function). Clicking an event
-opens the **per-mumin responses** view: searchable by name / ITS / phone, with columns for Name,
-RSVP, **Source** (a labelled badge — `default`=Seeded from arrival, `registration`, `whatsapp`,
-`admin` — so staff can tell a real confirmation from a seeded default) and **Responded by** (the
-WhatsApp phone or admin that set it). ITS is searchable but no longer shown as its own column. Below
-the registered rows, an **Unregistered guests** table lists `unregistered_rsvps` for that event
-(phone, RSVP, adults, kids, ITS) so a guest who RSVP'd before registering is still visible. Both
-tables come from `GET /api/admin/niyaz/instances/{id}/responses` (which now returns `responses` +
-`unregistered`).
+opens the **responses** section, which has two tabbed views (toggle in the section header):
+
+- **By Individual** (`responses` from `GET /api/admin/niyaz/instances/{id}/responses`): the per-mumin
+  list — searchable by name / ITS / phone, with columns for Name, RSVP, **Source** (a labelled badge —
+  `default`=Seeded from arrival, `registration`, `whatsapp`, `admin`, `roster` — so staff can tell a
+  real confirmation from a seeded default) and **Responded by** (the WhatsApp phone or admin that set
+  it), plus Type/Age/RSVP/Response chip filters. Below it, an **Unregistered guests** table lists
+  `unregistered_rsvps` (phone, RSVP, adults, kids, ITS). This list is capped at 1000 rows (db-max-rows).
+- **By Family** (`GET /api/admin/niyaz/instances/{id}/families`, lazy-loaded): one row per roster-active
+  family — HOF name (+ITS), **RSVP** (Yes = attending · No = replied not attending · No response = no
+  reply yet; derived in the page from `responded`+`attending`+`guests`), Attending count, Guests, and when / by whom. Comes from
+  the `niyaz_event_family_grid` DB aggregate (responded = any whatsapp/admin row; attending = real
+  members; guests = sentinel-ITS placeholders; when/by from the latest confirmed row — derived from
+  niyaz_rsvp, since `niyaz_family_headcount` is often empty). **Paged server-side** (`fetchAllRows`) so
+  all ~1k families are returned past the 1000-row cap. Searchable by HOF name / ITS with a Responded
+  filter. The default tab is By Family.
 
 ### 1a. Daily button RSVP (individual + family)
 
@@ -105,7 +129,11 @@ RSVP is collected day-by-day via WhatsApp templates with **quick-reply buttons**
 only / Dinner only / Not attending). An admin opens an event on `/admin/niyaz` and **sends** the
 template from a composer: pick an **audience** (Specific ITS (test) / All mumineen / All HOF / All
 adults), an optional **"only those who haven't responded"** filter, a **level** (Individual = records
-the responder; Family = records the whole family), and an approved **template**. The send goes through
+the responder; Family = records the whole family), and an approved **template**. For **All Adults**
+and **All HOF** (and their "not responded" variants), the registration filter is conditional on
+local-vs-mehman: **local** members are included regardless of their family's registration status,
+while **mehman** members are included only when their family registration is `submitted` (both must
+be attending). All mumineen and the manual "All adults with HOF ITS" audience are unaffected. The send goes through
 the broadcast queue (`POST /api/admin/niyaz/instances/[id]/broadcast` →
 `resolveNiyazAudience` + `buildNiyazSend` → `createBroadcast` with explicit `recipients` +
 `quickReplyButtons`); a `GET` on the same route previews the recipient count.
@@ -154,12 +182,28 @@ the attendance it represents is already counted in `niyaz_rsvp`, so adding it wo
   composer, preselected), and expands to its jaman (lunch/dinner) showing the **Yes count** and
   **Thaals** (⌈yes ÷ 8⌉) plus an **Edit** button. Edit/New open a modal (`src/components/admin/niyaz/EventFormModal.tsx`, reusing
   `POST`/`PATCH /api/admin/niyaz/instances`). Clicking a jaman opens the **event detail page**
-  (`/admin/niyaz/events/[id]?mode=`) showing **Yes count, No count, Thaals (⌈yes ÷ 8⌉), and the response list** via
+  (`/admin/niyaz/events/[id]?mode=`) showing **Yes count, No count (each with an adults/kids breakdown), Thaals (⌈yes ÷ 8⌉), and the response list** via
   `GET /api/admin/niyaz/instances/[id]/responses?mode=`. The Yes/No headline comes from the mode-aware
   DB aggregate (`getEventTallies`) returned as `tally`, **not** by counting the fetched rows — so it
-  matches the overview and is correct past the 1000-row PostgREST cap (the response list itself is
-  fetched with an explicit high `.range()` so it isn't silently truncated). The detail page inherits
-  the overview's Max/Min via the `?mode=` link. (`GET/PUT /api/admin/niyaz/instances/[id]/config`
+  matches the overview and is correct past the 1000-row PostgREST `db-max-rows` cap. **That cap is
+  real and not overridable by `.range()`**, so the returned `responses` list (and its chip filters)
+  reflect at most 1000 rows — the page shows a notice when truncated. A **Breakdown** table reports the
+  **eligible-to-RSVP population** (columns: Eligible · Yes · No · Responded · Not responded · Response
+  rate); it comes from the `niyaz_event_breakdown(id)` DB aggregate (RPC, current def in
+  `20260617250000_*`) — **not** counted from the capped row list. Rows are **Local / Mehmaan / Total**
+  (eligible members) plus a separate **Guests** row. *Eligible* = the same rule as the all_adults/all_hof
+  audience: roster-active + attending members, all Locals + Mehmaan whose family registration is
+  `submitted`. *Yes/No* are confirmation-based (`source IN ('whatsapp','admin')`); *Responded* = Yes+No;
+  *Not responded* is the **complement** within the eligible set (so it includes `default`/`roster`/
+  `registration` and members with no row — a literal `source='default'` would miss the large `roster`
+  bucket); *Response rate* = Responded ÷ Eligible. **Guests** are sentinel-ITS placeholders
+  (`its like '00000%'`, `full_name='Guest'`) that RSVP'd yes — shown yes-only, kept out of the member
+  Total (they still count in the headline & Thaals). The Breakdown is **mode-independent** and
+  **intentionally differs from the headline** (different population, confirmation-only).
+  `assembleBreakdown` (`src/lib/rsvp/niyaz-breakdown.ts`) rolls Local+Mehmaan into Total;
+  `unregistered_rsvps` are a separate table and excluded. The response list
+  also has **Type / Age / RSVP / Response** chip filters. The detail page inherits the overview's
+  Max/Min via the `?mode=` link. (`GET/PUT /api/admin/niyaz/instances/[id]/config`
   still exists as an instance-keyed alias.)
 
 The composer sends `ashara_relay_double_rsvp` (a **Flow** button "Attending" + a "Not attending"

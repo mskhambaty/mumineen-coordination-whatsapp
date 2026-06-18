@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
 
   const [{ data: sections }, { data: questions }, { data: groups }] = await Promise.all([
     supabase.from("survey_sections").select("id, key, title, description, area, is_general, sort_order, active").eq("active", true).order("sort_order"),
-    supabase.from("survey_questions").select("id, section_id, text, type, options, negative_values, polarity, is_general, sort_order, active").eq("active", true).order("sort_order"),
+    supabase.from("survey_questions").select("id, section_id, text, type, options, negative_values, polarity, is_general, collect_comment, comment_threshold, required, sort_order, active").eq("active", true).order("sort_order"),
     supabase.from("survey_groups").select("id, name, description, rules, area_focus, active").eq("active", true).order("name"),
   ]);
 

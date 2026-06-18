@@ -35,9 +35,9 @@ responses through a per-recipient **tokenized web form** delivered over WhatsApp
 ## Sampling (`src/lib/surveys/sampling.ts`)
 
 `suggestSample(groupRules, formQuestionIds, size, eventDate, opts)`:
-1. `runFilter` → reachable candidates. **Baseline (always):** roster-active, has a WhatsApp number,
-   and **registration `submitted`** — we only survey registered households, regardless of the
-   group/custom filter.
+1. `runFilter` → reachable candidates. **Baseline (always, every group AND custom filter):**
+   roster-active, has a WhatsApp number, **attending** (not `not_attending`), and **registration
+   `submitted`** — we never survey not-attending or unregistered people, regardless of the filter.
 2. Exclude anyone **already sampled today** (≤1 sample/day) and anyone **exposed to every** question
    in this form. Optional: `freeWindowOnly` (only people inside the 24h free window) and
    `excludeAlreadySent` (drop anyone sent any survey this event).
@@ -49,7 +49,17 @@ databank by preferring least-exposed questions.
 
 `answerSentiment(question, answer) → 1..5 | null`. Choice = option position (best-first); scale10 =
 `ceil(v/2)`; scale5 = v; yes/no = Yes 5 / No 1, inverted for `polarity:'negative'`; text = null.
-Section sentiment = mean of its scored answers.
+**"Not applicable" answers** ("Do not apply", "N/A", …, via `isNotApplicable`) score `null` — excluded
+from averages, never counted as negative or as a "problem" (no comment box / routing). Section
+sentiment = mean of its scored answers.
+
+The **"why?" comment box** is per-question configurable: `collect_comment` toggles it on/off, and
+`comment_threshold` (scale questions) sets the rating ≤ which an answer opens it (default scale10 ≤ 6,
+scale5 ≤ 3); choice/yes-no use `negative_values`. `isProblemAnswer(type, answer, negative_values, { threshold, collectComment })`
+is the single source of truth for both the form UI and the recorder's department routing. Editing a
+choice question's **options** (labels + which are "problem" options) is done inline in the Databank.
+Questions can be marked **`required`** (mandatory) — the public form shows a `*`, blocks submit until
+answered, and `recordSurveyResponse` rejects a submission missing any required answer.
 
 ## Delivery (`src/lib/surveys/send.ts`)
 
@@ -77,7 +87,14 @@ no template selected, the per-recipient links are returned for manual sending.
 form), **Forms** (Test link · Preview sample funnel · Commit & send · Results), **Analytics**,
 **Lookup**, **Sends**, **Databank** (add/edit/delete/reorder sections and questions). A **sent** form
 locks down — its row shows only **Test to people** and **Results** (the pre-send actions are hidden to
-prevent mistakes); the Results panel is collapsible. APIs under `src/app/api/admin/surveys/**`
+prevent mistakes); the Results panel is collapsible. The **Questions** button opens the form's composed
+questions (grouped by section); for a not-yet-sent form you can edit each (text, required, comment box,
+options) or remove it — edits apply to that form's snapshot only. Compose has a per-section **Select
+all** toggle. **Duplicate** copies a form's questions/title/tags/sample/target into Compose (retired
+questions skipped) so you can change the target audience and create a variant quickly. If a form was
+committed without a WhatsApp template (status `sampled`, no broadcast), its button becomes **Send
+committed** — selecting a template and clicking it dispatches the existing committed batch (no
+re-sampling) and marks it sent. So sends only appear under **Sends** once a template is used. APIs under `src/app/api/admin/surveys/**`
 (gated by `requirePortalCaller(isAdminOrLeadership)`). Sections and questions both **soft-delete**
 (`active=false`) so already-composed forms keep working off their snapshots; deleting a section also
 soft-deletes its questions.

@@ -16,11 +16,15 @@ type Question = {
   options?: { label: string; score?: number }[] | null;
   negative_values?: string[] | null;
   polarity?: "positive" | "negative" | null;
+  collect_comment?: boolean;
+  comment_threshold?: number | null;
+  required?: boolean;
 };
 type Section = { id: string; title: string; area: string; is_general: boolean; questions: Question[] };
 type Group = { id: string; name: string; description: string | null; area_focus: string | null };
 type FormRow = {
-  id: string; title: string; group_name: string | null; tags: string[]; sample_size: number;
+  id: string; title: string; group_name: string | null; group_id: string | null; rules: RuleGroupTypeIC | null;
+  tags: string[]; sample_size: number;
   status: string; event_date: string | null; recipient_count: number; completed_count: number;
 };
 
@@ -80,6 +84,17 @@ export default function SurveysAdminPage() {
     const ids = sections.flatMap((s) => s.questions.filter((q) => s.is_general || q.is_general).map((q) => q.id));
     setSelected((s) => new Set([...s, ...ids]));
   }
+  // Toggle every question in a section: select all if any are unselected, otherwise clear them.
+  function toggleSection(section: Section) {
+    const ids = section.questions.map((q) => q.id);
+    setSelected((s) => {
+      const allOn = ids.length > 0 && ids.every((id) => s.has(id));
+      const n = new Set(s);
+      if (allOn) ids.forEach((id) => n.delete(id));
+      else ids.forEach((id) => n.add(id));
+      return n;
+    });
+  }
 
   async function createForm() {
     setMsg(null);
@@ -99,6 +114,27 @@ export default function SurveysAdminPage() {
     setTitle(""); setTagsInput(""); setSelected(new Set()); setCustomRules({ rules: [] } as RuleGroupTypeIC);
     await loadForms();
     setTab("forms");
+  }
+
+  // Duplicate a form into the Compose tab: prefill its questions, title (+" (copy)"), tags, sample
+  // size, and target — so you reconcile (change the audience, tweak questions) and create quickly.
+  async function duplicateForm(f: FormRow) {
+    const res = await apiFetch(`/api/admin/surveys/forms/${f.id}/questions`);
+    const json = await res.json().catch(() => ({}));
+    const dbIds = new Set(sections.flatMap((s) => s.questions.map((q) => q.id)));
+    const qids = ((json.questions ?? []) as { question_id: string | null }[])
+      .map((q) => q.question_id)
+      .filter((id): id is string => Boolean(id) && dbIds.has(id as string));
+    const dropped = ((json.questions ?? []) as unknown[]).length - qids.length;
+    setSelected(new Set(qids));
+    setTitle(`${f.title} (copy)`);
+    setTagsInput((f.tags ?? []).join(", "));
+    setSampleSize(f.sample_size);
+    if (f.group_id) { setTargetMode("group"); setGroupId(f.group_id); }
+    else if (f.rules) { setTargetMode("custom"); setCustomRules(f.rules); }
+    else { setTargetMode("group"); setGroupId(""); }
+    setTab("compose");
+    setMsg(`Duplicated “${f.title}” — change the target audience / questions, then Create form.${dropped ? ` (${dropped} retired question${dropped === 1 ? "" : "s"} skipped.)` : ""}`);
   }
 
   if (!ready) return null;
@@ -151,7 +187,12 @@ export default function SurveysAdminPage() {
             {sections.map((s) => (
               <div key={s.id} className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800/60">
-                  <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">{s.title}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">{s.title}</span>
+                    <button onClick={() => toggleSection(s)} className="text-[11px] font-medium text-blue-600 hover:underline dark:text-blue-400">
+                      {s.questions.length > 0 && s.questions.every((q) => selected.has(q.id)) ? "Clear section" : "Select all"}
+                    </button>
+                  </div>
                   <span className="text-[11px] uppercase text-gray-400 dark:text-gray-500">{s.area}{s.is_general ? " · general" : ""}</span>
                 </div>
                 <div className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -169,7 +210,7 @@ export default function SurveysAdminPage() {
         </div>
       )}
 
-      {tab === "forms" && <FormsTab forms={forms} reload={loadForms} onPickMumin={openMumin} />}
+      {tab === "forms" && <FormsTab forms={forms} reload={loadForms} onPickMumin={openMumin} onDuplicate={duplicateForm} />}
 
       {tab === "lookup" && <LookupTab initialIts={lookupIts} />}
 
@@ -285,19 +326,42 @@ function EditableQuestion({ q, onChanged, onMoveUp, onMoveDown }: { q: Question;
   const [type, setType] = useState(q.type);
   const [isGeneral, setIsGeneral] = useState(q.is_general);
   const [polarity, setPolarity] = useState<"positive" | "negative">(q.polarity ?? "positive");
+  const [collectComment, setCollectComment] = useState(q.collect_comment ?? true);
+  const [threshold, setThreshold] = useState(q.comment_threshold != null ? String(q.comment_threshold) : "");
+  const [required, setRequired] = useState(q.required ?? false);
+  const [optionsText, setOptionsText] = useState((q.options ?? []).map((o) => o.label).join("\n"));
+  const [negText, setNegText] = useState((q.negative_values ?? []).join(", "));
   const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-  function reset() { setText(q.text); setType(q.type); setIsGeneral(q.is_general); setPolarity(q.polarity ?? "positive"); }
+  function reset() {
+    setText(q.text); setType(q.type); setIsGeneral(q.is_general); setPolarity(q.polarity ?? "positive");
+    setCollectComment(q.collect_comment ?? true); setThreshold(q.comment_threshold != null ? String(q.comment_threshold) : "");
+    setRequired(q.required ?? false);
+    setOptionsText((q.options ?? []).map((o) => o.label).join("\n")); setNegText((q.negative_values ?? []).join(", "));
+    setErr(null);
+  }
 
   async function save() {
+    setErr(null);
+    const patch: Record<string, unknown> = { text: text.trim(), type, is_general: isGeneral, polarity, collect_comment: collectComment, required };
+    if (type === "choice") {
+      if (optionsText.trim()) {
+        const parsed = parseChoiceOptions(optionsText, negText);
+        if (!parsed) { setErr("Enter at least 2 options (one per line)."); return; }
+        patch.options = parsed.options; patch.negative_values = parsed.negative_values;
+      } else if (!q.options || q.options.length < 2) { patch.options = QUAL_OPTS; patch.negative_values = ["Fair", "Poor"]; }
+    } else if (type === "yesno") {
+      patch.negative_values = polarity === "negative" ? ["Yes"] : ["No"];
+    }
+    if (type === "scale10" || type === "scale5") {
+      patch.comment_threshold = threshold.trim() ? parseInt(threshold, 10) : null;
+    }
     setSaving(true);
-    const patch: Record<string, unknown> = { text: text.trim(), type, is_general: isGeneral, polarity };
-    // Keep options/negatives sensible when the type changes.
-    if (type === "choice" && (!q.options || q.options.length < 2)) { patch.options = QUAL_OPTS; patch.negative_values = ["Fair", "Poor"]; }
-    else if (type === "yesno") patch.negative_values = ["No"];
     const res = await apiFetch(`/api/admin/surveys/questions/${q.id}`, { method: "PATCH", body: JSON.stringify(patch) });
     setSaving(false);
     if (res.ok) { setEditing(false); onChanged(); }
+    else setErr((await res.json().catch(() => ({}))).error ?? "Failed to save");
   }
   async function remove() {
     if (!confirm("Remove this question from the databank? Existing forms keep it; it won't appear in new forms.")) return;
@@ -307,28 +371,58 @@ function EditableQuestion({ q, onChanged, onMoveUp, onMoveDown }: { q: Question;
 
   if (editing) {
     const small = "rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100";
+    const isScale = type === "scale10" || type === "scale5";
     return (
-      <li className="flex flex-wrap items-center gap-2 py-1.5">
-        <input value={text} onChange={(e) => setText(e.target.value)} className={`min-w-[14rem] flex-1 ${small}`} />
-        <select value={type} onChange={(e) => setType(e.target.value)} className={small}>
-          <option value="yesno">Yes/No</option><option value="choice">Choice (QUAL)</option>
-          <option value="scale10">Scale 1-10</option><option value="scale5">Scale 1-5</option><option value="text">Text</option>
-        </select>
-        {(type === "yesno" || type === "scale10" || type === "scale5") && (
-          <select value={polarity} onChange={(e) => setPolarity(e.target.value as "positive" | "negative")} className={small} title="How the answer scores">
-            <option value="positive">higher = better</option><option value="negative">inverted (yes = worse)</option>
+      <li className="space-y-2 rounded-md border border-blue-200 p-2 dark:border-blue-900">
+        <div className="flex flex-wrap items-center gap-2">
+          <input value={text} onChange={(e) => setText(e.target.value)} className={`min-w-[14rem] flex-1 ${small}`} />
+          <select value={type} onChange={(e) => setType(e.target.value)} className={small}>
+            <option value="yesno">Yes/No</option><option value="choice">Choice</option>
+            <option value="scale10">Scale 1-10</option><option value="scale5">Scale 1-5</option><option value="text">Text</option>
           </select>
+          {(type === "yesno" || isScale) && (
+            <select value={polarity} onChange={(e) => setPolarity(e.target.value as "positive" | "negative")} className={small} title="How the answer scores">
+              <option value="positive">higher = better</option><option value="negative">inverted (yes = worse)</option>
+            </select>
+          )}
+          <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300"><input type="checkbox" checked={isGeneral} onChange={(e) => setIsGeneral(e.target.checked)} className="accent-blue-600" /> general</label>
+          <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300" title="Respondents must answer this question before submitting."><input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} className="accent-blue-600" /> required</label>
+        </div>
+        {type === "choice" && (
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-[11px] text-gray-500 dark:text-gray-400">Options — one per line, best → worst</label>
+              <textarea value={optionsText} onChange={(e) => setOptionsText(e.target.value)} rows={3} placeholder={"Excellent\nGood\nFair\nPoor"} className={`w-full ${small}`} />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] text-gray-500 dark:text-gray-400">Problem options (comma-separated) — open the comment box & score low</label>
+              <input value={negText} onChange={(e) => setNegText(e.target.value)} placeholder="Fair, Poor" className={`w-full ${small}`} />
+            </div>
+          </div>
         )}
-        <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300"><input type="checkbox" checked={isGeneral} onChange={(e) => setIsGeneral(e.target.checked)} className="accent-blue-600" /> general</label>
-        <button onClick={save} disabled={saving || text.trim().length < 3} className="rounded bg-blue-600 px-2 py-1 text-xs text-white disabled:opacity-50">Save</button>
-        <button onClick={() => { reset(); setEditing(false); }} className="text-xs text-gray-500 hover:underline dark:text-gray-400">Cancel</button>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300" title="When off, this question never asks for a 'why?' comment.">
+            <input type="checkbox" checked={collectComment} onChange={(e) => setCollectComment(e.target.checked)} className="accent-blue-600" /> Ask for a comment on negative answers
+          </label>
+          {isScale && collectComment && (
+            <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300" title={`Ratings at or below this open the comment box (default ${type === "scale10" ? 6 : 3}).`}>
+              Comment when rating ≤
+              <input type="number" min={1} max={type === "scale10" ? 10 : 5} value={threshold} onChange={(e) => setThreshold(e.target.value)} placeholder={type === "scale10" ? "6" : "3"} className={`w-16 ${small}`} />
+            </label>
+          )}
+        </div>
+        {err && <p className="text-xs text-red-500 dark:text-red-400">{err}</p>}
+        <div className="flex items-center gap-2">
+          <button onClick={save} disabled={saving || text.trim().length < 3} className="rounded bg-blue-600 px-2 py-1 text-xs text-white disabled:opacity-50">Save</button>
+          <button onClick={() => { reset(); setEditing(false); }} className="text-xs text-gray-500 hover:underline dark:text-gray-400">Cancel</button>
+        </div>
       </li>
     );
   }
 
   return (
     <li className="group flex items-start justify-between gap-3">
-      <span className="leading-snug"><span className="text-gray-400">•</span> {q.text} <span className="text-[10px] uppercase text-gray-400">({q.type})</span></span>
+      <span className="leading-snug"><span className="text-gray-400">•</span> {q.text}{q.required ? <span className="text-red-500" title="Required">*</span> : null} <span className="text-[10px] uppercase text-gray-400">({q.type})</span>{q.collect_comment === false ? <span className="text-[10px] text-gray-400"> · no comment</span> : (q.comment_threshold != null ? <span className="text-[10px] text-gray-400"> · comment ≤ {q.comment_threshold}</span> : null)}</span>
       <span className="flex flex-shrink-0 items-center gap-2 opacity-0 focus-within:opacity-100 group-hover:opacity-100">
         <button onClick={onMoveUp} disabled={!onMoveUp} title="Move up" className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30 dark:hover:text-gray-200">↑</button>
         <button onClick={onMoveDown} disabled={!onMoveDown} title="Move down" className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30 dark:hover:text-gray-200">↓</button>
@@ -471,12 +565,16 @@ function AddQuestion({ sectionId, onAdded }: { sectionId: string; onAdded: () =>
   const [type, setType] = useState("yesno");
   const [optionsText, setOptionsText] = useState("");
   const [negText, setNegText] = useState("");
+  const [collectComment, setCollectComment] = useState(true);
+  const [threshold, setThreshold] = useState("");
+  const [required, setRequired] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const isScale = type === "scale10" || type === "scale5";
 
   async function add() {
     setErr(null);
-    const body: Record<string, unknown> = { section_id: sectionId, text: text.trim(), type };
+    const body: Record<string, unknown> = { section_id: sectionId, text: text.trim(), type, collect_comment: collectComment, required };
     if (type === "choice") {
       if (optionsText.trim()) {
         const parsed = parseChoiceOptions(optionsText, negText);
@@ -488,10 +586,11 @@ function AddQuestion({ sectionId, onAdded }: { sectionId: string; onAdded: () =>
         body.negative_values = ["Fair", "Poor"];
       }
     }
+    if (isScale && threshold.trim()) body.comment_threshold = parseInt(threshold, 10);
     setSaving(true);
     const res = await apiFetch("/api/admin/surveys/questions", { method: "POST", body: JSON.stringify(body) });
     setSaving(false);
-    if (res.ok) { setText(""); setOptionsText(""); setNegText(""); setOpen(false); onAdded(); }
+    if (res.ok) { setText(""); setOptionsText(""); setNegText(""); setThreshold(""); setCollectComment(true); setRequired(false); setOpen(false); onAdded(); }
     else setErr((await res.json().catch(() => ({}))).error ?? "Failed to add");
   }
 
@@ -517,6 +616,20 @@ function AddQuestion({ sectionId, onAdded }: { sectionId: string; onAdded: () =>
           </div>
         </div>
       )}
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300" title="Respondents must answer this question before submitting.">
+          <input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} className="accent-blue-600" /> Required
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300" title="When off, this question never asks for a 'why?' comment.">
+          <input type="checkbox" checked={collectComment} onChange={(e) => setCollectComment(e.target.checked)} className="accent-blue-600" /> Ask for a comment on negative answers
+        </label>
+        {isScale && collectComment && (
+          <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300" title={`Ratings at or below this open the comment box (default ${type === "scale10" ? 6 : 3}).`}>
+            Comment when rating ≤
+            <input type="number" min={1} max={type === "scale10" ? 10 : 5} value={threshold} onChange={(e) => setThreshold(e.target.value)} placeholder={type === "scale10" ? "6" : "3"} className={`w-16 ${inputCls}`} />
+          </label>
+        )}
+      </div>
       {err && <p className="text-xs text-red-500 dark:text-red-400">{err}</p>}
       <div className="flex items-center gap-2">
         <button onClick={add} disabled={saving || text.trim().length < 3} className="rounded bg-blue-600 px-3 py-1 text-sm text-white disabled:opacity-50">Add</button>
@@ -530,10 +643,11 @@ type Detail = { kind: string; id: string; [k: string]: unknown };
 
 type Template = { name: string; language: string; displayNumber?: string | null; accountLabel?: string; urlButtons?: { hasVar: boolean }[]; bodyVars?: string[] };
 
-function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: () => void; onPickMumin: (its: string) => void }) {
+function FormsTab({ forms, reload, onPickMumin, onDuplicate }: { forms: FormRow[]; reload: () => void; onPickMumin: (its: string) => void; onDuplicate: (f: FormRow) => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [pickerFor, setPickerFor] = useState<string | null>(null);
+  const [questionsFor, setQuestionsFor] = useState<string | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templateCode, setTemplateCode] = useState("");
   const [freeWindow, setFreeWindow] = useState(false);
@@ -559,8 +673,12 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
     setDetail({ kind: "preview", id, freeWindow, ...(await res.json().catch(() => ({}))) });
     setBusy(null);
   }
-  async function send(id: string) {
-    if (!confirm(`Commit this sample${freeWindow ? " (free-window only)" : ""}? This locks the questions for those mumineen (they won't be re-asked).`)) return;
+  async function send(id: string, status?: string) {
+    const already = status === "sampled";
+    const msg = already
+      ? `Send the already-committed links for this form via WhatsApp?${templateCode ? "" : "\n\nNo template is selected — without one this just shows the links to copy."}`
+      : `Commit this sample${freeWindow ? " (free-window only)" : ""}? This locks the questions for those mumineen (they won't be re-asked).`;
+    if (!confirm(msg)) return;
     setBusy(id);
     const res = await apiFetch(`/api/admin/surveys/forms/${id}/send`, {
       method: "POST",
@@ -632,7 +750,7 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
       {forms.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">No forms yet — compose one.</p>}
       {forms.map((f) => (
         <div key={f.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="space-y-2">
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{f.title}</p>
@@ -649,15 +767,22 @@ function FormsTab({ forms, reload, onPickMumin }: { forms: FormRow[]; reload: ()
               <button onClick={() => setPickerFor(pickerFor === f.id ? null : f.id)} className={ghostBtn}>Test to people</button>
               {f.status !== "sent" && <button onClick={() => preview(f.id)} disabled={busy === f.id} className={ghostBtn}>Preview sample</button>}
               {f.status !== "sent" && (
-                <button onClick={() => send(f.id)} disabled={busy === f.id} className="rounded bg-emerald-600 px-3 py-1 text-xs text-white disabled:opacity-50">Commit &amp; send</button>
+                <button onClick={() => send(f.id, f.status)} disabled={busy === f.id} className="rounded bg-emerald-600 px-3 py-1 text-xs text-white disabled:opacity-50">
+                  {f.status === "sampled" ? "Send committed" : "Commit & send"}
+                </button>
               )}
+              <button onClick={() => setQuestionsFor(questionsFor === f.id ? null : f.id)} className={`${ghostBtn} ${questionsFor === f.id ? "bg-gray-100 dark:bg-gray-800" : ""}`}>
+                {questionsFor === f.id ? "Hide questions" : "Questions"}
+              </button>
               <button onClick={() => toggleResults(f.id)} disabled={busy === f.id} className={`${ghostBtn} ${detail?.kind === "results" && detail.id === f.id ? "bg-gray-100 dark:bg-gray-800" : ""}`}>
                 {detail?.kind === "results" && detail.id === f.id ? "Hide results" : "Results"}
               </button>
+              <button onClick={() => onDuplicate(f)} disabled={busy === f.id} className={ghostBtn} title="Copy this form's questions into Compose to create a new one (e.g. for a different audience)">Duplicate</button>
               {f.status !== "sent" && <button onClick={() => del(f.id)} disabled={busy === f.id} className="rounded border border-red-300 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40">Delete</button>}
             </div>
           </div>
           {pickerFor === f.id && <ManualTestPanel formId={f.id} templateCode={templateCode} />}
+          {questionsFor === f.id && <FormQuestionsPanel formId={f.id} editable={f.status !== "sent"} reload={reload} />}
           {detail && detail.id === f.id && <DetailView detail={detail} onPickMumin={onPickMumin} onResultsToggleTest={(inc) => results(f.id, inc)} onClose={() => setDetail(null)} />}
         </div>
       ))}
@@ -740,6 +865,141 @@ function TagsEditor({ formId, tags, reload }: { formId: string; tags: string[]; 
         tags.map((t) => <span key={t} className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">{t}</span>)
       )}
     </button>
+  );
+}
+
+// A composed question on a form (snapshot copy).
+type FormQ = {
+  id: string; question_id: string | null; section_id: string | null; area: string | null;
+  snapshot: {
+    text: string; type: string;
+    options?: { label: string; score?: number }[] | null;
+    negative_values?: string[] | null;
+    polarity?: "positive" | "negative" | null;
+    comment_threshold?: number | null;
+    collect_comment?: boolean;
+    required?: boolean;
+    section_title?: string | null;
+  };
+};
+
+// Panel under a form row: review the form's composed questions (grouped by section) and, for a
+// not-yet-sent form, edit each one on the fly (text / required / comment box / options) or remove it.
+// Edits apply only to this form's snapshot — the databank is untouched.
+function FormQuestionsPanel({ formId, editable, reload }: { formId: string; editable: boolean; reload: () => void }) {
+  const [items, setItems] = useState<FormQ[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const res = await apiFetch(`/api/admin/surveys/forms/${formId}/questions`);
+    const json = await res.json().catch(() => ({}));
+    setItems((json.questions as FormQ[]) ?? []);
+    setLoading(false);
+  }, [formId]);
+  useEffect(() => { void load(); }, [load]);
+
+  function onChanged() { void load(); reload(); }
+
+  const box = "mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/40";
+  if (loading) return <div className={box}><p className="text-xs text-gray-500 dark:text-gray-400">Loading questions…</p></div>;
+  if (items.length === 0) return <div className={box}><p className="text-xs text-gray-500 dark:text-gray-400">No questions composed.</p></div>;
+
+  // Group by section for readability (preserving order).
+  const groups: { title: string; rows: FormQ[] }[] = [];
+  for (const it of items) {
+    const title = it.snapshot.section_title ?? "Section";
+    let g = groups[groups.length - 1];
+    if (!g || g.title !== title) groups.push((g = { title, rows: [] }));
+    g.rows.push(it);
+  }
+
+  return (
+    <div className={box}>
+      <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">{items.length} question{items.length === 1 ? "" : "s"}{editable ? " · edits apply to this form only" : " · sent form (read-only)"}</p>
+      {groups.map((g) => (
+        <div key={g.title} className="mb-2">
+          <p className="text-[11px] font-semibold uppercase text-gray-500 dark:text-gray-400">{g.title}</p>
+          <ul className="mt-1 space-y-0.5 text-sm text-gray-600 dark:text-gray-300">
+            {g.rows.map((fq) => <FormQuestionEditor key={fq.id} fq={fq} formId={formId} editable={editable} onChanged={onChanged} />)}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FormQuestionEditor({ fq, formId, editable, onChanged }: { fq: FormQ; formId: string; editable: boolean; onChanged: () => void }) {
+  const s = fq.snapshot;
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(s.text);
+  const [required, setRequired] = useState(s.required ?? false);
+  const [collectComment, setCollectComment] = useState(s.collect_comment ?? true);
+  const [threshold, setThreshold] = useState(s.comment_threshold != null ? String(s.comment_threshold) : "");
+  const [optionsText, setOptionsText] = useState((s.options ?? []).map((o) => o.label).join("\n"));
+  const [negText, setNegText] = useState((s.negative_values ?? []).join(", "));
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const isScale = s.type === "scale10" || s.type === "scale5";
+
+  async function save() {
+    setErr(null);
+    const patch: Record<string, unknown> = { text: text.trim(), required, collect_comment: collectComment };
+    if (s.type === "choice" && optionsText.trim()) {
+      const parsed = parseChoiceOptions(optionsText, negText);
+      if (!parsed) { setErr("Enter at least 2 options (one per line)."); return; }
+      patch.options = parsed.options; patch.negative_values = parsed.negative_values;
+    }
+    if (isScale) patch.comment_threshold = threshold.trim() ? parseInt(threshold, 10) : null;
+    setSaving(true);
+    const res = await apiFetch(`/api/admin/surveys/forms/${formId}/questions/${fq.id}`, { method: "PATCH", body: JSON.stringify(patch) });
+    setSaving(false);
+    if (res.ok) { setEditing(false); onChanged(); }
+    else setErr((await res.json().catch(() => ({}))).error ?? "Failed to save");
+  }
+  async function remove() {
+    if (!confirm("Remove this question from this form?")) return;
+    const res = await apiFetch(`/api/admin/surveys/forms/${formId}/questions/${fq.id}`, { method: "DELETE" });
+    if (res.ok) onChanged();
+  }
+
+  if (editing) {
+    const small = "rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100";
+    return (
+      <li className="space-y-2 rounded-md border border-blue-200 p-2 dark:border-blue-900">
+        <input value={text} onChange={(e) => setText(e.target.value)} className={`w-full ${small}`} />
+        {s.type === "choice" && (
+          <div className="grid gap-2 sm:grid-cols-2">
+            <textarea value={optionsText} onChange={(e) => setOptionsText(e.target.value)} rows={3} placeholder={"Excellent\nGood\nFair\nPoor"} className={`w-full ${small}`} />
+            <input value={negText} onChange={(e) => setNegText(e.target.value)} placeholder="Problem options: Fair, Poor" className={`w-full ${small}`} />
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300"><input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} className="accent-blue-600" /> required</label>
+          <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300"><input type="checkbox" checked={collectComment} onChange={(e) => setCollectComment(e.target.checked)} className="accent-blue-600" /> comment on negative</label>
+          {isScale && collectComment && (
+            <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">comment ≤ <input type="number" min={1} max={s.type === "scale10" ? 10 : 5} value={threshold} onChange={(e) => setThreshold(e.target.value)} placeholder={s.type === "scale10" ? "6" : "3"} className={`w-14 ${small}`} /></label>
+          )}
+        </div>
+        {err && <p className="text-xs text-red-500 dark:text-red-400">{err}</p>}
+        <div className="flex items-center gap-2">
+          <button onClick={save} disabled={saving || text.trim().length < 3} className="rounded bg-blue-600 px-2 py-1 text-xs text-white disabled:opacity-50">Save</button>
+          <button onClick={() => { setEditing(false); setErr(null); }} className="text-xs text-gray-500 hover:underline dark:text-gray-400">Cancel</button>
+        </div>
+      </li>
+    );
+  }
+
+  return (
+    <li className="group flex items-start justify-between gap-3">
+      <span className="leading-snug"><span className="text-gray-400">•</span> {s.text}{s.required ? <span className="text-red-500" title="Required">*</span> : null} <span className="text-[10px] uppercase text-gray-400">({s.type})</span>{s.collect_comment === false ? <span className="text-[10px] text-gray-400"> · no comment</span> : (s.comment_threshold != null ? <span className="text-[10px] text-gray-400"> · comment ≤ {s.comment_threshold}</span> : null)}</span>
+      {editable && (
+        <span className="flex flex-shrink-0 items-center gap-2 opacity-0 focus-within:opacity-100 group-hover:opacity-100">
+          <button onClick={() => setEditing(true)} className="text-xs text-blue-500 hover:underline dark:text-blue-400">Edit</button>
+          <button onClick={remove} className="text-xs text-red-500 hover:underline dark:text-red-400">Remove</button>
+        </span>
+      )}
+    </li>
   );
 }
 
@@ -1029,7 +1289,7 @@ function PreviewSample({ detail, onPickMumin }: { detail: Detail; onPickMumin?: 
         <span><b>{f.chosen ?? 0}</b> chosen</span>
         <span className="text-emerald-600 dark:text-emerald-400">{f.fresh ?? 0} fresh</span>
         <span className="text-amber-600 dark:text-amber-400">{f.reused ?? 0} reused</span>
-        <span className="text-gray-400">{(f.excludedUnregistered ?? 0) > 0 ? `${f.excludedUnregistered} unregistered · ` : ""}{f.excludedToday ?? 0} already today · {f.excludedExhausted ?? 0} exhausted · {f.excludedNonResponder ?? 0} non-responders{(f.excludedAlreadySent ?? 0) > 0 ? ` · ${f.excludedAlreadySent} already surveyed` : ""}</span>
+        <span className="text-gray-400">{(f.excludedNotAttending ?? 0) > 0 ? `${f.excludedNotAttending} not attending · ` : ""}{(f.excludedUnregistered ?? 0) > 0 ? `${f.excludedUnregistered} unregistered · ` : ""}{f.excludedToday ?? 0} already today · {f.excludedExhausted ?? 0} exhausted · {f.excludedNonResponder ?? 0} non-responders{(f.excludedAlreadySent ?? 0) > 0 ? ` · ${f.excludedAlreadySent} already surveyed` : ""}</span>
       </div>
       {sample.length > 0 && (
         <>

@@ -656,10 +656,12 @@ paths:
         Emergencies and the `religious_followup` category bypass that gate
         (a deen/Waaz question the reflections can't answer is often the first
         message); the agent then replies with a fixed Waaz-scoped acknowledgment.
-        Before creating a new issue, an AI + keyword dedup check runs against
-        open issues. If a match is found the escalation is linked to the existing
-        issue (response includes `deduplicated: true`); otherwise a new issue +
-        workspace task is created.
+        Escalation ≠ issue: the escalation always notifies the on-call team, but a tracked issue +
+        workspace task is created ONLY when `requires_department_coordination` is true (an actionable
+        problem a department must coordinate to fix — not an individual request/question/hand-off).
+        Issue creation is idempotent per conversation: a re-escalation reuses the conversation's
+        existing open issue (`deduplicated: true`) instead of creating a duplicate. No cross-conversation
+        topical auto-linking (that is suggestion-only / a planned Trigger B).
       security: [{ whatsappPhone: [] }]
       requestBody:
         required: true
@@ -677,6 +679,7 @@ paths:
                   type: string
                   enum: [emergency, accommodation, transport, registration, schedule, facilities, complaint, religious_followup, other]
                 department: { type: string, description: "Department name to assign the issue to" }
+                requires_department_coordination: { type: boolean, description: "When true, create a tracked issue + task for department coordination. When false/absent, escalation-only (on-call follow-up, no issue)." }
                 source: { type: string, enum: [ai, rule, manual] }
       responses:
         "200":
@@ -689,8 +692,8 @@ paths:
                   status: { type: string, enum: [escalated, declined] }
                   priority: { type: string }
                   category: { type: string }
-                  issue_id: { type: string, nullable: true }
-                  deduplicated: { type: boolean, description: "True if linked to an existing issue instead of creating a new one." }
+                  issue_id: { type: string, nullable: true, description: "The created/reused issue id, or null when the escalation created no issue (escalation-only)." }
+                  deduplicated: { type: boolean, description: "True if the conversation's existing open issue was reused instead of creating a new one." }
                   message: { type: string }
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -2037,7 +2040,7 @@ paths:
         per-day events array (date/dateLabel/title + which meals served) so the agent maps day
         references to real dates. Used by the get_family_meal_rsvps agent tool.
       responses:
-        "200": { description: "status=ok: days [{ date, dateLabel, title, hijriDate, lunch, dinner }] where lunch/dinner are each { attending, total } or null when that meal isn't served (Pehli Raat/Ashura are dinner-only); dateLabel e.g. 'Mon, Jun 15' has the weekday pre-computed for the agent's read-back. Plus familyMembers [{name, isAdult, isHead, notAttending}]. Or status=unregistered with rsvps + per-day events [{ date, dateLabel, title, lunch:boolean, dinner:boolean }] for unlinked phones." }
+        "200": { description: "status=ok: days [{ date, dateLabel, title, hijriDate, lunch, dinner, closed, closedAt, closedLabel }] where lunch/dinner are each { attending, total } or null when that meal isn't served (Pehli Raat/Ashura are dinner-only); dateLabel e.g. 'Mon, Jun 15' has the weekday pre-computed for the agent's read-back; closed=true (with closedAt/closedLabel) means the day's RSVP cutoff has passed and it can no longer be changed. Plus familyMembers [{name, isAdult, isHead, notAttending}]. Or status=unregistered with rsvps + per-day events [{ date, dateLabel, title, lunch:boolean, dinner:boolean, closed, closedAt, closedLabel }] for unlinked phones." }
         "400": { $ref: "#/components/responses/BadRequest" }
     post:
       tags: [rsvp]
@@ -2046,7 +2049,11 @@ paths:
         Self-scoped via x-whatsapp-from. Attendance is pre-set from arrival dates; this records
         changes (mostly "not coming on day X"). Each entry marks the family attending or not for
         specific dates (or all days), optionally narrowed to one meal; the change cascades to the
-        whole family. Used by set_family_meal_rsvps.
+        whole family. An entry applies globally ONLY when all=true is set explicitly — an entry with
+        no dates/titles and no all=true matches nothing and is ignored, so a single-day change can
+        never accidentally overwrite every day. Per-day RSVP cutoff: a day whose niyaz_event_config
+        rsvp_end_at has passed is locked — changes to it are NOT applied (for every source, no bypass)
+        and are returned in a blocked array. Used by set_family_meal_rsvps.
       requestBody:
         required: true
         content:
@@ -2067,12 +2074,12 @@ paths:
                       dates: { type: array, items: { type: string, format: date }, description: "Preferred selector — the day row's `date` copied verbatim from the per-day response. Pair with meal; (date, meal) is exactly one jaman, so no hijri night-shift guessing. Omit (or all=true) for every day." }
                       titles: { type: array, items: { type: string }, description: "Legacy/fallback selector — event titles (e.g. 'Pehli Raat'). Server resolves title (+meal) to a date. Prefer dates+meal copied from the day row. Pair with meal to disambiguate a title shared by a lunch and a dinner." }
                       meal: { type: string, enum: [lunch, dinner] }
-                      all: { type: boolean }
+                      all: { type: boolean, description: "Set true to apply to every day (required for any global change). An entry with no dates/titles and all!=true targets nothing and is skipped." }
                 adults: { type: integer, description: "Number of adults attending. For registered families, triggers partial attendance (head of family kept first); capped at the family's adult count. For unregistered callers, records head count." }
                 kids: { type: integer, description: "Number of kids attending. For registered families, triggers partial attendance; capped at the family's kid count. For unregistered callers, records head count." }
                 its_number: { type: string, description: "Unregistered callers only — optional ITS for family matching." }
       responses:
-        "200": { description: "Updated row count + the refreshed per-day days array (same shape as GET, today→Ashura). When the requested counts exceeded the family size, also returns clamped {requestedAdults, requestedKids, requestedTotal, maxAdults, maxKids, maxTotal, message} so the agent tells the user the count was capped and extras must register separately. requestedTotal/maxTotal carry the single-number (head-count) case; adults/kids the split case. (Or status=unregistered_recorded for unlinked phones — upserts into unregistered_rsvps.)" }
+        "200": { description: "Updated row count + the refreshed per-day days array (same shape as GET, today→Ashura). When the requested counts exceeded the family size, also returns clamped {requestedAdults, requestedKids, requestedTotal, maxAdults, maxKids, maxTotal, message} so the agent tells the user the count was capped and extras must register separately. requestedTotal/maxTotal carry the single-number (head-count) case; adults/kids the split case. When one or more targeted days were past their RSVP cutoff, returns blocked [{date, title, endAt, endLabel}] for the days that were NOT changed so the agent tells the user RSVP has closed for them. (Or status=unregistered_recorded for unlinked phones — upserts into unregistered_rsvps.)" }
         "400": { $ref: "#/components/responses/BadRequest" }
 
   /api/parking/my-passes:
@@ -2233,17 +2240,41 @@ paths:
       summary: Recorded Niyaz RSVP responses for an event
       description: >-
         Admin/leadership (portal). Returns the event's instance meta (title, event_date, hijri_date,
-        meal, serving_type), a mode-aware Yes/No `tally`, the per-mumin niyaz_rsvp rows (name,
-        attending, source), unregistered RSVPs, and family head-counts. The `tally` is sourced from
-        the DB aggregate (getEventTallies — the same numbers as the days overview), NOT by counting
-        the returned rows, so it is correct even when the event has more than 1000 responses.
+        meal, serving_type), a mode-aware Yes/No `tally`, a mode-independent `breakdown` of the
+        eligible-to-RSVP population grouped into local/mehman/guest (per-group eligible + confirmation-based
+        Yes/No with adults/kids + responded/not-responded + response rate, from the `niyaz_event_breakdown`
+        DB aggregate; guests are sentinel-ITS yes-only and excluded from the member total), the per-mumin niyaz_rsvp rows (name, attending, source, `is_adult`,
+        `local_mehman`), unregistered RSVPs, and family head-counts. Both `tally` and `breakdown` are
+        sourced from DB aggregates (the same numbers as the days overview), NOT by counting the
+        returned rows, so they are correct even when the event has more than 1000 responses — the
+        returned `responses` list itself is capped at 1000 by PostgREST's db-max-rows.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
-        - { name: mode, in: query, schema: { type: string, enum: [min, max], default: min }, description: "min = whatsapp/admin-confirmed only; max = includes arrival-date defaults. Drives the tally." }
+        - { name: mode, in: query, schema: { type: string, enum: [min, max], default: min }, description: "min = whatsapp/admin-confirmed only; max = includes arrival-date defaults. Drives the tally and breakdown." }
       responses:
-        "200": { description: "JSON { instance, tally: { mode, yes, no, ... }, responses, unregistered, headcounts }." }
+        "200": { description: "JSON { instance, tally: { mode, yes, no, ... }, breakdown: { local, mehman, guest, total }, responses, unregistered, headcounts }." }
         "404": { description: Niyaz event not found. }
         "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/niyaz/instances/{id}/families:
+    get:
+      tags: [admin]
+      summary: Per-family RSVP grid for an event (the admin "By Family" view)
+      description: >-
+        Admin/leadership (portal). One row per roster-active family from the `niyaz_event_family_grid`
+        DB aggregate: `family_id`, `hof_its`, `hof_name` (the family's acting head — the `is_head`
+        member, else the eldest member, matching the mumin-lookup "Acting head"; falls back to the ITS
+        string only if no roster member exists), `responded` (any whatsapp/admin row for the family this event),
+        `attending` (attending real members, guests excluded), `guests` (attending sentinel-ITS
+        placeholders), and `responded_at` / `responded_by` from the latest confirmed row. Derived from
+        niyaz_rsvp (not the often-empty niyaz_family_headcount). PAGED server-side (fetchAllRows), so
+        all ~1k families are returned past PostgREST's 1000-row db-max-rows cap.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "JSON { families: [{ family_id, hof_its, hof_name, responded, attending, guests, responded_at, responded_by }] }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
 
   /api/admin/niyaz/instances/{id}/broadcast:
     get:
@@ -2257,10 +2288,10 @@ paths:
         branch is gated to admin/leadership.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
-        - { name: audience, in: query, required: true, schema: { type: string, enum: [specific_its, all_mumineen, all_hof, all_adults, all_adults_hof] }, description: "all_adults_hof = all adults of one family; pass its=<HOF ITS>. only_non_responders is family-level." }
+        - { name: audience, in: query, required: true, schema: { type: string, enum: [specific_its, all_mumineen, all_hof, all_adults, all_adults_hof] }, description: "all_adults_hof = all adults of one family; pass its=<HOF ITS>. only_non_responders is family-level. all_adults & all_hof apply a conditional registration filter: locals are included regardless of registration, mehman only when their family registration is submitted (both attending) — this ignores require_registered." }
         - { name: level, in: query, schema: { type: string, enum: [ind, fam] } }
         - { name: only_non_responders, in: query, schema: { type: boolean } }
-        - { name: require_registered, in: query, schema: { type: boolean, default: true }, description: "false targets every roster-active, not-attending=false family (drops the submitted-registration filter)." }
+        - { name: require_registered, in: query, schema: { type: boolean, default: true }, description: "Governs all_mumineen only: false drops the submitted-registration filter, targeting every roster-active, not-attending=false family. all_adults/all_hof ignore this and use the local-vs-mehman rule instead." }
         - { name: its, in: query, schema: { type: string }, description: Comma/space-separated ITS for the test audience. }
         - { name: format, in: query, schema: { type: string, enum: [csv] }, description: "csv = download the full resolved audience (Name, ITS, HOF ITS, Jamaat, City, Gender, Local/Mehman, WhatsApp) instead of the masked JSON preview. Admin/leadership only." }
       responses:
@@ -2294,11 +2325,11 @@ paths:
               type: object
               required: [audience, level, template_code]
               properties:
-                audience: { type: string, enum: [specific_its, all_mumineen, all_hof, all_adults, all_adults_hof, csv_upload] }
+                audience: { type: string, enum: [specific_its, all_mumineen, all_hof, all_adults, all_adults_hof, csv_upload], description: "all_adults & all_hof apply a conditional registration filter: locals included regardless of registration, mehman only when family registration is submitted (both attending)." }
                 csv: { type: string, description: "Raw CSV text in the audience-export format (audience=csv_upload). A WhatsApp column is required; Name/ITS/HOF ITS/etc. personalize." }
                 its: { type: array, items: { type: string }, description: "ITS list for specific_its; the single HOF ITS for all_adults_hof." }
                 only_non_responders: { type: boolean, description: "Family-level: excludes a family once any member has a whatsapp/admin RSVP for the day." }
-                require_registered: { type: boolean, default: true, description: "false targets every roster-active, not-attending=false family." }
+                require_registered: { type: boolean, default: true, description: "Governs all_mumineen only: false targets every roster-active, not-attending=false family. all_adults/all_hof use the local-vs-mehman rule instead." }
                 level: { type: string, enum: [ind, fam] }
                 template_code: { type: string }
                 mode: { type: string, enum: [buttons, headcount], description: "buttons = quick-reply RSVP; headcount = free-text family head count (logs a prompt for the numeric reply). Ignored when `buttons` is supplied." }
@@ -2436,7 +2467,11 @@ paths:
     post:
       tags: [admin]
       summary: Add a question to a section (databank grows during the event)
-      description: Admin/leadership only. Body { section_id, text, type, options?, negative_values?, polarity?, is_general? }.
+      description: >-
+        Admin/leadership only. Body { section_id, text, type, options?, negative_values?, polarity?,
+        is_general?, collect_comment?, comment_threshold?, required? }. `collect_comment` toggles the
+        "why?" box; `comment_threshold` (scale questions) is the rating ≤ which an answer opens it;
+        `required` makes the question mandatory on the public form (client + server enforced).
       responses:
         "201": { description: "Created question." }
         "400": { $ref: "#/components/responses/BadRequest" }
@@ -2461,8 +2496,8 @@ paths:
       summary: Edit a databank question
       description: >-
         Admin/leadership only. Updates any of { text, type, options, negative_values, polarity,
-        is_general }. Edits affect FUTURE forms only — existing forms snapshot the question text, so
-        already-sent surveys are unchanged.
+        is_general, collect_comment, comment_threshold, required }. Edits affect FUTURE forms only —
+        existing forms snapshot the question, so already-sent surveys are unchanged.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -2576,6 +2611,43 @@ paths:
         "200": { description: "{ status: deleted }." }
         "404": { description: "Form not found." }
 
+  /api/admin/surveys/forms/{id}/questions:
+    get:
+      tags: [admin]
+      summary: The form's composed questions (snapshots), in order
+      description: Admin/leadership only. Powers the per-form "Questions" review/edit panel.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ form, questions: [{ id, question_id, section_id, area, snapshot, sort_order }] }." }
+        "404": { description: "Form not found." }
+
+  /api/admin/surveys/forms/{id}/questions/{fqId}:
+    patch:
+      tags: [admin]
+      summary: Edit one composed question on a form (its snapshot)
+      description: >-
+        Admin/leadership only. Body { text?, options?, negative_values?, polarity?, comment_threshold?,
+        collect_comment?, required? } merged into this form's snapshot. Applies ONLY to this form (the
+        databank is untouched). Blocked once the form is sent.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: fqId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ snapshot }." }
+        "400": { description: "Invalid body, or form already sent." }
+        "404": { description: "Question not found on this form." }
+    delete:
+      tags: [admin]
+      summary: Remove one question from a form
+      description: Admin/leadership only. Drops the composed question from this form. Blocked once the form is sent.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: fqId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ ok: true }." }
+        "400": { description: "Form already sent." }
+
   /api/admin/surveys/mumin:
     get:
       tags: [admin]
@@ -2662,8 +2734,10 @@ paths:
       description: >-
         Admin/leadership only. Read-only (POST carries the filter object). Body { formIds?, areas?,
         sectionIds?, includeTest?, gender?, ageMin?, ageMax?, localMehman?, rahatOnly?, jamaats?,
-        categories? }. Every aggregate reflects the active filters. Returns overview (sent, responded
-        [distinct people], response_rate, avg_sentiment, comment_count), sentiment distribution, by
+        categories?, drillScore? }. Every aggregate reflects the active filters. When `drillScore`
+        (1-5) is set, also returns `responses` — the individual answers at that sentiment score
+        (name, ITS, question, answer, reason) for the "who responded" side pane. Returns overview
+        (sent, responded [distinct people], response_rate, avg_sentiment, comment_count), by
         section/area/question, by-attribute breakdowns (local/mehman, gender, age, rahat, jamaat),
         the comment list, and the filter-option universe.
       responses:
