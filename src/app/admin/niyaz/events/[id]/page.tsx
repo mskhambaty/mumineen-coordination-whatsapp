@@ -243,7 +243,7 @@ function NiyazEventPageInner() {
           <div className="mb-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <h2 className="mb-3 flex items-center gap-1 text-lg font-semibold">
               Breakdown
-              <InfoIcon label="Counts come from a DB aggregate, so they cover the whole event (not the 1000-row response list). Yes/No use the same min/max mode as the headline. Responded = confirmed via WhatsApp or admin; everyone else is still on a seeded/registration default. Unregistered guests are not included here." />
+              <InfoIcon label="Counts come from a DB aggregate, so they cover the whole event (not the 1000-row response list). Local/Mehmaan are real roster members only; overflow guest placeholders are shown on their own Guests row (they still count in the headline & Thaals). Yes/No use the same min/max mode as the headline. Responded = confirmed via WhatsApp or admin; everyone else is still on a seeded/registration default. Unregistered guests are not included here." />
             </h2>
             {!breakdown ? (
               <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
@@ -261,14 +261,18 @@ function NiyazEventPageInner() {
                   </tr>
                 </thead>
                 <tbody>
-                  {([
+                  {[
                     { key: "local", label: "Local", g: breakdown.local },
                     { key: "mehman", label: "Mehmaan", g: breakdown.mehman },
+                    // Guests only appear when the event has overflow placeholders.
+                    ...(breakdown.guest.responded + breakdown.guest.notResponded > 0
+                      ? [{ key: "guest", label: "Guests", g: breakdown.guest }]
+                      : []),
                     { key: "total", label: "Total", g: breakdown.total },
-                  ] as const).map(({ key, label, g }) => (
+                  ].map(({ key, label, g }) => (
                     <tr
                       key={key}
-                      className={`border-t border-gray-100 dark:border-gray-800 ${key === "total" ? "font-semibold" : ""}`}
+                      className={`border-t border-gray-100 dark:border-gray-800 ${key === "total" ? "font-semibold" : key === "guest" ? "text-gray-500 dark:text-gray-400" : ""}`}
                     >
                       <td className="px-2 py-1.5">{label}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums text-green-600 dark:text-green-400">

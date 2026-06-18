@@ -164,11 +164,15 @@ the attendance it represents is already counted in `niyaz_rsvp`, so adding it wo
   matches the overview and is correct past the 1000-row PostgREST `db-max-rows` cap. **That cap is
   real and not overridable by `.range()`**, so the returned `responses` list (and its chip filters)
   reflect at most 1000 rows — the page shows a notice when truncated. A **Breakdown** table splits
-  Yes/No (with adults/kids) and **responded vs not responded** by **local vs mehmaan**; it comes from
-  the `niyaz_event_breakdown(id)` DB aggregate (RPC, `20260617230000_*`) — **not** counted from the
-  capped row list — so its group totals reconcile with the headline. `assembleBreakdown`
-  (`src/lib/rsvp/niyaz-breakdown.ts`) picks the min/max columns for the active mode; responded =
-  `whatsapp`/`admin` source (mode-independent); unregistered guests are excluded. The response list
+  Yes/No (with adults/kids) and **responded vs not responded** by group; it comes from the
+  `niyaz_event_breakdown(id)` DB aggregate (RPC, `20260617230000_*`, guest split in `20260617240000_*`)
+  — **not** counted from the capped row list — so its group totals reconcile with the headline.
+  Groups are **Local / Mehmaan / Guests**: synthetic overflow placeholders (sentinel ITS `00000-…`,
+  `full_name='Guest'`) are kept on their own **Guests** row so the member rows stay clean, while they
+  still count in the headline & Thaals (real mouths to feed) — Local + Mehmaan + Guests = Total. The
+  Guests row only shows when the event has any. `assembleBreakdown` (`src/lib/rsvp/niyaz-breakdown.ts`)
+  picks the min/max columns for the active mode; responded = `whatsapp`/`admin` source
+  (mode-independent); `unregistered_rsvps` are a separate table and excluded. The response list
   also has **Type / Age / RSVP / Response** chip filters. The detail page inherits the overview's
   Max/Min via the `?mode=` link. (`GET/PUT /api/admin/niyaz/instances/[id]/config`
   still exists as an instance-keyed alias.)
