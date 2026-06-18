@@ -114,11 +114,34 @@ describe("POST /api/escalations gate", () => {
   });
 });
 
-describe("POST /api/escalations re-escalation idempotency", () => {
+describe("POST /api/escalations issue creation (escalation ≠ issue)", () => {
+  it("does NOT create an issue when the problem doesn't need department coordination", async () => {
+    inboundCount = 5;
+    // An individual request escalated to the on-call team — no requires_department_coordination flag.
+    const out = await POST(req({ reason: "please call me about my parking pass", category: "transport", priority: "normal" }));
+    const json = await out.json();
+    expect(json.status).toBe("escalated");
+    expect(json.issue_id).toBeNull();
+    expect(json.deduplicated).toBe(false);
+    expect(inserts.issues).toBeUndefined();
+    expect(inserts.tasks).toBeUndefined();
+  });
+
+  it("creates an issue + task when requires_department_coordination is true", async () => {
+    inboundCount = 5;
+    existingLinks = [];
+    const out = await POST(req({ reason: "the AC is out in the men's hall", category: "facilities", priority: "normal", requires_department_coordination: true }));
+    const json = await out.json();
+    expect(json.status).toBe("escalated");
+    expect(json.deduplicated).toBe(false);
+    expect(inserts.issues).toHaveLength(1);
+    expect(inserts.tasks).toHaveLength(1);
+  });
+
   it("reuses the conversation's existing OPEN issue instead of creating a duplicate (ISS-21/22)", async () => {
     inboundCount = 5;
     existingLinks = [{ issue_id: "iss-21", issues: { status: "open" } }];
-    const out = await POST(req({ reason: "change my parking pass", category: "transport", priority: "normal" }));
+    const out = await POST(req({ reason: "the AC is still out", category: "facilities", priority: "normal", requires_department_coordination: true }));
     const json = await out.json();
     expect(json.status).toBe("escalated");
     expect(json.issue_id).toBe("iss-21");
@@ -131,18 +154,9 @@ describe("POST /api/escalations re-escalation idempotency", () => {
   it("creates a new issue when the conversation's only linked issue is already resolved", async () => {
     inboundCount = 5;
     existingLinks = [{ issue_id: "iss-old", issues: { status: "resolved" } }];
-    const out = await POST(req({ reason: "new unrelated problem", category: "transport", priority: "normal" }));
+    const out = await POST(req({ reason: "new facility problem", category: "facilities", priority: "normal", requires_department_coordination: true }));
     const json = await out.json();
     expect(json.status).toBe("escalated");
-    expect(json.deduplicated).toBe(false);
-    expect(inserts.issues).toHaveLength(1);
-  });
-
-  it("creates a new issue when the conversation has no linked issue yet", async () => {
-    inboundCount = 5;
-    existingLinks = [];
-    const out = await POST(req({ reason: "first time problem", category: "transport", priority: "normal" }));
-    const json = await out.json();
     expect(json.deduplicated).toBe(false);
     expect(inserts.issues).toHaveLength(1);
   });
