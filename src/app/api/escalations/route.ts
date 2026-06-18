@@ -139,16 +139,54 @@ export async function POST(req: NextRequest) {
     // fire-and-forget
   }
 
-  // Each escalation gets its own issue + workspace task. We intentionally do NOT auto-link to an
-  // existing issue: AI topical matching over-grouped unrelated escalations (e.g. parking-pass
-  // requests onto a carpool issue). Grouping is now human-confirmed — the inbox surfaces
-  // high-confidence match suggestions (GET /api/admin/escalations/[phone]/suggestions) that a
-  // triager applies deliberately.
+  // An escalation does NOT topically auto-link to OTHER conversations' issues (that over-grouped
+  // unrelated escalations; cross-conversation grouping is human-confirmed via the suggestions
+  // endpoint). But it IS idempotent for THIS conversation: if the same conversation already has an
+  // open linked issue — e.g. the agent called move_to_escalation more than once in the chat, which
+  // produced the ISS-21/ISS-22 duplicate ~18s apart — reuse it instead of minting a duplicate.
   const issueTitle = title || reason || "Escalation";
   const issuePriority = priority === "urgent" ? "high" : "medium";
   let issueId: string | null = null;
+  let deduplicated = false;
 
-  // Create the new issue + workspace task.
+  // Re-escalation guard: reuse an OPEN issue already linked to this conversation.
+  try {
+    const { data: priorLinks } = await supabase
+      .from("issue_escalation_links")
+      .select("issue_id, issues(status)")
+      .eq("conversation_session_id", data.id);
+    const links = (priorLinks ?? []) as Array<{ issue_id: string; issues: { status: string } | { status: string }[] | null }>;
+    const openLink = links.find((l) => {
+      const issue = Array.isArray(l.issues) ? l.issues[0] : l.issues;
+      const status = issue?.status;
+      return status != null && status !== "resolved" && status !== "closed";
+    });
+    if (openLink) {
+      issueId = openLink.issue_id;
+      deduplicated = true;
+      await supabase
+        .from("conversation_sessions")
+        .update({ linked_issue_id: issueId })
+        .eq("id", data.id);
+      try {
+        const { logEscalationActivity } = await import("@/lib/escalation/activity");
+        await logEscalationActivity({
+          sessionId: data.id,
+          issueId,
+          phoneE164: phone,
+          action: "linked_to_issue",
+          actorLabel: "AI Agent",
+          details: { deduplicated: true, reason: "conversation already has an open issue" },
+        });
+      } catch {
+        // fire-and-forget
+      }
+    }
+  } catch (err) {
+    console.error("Re-escalation idempotency check failed; will create a new issue:", err);
+  }
+
+  // Create the new issue + workspace task (only when this conversation has no open issue yet).
   if (!issueId) {
     try {
       const { data: issue } = await supabase
@@ -247,7 +285,7 @@ export async function POST(req: NextRequest) {
     priority,
     category,
     issue_id: issueId,
-    deduplicated: false,
+    deduplicated,
     message:
       priority === "urgent"
         ? "Escalated to the support team as urgent. Reassure the user that someone will reach out right away."
