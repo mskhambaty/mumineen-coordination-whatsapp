@@ -104,6 +104,27 @@ export async function getEventConfigTitles(): Promise<Map<string, string>> {
   return map;
 }
 
+// Event-dates whose RSVP cutoff (rsvp_end_at) has already passed, keyed by event_date with the
+// day's cutoff instant + title for the user-facing "RSVP has ended" notice. A day with no config
+// row or a null rsvp_end_at has no cutoff and is never "closed". `nowMs` is passed in so callers
+// control the clock (and it stays testable). Mirrors the Flow cutoff guard in niyaz-interactive.ts.
+export type ClosedDay = { endAt: string; title: string | null };
+export async function getClosedEventDates(nowMs: number): Promise<Map<string, ClosedDay>> {
+  const { data } = await getSupabaseAdmin()
+    .from("niyaz_event_config")
+    .select("event_date, rsvp_end_at, rsvp_event_title")
+    .not("rsvp_end_at", "is", null);
+  const closed = new Map<string, ClosedDay>();
+  for (const r of (data ?? []) as { event_date: string; rsvp_end_at: string | null; rsvp_event_title: string | null }[]) {
+    if (!r.rsvp_end_at) continue;
+    const end = new Date(r.rsvp_end_at);
+    if (!Number.isNaN(end.getTime()) && nowMs > end.getTime()) {
+      closed.set(r.event_date, { endAt: r.rsvp_end_at, title: r.rsvp_event_title });
+    }
+  }
+  return closed;
+}
+
 // The day's config by its stable numeric day_id (used to decode the Flow's registration_instance_id).
 export async function getEventConfigByDayId(dayId: number): Promise<NiyazEventConfig | null> {
   if (!Number.isFinite(dayId)) return null;

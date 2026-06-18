@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getEventConfigTitles } from "@/lib/rsvp/event-config";
+import { getClosedEventDates, getEventConfigTitles } from "@/lib/rsvp/event-config";
+import { formatNiyazEndTime } from "@/lib/rsvp/niyaz-format";
 import { resolveFamilyForPhone } from "@/lib/rsvp/family";
 import { getFamilyMembers, getFamilyNiyazDays, groupEventsByDay, markFamilyRsvpConfirmed, setFamilyNiyazRsvp, getUnregisteredRsvps, recordUnregisteredRsvp, getEvents } from "@/lib/rsvp/meal-rsvp";
 
@@ -57,14 +58,20 @@ export async function GET(req: NextRequest) {
 
   const family = await resolveFamilyForPhone(phone);
   if (!family) {
-    const [rsvps, events, titles] = await Promise.all([getUnregisteredRsvps(phone), getEvents(), getEventConfigTitles()]);
-    const days = groupEventsByDay(events.filter((e) => e.eventDate >= today), titles).map((d) => ({
-      date: d.date,
-      dateLabel: dateLabel(d.date),
-      title: d.title,
-      lunch: d.lunch,
-      dinner: d.dinner,
-    }));
+    const [rsvps, events, titles, closed] = await Promise.all([getUnregisteredRsvps(phone), getEvents(), getEventConfigTitles(), getClosedEventDates(Date.now())]);
+    const days = groupEventsByDay(events.filter((e) => e.eventDate >= today), titles).map((d) => {
+      const c = closed.get(d.date);
+      return {
+        date: d.date,
+        dateLabel: dateLabel(d.date),
+        title: d.title,
+        lunch: d.lunch,
+        dinner: d.dinner,
+        closed: Boolean(c),
+        closedAt: c?.endAt ?? null,
+        closedLabel: c ? formatNiyazEndTime(c.endAt) : null,
+      };
+    });
     return NextResponse.json({
       status: "unregistered",
       events: days,
@@ -74,14 +81,18 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const [days, familyMembers] = await Promise.all([
+  const [days, familyMembers, closed] = await Promise.all([
     getFamilyNiyazDays(family.familyId),
     getFamilyMembers(family.familyId),
+    getClosedEventDates(Date.now()),
   ]);
   markFamilyRsvpConfirmed(family.familyId, phone).catch(() => {});
   const labeled = days
     .filter((d) => d.date >= today)
-    .map((d) => ({ ...d, dateLabel: dateLabel(d.date) }));
+    .map((d) => {
+      const c = closed.get(d.date);
+      return { ...d, dateLabel: dateLabel(d.date), closed: Boolean(c), closedAt: c?.endAt ?? null, closedLabel: c ? formatNiyazEndTime(c.endAt) : null };
+    });
   return NextResponse.json({ status: "ok", days: labeled, familyMembers });
 }
 
@@ -98,7 +109,7 @@ export async function POST(req: NextRequest) {
 
   const family = await resolveFamilyForPhone(phone);
   if (!family) {
-    const { upserted } = await recordUnregisteredRsvp({
+    const { upserted, blocked } = await recordUnregisteredRsvp({
       phone,
       entries: parsed.data.entries,
       adults: parsed.data.adults,
@@ -106,7 +117,8 @@ export async function POST(req: NextRequest) {
       itsNumber: parsed.data.its_number,
     });
     const rsvps = await getUnregisteredRsvps(phone);
-    return NextResponse.json({ status: "unregistered_recorded", updated: upserted, rsvps });
+    const blockedLabeled = blocked?.map((b) => ({ ...b, endLabel: formatNiyazEndTime(b.endAt) }));
+    return NextResponse.json({ status: "unregistered_recorded", updated: upserted, rsvps, blocked: blockedLabeled });
   }
 
   const partial = parsed.data.adults !== undefined || parsed.data.kids !== undefined
@@ -137,5 +149,8 @@ export async function POST(req: NextRequest) {
     .filter((d) => d.date >= today)
     .map((d) => ({ ...d, dateLabel: dateLabel(d.date) }));
 
-  return NextResponse.json({ status: "ok", updated: result.updated, days, clamped: clampNotice });
+  // Days whose RSVP cutoff has passed and so were NOT changed — the agent tells the user.
+  const blocked = result.blocked?.map((b) => ({ ...b, endLabel: formatNiyazEndTime(b.endAt) }));
+
+  return NextResponse.json({ status: "ok", updated: result.updated, days, clamped: clampNotice, blocked });
 }
