@@ -5,6 +5,10 @@ const notifyEscalationTeam = vi.fn();
 
 // Mutable inbound-message count the mocked Supabase returns for the gate check.
 let inboundCount = 0;
+// Existing issue_escalation_links rows for THIS conversation (drives the re-escalation idempotency check).
+let existingLinks: Array<{ issue_id: string; issues: { status: string } | null }> = [];
+// Records insert() calls per table so tests can assert whether a new issue was created.
+let inserts: Record<string, unknown[]> = {};
 
 vi.mock("@/lib/escalation/notify", () => ({
   notifyEscalationTeam: (...args: unknown[]) => notifyEscalationTeam(...args),
@@ -20,12 +24,21 @@ vi.mock("@/lib/supabase/server", () => ({
             ? { data: { id: "c1", phone_e164: PHONE, escalation_status: "pending" }, error: null }
             : table === "whatsapp_users"
               ? { data: { display_name: "Guest" } }
-              : { data: null, error: null };
+              : table === "issue_escalation_links"
+                ? { data: existingLinks, error: null }
+                : table === "issues"
+                  ? { data: { id: "new-issue", title: "t" }, error: null }
+                  : { data: null, error: null };
       const chain: Record<string, unknown> = {
         select: () => chain,
         update: () => chain,
+        insert: (rows: unknown) => { (inserts[table] ||= []).push(rows); return chain; },
         eq: () => chain,
+        in: () => chain,
         ilike: () => chain,
+        order: () => chain,
+        limit: () => chain,
+        single: () => Promise.resolve(result),
         maybeSingle: () => Promise.resolve(result),
         then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
           Promise.resolve(result).then(res, rej),
@@ -50,6 +63,8 @@ function req(body: unknown): NextRequest {
 beforeEach(() => {
   vi.clearAllMocks();
   inboundCount = 0;
+  existingLinks = [];
+  inserts = {};
 });
 
 describe("POST /api/escalations gate", () => {
@@ -96,5 +111,39 @@ describe("POST /api/escalations gate", () => {
     const out = await POST(req({ reason: "still stuck on registration", category: "registration", priority: "normal" }));
     const json = await out.json();
     expect(json.status).toBe("escalated");
+  });
+});
+
+describe("POST /api/escalations re-escalation idempotency", () => {
+  it("reuses the conversation's existing OPEN issue instead of creating a duplicate (ISS-21/22)", async () => {
+    inboundCount = 5;
+    existingLinks = [{ issue_id: "iss-21", issues: { status: "open" } }];
+    const out = await POST(req({ reason: "change my parking pass", category: "transport", priority: "normal" }));
+    const json = await out.json();
+    expect(json.status).toBe("escalated");
+    expect(json.issue_id).toBe("iss-21");
+    expect(json.deduplicated).toBe(true);
+    // No new issue (and therefore no duplicate task) was created.
+    expect(inserts.issues).toBeUndefined();
+    expect(inserts.tasks).toBeUndefined();
+  });
+
+  it("creates a new issue when the conversation's only linked issue is already resolved", async () => {
+    inboundCount = 5;
+    existingLinks = [{ issue_id: "iss-old", issues: { status: "resolved" } }];
+    const out = await POST(req({ reason: "new unrelated problem", category: "transport", priority: "normal" }));
+    const json = await out.json();
+    expect(json.status).toBe("escalated");
+    expect(json.deduplicated).toBe(false);
+    expect(inserts.issues).toHaveLength(1);
+  });
+
+  it("creates a new issue when the conversation has no linked issue yet", async () => {
+    inboundCount = 5;
+    existingLinks = [];
+    const out = await POST(req({ reason: "first time problem", category: "transport", priority: "normal" }));
+    const json = await out.json();
+    expect(json.deduplicated).toBe(false);
+    expect(inserts.issues).toHaveLength(1);
   });
 });
