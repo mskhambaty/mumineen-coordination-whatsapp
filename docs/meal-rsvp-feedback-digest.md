@@ -113,7 +113,9 @@ opens the **responses** section, which has two tabbed views (toggle in the secti
   `default`=Seeded from arrival, `registration`, `whatsapp`, `admin`, `roster` — so staff can tell a
   real confirmation from a seeded default) and **Responded by** (the WhatsApp phone or admin that set
   it), plus Type/Age/RSVP/Response chip filters. Below it, an **Unregistered guests** table lists
-  `unregistered_rsvps` (phone, RSVP, adults, kids, ITS). This list is capped at 1000 rows (db-max-rows).
+  `unregistered_rsvps` (phone, RSVP, adults, kids, ITS). Both lists are **paged server-side**
+  (`fetchAllRows`) so search/filters cover the whole event (not just the most-recent 1000) — the route
+  pages on a stable id order and sorts by `updated_at` desc for display.
 - **By Family** (`GET /api/admin/niyaz/instances/{id}/families`, lazy-loaded): one row per roster-active
   family — HOF name (+ITS), **RSVP** (Yes = attending · No = replied not attending · No response = no
   reply yet; derived in the page from `responded`+`attending`+`guests`), Attending count, Guests, and when / by whom. Comes from
@@ -185,9 +187,10 @@ the attendance it represents is already counted in `niyaz_rsvp`, so adding it wo
   (`/admin/niyaz/events/[id]?mode=`) showing **Yes count, No count (each with an adults/kids breakdown), Thaals (⌈yes ÷ 8⌉), and the response list** via
   `GET /api/admin/niyaz/instances/[id]/responses?mode=`. The Yes/No headline comes from the mode-aware
   DB aggregate (`getEventTallies`) returned as `tally`, **not** by counting the fetched rows — so it
-  matches the overview and is correct past the 1000-row PostgREST `db-max-rows` cap. **That cap is
-  real and not overridable by `.range()`**, so the returned `responses` list (and its chip filters)
-  reflect at most 1000 rows — the page shows a notice when truncated. A **Breakdown** table reports the
+  matches the overview and is correct past the 1000-row PostgREST `db-max-rows` cap. That cap is real
+  and not overridable by `.range()`, so the `responses` (and `unregistered`) lists are **paged
+  server-side** (`fetchAllRows`) to return the whole event — earlier they were capped at the most-recent
+  1000, which made search/filters silently miss anyone outside that window. A **Breakdown** table reports the
   **eligible-to-RSVP population** (columns: Eligible · Yes · No · Responded · Not responded · Response
   rate); it comes from the `niyaz_event_breakdown(id)` DB aggregate (RPC, current def in
   `20260617250000_*`) — **not** counted from the capped row list. Rows are **Local / Mehmaan / Total**

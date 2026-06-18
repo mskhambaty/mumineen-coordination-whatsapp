@@ -76,10 +76,6 @@ function sourceMeta(source: string) {
 const inputCls =
   "block w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-950";
 
-// PostgREST caps the per-mumin response list at db-max-rows (1000); the list/filters reflect at most
-// this many rows. The headline tally and the Breakdown panel are DB aggregates and cover every row.
-const RESPONSE_LIST_CAP = 1000;
-
 function dayLabel(date: string | null): string {
   if (!date) return "—";
   const d = new Date(`${date}T12:00:00`);
@@ -458,12 +454,6 @@ function NiyazEventPageInner() {
 
             {respView === "individual" && (
             <>
-            {responses.length >= RESPONSE_LIST_CAP && (
-              <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-                This list and its filters show the most recent {RESPONSE_LIST_CAP.toLocaleString()} responses only. The headline counts and the Breakdown above cover the whole event.
-              </p>
-            )}
-
             {(responses.length > 0 || unregResponses.length > 0) && (
               <div className="mb-3 space-y-2">
                 <div className="flex items-center gap-2">

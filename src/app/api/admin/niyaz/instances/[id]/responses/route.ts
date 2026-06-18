@@ -5,13 +5,9 @@ import { getEventTallies, getFamilyHeadCounts, type TallyMode } from "@/lib/rsvp
 import { assembleBreakdown, type BreakdownRpcRow } from "@/lib/rsvp/niyaz-breakdown";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
+import { fetchAllRows, type Pageable } from "@/lib/whatsapp/audience";
 
 export const runtime = "nodejs";
-
-// PostgREST caps an unbounded select at 1000 rows; an event can have several thousand niyaz_rsvp
-// rows, so request the full set explicitly. (Headline Yes/No come from the aggregate, not this list,
-// but the displayed list must not be silently truncated either.)
-const ROW_LIMIT = 99999;
 
 // Shape returned to the admin event-detail table: one per-mumin RSVP row for this event.
 type ResponseRow = {
@@ -27,6 +23,22 @@ type ResponseRow = {
   family: { hof_its: string | null } | null;
 };
 
+type UnregDbRow = {
+  id: string;
+  phone_e164: string;
+  attending: boolean;
+  adults: number;
+  kids: number;
+  its_number: string | null;
+  source: string;
+  created_at: string;
+};
+
+const REG_SELECT =
+  "id, mumin_id, family_id, attending, source, responded_by_phone, recorded_by, updated_at, " +
+  "mumin:mumineen!niyaz_rsvp_mumin_id_fkey(full_name, its, is_adult, local_mehman), " +
+  "family:families!niyaz_rsvp_family_id_fkey(hof_its)";
+
 // GET /api/admin/niyaz/instances/[id]/responses?mode=min|max
 // Per-mumin niyaz_rsvp rows + unregistered RSVPs + family head-counts for the event, plus the event
 // meta and a mode-aware Yes/No tally. Counts come from getEventTallies (DB-aggregated, never row-
@@ -39,24 +51,27 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const mode: TallyMode = req.nextUrl.searchParams.get("mode") === "max" ? "max" : "min";
 
-  const [tallies, regResult, unregResult, breakdownResult] = await Promise.all([
+  // Page the per-mumin and unregistered lists past PostgREST's 1000-row db-max-rows cap (an event can
+  // have several thousand niyaz_rsvp rows). Page on a stable id order, then sort for display below, so
+  // search/filters in the UI cover the whole event — not just the most-recent 1000.
+  const [tallies, rows, unregRows, breakdownResult] = await Promise.all([
     getEventTallies(mode),
-    supabase
-      .from("niyaz_rsvp")
-      .select(
-        "id, mumin_id, family_id, attending, source, responded_by_phone, recorded_by, updated_at, " +
-          "mumin:mumineen!niyaz_rsvp_mumin_id_fkey(full_name, its, is_adult, local_mehman), " +
-          "family:families!niyaz_rsvp_family_id_fkey(hof_its)",
-      )
-      .eq("registration_instance_id", id)
-      .order("updated_at", { ascending: false })
-      .range(0, ROW_LIMIT),
-    supabase
-      .from("unregistered_rsvps")
-      .select("id, phone_e164, attending, adults, kids, its_number, source, created_at")
-      .eq("registration_instance_id", id)
-      .order("created_at", { ascending: false })
-      .range(0, ROW_LIMIT),
+    fetchAllRows<ResponseRow>(
+      () =>
+        supabase
+          .from("niyaz_rsvp")
+          .select(REG_SELECT)
+          .eq("registration_instance_id", id)
+          .order("id", { ascending: true }) as unknown as Pageable<ResponseRow>,
+    ),
+    fetchAllRows<UnregDbRow>(
+      () =>
+        supabase
+          .from("unregistered_rsvps")
+          .select("id, phone_e164, attending, adults, kids, its_number, source, created_at")
+          .eq("registration_instance_id", id)
+          .order("id", { ascending: true }) as unknown as Pageable<UnregDbRow>,
+    ),
     // Local-vs-Mehmaan breakdown, DB-aggregated so it is correct past the row list's 1000-row cap.
     supabase.rpc("niyaz_event_breakdown", { p_instance_id: id }),
   ]);
@@ -65,11 +80,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (!tally) {
     return NextResponse.json({ error: "Niyaz event not found." }, { status: 404 });
   }
-  if (regResult.error) {
-    return NextResponse.json({ error: regResult.error.message }, { status: 500 });
-  }
 
-  const rows = (regResult.data ?? []) as unknown as ResponseRow[];
+  // Display order: most recently updated first (paging above used a stable id order).
+  rows.sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0));
+  unregRows.sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
 
   // Eligible-to-RSVP breakdown from the DB aggregate (NOT counted from `rows`, which the db-max-rows
   // cap truncates at 1000). Confirmation-based (whatsapp/admin), so it is mode-independent.
@@ -101,16 +115,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     },
     breakdown,
     responses: rows,
-    unregistered: (unregResult.data ?? []).map((u) => ({
-      id: u.id,
-      phone_e164: u.phone_e164,
-      attending: u.attending,
-      adults: u.adults,
-      kids: u.kids,
-      its_number: u.its_number,
-      source: u.source,
-      created_at: u.created_at,
-    })),
+    unregistered: unregRows,
     headcounts,
   });
 }
