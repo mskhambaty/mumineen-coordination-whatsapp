@@ -90,14 +90,21 @@ come to the masjid to register again. Admin:
 min = confirmed only — an inline legend on the page spells out each definition + the thaal formula),
 registered + unregistered count columns, backed by
 `GET /api/admin/niyaz/instances?mode=max|min` (reads the tallies view / function). Clicking an event
-opens the **per-mumin responses** view: searchable by name / ITS / phone, with columns for Name,
-RSVP, **Source** (a labelled badge — `default`=Seeded from arrival, `registration`, `whatsapp`,
-`admin` — so staff can tell a real confirmation from a seeded default) and **Responded by** (the
-WhatsApp phone or admin that set it). ITS is searchable but no longer shown as its own column. Below
-the registered rows, an **Unregistered guests** table lists `unregistered_rsvps` for that event
-(phone, RSVP, adults, kids, ITS) so a guest who RSVP'd before registering is still visible. Both
-tables come from `GET /api/admin/niyaz/instances/{id}/responses` (which now returns `responses` +
-`unregistered`).
+opens the **responses** section, which has two tabbed views (toggle in the section header):
+
+- **By Individual** (`responses` from `GET /api/admin/niyaz/instances/{id}/responses`): the per-mumin
+  list — searchable by name / ITS / phone, with columns for Name, RSVP, **Source** (a labelled badge —
+  `default`=Seeded from arrival, `registration`, `whatsapp`, `admin`, `roster` — so staff can tell a
+  real confirmation from a seeded default) and **Responded by** (the WhatsApp phone or admin that set
+  it), plus Type/Age/RSVP/Response chip filters. Below it, an **Unregistered guests** table lists
+  `unregistered_rsvps` (phone, RSVP, adults, kids, ITS). This list is capped at 1000 rows (db-max-rows).
+- **By Family** (`GET /api/admin/niyaz/instances/{id}/families`, lazy-loaded): one row per roster-active
+  family — HOF name (+ITS), Responded (yes/no), Attending count, Guests, and when / by whom. Comes from
+  the `niyaz_event_family_grid` DB aggregate (responded = any whatsapp/admin row; attending = real
+  members; guests = sentinel-ITS placeholders; when/by from the latest confirmed row — derived from
+  niyaz_rsvp, since `niyaz_family_headcount` is often empty). **Paged server-side** (`fetchAllRows`) so
+  all ~1k families are returned past the 1000-row cap. Searchable by HOF name / ITS with a Responded
+  filter. The default tab is By Family.
 
 ### 1a. Daily button RSVP (individual + family)
 
