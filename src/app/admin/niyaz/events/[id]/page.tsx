@@ -243,7 +243,7 @@ function NiyazEventPageInner() {
           <div className="mb-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <h2 className="mb-3 flex items-center gap-1 text-lg font-semibold">
               Breakdown
-              <InfoIcon label="Counts come from a DB aggregate, so they cover the whole event (not the 1000-row response list). Local/Mehmaan are real roster members only; overflow guest placeholders are shown on their own Guests row (they still count in the headline & Thaals). Yes/No use the same min/max mode as the headline. Responded = confirmed via WhatsApp or admin; everyone else is still on a seeded/registration default. Unregistered guests are not included here." />
+              <InfoIcon label="Confirmation-based counts (RSVP set via WhatsApp or admin) for the members eligible to RSVP. Computed from a DB aggregate, so it covers the whole event (not the 1000-row response list). This intentionally differs from the headline cards, which count every row regardless of confirmation." />
             </h2>
             {!breakdown ? (
               <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
@@ -253,6 +253,12 @@ function NiyazEventPageInner() {
                 <thead className="text-xs uppercase text-gray-400">
                   <tr>
                     <th className="px-2 py-1.5">Group</th>
+                    <th className="px-2 py-1.5 text-right">
+                      <span className="inline-flex items-center gap-1">
+                        Eligible
+                        <InfoIcon label="Members eligible to RSVP = all Locals (roster-active & attending) + Mehmaan whose family registration is submitted (roster-active & attending). Total = Local + Mehmaan eligible members; guests are not included. Eligible = Responded + Not responded." />
+                      </span>
+                    </th>
                     <th className="px-2 py-1.5 text-right">Yes</th>
                     <th className="px-2 py-1.5 text-right">No</th>
                     <th className="px-2 py-1.5 text-right">Responded</th>
@@ -264,30 +270,45 @@ function NiyazEventPageInner() {
                   {[
                     { key: "local", label: "Local", g: breakdown.local },
                     { key: "mehman", label: "Mehmaan", g: breakdown.mehman },
-                    // Guests only appear when the event has overflow placeholders.
-                    ...(breakdown.guest.responded + breakdown.guest.notResponded > 0
-                      ? [{ key: "guest", label: "Guests", g: breakdown.guest }]
-                      : []),
                     { key: "total", label: "Total", g: breakdown.total },
-                  ].map(({ key, label, g }) => (
-                    <tr
-                      key={key}
-                      className={`border-t border-gray-100 dark:border-gray-800 ${key === "total" ? "font-semibold" : key === "guest" ? "text-gray-500 dark:text-gray-400" : ""}`}
-                    >
-                      <td className="px-2 py-1.5">{label}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-green-600 dark:text-green-400">
-                        {g.yes}
-                        <span className="ml-1 text-xs font-normal text-gray-400">({g.yesAdults}a · {g.yesKids}k)</span>
-                      </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-red-500">
-                        {g.no}
-                        <span className="ml-1 text-xs font-normal text-gray-400">({g.noAdults}a · {g.noKids}k)</span>
-                      </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">{g.responded}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">{g.notResponded}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-gray-500 dark:text-gray-400">{pct(g.responseRate)}</td>
-                    </tr>
-                  ))}
+                    // Guests only appear when the event has overflow placeholders.
+                    ...(breakdown.guest.yes > 0 ? [{ key: "guest", label: "Guests", g: breakdown.guest }] : []),
+                  ].map(({ key, label, g }) => {
+                    const isGuest = key === "guest";
+                    return (
+                      <tr
+                        key={key}
+                        className={`border-t border-gray-100 dark:border-gray-800 ${key === "total" ? "font-semibold" : isGuest ? "text-gray-500 dark:text-gray-400" : ""}`}
+                      >
+                        <td className="px-2 py-1.5">
+                          {isGuest ? (
+                            <span className="inline-flex items-center gap-1">
+                              {label}
+                              <InfoIcon label="Overflow guest placeholders (not roster members) who RSVP'd yes; counted in the headline & Thaals but kept out of the member totals." />
+                            </span>
+                          ) : (
+                            label
+                          )}
+                        </td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">{isGuest ? "—" : g.eligible}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums text-green-600 dark:text-green-400">
+                          {g.yes}
+                          <span className="ml-1 text-xs font-normal text-gray-400">({g.yesAdults}a · {g.yesKids}k)</span>
+                        </td>
+                        <td className="px-2 py-1.5 text-right tabular-nums text-red-500">
+                          {isGuest ? "—" : (
+                            <>
+                              {g.no}
+                              <span className="ml-1 text-xs font-normal text-gray-400">({g.noAdults}a · {g.noKids}k)</span>
+                            </>
+                          )}
+                        </td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">{isGuest ? "—" : g.responded}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">{isGuest ? "—" : g.notResponded}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums text-gray-500 dark:text-gray-400">{isGuest ? "—" : pct(g.responseRate)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

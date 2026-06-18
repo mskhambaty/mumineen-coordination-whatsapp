@@ -1,13 +1,16 @@
-// Local-vs-Mehmaan breakdown for the admin Niyaz event-detail "Breakdown" panel.
+// "Eligible to RSVP" breakdown for the admin Niyaz event-detail "Breakdown" panel.
 //
 // IMPORTANT: this must NOT be computed from the per-mumin niyaz_rsvp list the API returns — that list
 // is capped by PostgREST's db-max-rows (1000), so on a large event it is a truncated slice and any
 // count derived from it is wrong. The counts come from the DB aggregate `niyaz_event_breakdown(id)`
-// (see the matching migration), exactly as the headline Yes/No tally already does.
+// (see the matching migration), which aggregates the whole event with no row cap.
 //
-// The RPC returns one row per local/mehman group with both min and max columns; assembleBreakdown
-// picks the columns for the active mode and rolls the groups up into a total. The classifier helpers
-// below are still used client-side for the responses-table chip filters.
+// The RPC returns one row per group ('local' | 'mehman' from the eligible-to-RSVP population, plus a
+// 'guest' row for sentinel-ITS placeholders that RSVP'd yes). Yes/No are confirmation-based
+// (source whatsapp/admin), responded = yes + no, and not_responded is the COMPLEMENT within the
+// eligible population (default/roster/registration/no-row). assembleBreakdown rolls local+mehman into
+// a member Total; guests are kept separate (not in the member Total). The classifier helpers below are
+// still used client-side for the responses-table chip filters.
 
 export type TallyMode = "min" | "max";
 
@@ -26,31 +29,26 @@ export function hasResponded(source: string): boolean {
   return source === "whatsapp" || source === "admin";
 }
 
-// One group row as returned by the niyaz_event_breakdown RPC. `grp` is the 3-way classifier
-// ('local' | 'mehman' | 'guest'); guests are synthetic overflow placeholders (sentinel ITS), kept
-// separate so the member rows stay clean while local+mehman+guest still reconciles with the headline.
+// One group row as returned by the niyaz_event_breakdown RPC. `grp` is 'local' | 'mehman' | 'guest'.
 // Counts may arrive as number or string (Postgres bigint over PostgREST), so callers coerce with Number().
 export type BreakdownGroup = "local" | "mehman" | "guest";
 
 export type BreakdownRpcRow = {
   grp: BreakdownGroup;
-  yes_min: number | string;
-  no_min: number | string;
-  yes_adults_min: number | string;
-  yes_kids_min: number | string;
-  no_adults_min: number | string;
-  no_kids_min: number | string;
-  yes_max: number | string;
-  no_max: number | string;
-  yes_adults_max: number | string;
-  yes_kids_max: number | string;
-  no_adults_max: number | string;
-  no_kids_max: number | string;
+  eligible: number | string;
+  yes: number | string;
+  no: number | string;
+  yes_adults: number | string;
+  yes_kids: number | string;
+  no_adults: number | string;
+  no_kids: number | string;
   responded: number | string;
   not_responded: number | string;
 };
 
 export type GroupBreakdown = {
+  // Eligible-to-RSVP members in this group (0 for the guest row — guests aren't an eligible population).
+  eligible: number;
   yes: number;
   no: number;
   yesAdults: number;
@@ -59,47 +57,45 @@ export type GroupBreakdown = {
   noKids: number;
   responded: number;
   notResponded: number;
-  // Share of the group's people who actively responded (0–1). 0 when the group is empty.
+  // Responded / eligible (0–1). 0 when the group has no eligible members.
   responseRate: number;
 };
 
 export type NiyazBreakdown = {
   local: GroupBreakdown;
   mehman: GroupBreakdown;
-  // Synthetic overflow guests (sentinel-ITS placeholders). Counted in the headline/Thaals but not a
-  // real member group — shown on its own row so the member rows stay clean and Total still reconciles.
+  // Overflow guest placeholders (sentinel ITS) that RSVP'd yes. Counted in the headline/Thaals but not
+  // an eligible member group — kept separate from the member Total.
   guest: GroupBreakdown;
+  // Local + Mehmaan eligible members (guests NOT included).
   total: GroupBreakdown;
 };
 
 function emptyGroup(): GroupBreakdown {
-  return { yes: 0, no: 0, yesAdults: 0, yesKids: 0, noAdults: 0, noKids: 0, responded: 0, notResponded: 0, responseRate: 0 };
+  return { eligible: 0, yes: 0, no: 0, yesAdults: 0, yesKids: 0, noAdults: 0, noKids: 0, responded: 0, notResponded: 0, responseRate: 0 };
 }
 
 const n = (v: number | string): number => Number(v) || 0;
 
-// Map one RPC row to a GroupBreakdown for the active mode. Yes/No (and the adult/kid split) honour
-// min vs max so they reconcile with the headline; responded/not-responded is source-based (same in
-// both modes).
-function fromRpcRow(row: BreakdownRpcRow, mode: TallyMode): GroupBreakdown {
-  const min = mode === "min";
+function fromRpcRow(row: BreakdownRpcRow): GroupBreakdown {
+  const eligible = n(row.eligible);
   const responded = n(row.responded);
-  const notResponded = n(row.not_responded);
-  const people = responded + notResponded;
   return {
-    yes: n(min ? row.yes_min : row.yes_max),
-    no: n(min ? row.no_min : row.no_max),
-    yesAdults: n(min ? row.yes_adults_min : row.yes_adults_max),
-    yesKids: n(min ? row.yes_kids_min : row.yes_kids_max),
-    noAdults: n(min ? row.no_adults_min : row.no_adults_max),
-    noKids: n(min ? row.no_kids_min : row.no_kids_max),
+    eligible,
+    yes: n(row.yes),
+    no: n(row.no),
+    yesAdults: n(row.yes_adults),
+    yesKids: n(row.yes_kids),
+    noAdults: n(row.no_adults),
+    noKids: n(row.no_kids),
     responded,
-    notResponded,
-    responseRate: people > 0 ? responded / people : 0,
+    notResponded: n(row.not_responded),
+    responseRate: eligible > 0 ? responded / eligible : 0,
   };
 }
 
 function addInto(total: GroupBreakdown, g: GroupBreakdown): void {
+  total.eligible += g.eligible;
   total.yes += g.yes;
   total.no += g.no;
   total.yesAdults += g.yesAdults;
@@ -110,7 +106,7 @@ function addInto(total: GroupBreakdown, g: GroupBreakdown): void {
   total.notResponded += g.notResponded;
 }
 
-export function assembleBreakdown(rows: BreakdownRpcRow[], mode: TallyMode): NiyazBreakdown {
+export function assembleBreakdown(rows: BreakdownRpcRow[]): NiyazBreakdown {
   const groups: Record<BreakdownGroup, GroupBreakdown> = {
     local: emptyGroup(),
     mehman: emptyGroup(),
@@ -119,14 +115,15 @@ export function assembleBreakdown(rows: BreakdownRpcRow[], mode: TallyMode): Niy
   const total = emptyGroup();
 
   for (const row of rows) {
-    const g = fromRpcRow(row, mode);
+    const g = fromRpcRow(row);
     addInto(groups[row.grp] ?? groups.local, g);
-    addInto(total, g);
+    // Total is eligible members only — guests are a separate population.
+    if (row.grp !== "guest") addInto(total, g);
   }
 
+  // addInto only sums counts; (re)compute each group's rate from the accumulated eligible/responded.
   for (const grp of [groups.local, groups.mehman, groups.guest, total]) {
-    const people = grp.responded + grp.notResponded;
-    grp.responseRate = people > 0 ? grp.responded / people : 0;
+    grp.responseRate = grp.eligible > 0 ? grp.responded / grp.eligible : 0;
   }
 
   return { local: groups.local, mehman: groups.mehman, guest: groups.guest, total };
