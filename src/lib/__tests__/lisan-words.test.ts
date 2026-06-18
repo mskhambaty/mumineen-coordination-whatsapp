@@ -276,7 +276,10 @@ describe("addLisanWord", () => {
 
   // Wire the chain for a single add: select("id").eq("norm").limit() → existing rows;
   // select("id",{head}) → count; insert/update → {error}.
-  function wireAdd({ existing = [] as { id: number }[], count = 1 } = {}) {
+  function wireAdd({
+    existing = [] as { id: number; transliteration?: string | null; lisan?: string | null; meaning?: string | null; example?: string | null }[],
+    count = 1,
+  } = {}) {
     insert.mockResolvedValue({ error: null });
     update.mockReturnValue({ eq: () => Promise.resolve({ error: null }) });
     mocks.from.mockReturnValue({
@@ -303,9 +306,17 @@ describe("addLisanWord", () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  it("dedupes on norm: an existing word is UPDATED in place, not inserted twice", async () => {
-    wireAdd({ existing: [{ id: 7 }], count: 100 });
+  it("dedupes on norm: an existing word returns 'exists' (warn) and does NOT overwrite without confirm", async () => {
+    wireAdd({ existing: [{ id: 7, transliteration: "Aflaak", lisan: "افلاك", meaning: "Old", example: null }], count: 100 });
     const res = await addLisanWord({ transliteration: "Aflaak", lisan: "افلاك", meaning: "Spheres (revised)", example: "" });
+    expect(res).toMatchObject({ status: "exists", existing: { id: 7, meaning: "Old" } });
+    expect(update).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it("dedupes on norm: with confirm it UPDATES in place, not inserted twice", async () => {
+    wireAdd({ existing: [{ id: 7, transliteration: "Aflaak", meaning: "Old" }], count: 100 });
+    const res = await addLisanWord({ transliteration: "Aflaak", lisan: "افلاك", meaning: "Spheres (revised)", example: "" }, null, { confirm: true });
     expect(res).toMatchObject({ status: "updated", count: 100 });
     expect(update).toHaveBeenCalledTimes(1);
     expect(insert).not.toHaveBeenCalled();

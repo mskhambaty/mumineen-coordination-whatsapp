@@ -6,8 +6,11 @@ import { requirePortalCaller } from "@/lib/api/portal-auth";
 import {
   addLisanWord,
   countLisanWords,
+  deleteLisanWordById,
   importLisanWords,
   listAllLisanWords,
+  listLisanWordsPage,
+  updateLisanWordById,
   type LisanImportRow,
 } from "@/lib/knowledge/lisan-words";
 import { parseCsv } from "@/lib/util/csv";
@@ -29,7 +32,8 @@ export async function GET(req: NextRequest) {
   const auth = await requirePortalCaller(req, canManageReligiousContent);
   if (auth instanceof NextResponse) return auth;
   try {
-    if (req.nextUrl.searchParams.get("format") === "csv") {
+    const params = req.nextUrl.searchParams;
+    if (params.get("format") === "csv") {
       const words = await listAllLisanWords();
       const header = "transliteration,lisan,meaning,example";
       const body = words
@@ -42,6 +46,18 @@ export async function GET(req: NextRequest) {
         },
       });
     }
+    // Browse/search a page of the dictionary for the admin Dictionary tab.
+    if (params.get("list") === "1") {
+      const fieldParam = params.get("field");
+      const field = fieldParam === "word" || fieldParam === "meaning" ? fieldParam : "all";
+      const page = await listLisanWordsPage({
+        q: params.get("q") ?? "",
+        field,
+        page: Number(params.get("page")) || 1,
+        pageSize: Number(params.get("pageSize")) || 25,
+      });
+      return NextResponse.json(page);
+    }
     return NextResponse.json({ count: await countLisanWords() });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Failed" }, { status: 500 });
@@ -50,12 +66,14 @@ export async function GET(req: NextRequest) {
 
 // PUT: add (or update) ONE word — the day-to-day path for filling a dictionary gap without a
 // full CSV re-upload. The DB is the source of truth; dedupe on the normalized word.
-const addWordSchema = z.object({
+const wordFieldsSchema = z.object({
   transliteration: z.string().trim().max(200).optional().default(""),
   lisan: z.string().trim().max(200).optional().default(""),
   meaning: z.string().trim().max(1000).optional().default(""),
   example: z.string().trim().max(2000).optional().default(""),
 });
+// `confirm: true` authorises overwriting an existing entry with the same normalized word.
+const addWordSchema = wordFieldsSchema.extend({ confirm: z.boolean().optional().default(false) });
 
 export async function PUT(req: NextRequest) {
   const auth = await requirePortalCaller(req, canManageReligiousContent);
@@ -66,7 +84,7 @@ export async function PUT(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
-  const { transliteration, lisan } = parsed.data;
+  const { transliteration, lisan, confirm } = parsed.data;
   if (!transliteration && !lisan) {
     return NextResponse.json(
       { error: "Provide at least a transliteration or a Lisan word." },
@@ -75,13 +93,60 @@ export async function PUT(req: NextRequest) {
   }
 
   try {
-    const result = await addLisanWord(parsed.data, auth.caller.display_name ?? null);
+    const result = await addLisanWord(parsed.data, auth.caller.display_name ?? null, { confirm });
     if (result.status === "invalid") {
       return NextResponse.json({ error: "Word has no usable text." }, { status: 422 });
+    }
+    // Duplicate without confirmation → 409 + the existing entry, so the UI can warn-and-confirm.
+    if (result.status === "exists") {
+      return NextResponse.json(result, { status: 409 });
     }
     return NextResponse.json(result, { status: result.status === "added" ? 201 : 200 });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Add failed" }, { status: 500 });
+  }
+}
+
+// PATCH: edit ONE existing word by id (fix a wrong spelling / meaning). Recomputes match columns.
+const patchSchema = wordFieldsSchema.extend({ id: z.number().int().positive() });
+
+export async function PATCH(req: NextRequest) {
+  const auth = await requirePortalCaller(req, canManageReligiousContent);
+  if (auth instanceof NextResponse) return auth;
+
+  const parsed = patchSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
+  const { id, transliteration, lisan } = parsed.data;
+  if (!transliteration && !lisan) {
+    return NextResponse.json({ error: "Provide at least a transliteration or a Lisan word." }, { status: 422 });
+  }
+
+  try {
+    const result = await updateLisanWordById(id, parsed.data);
+    if (result.status === "invalid") {
+      return NextResponse.json({ error: "Word has no usable text." }, { status: 422 });
+    }
+    return NextResponse.json(result);
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Edit failed" }, { status: 500 });
+  }
+}
+
+// DELETE: remove ONE word by id (?id=123).
+export async function DELETE(req: NextRequest) {
+  const auth = await requirePortalCaller(req, canManageReligiousContent);
+  if (auth instanceof NextResponse) return auth;
+
+  const id = Number(req.nextUrl.searchParams.get("id"));
+  if (!Number.isInteger(id) || id <= 0) {
+    return NextResponse.json({ error: "A valid id is required" }, { status: 400 });
+  }
+  try {
+    return NextResponse.json(await deleteLisanWordById(id));
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Delete failed" }, { status: 500 });
   }
 }
 

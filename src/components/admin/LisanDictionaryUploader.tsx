@@ -17,6 +17,8 @@ export default function LisanDictionaryUploader() {
   const [word, setWord] = useState({ transliteration: "", lisan: "", meaning: "", example: "" });
   const [adding, setAdding] = useState(false);
   const [exporting, setExporting] = useState(false);
+  // When an add collides with an existing word, hold that entry so we can warn before overwriting.
+  const [dup, setDup] = useState<{ transliteration: string | null; lisan: string | null; meaning: string | null } | null>(null);
 
   async function fetchCount(): Promise<number | null> {
     try {
@@ -60,25 +62,39 @@ export default function LisanDictionaryUploader() {
     }
   }
 
-  async function addWord(e: React.FormEvent) {
-    e.preventDefault();
+  // `confirm` overwrites an existing entry; the first attempt is unconfirmed so a duplicate returns
+  // 409 + the existing row and we ask the admin before clobbering its meaning.
+  async function submitWord(confirm: boolean) {
     if (!word.transliteration.trim() && !word.lisan.trim()) return;
     setAdding(true);
     setError(null);
     setMessage(null);
     try {
-      const res = await apiFetch("/api/admin/lisan-words", { method: "PUT", body: JSON.stringify(word) });
+      const res = await apiFetch("/api/admin/lisan-words", {
+        method: "PUT",
+        body: JSON.stringify({ ...word, confirm }),
+      });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 409 && data.status === "exists") {
+        setDup(data.existing ?? null);
+        return;
+      }
       if (!res.ok) throw new Error(data.error ?? "Add failed");
       const label = word.transliteration.trim() || word.lisan.trim();
       setMessage(data.status === "updated" ? `Updated “${label}”.` : `Added “${label}”.`);
       setWord({ transliteration: "", lisan: "", meaning: "", example: "" });
+      setDup(null);
       if (typeof data.count === "number") setCount(data.count);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Add failed");
     } finally {
       setAdding(false);
     }
+  }
+
+  function addWord(e: React.FormEvent) {
+    e.preventDefault();
+    void submitWord(false);
   }
 
   async function exportCsv() {
@@ -151,6 +167,32 @@ export default function LisanDictionaryUploader() {
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Adds a single word live (no full re-upload). Re-adding an existing word updates it.
         </p>
+        {dup && (
+          <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm dark:border-amber-800 dark:bg-amber-950">
+            <p className="font-medium text-amber-800 dark:text-amber-200">
+              “{dup.transliteration || dup.lisan}” already exists.
+            </p>
+            <p className="mt-1 text-amber-700 dark:text-amber-300">Existing meaning: {dup.meaning || "—"}</p>
+            <p className="text-amber-700 dark:text-amber-300">New meaning: {word.meaning || "—"}</p>
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => void submitWord(true)}
+                disabled={adding}
+                className="rounded bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {adding ? "Replacing…" : "Replace with new"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDup(null)}
+                className="rounded border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+              >
+                Keep existing
+              </button>
+            </div>
+          </div>
+        )}
         <form onSubmit={addWord} className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <input
             value={word.transliteration}

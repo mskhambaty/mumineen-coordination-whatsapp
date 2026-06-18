@@ -20,6 +20,7 @@ import {
   isAffirmative,
   isClearlySocial,
   hasReligiousSignal,
+  looksLikeOwnRsvpIntent,
   yearLabelMismatch,
 } from "@/lib/agent/religious-guard";
 import { resolveCallerFromPhone, type CallerContext } from "@/lib/api/auth";
@@ -36,6 +37,11 @@ const MAX_HISTORY_CHARS = 2000;
 // Sentinel the agent emits when no reply should be sent (e.g. a content-free
 // "thanks" after the chat has wound down). The webhook stays silent on this.
 export const NO_REPLY_TOKEN = "[[NO_REPLY]]";
+
+// A1 routing-guard safety net: shown when an own-attendance/RSVP question was mis-routed to the
+// religious tool. Never claim "I only answer from published reflections" to an RSVP question.
+export const OWN_RSVP_REDIRECT =
+  "It looks like you're asking about your own meal RSVP. Tell me which day or event and I'll check it for you.";
 
 // Always-on escalation guidance, appended to whatever system prompt is loaded so
 // it can't be edited away. The hard turn-gate lives server-side in /api/escalations.
@@ -75,7 +81,7 @@ Before answering, route the question to the correct tool. Never answer event spe
 - move_to_escalation → a real active emergency, a frustrated user, an EXPLICIT and specific request for a person, an actionable operational/facility problem to report (broken shuttle, AC not working, restroom issues, cleanliness, equipment failures, missing supplies), or a Waaz/deen question the reflections can't answer (category 'religious_followup'). This tool ALSO auto-creates an issue (visible in the Issues tab) and a workspace task, and notifies the department's issue contacts. Always provide a clear title and description, and pick the best department from the Available Departments list.
   - REPORT vs QUESTION: a statement that something is broken, missing, or not working ("the AC is off and it's hot in here", "water bottles everywhere on second floor") is a problem REPORT — use move_to_escalation so it creates an issue and the responsible department can act on it. Reciting the general FAQ process back at them does not fix the thing that is broken.
 - flag_knowledge_gap → silently log any informational question you could NOT answer (in addition to telling the user it's not available yet).
-- get_family_meal_rsvps / set_family_meal_rsvps → read or record a registered family's jaman (meal) RSVP. Anything about the caller's OWN attendance — "my/our RSVP", "my response", "am I/are we attending", "what did I RSVP", "did we sign up", "are we down for", "change my RSVP" — is a meal RSVP, EVEN when it names a day like "4th Moharram ul Haram", "Pehli Raat", or "Ashura". A bare day/majlis name is ambiguous (each Moharram day is BOTH a jaman event and a majlis): the possessive/attendance intent routes HERE, not to religious content. Only a question about what was SAID or explained in that day's waaz (the reflection, topic, theme, al-Dars) goes to answer_religious_questions.
+- get_family_meal_rsvps / set_family_meal_rsvps → read or record a registered family's jaman (meal) RSVP. Anything about the caller's OWN attendance — "my/our RSVP", "my response", "am I/are we attending", "what did I RSVP", "did we sign up", "are we down for", "change my RSVP" — is a meal RSVP, EVEN when it names a day like "4th Moharram ul Haram", "Pehli Raat", or "Ashura". A bare day/majlis name is ambiguous (each Moharram day is BOTH a jaman event and a majlis): the possessive/attendance intent routes HERE, not to religious content. Only a question about what was SAID or explained in that day's waaz (the reflection, topic, theme, al-Dars) goes to answer_religious_questions. NEVER answer an own-RSVP/attendance question with answer_religious_questions, and never tell such a user you "only answer from the published reflections" — e.g. "What is my RSVP for 4th Moharram" is a meal RSVP.
 - get_family_parking_passes → a caller asking about THEIR OWN (or their family's) parking pass — where it is, what color, which entry/gate. Returns only the caller's own family's passes. See the Parking rule. (Broader parking logistics — pickup location/times, rules — still go to get_site_content_faq.)
 - list_tasks / create_task / update_tasks / list_departments / list_department_members → authorized committee ticket management. When a committee user discusses tickets, briefly mention that they can manage them directly here. Use update_tasks directly for action requests; it resolves IDs internally, so do not ask the user to provide IDs first.
 The detailed rules for each tool follow below.`;
@@ -572,6 +578,20 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     }
   }
 
+  // A1 routing guard: a possessive/attendance question (even one that names a Moharram day) is a
+  // meal-RSVP question, not religious content. Steer the model to the RSVP tool so it doesn't answer
+  // it from answer_religious_questions (the eval saw "what is my RSVP for 4th Moharram" get a
+  // religious not-found). The not-found returns below carry a deterministic safety net too.
+  if (looksLikeOwnRsvpIntent(input.message)) {
+    messages.push({
+      role: "system",
+      content:
+        "The user is asking about their OWN meal (jaman) RSVP. Use get_family_meal_rsvps to read it, " +
+        "or set_family_meal_rsvps to change it — even if the message names a Moharram day. Do NOT use " +
+        "answer_religious_questions for this.",
+    });
+  }
+
   const firstResponse = await client.chat.completions.create({
     ...chatParams(AI_MODEL, { maxTokens: MAX_AGENT_TOKENS, temperature: AGENT_TEMPERATURE }),
     messages,
@@ -588,6 +608,9 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   if (!firstMessage?.tool_calls?.length) {
     const content = sanitizeFinalReply(firstMessage?.content?.trim() || fallbackReply());
     if (isClearlySocial(input.message)) return content;
+    // An own-RSVP question that names a Moharram day can carry a majlis signal — never answer it
+    // with the religious-only not-found; redirect to the RSVP path instead.
+    if (looksLikeOwnRsvpIntent(input.message)) return OWN_RSVP_REDIRECT;
     if (hasReligiousSignal(input.message)) return appendOnCallSuggestion(NOT_FOUND_REPLY, history, { force: true });
     return content;
   }
@@ -653,7 +676,12 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
 
   // DETERMINISTIC religious decisions — the model never narrates a refusal/offer (no citations,
   // no improvisation). Only a grounded "answer" proceeds to the (constrained) final completion.
-  if (religiousDecision === "not_found") return appendOnCallSuggestion(NOT_FOUND_REPLY, history, { force: true });
+  if (religiousDecision === "not_found") {
+    // Safety net: an own-RSVP question mis-routed to the religious tool must not get the
+    // "I only answer from published reflections" reply — point it back to the RSVP path.
+    if (looksLikeOwnRsvpIntent(input.message)) return OWN_RSVP_REDIRECT;
+    return appendOnCallSuggestion(NOT_FOUND_REPLY, history, { force: true });
+  }
   if (religiousDecision === "offer_last") return THIS_YEAR_OFFER_LAST;
   // Word-meaning that was routed to the waaz tool → answer from the dictionary, deterministically.
   if (religiousDecision === "word_lookup" && religiousWord) return renderLisanReply(await lookupLisanWord(religiousWord));
@@ -787,7 +815,7 @@ export function collectSources(into: SourceCollector, toolName: string, toolResu
 // the reflections" message the model improvised. Sources must NEVER be stapled onto these (a
 // "I'll pass it to the team" line with 3 reflection links looks broken — seen in production).
 const HANDOFF_RE =
-  /\b(pass(ed|ing)?[^.]*\bto\b[^.]*\bteam\b|religious follow[\s-]?up|shared (your|this) (question|with)|could ?n[o']?t find|do ?n[o']?t have (this|that|it)|not able to answer|ask your aamil saheb)\b/i;
+  /\b(pass(ed|ing)?[^.]*\bto\b[^.]*\bteam\b|religious follow[\s-]?up|shared (your|this) (question|with)|could ?n[o']?t (find|locate)|do ?n[o']?t (have|find|see)\b|not able to answer|ask your aamil saheb)\b/i;
 export function looksLikeHandoff(reply: string): boolean {
   return HANDOFF_RE.test(reply);
 }

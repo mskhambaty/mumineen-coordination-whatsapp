@@ -974,5 +974,25 @@ function summarizeResult(result: unknown) {
     return result.slice(0, 500);
   }
 
+  // Religious answer results carry a `decision` + a (possibly large) `context`. Store a structured,
+  // VALID-JSON summary instead of a mid-string-truncated blob (the old slice(0,500) cut the JSON mid
+  // `context`, so evals couldn't parse `decision`/`source` and saw only the FIRST matched chunk —
+  // which made correct answers look wrong). `matched` keeps the titles / Q-headers of ALL retrieved
+  // top-K chunks (identifiers, not bodies, so it stays bounded). Religious content is not PII.
+  if (result && typeof result === "object" && "decision" in result) {
+    const r = result as { decision?: unknown; year?: unknown; source?: unknown; context?: unknown };
+    const matched: string[] = [];
+    if (typeof r.context === "string") {
+      for (const m of r.context.matchAll(/\[([^\]\n]{1,140})\]/g)) matched.push(`[${m[1].trim()}]`);
+      for (const m of r.context.matchAll(/^Q:\s*([^\n]{1,140})/gim)) matched.push(`Q: ${m[1].trim()}`);
+    }
+    return JSON.stringify({
+      decision: r.decision ?? null,
+      year: r.year ?? null,
+      source: r.source ?? null,
+      matched: matched.slice(0, 8),
+    });
+  }
+
   return JSON.stringify(result).slice(0, 500);
 }
