@@ -2182,8 +2182,9 @@ paths:
       summary: Per-family RSVP grid for an event (the admin "By Family" view)
       description: >-
         Admin/leadership (portal). One row per roster-active family from the `niyaz_event_family_grid`
-        DB aggregate: `family_id`, `hof_its`, `hof_name` (resolved via mumineen.its = hof_its, falling
-        back to the ITS string), `responded` (any whatsapp/admin row for the family this event),
+        DB aggregate: `family_id`, `hof_its`, `hof_name` (the family's acting head — the `is_head`
+        member, else the eldest member, matching the mumin-lookup "Acting head"; falls back to the ITS
+        string only if no roster member exists), `responded` (any whatsapp/admin row for the family this event),
         `attending` (attending real members, guests excluded), `guests` (attending sentinel-ITS
         placeholders), and `responded_at` / `responded_by` from the latest confirmed row. Derived from
         niyaz_rsvp (not the often-empty niyaz_family_headcount). PAGED server-side (fetchAllRows), so
