@@ -416,7 +416,9 @@ function NiyazEventPageInner() {
                           <tr key={f.family_id} className="border-t border-gray-100 dark:border-gray-800">
                             <td className="px-2 py-1.5">
                               {f.hof_name}
-                              <span className="ml-1 font-mono text-xs text-gray-400">{f.hof_its}</span>
+                              {f.hof_name !== f.hof_its && (
+                                <span className="ml-1 font-mono text-xs text-gray-400">{f.hof_its}</span>
+                              )}
                             </td>
                             <td className="px-2 py-1.5">
                               <span className={f.responded ? "text-green-600 dark:text-green-400" : "text-gray-400"}>{f.responded ? "Yes" : "No"}</span>
