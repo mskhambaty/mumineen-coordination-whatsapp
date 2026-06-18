@@ -753,11 +753,21 @@ paths:
   /admin/religious/conversations:
     get:
       tags: [conversations]
-      summary: Conversations that used a religious tool, with each member's 24h-window state.
-      description: Threads (newest first) for the Waaz Talaqqi Chats tab. ?from/?to optional. Each thread includes handling_mode (ai|manual) + in_window. Religious monitor / admin.
+      summary: Religious chats ACTIVE in the last N hours (by religious tool-call recency).
+      description: >-
+        Threads (newest religious-activity first) for the Waaz Talaqqi Inbox. Membership is scoped
+        by religious tool-CALL recency, NOT message activity, so a chat whose religious tool-call
+        aged past the window no longer appears even if it got a logistics/template message today.
+        A Manual-mode chat with a recent handoff (within the window) is kept. The general
+        Conversations inbox keeps its all-time religious filter as the archive. Religious monitor / admin.
+      parameters:
+        - in: query
+          name: windowHours
+          schema: { type: integer, enum: [24, 48, 168], default: 48 }
+          description: Lookback window for religious tool-call recency. Invalid values fall back to 48.
       security: [{ portalSession: [] }, { adminKey: [] }]
       responses:
-        "200": { description: "{ conversations[] } each with messages, in_window, handling_mode." }
+        "200": { description: "{ conversations[], window_hours } each conversation with messages, in_window, handling_mode." }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
   /admin/religious/mode:
@@ -1005,8 +1015,8 @@ paths:
   /admin/lisan-words:
     get:
       tags: [conversations]
-      summary: Count of Lisan ud Dawat words, or export the whole dictionary as CSV.
-      description: "Default returns { count }. With ?format=csv, streams the dictionary as a re-importable CSV (transliteration,lisan,meaning,example) as a file download — a backup / master copy (DB is the source of truth)."
+      summary: Count, CSV export, or a searchable page of the Lisan ud Dawat dictionary.
+      description: "Default returns { count }. With ?format=csv, streams the dictionary as a re-importable CSV. With ?list=1, returns a paginated, searchable page { rows[], total, page, pageSize } for the admin Dictionary browser (?q=, ?field=word|meaning|all, ?page=, ?pageSize=). DB is the source of truth."
       security: [{ portalSession: [] }, { adminKey: [] }]
       parameters:
         - in: query
@@ -1014,14 +1024,37 @@ paths:
           required: false
           schema: { type: string, enum: [csv] }
           description: When "csv", download the full dictionary instead of the count.
+        - in: query
+          name: list
+          required: false
+          schema: { type: string, enum: ["1"] }
+          description: When "1", return a searchable page of rows (with ids) instead of the count.
+        - in: query
+          name: q
+          required: false
+          schema: { type: string }
+          description: Substring search term (used with list=1).
+        - in: query
+          name: field
+          required: false
+          schema: { type: string, enum: [word, meaning, all], default: all }
+          description: Which columns the search term matches (word = transliteration/lisan).
+        - in: query
+          name: page
+          required: false
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: pageSize
+          required: false
+          schema: { type: integer, default: 25, maximum: 100 }
       responses:
-        "200": { description: "{ count }, or a text/csv attachment when format=csv." }
+        "200": { description: "{ count }, a text/csv attachment (format=csv), or { rows[], total, page, pageSize } (list=1)." }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
     put:
       tags: [conversations]
       summary: Add (or update) ONE Lisan word without re-uploading the whole CSV.
-      description: "Day-to-day path for filling a dictionary gap. Computes the match columns (norm/skeleton/forms) like the bulk import and inserts one row; deduped on the normalized word (an existing word is updated in place). Powers get_lisan_word_meaning."
+      description: "Day-to-day path for filling a dictionary gap. Computes the match columns (norm/skeleton/forms) like the bulk import; deduped on the normalized word. If the word already exists and confirm is not set, returns 409 { status: 'exists', existing } WITHOUT writing, so the UI can warn before overwriting. With confirm:true it overwrites in place. Powers get_lisan_word_meaning."
       security: [{ portalSession: [] }, { adminKey: [] }]
       requestBody:
         required: true
@@ -1034,13 +1067,53 @@ paths:
                 lisan: { type: string }
                 meaning: { type: string }
                 example: { type: string }
+                confirm: { type: boolean, default: false, description: Authorise overwriting an existing entry with the same normalized word. }
               description: At least one of transliteration or lisan is required.
       responses:
-        "200": { description: "Existing word updated: { status: 'updated', entry, count }." }
+        "200": { description: "Existing word updated (confirm:true): { status: 'updated', entry, count }." }
         "201": { description: "New word added: { status: 'added', entry, count }." }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { description: "Word already exists and confirm was not set: { status: 'exists', existing }." }
         "422": { description: Word has no transliteration or lisan text. }
+        "500": { $ref: "#/components/responses/ServerError" }
+    patch:
+      tags: [conversations]
+      summary: Edit ONE existing Lisan word by id (fix a wrong spelling / meaning).
+      description: "Recomputes all match columns via prepareLisanRow so the edited row stays searchable like an imported one."
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: integer }
+                transliteration: { type: string }
+                lisan: { type: string }
+                meaning: { type: string }
+                example: { type: string }
+      responses:
+        "200": { description: "{ status: 'updated', entry }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { description: Word has no transliteration or lisan text. }
+        "500": { $ref: "#/components/responses/ServerError" }
+    delete:
+      tags: [conversations]
+      summary: Delete ONE Lisan word by id (?id=123).
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      parameters:
+        - in: query
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200": { description: "{ status: 'deleted', count }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
     post:
       tags: [conversations]

@@ -18,6 +18,8 @@ export default function ReligiousInbox() {
   const [activePhone, setActivePhone] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [inWindowOnly, setInWindowOnly] = useState(false);
+  // Lookback: show religious chats whose religious tool-call landed within this window (default 48h).
+  const [windowHours, setWindowHours] = useState(48);
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const [savingMode, setSavingMode] = useState(false);
@@ -34,7 +36,7 @@ export default function ReligiousInbox() {
       // Cache-bust (`?t=`) + `no-store`: every poll must be a UNIQUE, uncacheable request so the
       // browser / any edge cache can't replay a stale copy — the real cause of the old staleness
       // (force-dynamic alone only kept the SERVER fresh; the client was serving a cached response).
-      const res = await apiFetch(`/api/admin/religious/conversations?t=${Date.now()}`, { cache: "no-store" });
+      const res = await apiFetch(`/api/admin/religious/conversations?windowHours=${windowHours}&t=${Date.now()}`, { cache: "no-store" });
       if (res.ok) setConversations(((await res.json()).conversations ?? []) as Conversation[]);
     } catch {
       // Silent — a transient poll failure must not disrupt the open thread.
@@ -42,7 +44,7 @@ export default function ReligiousInbox() {
       inFlight.current = false;
       setLoaded(true);
     }
-  }, []);
+  }, [windowHours]);
 
   // Initial load + live refresh: poll while the tab is visible, and refetch immediately on focus.
   useEffect(() => {
@@ -155,10 +157,24 @@ export default function ReligiousInbox() {
               <svg viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor"><path d="M10 3a7 7 0 105.66 2.86l1.42-1.42A1 1 0 0018 5V1h-4a1 1 0 00-.71 1.71l1.13 1.13A5 5 0 1115 10h2a7 7 0 00-7-7z"/></svg>
             </button>
           </div>
-          <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-            <input type="checkbox" checked={inWindowOnly} onChange={(e) => setInWindowOnly(e.target.checked)} />
-            In-window only
-          </label>
+          <div className="flex items-center justify-between gap-2">
+            <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+              <input type="checkbox" checked={inWindowOnly} onChange={(e) => setInWindowOnly(e.target.checked)} />
+              In-window only
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+              <span>Active in</span>
+              <select
+                value={windowHours}
+                onChange={(e) => setWindowHours(Number(e.target.value))}
+                className="rounded-md border border-gray-300 bg-white px-1.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+              >
+                <option value={24}>last 24h</option>
+                <option value={48}>last 48h</option>
+                <option value={168}>last 7 days</option>
+              </select>
+            </label>
+          </div>
         </div>
         <ul className="min-h-0 flex-1 divide-y divide-gray-100 overflow-y-auto dark:divide-gray-800">
           {list.map((c) => {

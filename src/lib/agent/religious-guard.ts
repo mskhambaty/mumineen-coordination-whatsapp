@@ -170,6 +170,23 @@ export function hasReligiousSignal(message: string): boolean {
   return parseMajlisRef(message) != null || isOverviewQuery(message);
 }
 
+// ─── Own-attendance / meal-RSVP intent (A1 routing guard) ────────────────────────────────────
+// A possessive/attendance question — even when it names a Moharram day (each day is BOTH a jaman
+// event and a majlis) — is a meal-RSVP question, NOT religious content. Used to (a) steer the model
+// to the RSVP tool, and (b) make sure a mis-routed RSVP question never gets the religious-only
+// "I answer only from published reflections" not-found reply. Eval case: "What is my RSVP for 4th
+// Moharram" was answered with a religious not-found.
+const OWN_RSVP_RE =
+  /\b(?:my|our|mera|meri|hamara|hamari|amaro|amari)\b[^.?!\n]{0,32}\b(?:rsvp|attend(?:ing|ance|ed)?|sign(?:ed)?\s*up|registrat\w*|registered|coming|down\s+for)\b/i;
+const OWN_RSVP_PHRASE_RE =
+  /\b(?:what(?:'?s| is| did i)\s+(?:my|our)\s+rsvp|did\s+(?:i|we)\s+(?:sign\s*up|register|rsvp)|are\s+we\s+(?:attending|coming|down\s+for)|am\s+i\s+attending|change\s+(?:my|our)\s+rsvp)\b/i;
+
+export function looksLikeOwnRsvpIntent(message: string): boolean {
+  const m = message.trim();
+  if (!m) return false;
+  return OWN_RSVP_RE.test(m) || OWN_RSVP_PHRASE_RE.test(m);
+}
+
 // ─── Clearly-social messages (greeting / thanks / dua / chant / bare affirmation) → pass ─────
 const SOCIAL_RE =
   /^(?:\s*(?:(?:as+|wa\s+)?salaam?(?:\s*un)?(?:\s*(?:alaikum|jameel))?|salam|adaab|hi|hello|hey|good\s+(?:morning|evening|afternoon)|shukran|thanks?|thank\s+you|jazakallah|jazakumullah|aameen|ameen|mola(?:\s+mola)*(?:\s+mufaddal)?(?:\s+mola)?|ya\s+ali\s+madad|ya\s+husain|inshallah|insha'?allah|mashallah|subhanallah|alhamd[ou]l+il+a+h?|no|nope|nahi|nai|na|ok|okay|k|sure|nothing|np|👍|🙏|❤️|🤲)\s*[.!]*\s*)+$/i;
