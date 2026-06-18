@@ -26,10 +26,14 @@ export function hasResponded(source: string): boolean {
   return source === "whatsapp" || source === "admin";
 }
 
-// One group row as returned by the niyaz_event_breakdown RPC. Counts may arrive as number or string
-// (Postgres bigint over PostgREST), so callers coerce with Number().
+// One group row as returned by the niyaz_event_breakdown RPC. `grp` is the 3-way classifier
+// ('local' | 'mehman' | 'guest'); guests are synthetic overflow placeholders (sentinel ITS), kept
+// separate so the member rows stay clean while local+mehman+guest still reconciles with the headline.
+// Counts may arrive as number or string (Postgres bigint over PostgREST), so callers coerce with Number().
+export type BreakdownGroup = "local" | "mehman" | "guest";
+
 export type BreakdownRpcRow = {
-  is_mehman: boolean;
+  grp: BreakdownGroup;
   yes_min: number | string;
   no_min: number | string;
   yes_adults_min: number | string;
@@ -62,6 +66,9 @@ export type GroupBreakdown = {
 export type NiyazBreakdown = {
   local: GroupBreakdown;
   mehman: GroupBreakdown;
+  // Synthetic overflow guests (sentinel-ITS placeholders). Counted in the headline/Thaals but not a
+  // real member group — shown on its own row so the member rows stay clean and Total still reconciles.
+  guest: GroupBreakdown;
   total: GroupBreakdown;
 };
 
@@ -104,20 +111,23 @@ function addInto(total: GroupBreakdown, g: GroupBreakdown): void {
 }
 
 export function assembleBreakdown(rows: BreakdownRpcRow[], mode: TallyMode): NiyazBreakdown {
-  const local = emptyGroup();
-  const mehman = emptyGroup();
+  const groups: Record<BreakdownGroup, GroupBreakdown> = {
+    local: emptyGroup(),
+    mehman: emptyGroup(),
+    guest: emptyGroup(),
+  };
   const total = emptyGroup();
 
   for (const row of rows) {
     const g = fromRpcRow(row, mode);
-    addInto(row.is_mehman ? mehman : local, g);
+    addInto(groups[row.grp] ?? groups.local, g);
     addInto(total, g);
   }
 
-  for (const grp of [local, mehman, total]) {
+  for (const grp of [groups.local, groups.mehman, groups.guest, total]) {
     const people = grp.responded + grp.notResponded;
     grp.responseRate = people > 0 ? grp.responded / people : 0;
   }
 
-  return { local, mehman, total };
+  return { local: groups.local, mehman: groups.mehman, guest: groups.guest, total };
 }
