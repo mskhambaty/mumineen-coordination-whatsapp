@@ -69,6 +69,7 @@ src/app/api/admin/templates/segments/route.ts — GET Niyaz reach-segment sizes 
 src/lib/escalation/notify.ts             — On-call escalation email + WhatsApp template notifications
 src/lib/escalation/activity.ts           — Escalation activity log (fire-and-forget)
 src/lib/escalation/sla.ts               — SLA config cache + deadline computation
+src/lib/escalation/issue-grouping.ts     — Trigger B: cluster ungrouped escalations (AI) + promote same-problem ones (high-confidence, ≥2 convos) into one shared issue; pure selectPromotableClusters gate
 src/app/api/admin/issues/route.ts        — Issues CRUD (list + create)
 src/app/api/admin/issues/[issueId]/route.ts — Issue detail (GET/PUT/DELETE)
 src/app/api/admin/issues/[issueId]/link/route.ts — Link/unlink escalations to issues
@@ -141,6 +142,7 @@ src/app/api/admin/templates/broadcasts/[id]/recipients/route.ts — Full broadca
 src/lib/digest/run.ts                    — Nightly department digest: aggregate→AI→store→distribute
 src/app/api/cron/department-digest/route.ts — Nightly department digest cron (03:00 UTC (10pm Chicago, CDT))
 src/app/api/cron/broadcast-drain/route.ts   — Template broadcast drain cron (every minute)
+src/app/api/cron/escalation-grouping/route.ts — Trigger B cron (hourly): cluster ungrouped escalations → promote shared issues (clusterUngroupedEscalations)
 src/app/webinars/page.tsx                — Public webinars page: ITS gate + video card grid + modal player
 src/lib/webinars/youtube.ts              — YouTube ID / thumbnail / embed URL helpers (unit-tested)
 ```
