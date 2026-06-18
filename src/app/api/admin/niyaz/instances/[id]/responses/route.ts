@@ -71,9 +71,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const rows = (regResult.data ?? []) as unknown as ResponseRow[];
 
-  // Local-vs-Mehmaan breakdown from the DB aggregate (NOT counted from `rows`, which the db-max-rows
-  // cap truncates at 1000). assembleBreakdown picks the columns for the active mode.
-  const breakdown = assembleBreakdown((breakdownResult.data ?? []) as BreakdownRpcRow[], mode);
+  // Eligible-to-RSVP breakdown from the DB aggregate (NOT counted from `rows`, which the db-max-rows
+  // cap truncates at 1000). Confirmation-based (whatsapp/admin), so it is mode-independent.
+  const breakdown = assembleBreakdown((breakdownResult.data ?? []) as BreakdownRpcRow[]);
 
   // Free-text family head counts for this event (separate input from the per-mumin button responses).
   const headcounts = await getFamilyHeadCounts(id);

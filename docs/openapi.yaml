@@ -2160,10 +2160,10 @@ paths:
       summary: Recorded Niyaz RSVP responses for an event
       description: >-
         Admin/leadership (portal). Returns the event's instance meta (title, event_date, hijri_date,
-        meal, serving_type), a mode-aware Yes/No `tally`, a mode-aware `breakdown` grouped into
-        local/mehman/guest (per-group Yes/No with adults/kids + responded/not-responded, from the
-        `niyaz_event_breakdown` DB aggregate; synthetic overflow guests are separated from real
-        members but still count in the headline), the per-mumin niyaz_rsvp rows (name, attending, source, `is_adult`,
+        meal, serving_type), a mode-aware Yes/No `tally`, a mode-independent `breakdown` of the
+        eligible-to-RSVP population grouped into local/mehman/guest (per-group eligible + confirmation-based
+        Yes/No with adults/kids + responded/not-responded + response rate, from the `niyaz_event_breakdown`
+        DB aggregate; guests are sentinel-ITS yes-only and excluded from the member total), the per-mumin niyaz_rsvp rows (name, attending, source, `is_adult`,
         `local_mehman`), unregistered RSVPs, and family head-counts. Both `tally` and `breakdown` are
         sourced from DB aggregates (the same numbers as the days overview), NOT by counting the
         returned rows, so they are correct even when the event has more than 1000 responses — the

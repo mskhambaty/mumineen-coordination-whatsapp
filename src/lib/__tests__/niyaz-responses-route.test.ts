@@ -80,11 +80,12 @@ beforeEach(() => {
     error: null,
   };
   tableData["unregistered_rsvps"] = { data: [], error: null };
-  // Breakdown aggregate (DB-side, not row-capped): local 834/336 + mehman 589/251 + guest 88/96 = 1511/683.
+  // Eligible-to-RSVP breakdown aggregate (DB-side, not row-capped): local 833/335 + mehman 575/72,
+  // guests 88 yes (separate from the member total).
   breakdownRows = [
-    { grp: "local", yes_min: 834, no_min: 336, yes_adults_min: 700, yes_kids_min: 134, no_adults_min: 280, no_kids_min: 56, yes_max: 1188, no_max: 384, yes_adults_max: 1000, yes_kids_max: 188, no_adults_max: 300, no_kids_max: 84, responded: 1170, not_responded: 402 },
-    { grp: "mehman", yes_min: 589, no_min: 251, yes_adults_min: 511, yes_kids_min: 78, no_adults_min: 203, no_kids_min: 48, yes_max: 945, no_max: 521, yes_adults_max: 807, yes_kids_max: 138, no_adults_max: 412, no_kids_max: 109, responded: 840, not_responded: 626 },
-    { grp: "guest", yes_min: 88, no_min: 96, yes_adults_min: 88, yes_kids_min: 0, no_adults_min: 96, no_kids_min: 0, yes_max: 88, no_max: 96, yes_adults_max: 88, yes_kids_max: 0, no_adults_max: 96, no_kids_max: 0, responded: 184, not_responded: 0 },
+    { grp: "local", eligible: 1526, yes: 833, no: 335, yes_adults: 685, yes_kids: 148, no_adults: 244, no_kids: 91, responded: 1168, not_responded: 358 },
+    { grp: "mehman", eligible: 789, yes: 575, no: 72, yes_adults: 500, yes_kids: 75, no_adults: 53, no_kids: 19, responded: 647, not_responded: 142 },
+    { grp: "guest", eligible: 0, yes: 88, no: 0, yes_adults: 88, yes_kids: 0, no_adults: 0, no_kids: 0, responded: 88, not_responded: 0 },
   ];
 });
 
@@ -109,17 +110,17 @@ describe("GET niyaz responses", () => {
     expect(body.instance).toMatchObject({ id: "e1", title: "4th Moharram ul Haram", meal: "lunch" });
   });
 
-  it("returns a member breakdown from the DB aggregate (guests separated), not the capped rows", async () => {
+  it("returns an eligible-population breakdown from the DB aggregate, not the capped rows", async () => {
     getEventTallies.mockResolvedValue([tally("e1")]);
     const res = await GET(req("min"), { params });
     const body = await res.json();
     // Only 2 rows were fetched, but the breakdown reflects the full-event aggregate.
-    expect(body.breakdown.total).toMatchObject({ yes: 1511, no: 683, responded: 2194, notResponded: 1028 });
-    // Members are clean — guest placeholders are their own group, not folded into Local.
-    expect(body.breakdown.local).toMatchObject({ yes: 834, no: 336 });
-    expect(body.breakdown.mehman).toMatchObject({ yes: 589, no: 251 });
-    expect(body.breakdown.guest).toMatchObject({ yes: 88, no: 96 });
-    expect(body.breakdown.local.yes + body.breakdown.mehman.yes + body.breakdown.guest.yes).toBe(body.breakdown.total.yes);
+    expect(body.breakdown.local).toMatchObject({ eligible: 1526, yes: 833, no: 335, responded: 1168, notResponded: 358 });
+    expect(body.breakdown.mehman).toMatchObject({ eligible: 789, yes: 575, no: 72 });
+    expect(body.breakdown.guest).toMatchObject({ yes: 88 });
+    // Member total = local + mehman (guests excluded).
+    expect(body.breakdown.total).toMatchObject({ eligible: 2315, yes: 1408, no: 407 });
+    expect(body.breakdown.total.yes).toBe(body.breakdown.local.yes + body.breakdown.mehman.yes);
   });
 
   it("threads the mode through to getEventTallies (defaulting to min)", async () => {
