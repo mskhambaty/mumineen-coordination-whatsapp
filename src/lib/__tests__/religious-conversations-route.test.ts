@@ -39,7 +39,7 @@ function from(table: string) {
   const methods: string[] = [];
   const b: Record<string, unknown> = {};
   const chain = (name: string) => (..._a: unknown[]) => { methods.push(name); return b; };
-  for (const m of ["select", "in", "not", "gte", "eq", "order", "limit"]) b[m] = chain(m);
+  for (const m of ["select", "in", "not", "is", "gte", "eq", "order", "limit"]) b[m] = chain(m);
   // Thenable: awaiting the builder (or passing it to Promise.all) resolves the table's fixture.
   b.then = (resolve: (v: unknown) => void) => resolve(resolveData(table, methods));
   return b;
