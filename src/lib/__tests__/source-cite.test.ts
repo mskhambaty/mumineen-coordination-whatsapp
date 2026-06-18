@@ -71,10 +71,15 @@ describe("looksLikeHandoff", () => {
       "To help with that properly, I need to pass it to the team for religious follow-up.",
       "I couldn't find this in the published reflections.",
       "I don't have that yet.",
+      // Broadened: a "don't find / don't see" no-answer must also strip its source line
+      // (eval: "I don't find instructions here…" was answered with a stray 1447 source link).
+      "I don't find instructions here for how to receive the daily waaz reflections.",
+      "I couldn't locate that in the reflections.",
     ]) expect(looksLikeHandoff(r), r).toBe(true);
   });
   it("does not flag a normal grounded answer", () => {
     expect(looksLikeHandoff("In Ashara 1447H, Majlis 7 was about the Sun (Shams).")).toBe(false);
+    expect(looksLikeHandoff("Majlis 2 was about Information Technology and the Safina.")).toBe(false);
   });
 });
 

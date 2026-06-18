@@ -1,6 +1,7 @@
 "use client";
 
 import LisanDictionaryUploader from "@/components/admin/LisanDictionaryUploader";
+import LisanDictionaryBrowser from "./LisanDictionaryBrowser";
 import { Empty, SectionCard, WordRequest, fmt } from "./ui";
 
 // Lisan dictionary management: the missing-word queue (words members asked for that aren't in the
@@ -34,6 +35,9 @@ export default function DictionaryTab({
           </ul>
         )}
       </SectionCard>
+
+      {/* Browse / search the indexed words, with copy + inline edit / delete. */}
+      <LisanDictionaryBrowser />
 
       {/* The dictionary editor itself (add a word · upload & replace · export CSV). */}
       <LisanDictionaryUploader />

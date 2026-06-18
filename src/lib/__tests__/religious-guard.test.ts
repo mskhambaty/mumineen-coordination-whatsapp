@@ -11,6 +11,7 @@ import {
   renderReverseLisanReply,
   isClearlySocial,
   hasReligiousSignal,
+  looksLikeOwnRsvpIntent,
   isAffirmative,
   isDidYouMeanFollowUp,
   pickDidYouMeanCandidate,
@@ -18,6 +19,23 @@ import {
   extractHijriYears,
   yearLabelMismatch,
 } from "@/lib/agent/religious-guard";
+
+describe("looksLikeOwnRsvpIntent", () => {
+  it("matches possessive RSVP/attendance questions even when they name a Moharram day", () => {
+    expect(looksLikeOwnRsvpIntent("What is my RSVP for 4th moharram")).toBe(true);
+    expect(looksLikeOwnRsvpIntent("did we sign up for ashura")).toBe(true);
+    expect(looksLikeOwnRsvpIntent("are we attending pehli raat")).toBe(true);
+    expect(looksLikeOwnRsvpIntent("change my rsvp")).toBe(true);
+    expect(looksLikeOwnRsvpIntent("what did i rsvp")).toBe(true);
+  });
+
+  it("does NOT match religious content questions about a majlis", () => {
+    expect(looksLikeOwnRsvpIntent("what was said in the 4th moharram waaz")).toBe(false);
+    expect(looksLikeOwnRsvpIntent("main message of majlis 2")).toBe(false);
+    expect(looksLikeOwnRsvpIntent("five qualities of IT professionals")).toBe(false);
+    expect(looksLikeOwnRsvpIntent("")).toBe(false);
+  });
+});
 
 describe("appendOnCallSuggestion", () => {
   const inbound = (n: number) => Array.from({ length: n }, () => ({ direction: "inbound", body: "q" }));
