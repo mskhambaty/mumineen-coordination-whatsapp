@@ -656,10 +656,12 @@ paths:
         Emergencies and the `religious_followup` category bypass that gate
         (a deen/Waaz question the reflections can't answer is often the first
         message); the agent then replies with a fixed Waaz-scoped acknowledgment.
-        Before creating a new issue, an AI + keyword dedup check runs against
-        open issues. If a match is found the escalation is linked to the existing
-        issue (response includes `deduplicated: true`); otherwise a new issue +
-        workspace task is created.
+        Escalation ≠ issue: the escalation always notifies the on-call team, but a tracked issue +
+        workspace task is created ONLY when `requires_department_coordination` is true (an actionable
+        problem a department must coordinate to fix — not an individual request/question/hand-off).
+        Issue creation is idempotent per conversation: a re-escalation reuses the conversation's
+        existing open issue (`deduplicated: true`) instead of creating a duplicate. No cross-conversation
+        topical auto-linking (that is suggestion-only / a planned Trigger B).
       security: [{ whatsappPhone: [] }]
       requestBody:
         required: true
@@ -677,6 +679,7 @@ paths:
                   type: string
                   enum: [emergency, accommodation, transport, registration, schedule, facilities, complaint, religious_followup, other]
                 department: { type: string, description: "Department name to assign the issue to" }
+                requires_department_coordination: { type: boolean, description: "When true, create a tracked issue + task for department coordination. When false/absent, escalation-only (on-call follow-up, no issue)." }
                 source: { type: string, enum: [ai, rule, manual] }
       responses:
         "200":
@@ -689,8 +692,8 @@ paths:
                   status: { type: string, enum: [escalated, declined] }
                   priority: { type: string }
                   category: { type: string }
-                  issue_id: { type: string, nullable: true }
-                  deduplicated: { type: boolean, description: "True if linked to an existing issue instead of creating a new one." }
+                  issue_id: { type: string, nullable: true, description: "The created/reused issue id, or null when the escalation created no issue (escalation-only)." }
+                  deduplicated: { type: boolean, description: "True if the conversation's existing open issue was reused instead of creating a new one." }
                   message: { type: string }
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
