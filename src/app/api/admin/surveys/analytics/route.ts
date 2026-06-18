@@ -147,10 +147,11 @@ export async function POST(req: NextRequest) {
   const byRahat = toRows(group((a) => (a.mumin_id ? (attr.get(a.mumin_id)?.rahat ? "Rahat / accessibility" : "General") : null)));
   const byJamaat = toRows(group((a) => (a.mumin_id ? attr.get(a.mumin_id)?.jamaat ?? null : null))).slice(0, 20);
 
-  // Per question: sentiment + answer breakdown.
+  // Per question: sentiment + answer breakdown + its section (so the UI can group questions).
   const qText = new Map<string, string>();
   const qScores = new Map<string, number[]>();
   const qBreakdown = new Map<string, Record<string, number>>();
+  const qSection = new Map<string, string | null>();
   for (const a of fAnswers) {
     if (!a.question_id) continue;
     if (a.sentiment_1_5 != null) (qScores.get(a.question_id) ?? qScores.set(a.question_id, []).get(a.question_id)!).push(a.sentiment_1_5);
@@ -159,13 +160,19 @@ export async function POST(req: NextRequest) {
       b[a.answer_text] = (b[a.answer_text] ?? 0) + 1;
       qBreakdown.set(a.question_id, b);
     }
+    if (!qSection.has(a.question_id)) qSection.set(a.question_id, a.section_id ? sectionTitle.get(a.section_id) ?? null : null);
   }
   // Question text from form snapshots.
-  const { data: fqs } = await supabase.from("survey_form_questions").select("question_id, snapshot").in("form_id", scopeFormIds.length ? scopeFormIds : ["00000000-0000-0000-0000-000000000000"]);
-  for (const fq of (fqs ?? []) as { question_id: string | null; snapshot: { text?: string } }[]) if (fq.question_id && fq.snapshot?.text) qText.set(fq.question_id, fq.snapshot.text);
+  const { data: fqs } = await supabase.from("survey_form_questions").select("question_id, section_id, snapshot").in("form_id", scopeFormIds.length ? scopeFormIds : ["00000000-0000-0000-0000-000000000000"]);
+  for (const fq of (fqs ?? []) as { question_id: string | null; section_id: string | null; snapshot: { text?: string; section_title?: string } }[]) {
+    if (!fq.question_id) continue;
+    if (fq.snapshot?.text) qText.set(fq.question_id, fq.snapshot.text);
+    if (!qSection.get(fq.question_id)) qSection.set(fq.question_id, fq.snapshot?.section_title ?? (fq.section_id ? sectionTitle.get(fq.section_id) ?? null : null));
+  }
   const byQuestion = Array.from(new Set([...qScores.keys(), ...qBreakdown.keys()])).map((qid) => ({
     question_id: qid,
     text: qText.get(qid) ?? "Question",
+    section: qSection.get(qid) ?? null,
     sentiment: mean(qScores.get(qid) ?? []),
     responses: (qScores.get(qid) ?? []).length,
     breakdown: qBreakdown.get(qid) ?? {},

@@ -11,7 +11,7 @@ import { apiFetch } from "@/lib/admin/client";
 const AREAS = ["general", "mawaid", "flow", "parking_transport", "audio_video", "accommodation", "seating"];
 
 type Row = { key: string; sentiment: number | null; responses: number; people: number };
-type QRow = { question_id: string; text: string; sentiment: number | null; responses: number; breakdown: Record<string, number> };
+type QRow = { question_id: string; text: string; section: string | null; sentiment: number | null; responses: number; breakdown: Record<string, number> };
 type Comment = { text: string; area: string | null; section: string | null; question: string | null; sentiment: number | null };
 type Data = {
   forms: { id: string; title: string; status: string; tags: string[] }[];
@@ -311,23 +311,40 @@ export function AnalyticsTab() {
             <RowTable title="By jamaat (top)" rows={data.by_attribute.jamaat} />
           </div>
 
-          {/* Per-question (lowest sentiment first) */}
-          {data.by_question.length > 0 && (
-            <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
-              <p className="mb-1 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">By question (lowest sentiment first)</p>
-              <div className="space-y-2">
-                {data.by_question.map((q) => (
-                  <div key={q.question_id} className="border-t border-gray-100 pt-1.5 dark:border-gray-800">
-                    <div className="flex items-start justify-between gap-3">
-                      <span className="text-xs text-gray-700 dark:text-gray-300">{q.text} <span className="text-gray-400">({q.responses} answered)</span></span>
-                      <Badge value={q.sentiment} />
+          {/* Per-question, grouped by section (sections ordered by their lowest-sentiment question) */}
+          {data.by_question.length > 0 && (() => {
+            const groups: { title: string; rows: QRow[] }[] = [];
+            const idx = new Map<string, { title: string; rows: QRow[] }>();
+            for (const q of data.by_question) {
+              const key = q.section ?? "Other";
+              let g = idx.get(key);
+              if (!g) { g = { title: key, rows: [] }; idx.set(key, g); groups.push(g); }
+              g.rows.push(q);
+            }
+            return (
+              <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+                <p className="mb-2 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">By question · grouped by section (lowest sentiment first)</p>
+                <div className="space-y-3">
+                  {groups.map((g) => (
+                    <div key={g.title}>
+                      <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">{g.title}</p>
+                      <div className="space-y-2">
+                        {g.rows.map((q) => (
+                          <div key={q.question_id} className="border-t border-gray-100 pt-1.5 dark:border-gray-800">
+                            <div className="flex items-start justify-between gap-3">
+                              <span className="text-xs text-gray-700 dark:text-gray-300">{q.text} <span className="text-gray-400">({q.responses} answered)</span></span>
+                              <Badge value={q.sentiment} />
+                            </div>
+                            {Object.keys(q.breakdown).length > 0 && <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">{Object.entries(q.breakdown).map(([k, v]) => `${k}: ${v}`).join("  ·  ")}</p>}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    {Object.keys(q.breakdown).length > 0 && <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">{Object.entries(q.breakdown).map(([k, v]) => `${k}: ${v}`).join("  ·  ")}</p>}
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Raw comments */}
           {data.comments.length > 0 && (
