@@ -114,6 +114,12 @@ type Conversation = {
   messages: Message[];
   tool_calls: ToolCall[];
   used_religious_tool?: boolean;
+  // False = "Broadcast-only" (thread has no real message — RSVP/feedback broadcasts only). Drives the
+  // Conversations/Broadcast-only filter so a real conversation isn't hidden after a broadcast reaches it.
+  has_conversational_message?: boolean;
+  // Latest non-broadcast message — used for the list preview/timestamp/sort so a thread reflects its
+  // last real conversation, not a later broadcast that bumped it. Null for broadcast-only threads.
+  conversational_last_message?: { body: string | null; created_at: string } | null;
   quality_score: "good" | "poor" | null;
   quality_reason: string | null;
   quality_analyzed_at: string | null;
@@ -218,6 +224,49 @@ function pinSelected(items: Conversation[], prev: Conversation[], sel: string | 
   return items;
 }
 
+// A background list reload carries only the recent-capped messages per thread. Don't let it clobber
+// the full thread the user has open (loaded via loadConversationThread, e.g. while scrolling history
+// on mobile) — keep the open conversation's already-loaded messages and only APPEND genuinely-new
+// ones from the refresh. Without this, a silent refresh mid-scroll snaps the thread to recent-only.
+function preserveSelectedThread(merged: Conversation[], prev: Conversation[], sel: string | null): Conversation[] {
+  if (!sel) return merged;
+  const prevSel = prev.find((c) => c.phone_e164 === sel);
+  if (!prevSel || !prevSel.messages?.length) return merged;
+  const seen = new Set(prevSel.messages.map((m) => m.id));
+  return merged.map((c) => {
+    if (c.phone_e164 !== sel) return c;
+    const fresh = (c.messages ?? []).filter((m) => !seen.has(m.id));
+    return {
+      ...c,
+      messages: [...prevSel.messages, ...fresh],
+      tool_calls: prevSel.tool_calls?.length ? prevSel.tool_calls : c.tool_calls,
+    };
+  });
+}
+
+// List row should reflect a thread's last REAL conversation, not a later broadcast that bumped it.
+// Falls back to the raw last message (e.g. broadcast-only threads have no conversational message).
+function convListTime(c: Conversation): string {
+  return c.conversational_last_message?.created_at ?? c.last_message_at;
+}
+function convListPreview(c: Conversation): string {
+  return c.conversational_last_message?.body || c.last_message?.body || "No message body";
+}
+
+// A message is "broadcast/automated" (noise) — vs a real conversational message — when it's a
+// template send (RSVP/feedback/digest/notification), an RSVP/feedback button or flow response, or a
+// system broadcast text. Mirrors the server-side classifier behind has_conversational_message.
+function isBroadcastMessage(m: Message): boolean {
+  const rp = (m.raw_payload ?? null) as { template?: unknown; source?: unknown } | null;
+  if (rp && typeof rp === "object") {
+    if (rp.template) return true;
+    if (rp.source === "niyaz_rsvp_ended" || rp.source === "issue_close_broadcast") return true;
+  }
+  if ((m.body ?? "").startsWith("[template:")) return true;
+  if (m.message_type === "interactive" || m.message_type === "button") return true;
+  return false;
+}
+
 export default function ConversationsPage() {
   const router = useRouter();
   // Inbox scope: ?scope=niyaz shows only the niyaz RSVP number's conversations; default 'main'
@@ -276,10 +325,11 @@ export default function ConversationsPage() {
   const [search, setSearch] = useState("");
   const [qualityFilter, setQualityFilter] = useState<"all" | "poor">("all");
   const [religiousOnly, setReligiousOnly] = useState(false);
-  // Conversations-tab number focus: Helpline (default, hide threads whose latest message is a
-  // Survey/broadcast send), Survey (feedback + RSVP broadcasts), or All. Classified by the
-  // conversation's most-recent message's WABA number (the session number is unreliable — often null).
-  const [messageScope, setMessageScope] = useState<"helpline" | "survey" | "all">("helpline");
+  // Conversations-tab content focus: Conversations (default — hide threads that are only broadcast
+  // RSVP/feedback with no real message), Broadcast-only, or All. Based on has_conversational_message.
+  const [messageScope, setMessageScope] = useState<"conversations" | "broadcast" | "all">("conversations");
+  // In the open thread, hide broadcast/RSVP/system messages so the monitor sees only the real exchange.
+  const [hideBroadcastMessages, setHideBroadcastMessages] = useState(true);
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -316,12 +366,10 @@ export default function ConversationsPage() {
 
   // Non-primary WABA numbers = "Survey" (niyaz feedback/RSVP broadcasts).
   const surveyPnids = useMemo(() => new Set(accounts.filter((a) => !a.isPrimary).map((a) => a.phoneNumberId)), [accounts]);
-  // A conversation is "Survey" when its most-recent message went to/from a broadcast number.
-  // (The session's phone_number_id is unreliable here — it's often null even for broadcast threads.)
-  const isSurveyConversation = (c: Conversation): boolean => {
-    const pnid = c.last_message?.phone_number_id ?? null;
-    return pnid != null && surveyPnids.has(pnid);
-  };
+  // "Broadcast-only" = the thread has no real message (RSVP/feedback broadcasts only). Keyed off the
+  // server-computed has_conversational_message (over ALL messages) so a real conversation stays under
+  // "Conversations" even after a broadcast is later sent to it. Undefined flag → treat as conversational.
+  const isBroadcastOnlyConversation = (c: Conversation): boolean => c.has_conversational_message === false;
 
   // Conversations tab KPI stats (non-escalated threads only, respecting the Helpline/Survey focus).
   const conversationStats = useMemo(() => {
@@ -329,7 +377,7 @@ export default function ConversationsPage() {
       (c) =>
         c.escalation_status !== "pending" &&
         c.escalation_status !== "resolved" &&
-        (messageScope === "all" || (messageScope === "survey" ? isSurveyConversation(c) : !isSurveyConversation(c))),
+        (messageScope === "all" || (messageScope === "broadcast" ? isBroadcastOnlyConversation(c) : !isBroadcastOnlyConversation(c))),
     );
     return {
       total: nonEsc.length,
@@ -339,7 +387,7 @@ export default function ConversationsPage() {
       poor: nonEsc.filter((c) => c.quality_score === "poor").length,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversations, messageScope, surveyPnids]);
+  }, [conversations, messageScope]);
 
   // Issues tab KPI stats.
   const issueStats = useMemo(() => ({
@@ -421,13 +469,17 @@ export default function ConversationsPage() {
         return b.last_message_at.localeCompare(a.last_message_at);
       });
     }
-    // Conversations tab: focus on Helpline (hide Survey/broadcast-topped threads) or Survey only.
-    if (tab === "conversations" && messageScope !== "all") {
-      return list.filter((c) => (messageScope === "survey" ? isSurveyConversation(c) : !isSurveyConversation(c)));
+    // Conversations tab: focus on real Conversations (hide broadcast-only threads) or Broadcast-only,
+    // and order by the last REAL message so broadcasts don't reshuffle the list to the top.
+    if (tab === "conversations") {
+      const filtered = messageScope === "all"
+        ? list
+        : list.filter((c) => (messageScope === "broadcast" ? isBroadcastOnlyConversation(c) : !isBroadcastOnlyConversation(c)));
+      return [...filtered].sort((a, b) => convListTime(b).localeCompare(convListTime(a)));
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversations, tab, escalationFilters, currentUserId, messageScope, surveyPnids]);
+  }, [conversations, tab, escalationFilters, currentUserId, messageScope]);
 
   // Keyword search over the loaded chats: matches name, phone, and any message body.
   const searchedConversations = useMemo(() => {
@@ -670,7 +722,7 @@ export default function ConversationsPage() {
         throw new Error(data.error ?? "Failed to load conversations");
       }
       const items = (data.conversations ?? []) as Conversation[];
-      setConversations((prev) => pinSelected(items, prev, selectedPhoneRef.current));
+      setConversations((prev) => preserveSelectedThread(pinSelected(items, prev, selectedPhoneRef.current), prev, selectedPhoneRef.current));
       setResolvedHasMore(Boolean(data.resolved_has_more));
       if (Array.isArray(data.accounts)) setAccounts(data.accounts as InboxAccount[]);
       // Use the ref, not the closed-over value, so a late-resolving load can't overwrite a
@@ -691,7 +743,7 @@ export default function ConversationsPage() {
       if (!res.ok) return;
       const data = await res.json().catch(() => ({}));
       const items = (data.conversations ?? []) as Conversation[];
-      setConversations((prev) => pinSelected(items, prev, selectedPhoneRef.current));
+      setConversations((prev) => preserveSelectedThread(pinSelected(items, prev, selectedPhoneRef.current), prev, selectedPhoneRef.current));
       setResolvedHasMore(Boolean(data.resolved_has_more));
       if (Array.isArray(data.accounts)) setAccounts(data.accounts as InboxAccount[]);
     } catch {
@@ -1107,21 +1159,6 @@ export default function ConversationsPage() {
               </label>
               {tab === "conversations" && (
                 <>
-                  {surveyPnids.size > 0 && (
-                    <div className="mt-2 flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-                      <span>Number</span>
-                      <select
-                        value={messageScope}
-                        onChange={(e) => setMessageScope(e.target.value as typeof messageScope)}
-                        className={`rounded-md border px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 ${messageScope !== "helpline" ? "ring-1 ring-blue-400 dark:ring-blue-600" : ""}`}
-                        title="Focus the list by the conversation's most-recent message: Helpline hides Survey (feedback/RSVP) broadcasts"
-                      >
-                        <option value="helpline">Helpline</option>
-                        <option value="survey">Survey (feedback + RSVP)</option>
-                        <option value="all">All</option>
-                      </select>
-                    </div>
-                  )}
                   <label className="mt-1.5 flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
                     <input
                       type="checkbox"
@@ -1166,6 +1203,21 @@ export default function ConversationsPage() {
                       >
                         {exporting ? "Exporting…" : "Export HTML"}
                       </button>
+                    </div>
+                  )}
+                  {surveyPnids.size > 0 && (
+                    <div className="mt-2 flex items-center gap-2 border-t pt-2 text-xs text-gray-600 dark:border-gray-800 dark:text-gray-400">
+                      <span className="font-medium">Show</span>
+                      <select
+                        value={messageScope}
+                        onChange={(e) => setMessageScope(e.target.value as typeof messageScope)}
+                        className={`flex-1 rounded-md border px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 ${messageScope !== "conversations" ? "ring-1 ring-blue-400 dark:ring-blue-600" : ""}`}
+                        title="Conversations hides threads that are only broadcast (RSVP/feedback) with no real message"
+                      >
+                        <option value="conversations">Conversations</option>
+                        <option value="broadcast">Broadcast-only</option>
+                        <option value="all">All</option>
+                      </select>
                     </div>
                   )}
                 </>
@@ -1362,13 +1414,13 @@ export default function ConversationsPage() {
                     {conversation.escalation_status === "pending" && conversation.escalation_category && (
                       <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">#{conversation.escalation_category}</p>
                     )}
-                    <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">{conversation.last_message?.body || "No message body"}</p>
+                    <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">{tab === "conversations" ? convListPreview(conversation) : (conversation.last_message?.body || "No message body")}</p>
                     <div className="mt-2 flex items-center justify-between text-xs text-gray-400 dark:text-gray-500">
                       <div className="flex items-center gap-2">
                         {tab === "escalations" && conversation.escalation_sla_deadline ? (
                           <SLACountdown deadline={conversation.escalation_sla_deadline} />
                         ) : (
-                          <span>{formatDate(conversation.last_message_at)}</span>
+                          <span>{formatDate(tab === "conversations" ? convListTime(conversation) : conversation.last_message_at)}</span>
                         )}
                         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600 dark:bg-gray-700 dark:text-gray-300">{conversation.messages.length} msg{conversation.messages.length !== 1 ? "s" : ""}</span>
                       </div>
@@ -1579,7 +1631,28 @@ export default function ConversationsPage() {
                   </span>
                 </div>
               )}
+              {(() => {
+                const broadcastCount = selected?.messages.filter(isBroadcastMessage).length ?? 0;
+                if (broadcastCount === 0) return null;
+                return (
+                  <div className="flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => setHideBroadcastMessages((v) => !v)}
+                      className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                      title="Broadcast = RSVP/feedback templates and their button/flow responses"
+                    >
+                      {hideBroadcastMessages
+                        ? `Show ${broadcastCount} broadcast / RSVP message${broadcastCount === 1 ? "" : "s"}`
+                        : "Hide broadcast / RSVP messages"}
+                    </button>
+                  </div>
+                );
+              })()}
               {selected?.messages.map((message, index) => {
+                // Hide broadcast/RSVP/system messages from the thread when focused (return null to
+                // keep the original index, which the unread-highlight logic below relies on).
+                if (hideBroadcastMessages && isBroadcastMessage(message)) return null;
                 const isNewInbound =
                   unreadInboundCount > 0 &&
                   message.direction === "inbound" &&

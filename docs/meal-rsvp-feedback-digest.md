@@ -158,12 +158,28 @@ the attendance it represents is already counted in `niyaz_rsvp`, so adding it wo
   composer, preselected), and expands to its jaman (lunch/dinner) showing the **Yes count** and
   **Thaals** (⌈yes ÷ 8⌉) plus an **Edit** button. Edit/New open a modal (`src/components/admin/niyaz/EventFormModal.tsx`, reusing
   `POST`/`PATCH /api/admin/niyaz/instances`). Clicking a jaman opens the **event detail page**
-  (`/admin/niyaz/events/[id]?mode=`) showing **Yes count, No count, Thaals (⌈yes ÷ 8⌉), and the response list** via
+  (`/admin/niyaz/events/[id]?mode=`) showing **Yes count, No count (each with an adults/kids breakdown), Thaals (⌈yes ÷ 8⌉), and the response list** via
   `GET /api/admin/niyaz/instances/[id]/responses?mode=`. The Yes/No headline comes from the mode-aware
   DB aggregate (`getEventTallies`) returned as `tally`, **not** by counting the fetched rows — so it
-  matches the overview and is correct past the 1000-row PostgREST cap (the response list itself is
-  fetched with an explicit high `.range()` so it isn't silently truncated). The detail page inherits
-  the overview's Max/Min via the `?mode=` link. (`GET/PUT /api/admin/niyaz/instances/[id]/config`
+  matches the overview and is correct past the 1000-row PostgREST `db-max-rows` cap. **That cap is
+  real and not overridable by `.range()`**, so the returned `responses` list (and its chip filters)
+  reflect at most 1000 rows — the page shows a notice when truncated. A **Breakdown** table reports the
+  **eligible-to-RSVP population** (columns: Eligible · Yes · No · Responded · Not responded · Response
+  rate); it comes from the `niyaz_event_breakdown(id)` DB aggregate (RPC, current def in
+  `20260617250000_*`) — **not** counted from the capped row list. Rows are **Local / Mehmaan / Total**
+  (eligible members) plus a separate **Guests** row. *Eligible* = the same rule as the all_adults/all_hof
+  audience: roster-active + attending members, all Locals + Mehmaan whose family registration is
+  `submitted`. *Yes/No* are confirmation-based (`source IN ('whatsapp','admin')`); *Responded* = Yes+No;
+  *Not responded* is the **complement** within the eligible set (so it includes `default`/`roster`/
+  `registration` and members with no row — a literal `source='default'` would miss the large `roster`
+  bucket); *Response rate* = Responded ÷ Eligible. **Guests** are sentinel-ITS placeholders
+  (`its like '00000%'`, `full_name='Guest'`) that RSVP'd yes — shown yes-only, kept out of the member
+  Total (they still count in the headline & Thaals). The Breakdown is **mode-independent** and
+  **intentionally differs from the headline** (different population, confirmation-only).
+  `assembleBreakdown` (`src/lib/rsvp/niyaz-breakdown.ts`) rolls Local+Mehmaan into Total;
+  `unregistered_rsvps` are a separate table and excluded. The response list
+  also has **Type / Age / RSVP / Response** chip filters. The detail page inherits the overview's
+  Max/Min via the `?mode=` link. (`GET/PUT /api/admin/niyaz/instances/[id]/config`
   still exists as an instance-keyed alias.)
 
 The composer sends `ashara_relay_double_rsvp` (a **Flow** button "Attending" + a "Not attending"
