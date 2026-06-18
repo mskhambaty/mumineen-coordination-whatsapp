@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
   const [{ data: msgs }, { data: users }, { data: sessions }] = await Promise.all([
     supabase
       .from("messages")
-      .select("phone_e164, direction, body, created_at")
+      .select("phone_e164, direction, body, created_at, message_type, src:raw_payload->>source, tpl:raw_payload->>template")
       .in("phone_e164", phones)
       // DESCENDING (newest first) is critical: PostgREST caps the response at its db-max-rows
       // setting (~1000), which OVERRIDES .limit(8000). Ascending order would return the OLDEST
@@ -114,9 +114,24 @@ export async function GET(req: NextRequest) {
     sessionByPhone.set(s.phone_e164, { handling_mode: s.handling_mode, handling_mode_at: s.handling_mode_at });
   }
 
-  type Msg = { phone_e164: string; direction: string; body: string | null; created_at: string };
+  type Msg = { phone_e164: string; direction: string; body: string | null; created_at: string; message_type: string | null; src: string | null; tpl: string | null };
+  // Broadcast/automated message (RSVP/feedback templates, button/flow responses, system broadcast
+  // texts) — same classifier as the main inbox. The religious Inbox shows only the real exchange, so
+  // a member who got RSVP blasts doesn't see them interleaved with their religious/Lisan chat.
+  const isBroadcastMsg = (m: Msg): boolean =>
+    m.tpl != null ||
+    m.message_type === "interactive" ||
+    m.message_type === "button" ||
+    m.src === "niyaz_rsvp_ended" ||
+    m.src === "issue_close_broadcast" ||
+    (m.body ?? "").startsWith("[template:");
   const byPhone = new Map<string, Msg[]>();
+  // Latest inbound of ANY kind (incl. RSVP button/flow clicks) — drives the WhatsApp 24h reply
+  // window, which opens on any inbound. Captured from the raw rows before broadcast filtering.
+  const lastInboundAt = new Map<string, string>(); // msgs are newest-first → first seen per phone = latest
   for (const m of (msgs ?? []) as Msg[]) {
+    if (m.direction === "inbound" && !lastInboundAt.has(m.phone_e164)) lastInboundAt.set(m.phone_e164, m.created_at);
+    if (isBroadcastMsg(m)) continue; // keep the displayed thread strictly to the real conversation
     const list = byPhone.get(m.phone_e164) ?? [];
     list.push(m);
     byPhone.set(m.phone_e164, list);
@@ -128,8 +143,8 @@ export async function GET(req: NextRequest) {
   const now = Date.now();
   const conversations = phones.map((phone) => {
     const list = byPhone.get(phone) ?? [];
-    const lastInbound = [...list].reverse().find((m) => m.direction === "inbound");
-    const inWindow = lastInbound ? now - new Date(lastInbound.created_at).getTime() < WINDOW_MS : false;
+    const inboundAt = lastInboundAt.get(phone);
+    const inWindow = inboundAt ? now - new Date(inboundAt).getTime() < WINDOW_MS : false;
     const lastAt = list.length ? list[list.length - 1].created_at : null;
     const session = sessionByPhone.get(phone);
     // Sort key = the latest GENUINE religious activity: the religious tool-call, a manual handoff, or
@@ -137,7 +152,7 @@ export async function GET(req: NextRequest) {
     const sortKey = [
       lastReligiousCallAt.get(phone),
       manualHandoffAt.get(phone),
-      lastInbound?.created_at,
+      inboundAt,
     ]
       .filter((v): v is string => Boolean(v))
       .sort()

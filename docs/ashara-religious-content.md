@@ -119,7 +119,12 @@ surface — only chats that used a religious/Lisan tool (server-scoped endpoint,
 shows chats **active in the last N hours by religious tool-CALL recency** (a `windowHours` dropdown:
 24 / **48 (default)** / 168) — *not* by message activity, so a chat whose religious tool-call aged
 past the window no longer clutters the Inbox even if it got a logistics/template message today; a
-Manual-mode chat with a recent handoff (within the window) is kept. The general Conversations inbox
+Manual-mode chat with a recent handoff (within the window) is kept. **Each thread is filtered to the
+real exchange** — broadcast/automated messages (RSVP/feedback templates, button/flow responses, and
+system broadcast texts like the "Shukran for your reply. RSVP for…" note) are stripped server-side
+(same classifier as the main inbox), so a member who also got RSVP blasts doesn't see them interleaved
+with the religious/Lisan chat. (The 24h reply window is still computed from the latest inbound of *any*
+kind, since WhatsApp's window opens on any inbound.) The general Conversations inbox
 keeps its all-time "Religious / Lisan" filter as the archive for older religious chats. It
 **stays live by polling `/api/admin/religious/conversations` every 5s + on tab focus** (the endpoint is
 `force-dynamic`; religious monitors can't use the inbox's `canAccessInbox`-gated SSE stream). Mobile is
