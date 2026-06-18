@@ -252,6 +252,40 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Surface recently-active REAL conversations regardless of which number they're on or the
+  // recent-by-last_message_at window. The recent query is scoped to `main` (excludes the broadcast
+  // number) and ordered by last_message_at, which broadcasts bump — so a genuine conversation the
+  // agent had ON the broadcast number (e.g. RSVP questions → "meaning of tawakul") never loads.
+  // Pull the phones with the most-recent conversational messages (not templates, not RSVP/feedback
+  // responses) and load their sessions; the content filter / KPIs then classify them.
+  if (!selectedPhone && scope === "main") {
+    const { data: convoMsgRows } = await supabase
+      .from("messages")
+      .select("phone_e164")
+      .is("raw_payload->>template", null)
+      .not("message_type", "in", "(interactive,button)")
+      .order("created_at", { ascending: false })
+      .limit(1000);
+    const convoPhones = [...new Set(((convoMsgRows ?? []) as { phone_e164: string }[]).map((r) => r.phone_e164))];
+    const havePhones = new Set(((sessions ?? []) as SessionRow[]).map((s) => s.phone_e164));
+    const missing = convoPhones.filter((p) => !havePhones.has(p));
+    if (missing.length) {
+      const { data: convoSessions } = await supabase
+        .from("conversation_sessions")
+        .select(sessionColumns)
+        .in("phone_e164", missing)
+        .order("last_message_at", { ascending: false })
+        .limit(500);
+      const have = new Set(((sessions ?? []) as SessionRow[]).map((s) => s.id));
+      for (const s of (convoSessions ?? []) as SessionRow[]) {
+        if (!have.has(s.id)) {
+          sessions.push(s);
+          have.add(s.id);
+        }
+      }
+    }
+  }
+
   const phoneNumbers = ((sessions ?? []) as SessionRow[]).map((session) => session.phone_e164);
   if (phoneNumbers.length === 0) {
     return NextResponse.json({ conversations: [], resolved_has_more: resolvedHasMore, accounts: resolveAccountsForResponse() });
