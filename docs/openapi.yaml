@@ -2173,8 +2173,9 @@ paths:
         DB aggregate; guests are sentinel-ITS yes-only and excluded from the member total), the per-mumin niyaz_rsvp rows (name, attending, source, `is_adult`,
         `local_mehman`), unregistered RSVPs, and family head-counts. Both `tally` and `breakdown` are
         sourced from DB aggregates (the same numbers as the days overview), NOT by counting the
-        returned rows, so they are correct even when the event has more than 1000 responses — the
-        returned `responses` list itself is capped at 1000 by PostgREST's db-max-rows.
+        returned rows, so they are correct even when the event has more than 1000 responses. The
+        `responses` and `unregistered` lists are paged server-side (fetchAllRows) to return the full
+        event past PostgREST's 1000-row db-max-rows cap, sorted most-recent first.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: mode, in: query, schema: { type: string, enum: [min, max], default: min }, description: "min = whatsapp/admin-confirmed only; max = includes arrival-date defaults. Drives the tally and breakdown." }
