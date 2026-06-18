@@ -49,6 +49,18 @@ type Instance = {
   serving_type: string | null;
 };
 
+// One row per roster-active family for the "By Family" view (from GET …/instances/[id]/families).
+type FamilyRow = {
+  family_id: string;
+  hof_its: string;
+  hof_name: string;
+  responded: boolean;
+  attending: number;
+  guests: number;
+  responded_at: string | null;
+  responded_by: string | null;
+};
+
 // How each niyaz_rsvp row got its value — lets staff tell a real confirmation from a seeded default.
 const SOURCE_META: Record<string, { label: string; cls: string }> = {
   default: { label: "Seeded (arrival)", cls: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300" },
@@ -64,10 +76,6 @@ function sourceMeta(source: string) {
 const inputCls =
   "block w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-950";
 
-// PostgREST caps the per-mumin response list at db-max-rows (1000); the list/filters reflect at most
-// this many rows. The headline tally and the Breakdown panel are DB aggregates and cover every row.
-const RESPONSE_LIST_CAP = 1000;
-
 function dayLabel(date: string | null): string {
   if (!date) return "—";
   const d = new Date(`${date}T12:00:00`);
@@ -76,6 +84,40 @@ function dayLabel(date: string | null): string {
 }
 
 const pct = (rate: number) => `${Math.round(rate * 100)}%`;
+
+// Both response grids hold the full event client-side (thousands of rows). Rendering all of them at
+// once freezes the page on each keystroke, so cap the rendered rows and reveal more on demand.
+const ROWS_PER_PAGE = 100;
+
+// A family's RSVP answer for the By Family grid. "responded" only means a whatsapp/admin reply exists,
+// so split it into the actual answer: attending (Yes), responded-but-zero (No), or never replied.
+type FamilyStatus = "yes" | "no" | "noresponse";
+function familyStatus(f: { responded: boolean; attending: number; guests: number }): FamilyStatus {
+  if (!f.responded) return "noresponse";
+  return f.attending + f.guests > 0 ? "yes" : "no";
+}
+
+// Row-count footer for a windowed table: shows how many of the filtered rows are rendered and reveals
+// more on demand (keeps the DOM small so search stays responsive on multi-thousand-row events).
+function ShowMore({ shown, total, onMore }: { shown: number; total: number; onMore: () => void }) {
+  const visible = Math.min(shown, total);
+  return (
+    <div className="sticky bottom-0 flex items-center justify-between gap-2 border-t border-gray-100 bg-white px-2 py-1.5 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
+      <span>
+        Showing {visible} of {total}
+      </span>
+      {shown < total && (
+        <button
+          type="button"
+          onClick={onMore}
+          className="rounded-md border border-gray-300 px-2 py-1 font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+        >
+          Show more ({total - visible} more)
+        </button>
+      )}
+    </div>
+  );
+}
 
 // Small segmented control used for the responses-table filters.
 function FilterChips<T extends string>({
@@ -91,7 +133,7 @@ function FilterChips<T extends string>({
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-xs uppercase tracking-wide text-gray-400">{label}</span>
+      {label && <span className="text-xs uppercase tracking-wide text-gray-400">{label}</span>}
       <div className="inline-flex rounded-md border border-gray-300 dark:border-gray-700">
         {options.map((opt, i) => (
           <button
@@ -124,11 +166,19 @@ function NiyazEventPageInner() {
   const [unregResponses, setUnregResponses] = useState<UnregRow[]>([]);
   const [tally, setTally] = useState<Tally | null>(null);
   const [breakdown, setBreakdown] = useState<NiyazBreakdown | null>(null);
+  // Responses section view: family-level grid vs the per-mumin list.
+  const [respView, setRespView] = useState<"family" | "individual">("family");
+  const [families, setFamilies] = useState<FamilyRow[] | null>(null);
+  const [familySearch, setFamilySearch] = useState("");
+  const [familyRespFilter, setFamilyRespFilter] = useState<"all" | "yes" | "no" | "noresponse">("all");
   const [respSearch, setRespSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "local" | "mehman">("all");
   const [ageFilter, setAgeFilter] = useState<"all" | "adults" | "kids">("all");
   const [rsvpFilter, setRsvpFilter] = useState<"all" | "yes" | "no">("all");
   const [responseFilter, setResponseFilter] = useState<"all" | "responded" | "not">("all");
+  // How many rows each grid currently renders (capped for performance; "Show more" raises it).
+  const [indivShown, setIndivShown] = useState(ROWS_PER_PAGE);
+  const [familyShown, setFamilyShown] = useState(ROWS_PER_PAGE);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -148,6 +198,13 @@ function NiyazEventPageInner() {
     setLoaded(true);
   }, []);
 
+  // The By Family grid (~1k rows, paged server-side) is loaded lazily the first time that tab is shown.
+  const loadFamilies = useCallback(async (instanceId: string) => {
+    const res = await apiFetch(`/api/admin/niyaz/instances/${instanceId}/families`);
+    const data = await res.json().catch(() => ({}));
+    setFamilies(res.ok ? ((data.families as FamilyRow[]) ?? []) : []);
+  }, []);
+
   useEffect(() => {
     const user = readAdminUser();
     if (!user) {
@@ -160,6 +217,18 @@ function NiyazEventPageInner() {
     }
     if (id) void load(id, mode);
   }, [router, id, mode, load]);
+
+  useEffect(() => {
+    if (id && respView === "family" && families === null) void loadFamilies(id);
+  }, [id, respView, families, loadFamilies]);
+
+  // A changed search/filter should show results from the top again, not deep in a previous window.
+  useEffect(() => {
+    setIndivShown(ROWS_PER_PAGE);
+  }, [respSearch, typeFilter, ageFilter, rsvpFilter, responseFilter]);
+  useEffect(() => {
+    setFamilyShown(ROWS_PER_PAGE);
+  }, [familySearch, familyRespFilter]);
 
   const q = respSearch.trim().toLowerCase();
   const chipFiltersActive = typeFilter !== "all" || ageFilter !== "all" || rsvpFilter !== "all" || responseFilter !== "all";
@@ -185,6 +254,15 @@ function NiyazEventPageInner() {
     : q
       ? unregResponses.filter((u) => u.phone_e164.toLowerCase().includes(q) || (u.its_number ?? "").toLowerCase().includes(q))
       : unregResponses;
+
+  // By Family grid filtering (HOF name / ITS search + responded chip).
+  const fq = familySearch.trim().toLowerCase();
+  const familyFilterActive = fq.length > 0 || familyRespFilter !== "all";
+  const filteredFamilies = (families ?? []).filter((f) => {
+    if (familyRespFilter !== "all" && familyStatus(f) !== familyRespFilter) return false;
+    if (fq) return f.hof_name.toLowerCase().includes(fq) || f.hof_its.toLowerCase().includes(fq);
+    return true;
+  });
 
   // Yes/No headline from the mode-aware DB aggregate (matches the days overview exactly).
   const yesCount = tally?.yes ?? 0;
@@ -316,14 +394,104 @@ function NiyazEventPageInner() {
           </div>
 
           <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-            <h2 className="mb-3 text-lg font-semibold">RSVP responses</h2>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold">RSVP responses</h2>
+              <FilterChips
+                label=""
+                value={respView}
+                onChange={setRespView}
+                options={[
+                  { value: "family", label: "By Family" },
+                  { value: "individual", label: "By Individual" },
+                ]}
+              />
+            </div>
 
-            {responses.length >= RESPONSE_LIST_CAP && (
-              <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-                This list and its filters show the most recent {RESPONSE_LIST_CAP.toLocaleString()} responses only. The headline counts and the Breakdown above cover the whole event.
-              </p>
+            {respView === "family" && (
+              <>
+                <div className="mb-3 flex items-center gap-2">
+                  <input
+                    type="search"
+                    value={familySearch}
+                    onChange={(e) => setFamilySearch(e.target.value)}
+                    placeholder="Search by HOF name or ITS…"
+                    className={`${inputCls} max-w-xs`}
+                  />
+                  <FilterChips
+                    label="RSVP"
+                    value={familyRespFilter}
+                    onChange={setFamilyRespFilter}
+                    options={[
+                      { value: "all", label: "All" },
+                      { value: "yes", label: "Yes" },
+                      { value: "no", label: "No" },
+                      { value: "noresponse", label: "No response" },
+                    ]}
+                  />
+                  {familyFilterActive && families && (
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {filteredFamilies.length} of {families.length}
+                    </span>
+                  )}
+                </div>
+                {families === null ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
+                ) : filteredFamilies.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {familyFilterActive ? "No families match the current filters." : "No families."}
+                  </p>
+                ) : (
+                  <div className="max-h-[32rem] overflow-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="sticky top-0 bg-white text-xs uppercase text-gray-400 dark:bg-gray-900">
+                        <tr>
+                          <th className="px-2 py-1.5">Head of family</th>
+                          <th className="px-2 py-1.5" title="Yes = attending · No = replied not attending · No response = no reply yet">RSVP</th>
+                          <th className="px-2 py-1.5 text-right">Attending</th>
+                          <th className="px-2 py-1.5 text-right">Guests</th>
+                          <th className="px-2 py-1.5" title="Phone (WhatsApp) or admin who responded">By</th>
+                          <th className="px-2 py-1.5">When</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredFamilies.slice(0, familyShown).map((f) => {
+                          const status = familyStatus(f);
+                          const rsvp =
+                            status === "yes"
+                              ? { label: "Yes", cls: "text-green-600 dark:text-green-400" }
+                              : status === "no"
+                                ? { label: "No", cls: "text-red-500" }
+                                : { label: "No response", cls: "text-gray-400" };
+                          return (
+                            <tr key={f.family_id} className="border-t border-gray-100 dark:border-gray-800">
+                              <td className="px-2 py-1.5">
+                                {f.hof_name}
+                                {f.hof_name !== f.hof_its && (
+                                  <span className="ml-1 font-mono text-xs text-gray-400">{f.hof_its}</span>
+                                )}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <span className={rsvp.cls}>{rsvp.label}</span>
+                              </td>
+                              <td className="px-2 py-1.5 text-right tabular-nums">{f.responded ? f.attending : "—"}</td>
+                              <td className="px-2 py-1.5 text-right tabular-nums">{f.guests > 0 ? f.guests : f.responded ? 0 : "—"}</td>
+                              <td className="px-2 py-1.5 font-mono text-xs text-gray-500">{f.responded_by ?? "—"}</td>
+                              <td className="px-2 py-1.5 text-xs text-gray-500">
+                                {f.responded_at ? new Date(f.responded_at).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "—"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    <ShowMore shown={familyShown} total={filteredFamilies.length} onMore={() => setFamilyShown((n) => n + ROWS_PER_PAGE)} />
+                  </div>
+                )}
+              </>
             )}
 
+            {respView === "individual" && (
+            <>
             {(responses.length > 0 || unregResponses.length > 0) && (
               <div className="mb-3 space-y-2">
                 <div className="flex items-center gap-2">
@@ -408,7 +576,7 @@ function NiyazEventPageInner() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredResponses.map((r) => {
+                        {filteredResponses.slice(0, indivShown).map((r) => {
                           const meta = sourceMeta(r.source);
                           return (
                             <tr key={r.id} className="border-t border-gray-100 dark:border-gray-800">
@@ -429,6 +597,7 @@ function NiyazEventPageInner() {
                         })}
                       </tbody>
                     </table>
+                    <ShowMore shown={indivShown} total={filteredResponses.length} onMore={() => setIndivShown((n) => n + ROWS_PER_PAGE)} />
                   </div>
                 )}
 
@@ -466,6 +635,8 @@ function NiyazEventPageInner() {
                   </div>
                 )}
               </>
+            )}
+            </>
             )}
           </div>
         </>

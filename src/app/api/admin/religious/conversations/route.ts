@@ -10,42 +10,83 @@ export const runtime = "nodejs";
 // served stale — the cause of the old Chats tab going out of date).
 export const dynamic = "force-dynamic";
 
-const WINDOW_MS = 24 * 60 * 60 * 1000;
+const WINDOW_MS = 24 * 60 * 60 * 1000; // WhatsApp 24h reply window (drives the reply box)
 const MAX_CONVERSATIONS = 200;
 
-// GET: conversations that used a religious tool, newest activity first, with each thread's messages
-// and whether the member is inside WhatsApp's 24h reply window (drives the reply box). Optional
-// ?from / ?to (YYYY-MM-DD).
+// Lookback options for "show religious chats active in the last N hours". Default 48h.
+const ALLOWED_WINDOW_HOURS = [24, 48, 168] as const;
+const DEFAULT_WINDOW_HOURS = 48;
+
+function parseWindowHours(raw: string | null): number {
+  const n = Number(raw);
+  return (ALLOWED_WINDOW_HOURS as readonly number[]).includes(n) ? n : DEFAULT_WINDOW_HOURS;
+}
+
+// GET: conversations whose RELIGIOUS TOOL was called within the lookback window (default 48h),
+// newest religious-activity first, each with its thread + 24h-window state. Membership is scoped by
+// tool-CALL recency (not message activity) so a chat that used a religious tool days ago but only got
+// a logistics/template message today no longer clutters the Inbox. A chat in Manual mode with a
+// recent handoff is kept (bounded by the same window) so an active monitor handoff doesn't vanish.
+// The general Conversations inbox keeps its all-time "Religious / Lisan" filter as the archive.
+// ?windowHours=24|48|168 (default 48).
 export async function GET(req: NextRequest) {
   const auth = await requirePortalCaller(req, canMonitorReligiousChats);
   if (auth instanceof NextResponse) return auth;
 
-  const params = req.nextUrl.searchParams;
-  const from = params.get("from");
-  const to = params.get("to");
-  const fromIso = from ? `${from}T00:00:00.000Z` : new Date(Date.now() - 30 * 86400_000).toISOString();
-  const toIso = to ? `${to}T23:59:59.999Z` : null;
+  const windowHours = parseWindowHours(req.nextUrl.searchParams.get("windowHours"));
+  const cutoffMs = Date.now() - windowHours * 60 * 60 * 1000;
+  const cutoffIso = new Date(cutoffMs).toISOString();
 
   const supabase = getSupabaseAdmin();
 
-  // Phones that used a religious tool — ALL-TIME membership, matching the Inbox's "Religious / Lisan"
-  // filter. We scope to the selected range later by conversation ACTIVITY (last_at), NOT by tool-call
-  // time, so a recently-active member whose religious tool call is older than the window isn't dropped.
+  // Phones with a religious tool-call INSIDE the window, newest first. The first time we see a phone
+  // (descending order) is its latest religious call → lastReligiousCallAt.
   const { data: audit, error: auditError } = await supabase
     .from("tool_audit_logs")
     .select("phone_e164, created_at")
     .in("tool_name", [...RELIGIOUS_TOOL_NAMES])
     .not("phone_e164", "is", null)
+    .gte("created_at", cutoffIso)
     .order("created_at", { ascending: false })
     .limit(5000);
   if (auditError) return NextResponse.json({ error: auditError.message }, { status: 500 });
 
-  // Distinct phones in recency order, capped.
-  const phones: string[] = [];
-  for (const row of (audit ?? []) as { phone_e164: string }[]) {
-    if (!phones.includes(row.phone_e164)) phones.push(row.phone_e164);
-    if (phones.length >= MAX_CONVERSATIONS) break;
+  const lastReligiousCallAt = new Map<string, string>();
+  for (const row of (audit ?? []) as { phone_e164: string; created_at: string }[]) {
+    if (!lastReligiousCallAt.has(row.phone_e164)) lastReligiousCallAt.set(row.phone_e164, row.created_at);
+    if (lastReligiousCallAt.size >= MAX_CONVERSATIONS) break;
   }
+
+  // Manual-mode exception (bounded by the window): a chat a monitor switched to Manual recently
+  // should stay visible even if its last religious tool-call has aged past the window — but only if
+  // it is genuinely a religious chat (ever used a religious tool), so logistics manual chats from the
+  // general inbox don't leak in here.
+  const { data: manualSessions } = await supabase
+    .from("conversation_sessions")
+    .select("phone_e164, handling_mode, handling_mode_at")
+    .eq("handling_mode", "manual")
+    .gte("handling_mode_at", cutoffIso)
+    .limit(MAX_CONVERSATIONS);
+  const manualHandoffAt = new Map<string, string>();
+  const manualCandidates = ((manualSessions ?? []) as { phone_e164: string; handling_mode_at: string | null }[])
+    .filter((s) => s.phone_e164 && !lastReligiousCallAt.has(s.phone_e164));
+  if (manualCandidates.length) {
+    const { data: everReligious } = await supabase
+      .from("tool_audit_logs")
+      .select("phone_e164")
+      .in("tool_name", [...RELIGIOUS_TOOL_NAMES])
+      .in("phone_e164", manualCandidates.map((s) => s.phone_e164))
+      .limit(5000);
+    const religiousSet = new Set(((everReligious ?? []) as { phone_e164: string }[]).map((r) => r.phone_e164));
+    for (const s of manualCandidates) {
+      if (religiousSet.has(s.phone_e164) && s.handling_mode_at) manualHandoffAt.set(s.phone_e164, s.handling_mode_at);
+    }
+  }
+
+  const phones = Array.from(new Set([...lastReligiousCallAt.keys(), ...manualHandoffAt.keys()])).slice(
+    0,
+    MAX_CONVERSATIONS,
+  );
   if (phones.length === 0) return NextResponse.json({ conversations: [] });
 
   const [{ data: msgs }, { data: users }, { data: sessions }] = await Promise.all([
@@ -91,6 +132,16 @@ export async function GET(req: NextRequest) {
     const inWindow = lastInbound ? now - new Date(lastInbound.created_at).getTime() < WINDOW_MS : false;
     const lastAt = list.length ? list[list.length - 1].created_at : null;
     const session = sessionByPhone.get(phone);
+    // Sort key = the latest GENUINE religious activity: the religious tool-call, a manual handoff, or
+    // the member's last inbound. Outbound templates/broadcasts are excluded so they can't bump a chat.
+    const sortKey = [
+      lastReligiousCallAt.get(phone),
+      manualHandoffAt.get(phone),
+      lastInbound?.created_at,
+    ]
+      .filter((v): v is string => Boolean(v))
+      .sort()
+      .pop() ?? "";
     return {
       phone,
       phone_last4: phone.slice(-4),
@@ -99,22 +150,13 @@ export async function GET(req: NextRequest) {
       in_window: inWindow,
       handling_mode: session?.handling_mode === "manual" ? "manual" : "ai",
       handling_mode_at: session?.handling_mode_at ?? null,
+      sort_key: sortKey,
       messages: list.map((m) => ({ direction: m.direction, body: m.body ?? "", created_at: m.created_at })),
     };
   });
 
-  // Newest activity first.
-  conversations.sort((a, b) => (b.last_at ?? "").localeCompare(a.last_at ?? ""));
+  // Newest religious activity first.
+  conversations.sort((a, b) => b.sort_key.localeCompare(a.sort_key));
 
-  // Scope to the selected window by recent ACTIVITY (keeps the "Last N days" dropdown meaningful
-  // while membership stays all-time). Robust to timestamp-format differences via Date.parse.
-  const fromMs = Date.parse(fromIso);
-  const toMs = toIso ? Date.parse(toIso) : Infinity;
-  const inRange = conversations.filter((c) => {
-    if (!c.last_at) return false;
-    const t = Date.parse(c.last_at);
-    return t >= fromMs && t <= toMs;
-  });
-
-  return NextResponse.json({ conversations: inRange });
+  return NextResponse.json({ conversations, window_hours: windowHours });
 }

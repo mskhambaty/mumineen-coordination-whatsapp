@@ -71,10 +71,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   requirePortalCaller.mockResolvedValue(allow());
   getFamilyHeadCounts.mockResolvedValue([]);
-  // Simulate the 1000-row cap: the fetched list is far smaller than the true aggregate.
+  // fetchAllRows pages via the mocked .range() (one page here). r1 is older than r2 so we can assert
+  // the route sorts the assembled list by updated_at desc for display.
   tableData["niyaz_rsvp"] = {
     data: [
-      { id: "r1", mumin_id: "m1", family_id: "f1", attending: true, source: "whatsapp", responded_by_phone: null, recorded_by: null, updated_at: "2026-06-17T00:00:00Z", mumin: null, family: null },
+      { id: "r1", mumin_id: "m1", family_id: "f1", attending: true, source: "whatsapp", responded_by_phone: null, recorded_by: null, updated_at: "2026-06-16T00:00:00Z", mumin: null, family: null },
       { id: "r2", mumin_id: "m2", family_id: "f1", attending: false, source: "whatsapp", responded_by_phone: null, recorded_by: null, updated_at: "2026-06-17T00:00:00Z", mumin: null, family: null },
     ],
     error: null,
@@ -97,7 +98,7 @@ describe("GET niyaz responses", () => {
     expect(getEventTallies).not.toHaveBeenCalled();
   });
 
-  it("derives Yes/No from the aggregate tally, not the (capped) fetched rows", async () => {
+  it("derives Yes/No from the aggregate tally (not the row count) and returns the paged list sorted by recency", async () => {
     getEventTallies.mockResolvedValue([tally("e1")]);
     const res = await GET(req("min"), { params });
     expect(res.status).toBe(200);
@@ -107,6 +108,8 @@ describe("GET niyaz responses", () => {
     expect(body.tally.no).toBe(384);
     expect(body.tally.mode).toBe("min");
     expect(body.responses).toHaveLength(2);
+    // Newest first: r2 (Jun 17) before r1 (Jun 16).
+    expect(body.responses.map((r: { id: string }) => r.id)).toEqual(["r2", "r1"]);
     expect(body.instance).toMatchObject({ id: "e1", title: "4th Moharram ul Haram", meal: "lunch" });
   });
 

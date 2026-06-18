@@ -69,6 +69,7 @@ src/app/api/admin/templates/segments/route.ts — GET Niyaz reach-segment sizes 
 src/lib/escalation/notify.ts             — On-call escalation email + WhatsApp template notifications
 src/lib/escalation/activity.ts           — Escalation activity log (fire-and-forget)
 src/lib/escalation/sla.ts               — SLA config cache + deadline computation
+src/lib/escalation/issue-grouping.ts     — Trigger B: cluster ungrouped escalations (AI) + promote same-problem ones (high-confidence, ≥2 convos) into one shared issue; pure selectPromotableClusters gate
 src/app/api/admin/issues/route.ts        — Issues CRUD (list + create)
 src/app/api/admin/issues/[issueId]/route.ts — Issue detail (GET/PUT/DELETE)
 src/app/api/admin/issues/[issueId]/link/route.ts — Link/unlink escalations to issues
@@ -109,9 +110,11 @@ src/lib/rsvp/niyaz-prompt.ts             — Daily RSVP-template audiences (ITS/
 src/lib/rsvp/event-config.ts             — Day-level Niyaz event config (niyaz_event_config): rsvp_event_title, lunch/dinner menus, rsvp_end_time, meals, template_code
 src/lib/rsvp/niyaz-day-grouping.ts       — Pure, client-safe groupTalliesByDay(): groups per-meal events by date (lunch→dinner) for the admin days overview
 src/app/admin/niyaz/page.tsx             — Niyaz days overview: days (grouped instances) with Yes count; expand → jaman; Send RSVP → composer; Edit/New via modal; click jaman → event detail
-src/app/admin/niyaz/events/[id]/page.tsx — Niyaz event detail: Yes count, No count, and the RSVP response list (GET …/instances/[id]/responses)
+src/app/admin/niyaz/events/[id]/page.tsx — Niyaz event detail: headline counts, eligible-population Breakdown, and the RSVP responses section with By Family / By Individual tabbed views
 src/components/admin/niyaz/EventFormModal.tsx — Create/Edit Niyaz event modal (POST/PATCH /api/admin/niyaz/instances)
-src/app/api/admin/niyaz/instances/[id]/responses/route.ts — GET per-event responses (uncapped) + event instance meta + mode-aware Yes/No tally from getEventTallies (?mode=min|max)
+src/app/api/admin/niyaz/instances/[id]/responses/route.ts — GET per-event responses (paged server-side, uncapped) + event meta + mode-aware tally + eligible-population breakdown (niyaz_event_breakdown RPC)
+src/app/api/admin/niyaz/instances/[id]/families/route.ts — GET per-family RSVP grid (niyaz_event_family_grid RPC, paged server-side past the 1000-row cap) for the "By Family" view
+src/lib/rsvp/niyaz-breakdown.ts — assembleBreakdown + classifiers (local/mehman/guest) for the event-detail Breakdown panel
 src/app/admin/niyaz/days/page.tsx        — Niyaz days view: lists prefilled 1st–10th Moharram days; click a day (or ?date=) to configure + send RSVP (composer)
 src/app/api/admin/niyaz/days/route.ts    — GET list of Niyaz days (config + representative instance id per date)
 src/app/api/admin/niyaz/days/[date]/route.ts — GET/PUT day-level config by date
@@ -139,6 +142,7 @@ src/app/api/admin/templates/broadcasts/[id]/recipients/route.ts — Full broadca
 src/lib/digest/run.ts                    — Nightly department digest: aggregate→AI→store→distribute
 src/app/api/cron/department-digest/route.ts — Nightly department digest cron (03:00 UTC (10pm Chicago, CDT))
 src/app/api/cron/broadcast-drain/route.ts   — Template broadcast drain cron (every minute)
+src/app/api/cron/escalation-grouping/route.ts — Trigger B cron (hourly): cluster ungrouped escalations → promote shared issues (clusterUngroupedEscalations)
 src/app/webinars/page.tsx                — Public webinars page: ITS gate + video card grid + modal player
 src/lib/webinars/youtube.ts              — YouTube ID / thumbnail / embed URL helpers (unit-tested)
 ```

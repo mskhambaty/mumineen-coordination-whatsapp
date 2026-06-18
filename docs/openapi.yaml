@@ -656,10 +656,12 @@ paths:
         Emergencies and the `religious_followup` category bypass that gate
         (a deen/Waaz question the reflections can't answer is often the first
         message); the agent then replies with a fixed Waaz-scoped acknowledgment.
-        Before creating a new issue, an AI + keyword dedup check runs against
-        open issues. If a match is found the escalation is linked to the existing
-        issue (response includes `deduplicated: true`); otherwise a new issue +
-        workspace task is created.
+        Escalation ≠ issue: the escalation always notifies the on-call team, but a tracked issue +
+        workspace task is created ONLY when `requires_department_coordination` is true (an actionable
+        problem a department must coordinate to fix — not an individual request/question/hand-off).
+        Issue creation is idempotent per conversation: a re-escalation reuses the conversation's
+        existing open issue (`deduplicated: true`) instead of creating a duplicate. No cross-conversation
+        topical auto-linking (that is suggestion-only / a planned Trigger B).
       security: [{ whatsappPhone: [] }]
       requestBody:
         required: true
@@ -677,6 +679,7 @@ paths:
                   type: string
                   enum: [emergency, accommodation, transport, registration, schedule, facilities, complaint, religious_followup, other]
                 department: { type: string, description: "Department name to assign the issue to" }
+                requires_department_coordination: { type: boolean, description: "When true, create a tracked issue + task for department coordination. When false/absent, escalation-only (on-call follow-up, no issue)." }
                 source: { type: string, enum: [ai, rule, manual] }
       responses:
         "200":
@@ -689,8 +692,8 @@ paths:
                   status: { type: string, enum: [escalated, declined] }
                   priority: { type: string }
                   category: { type: string }
-                  issue_id: { type: string, nullable: true }
-                  deduplicated: { type: boolean, description: "True if linked to an existing issue instead of creating a new one." }
+                  issue_id: { type: string, nullable: true, description: "The created/reused issue id, or null when the escalation created no issue (escalation-only)." }
+                  deduplicated: { type: boolean, description: "True if the conversation's existing open issue was reused instead of creating a new one." }
                   message: { type: string }
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -750,11 +753,21 @@ paths:
   /admin/religious/conversations:
     get:
       tags: [conversations]
-      summary: Conversations that used a religious tool, with each member's 24h-window state.
-      description: Threads (newest first) for the Waaz Talaqqi Chats tab. ?from/?to optional. Each thread includes handling_mode (ai|manual) + in_window. Religious monitor / admin.
+      summary: Religious chats ACTIVE in the last N hours (by religious tool-call recency).
+      description: >-
+        Threads (newest religious-activity first) for the Waaz Talaqqi Inbox. Membership is scoped
+        by religious tool-CALL recency, NOT message activity, so a chat whose religious tool-call
+        aged past the window no longer appears even if it got a logistics/template message today.
+        A Manual-mode chat with a recent handoff (within the window) is kept. The general
+        Conversations inbox keeps its all-time religious filter as the archive. Religious monitor / admin.
+      parameters:
+        - in: query
+          name: windowHours
+          schema: { type: integer, enum: [24, 48, 168], default: 48 }
+          description: Lookback window for religious tool-call recency. Invalid values fall back to 48.
       security: [{ portalSession: [] }, { adminKey: [] }]
       responses:
-        "200": { description: "{ conversations[] } each with messages, in_window, handling_mode." }
+        "200": { description: "{ conversations[], window_hours } each conversation with messages, in_window, handling_mode." }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
   /admin/religious/mode:
@@ -1002,8 +1015,8 @@ paths:
   /admin/lisan-words:
     get:
       tags: [conversations]
-      summary: Count of Lisan ud Dawat words, or export the whole dictionary as CSV.
-      description: "Default returns { count }. With ?format=csv, streams the dictionary as a re-importable CSV (transliteration,lisan,meaning,example) as a file download — a backup / master copy (DB is the source of truth)."
+      summary: Count, CSV export, or a searchable page of the Lisan ud Dawat dictionary.
+      description: "Default returns { count }. With ?format=csv, streams the dictionary as a re-importable CSV. With ?list=1, returns a paginated, searchable page { rows[], total, page, pageSize } for the admin Dictionary browser (?q=, ?field=word|meaning|all, ?page=, ?pageSize=). DB is the source of truth."
       security: [{ portalSession: [] }, { adminKey: [] }]
       parameters:
         - in: query
@@ -1011,14 +1024,37 @@ paths:
           required: false
           schema: { type: string, enum: [csv] }
           description: When "csv", download the full dictionary instead of the count.
+        - in: query
+          name: list
+          required: false
+          schema: { type: string, enum: ["1"] }
+          description: When "1", return a searchable page of rows (with ids) instead of the count.
+        - in: query
+          name: q
+          required: false
+          schema: { type: string }
+          description: Substring search term (used with list=1).
+        - in: query
+          name: field
+          required: false
+          schema: { type: string, enum: [word, meaning, all], default: all }
+          description: Which columns the search term matches (word = transliteration/lisan).
+        - in: query
+          name: page
+          required: false
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: pageSize
+          required: false
+          schema: { type: integer, default: 25, maximum: 100 }
       responses:
-        "200": { description: "{ count }, or a text/csv attachment when format=csv." }
+        "200": { description: "{ count }, a text/csv attachment (format=csv), or { rows[], total, page, pageSize } (list=1)." }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
     put:
       tags: [conversations]
       summary: Add (or update) ONE Lisan word without re-uploading the whole CSV.
-      description: "Day-to-day path for filling a dictionary gap. Computes the match columns (norm/skeleton/forms) like the bulk import and inserts one row; deduped on the normalized word (an existing word is updated in place). Powers get_lisan_word_meaning."
+      description: "Day-to-day path for filling a dictionary gap. Computes the match columns (norm/skeleton/forms) like the bulk import; deduped on the normalized word. If the word already exists and confirm is not set, returns 409 { status: 'exists', existing } WITHOUT writing, so the UI can warn before overwriting. With confirm:true it overwrites in place. Powers get_lisan_word_meaning."
       security: [{ portalSession: [] }, { adminKey: [] }]
       requestBody:
         required: true
@@ -1031,13 +1067,53 @@ paths:
                 lisan: { type: string }
                 meaning: { type: string }
                 example: { type: string }
+                confirm: { type: boolean, default: false, description: Authorise overwriting an existing entry with the same normalized word. }
               description: At least one of transliteration or lisan is required.
       responses:
-        "200": { description: "Existing word updated: { status: 'updated', entry, count }." }
+        "200": { description: "Existing word updated (confirm:true): { status: 'updated', entry, count }." }
         "201": { description: "New word added: { status: 'added', entry, count }." }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { description: "Word already exists and confirm was not set: { status: 'exists', existing }." }
         "422": { description: Word has no transliteration or lisan text. }
+        "500": { $ref: "#/components/responses/ServerError" }
+    patch:
+      tags: [conversations]
+      summary: Edit ONE existing Lisan word by id (fix a wrong spelling / meaning).
+      description: "Recomputes all match columns via prepareLisanRow so the edited row stays searchable like an imported one."
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: integer }
+                transliteration: { type: string }
+                lisan: { type: string }
+                meaning: { type: string }
+                example: { type: string }
+      responses:
+        "200": { description: "{ status: 'updated', entry }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { description: Word has no transliteration or lisan text. }
+        "500": { $ref: "#/components/responses/ServerError" }
+    delete:
+      tags: [conversations]
+      summary: Delete ONE Lisan word by id (?id=123).
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      parameters:
+        - in: query
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200": { description: "{ status: 'deleted', count }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
     post:
       tags: [conversations]
@@ -1964,7 +2040,7 @@ paths:
         per-day events array (date/dateLabel/title + which meals served) so the agent maps day
         references to real dates. Used by the get_family_meal_rsvps agent tool.
       responses:
-        "200": { description: "status=ok: days [{ date, dateLabel, title, hijriDate, lunch, dinner }] where lunch/dinner are each { attending, total } or null when that meal isn't served (Pehli Raat/Ashura are dinner-only); dateLabel e.g. 'Mon, Jun 15' has the weekday pre-computed for the agent's read-back. Plus familyMembers [{name, isAdult, isHead, notAttending}]. Or status=unregistered with rsvps + per-day events [{ date, dateLabel, title, lunch:boolean, dinner:boolean }] for unlinked phones." }
+        "200": { description: "status=ok: days [{ date, dateLabel, title, hijriDate, lunch, dinner, closed, closedAt, closedLabel }] where lunch/dinner are each { attending, total } or null when that meal isn't served (Pehli Raat/Ashura are dinner-only); dateLabel e.g. 'Mon, Jun 15' has the weekday pre-computed for the agent's read-back; closed=true (with closedAt/closedLabel) means the day's RSVP cutoff has passed and it can no longer be changed. Plus familyMembers [{name, isAdult, isHead, notAttending}]. Or status=unregistered with rsvps + per-day events [{ date, dateLabel, title, lunch:boolean, dinner:boolean, closed, closedAt, closedLabel }] for unlinked phones." }
         "400": { $ref: "#/components/responses/BadRequest" }
     post:
       tags: [rsvp]
@@ -1973,7 +2049,11 @@ paths:
         Self-scoped via x-whatsapp-from. Attendance is pre-set from arrival dates; this records
         changes (mostly "not coming on day X"). Each entry marks the family attending or not for
         specific dates (or all days), optionally narrowed to one meal; the change cascades to the
-        whole family. Used by set_family_meal_rsvps.
+        whole family. An entry applies globally ONLY when all=true is set explicitly — an entry with
+        no dates/titles and no all=true matches nothing and is ignored, so a single-day change can
+        never accidentally overwrite every day. Per-day RSVP cutoff: a day whose niyaz_event_config
+        rsvp_end_at has passed is locked — changes to it are NOT applied (for every source, no bypass)
+        and are returned in a blocked array. Used by set_family_meal_rsvps.
       requestBody:
         required: true
         content:
@@ -1994,12 +2074,13 @@ paths:
                       dates: { type: array, items: { type: string, format: date }, description: "Preferred selector — the day row's `date` copied verbatim from the per-day response. Pair with meal; (date, meal) is exactly one jaman, so no hijri night-shift guessing. Omit (or all=true) for every day." }
                       titles: { type: array, items: { type: string }, description: "Legacy/fallback selector — event titles (e.g. 'Pehli Raat'). Server resolves title (+meal) to a date. Prefer dates+meal copied from the day row. Pair with meal to disambiguate a title shared by a lunch and a dinner." }
                       meal: { type: string, enum: [lunch, dinner] }
-                      all: { type: boolean }
-                adults: { type: integer, description: "Number of adults attending. For registered families, triggers partial attendance (head of family kept first); capped at the family's adult count. For unregistered callers, records head count." }
-                kids: { type: integer, description: "Number of kids attending. For registered families, triggers partial attendance; capped at the family's kid count. For unregistered callers, records head count." }
+                      all: { type: boolean, description: "Set true to apply to every day (required for any global change). An entry with no dates/titles and all!=true targets nothing and is skipped." }
+                total: { type: integer, description: "Bare head count with no adult/kid split (e.g. 'change to 5'). Fills that many attendees head→adults→kids, capped at the registered family size. Preferred over adults/kids when the caller doesn't state a split. For unregistered callers it records the head count (as adults)." }
+                adults: { type: integer, description: "Number of adults attending — use only with an explicit adult/kid split. For registered families, triggers partial attendance (head of family kept first); capped at the family's adult count. For unregistered callers, records head count." }
+                kids: { type: integer, description: "Number of kids attending — use only with an explicit split. For registered families, triggers partial attendance; capped at the family's kid count." }
                 its_number: { type: string, description: "Unregistered callers only — optional ITS for family matching." }
       responses:
-        "200": { description: "Updated row count + the refreshed per-day days array (same shape as GET, today→Ashura). When the requested counts exceeded the family size, also returns clamped {requestedAdults, requestedKids, requestedTotal, maxAdults, maxKids, maxTotal, message} so the agent tells the user the count was capped and extras must register separately. requestedTotal/maxTotal carry the single-number (head-count) case; adults/kids the split case. (Or status=unregistered_recorded for unlinked phones — upserts into unregistered_rsvps.)" }
+        "200": { description: "Updated row count + the refreshed per-day days array (same shape as GET, today→Ashura). When the requested counts exceeded the family size, also returns clamped {requestedAdults, requestedKids, requestedTotal, maxAdults, maxKids, maxTotal, message} so the agent tells the user the count was capped and extras must register separately. requestedTotal/maxTotal carry the single-number (head-count) case; adults/kids the split case. When one or more targeted days were past their RSVP cutoff, returns blocked [{date, title, endAt, endLabel}] for the days that were NOT changed so the agent tells the user RSVP has closed for them. (Or status=unregistered_recorded for unlinked phones — upserts into unregistered_rsvps.)" }
         "400": { $ref: "#/components/responses/BadRequest" }
 
   /api/parking/my-passes:
@@ -2166,8 +2247,9 @@ paths:
         DB aggregate; guests are sentinel-ITS yes-only and excluded from the member total), the per-mumin niyaz_rsvp rows (name, attending, source, `is_adult`,
         `local_mehman`), unregistered RSVPs, and family head-counts. Both `tally` and `breakdown` are
         sourced from DB aggregates (the same numbers as the days overview), NOT by counting the
-        returned rows, so they are correct even when the event has more than 1000 responses — the
-        returned `responses` list itself is capped at 1000 by PostgREST's db-max-rows.
+        returned rows, so they are correct even when the event has more than 1000 responses. The
+        `responses` and `unregistered` lists are paged server-side (fetchAllRows) to return the full
+        event past PostgREST's 1000-row db-max-rows cap, sorted most-recent first.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: mode, in: query, schema: { type: string, enum: [min, max], default: min }, description: "min = whatsapp/admin-confirmed only; max = includes arrival-date defaults. Drives the tally and breakdown." }
@@ -2175,6 +2257,26 @@ paths:
         "200": { description: "JSON { instance, tally: { mode, yes, no, ... }, breakdown: { local, mehman, guest, total }, responses, unregistered, headcounts }." }
         "404": { description: Niyaz event not found. }
         "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/niyaz/instances/{id}/families:
+    get:
+      tags: [admin]
+      summary: Per-family RSVP grid for an event (the admin "By Family" view)
+      description: >-
+        Admin/leadership (portal). One row per roster-active family from the `niyaz_event_family_grid`
+        DB aggregate: `family_id`, `hof_its`, `hof_name` (the family's acting head — the `is_head`
+        member, else the eldest member, matching the mumin-lookup "Acting head"; falls back to the ITS
+        string only if no roster member exists), `responded` (any whatsapp/admin row for the family this event),
+        `attending` (attending real members, guests excluded), `guests` (attending sentinel-ITS
+        placeholders), and `responded_at` / `responded_by` from the latest confirmed row. Derived from
+        niyaz_rsvp (not the often-empty niyaz_family_headcount). PAGED server-side (fetchAllRows), so
+        all ~1k families are returned past PostgREST's 1000-row db-max-rows cap.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "JSON { families: [{ family_id, hof_its, hof_name, responded, attending, guests, responded_at, responded_by }] }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
 
   /api/admin/niyaz/instances/{id}/broadcast:
     get:

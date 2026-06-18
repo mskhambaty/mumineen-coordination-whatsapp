@@ -83,8 +83,10 @@ async function retrieveContext(
   }
   if (allowedYear) {
     // STRICT year scoping: a 1448 query must not match the embedded 1447 rows (and vice-versa).
-    // Null-year rows (e.g. the misc guardrail block) are excluded when a concrete year is required.
-    rows = rows.filter((r) => r.year_hijri === allowedYear);
+    // Null-year rows (e.g. the misc guardrail block) are excluded when a concrete year is required —
+    // EXCEPT a year-agnostic service FAQ (category 'faq', no year), e.g. "how do I receive
+    // reflections", which should answer regardless of any year cue in the query.
+    rows = rows.filter((r) => r.year_hijri === allowedYear || (!r.year_hijri && r.category === "faq"));
   }
   rows = rows.slice(0, topK);
   if (!rows.length) return "";

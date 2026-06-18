@@ -8,6 +8,9 @@ export type LisanEntry = {
   example: string | null;
 };
 
+// A dictionary row with its id — used by the admin browse/edit/delete surface.
+export type LisanRow = LisanEntry & { id: number };
+
 export const ARABIC_RE = /[؀-ۿ]/;
 
 // Normalize a transliteration for matching: strip diacritics/macrons, lowercase,
@@ -337,12 +340,21 @@ export function prepareLisanRow(r: LisanImportRow): PreparedLisanRow | null {
 export type AddLisanResult =
   | { status: "added"; entry: LisanEntry; count: number }
   | { status: "updated"; entry: LisanEntry; count: number }
+  // The same normalized word already exists and the caller did not confirm an overwrite — the admin
+  // is shown the existing entry and asked whether to replace it (see the Dictionary tab).
+  | { status: "exists"; existing: LisanRow }
   | { status: "invalid" };
 
 // Add (or update) ONE dictionary word without touching the rest of the table — the day-to-day
-// path for filling a gap. The DB is the source of truth; dedupe on `norm` so the same word can't
-// be added twice (an existing entry is updated in place instead). Returns the new total count.
-export async function addLisanWord(row: LisanImportRow, actorName?: string | null): Promise<AddLisanResult> {
+// path for filling a gap. The DB is the source of truth; dedupe on `norm`. When a row with the same
+// normalized word already exists and `opts.confirm` is NOT set, returns { status: "exists", existing }
+// WITHOUT writing, so the admin UI can warn ("X already means … — replace?") before clobbering it.
+// With `opts.confirm` (or via updateLisanWordById for an explicit edit) it overwrites in place.
+export async function addLisanWord(
+  row: LisanImportRow,
+  actorName?: string | null,
+  opts?: { confirm?: boolean },
+): Promise<AddLisanResult> {
   const prepared = prepareLisanRow(row);
   if (!prepared) return { status: "invalid" };
   const supabase = getSupabaseAdmin();
@@ -355,16 +367,17 @@ export async function addLisanWord(row: LisanImportRow, actorName?: string | nul
       addedBy: actorName ?? null,
     });
 
-  // Dedupe: a row with the same normalized word already exists → update it in place.
+  // Dedupe: a row with the same normalized word already exists.
   const { data: existing } = await supabase
     .from("lisan_words")
-    .select("id")
+    .select("id, transliteration, lisan, meaning, example")
     .eq("norm", prepared.norm)
     .limit(1);
-  const existingId = (existing as { id: number }[] | null)?.[0]?.id;
+  const existingRow = (existing as LisanRow[] | null)?.[0];
 
-  if (existingId != null) {
-    const { error } = await supabase.from("lisan_words").update(prepared).eq("id", existingId);
+  if (existingRow) {
+    if (!opts?.confirm) return { status: "exists", existing: existingRow };
+    const { error } = await supabase.from("lisan_words").update(prepared).eq("id", existingRow.id);
     if (error) throw error;
     await closeRequest();
     return { status: "updated", entry: pick(prepared), count: await countLisanWords() };
@@ -374,6 +387,77 @@ export async function addLisanWord(row: LisanImportRow, actorName?: string | nul
   if (error) throw error;
   await closeRequest();
   return { status: "added", entry: pick(prepared), count: await countLisanWords() };
+}
+
+// ─── Admin browse / search / edit / delete ───────────────────────────────────────────────────
+
+// Sanitize a user search term for a PostgREST ilike filter: drop the wildcard/anti-injection chars
+// (%, comma, parens, quotes) so the term can't break the .or() filter string or run a runaway match.
+function sanitizeSearch(q: string): string {
+  return q.trim().replace(/[%,()"'*\\]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+export type LisanPage = { rows: LisanRow[]; total: number; page: number; pageSize: number };
+
+// One page of the dictionary for the admin browse list, optionally filtered by a substring search.
+// `field` scopes the search: "word" (transliteration/lisan), "meaning", or "all" (default).
+export async function listLisanWordsPage(opts: {
+  q?: string;
+  field?: "word" | "meaning" | "all";
+  page?: number;
+  pageSize?: number;
+}): Promise<LisanPage> {
+  const supabase = getSupabaseAdmin();
+  const page = Math.max(1, Math.floor(opts.page ?? 1));
+  const pageSize = Math.min(100, Math.max(1, Math.floor(opts.pageSize ?? 25)));
+  const term = sanitizeSearch(opts.q ?? "");
+  const field = opts.field ?? "all";
+  const like = term ? `%${term}%` : null;
+  // OR expression for a word / all search; meaning-only uses a single .ilike (handled below).
+  const orExpr =
+    !like || field === "meaning"
+      ? null
+      : field === "word"
+        ? `transliteration.ilike.${like},lisan.ilike.${like}`
+        : `transliteration.ilike.${like},lisan.ilike.${like},meaning.ilike.${like}`;
+
+  let dataQuery = supabase.from("lisan_words").select("id, transliteration, lisan, meaning, example");
+  let countQuery = supabase.from("lisan_words").select("id", { count: "exact", head: true });
+  if (like && field === "meaning") {
+    dataQuery = dataQuery.ilike("meaning", like);
+    countQuery = countQuery.ilike("meaning", like);
+  } else if (orExpr) {
+    dataQuery = dataQuery.or(orExpr);
+    countQuery = countQuery.or(orExpr);
+  }
+
+  const from = (page - 1) * pageSize;
+  const [{ data }, { count }] = await Promise.all([
+    dataQuery.order("id", { ascending: true }).range(from, from + pageSize - 1),
+    countQuery,
+  ]);
+
+  return { rows: (data ?? []) as LisanRow[], total: count ?? 0, page, pageSize };
+}
+
+// Update ONE row by id (an explicit admin edit — fix a wrong spelling/meaning). Recomputes every
+// match column via prepareLisanRow so the edited row stays searchable exactly like an imported one.
+export async function updateLisanWordById(
+  id: number,
+  row: LisanImportRow,
+): Promise<{ status: "updated"; entry: LisanEntry } | { status: "invalid" }> {
+  const prepared = prepareLisanRow(row);
+  if (!prepared) return { status: "invalid" };
+  const { error } = await getSupabaseAdmin().from("lisan_words").update(prepared).eq("id", id);
+  if (error) throw error;
+  return { status: "updated", entry: pick(prepared) };
+}
+
+// Delete ONE row by id. Returns the new total count.
+export async function deleteLisanWordById(id: number): Promise<{ status: "deleted"; count: number }> {
+  const { error } = await getSupabaseAdmin().from("lisan_words").delete().eq("id", id);
+  if (error) throw error;
+  return { status: "deleted", count: await countLisanWords() };
 }
 
 // Every word in the dictionary, oldest first, for CSV export / backup. Returns the four

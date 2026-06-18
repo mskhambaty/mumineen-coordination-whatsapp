@@ -11,6 +11,7 @@ const getUnregisteredRsvps = vi.fn();
 const recordUnregisteredRsvp = vi.fn();
 const getEvents = vi.fn();
 const getEventConfigTitles = vi.fn();
+const getClosedEventDates = vi.fn();
 
 vi.mock("@/lib/rsvp/family", () => ({
   resolveFamilyForPhone: (...args: unknown[]) => resolveFamilyForPhone(...args),
@@ -27,6 +28,7 @@ vi.mock("@/lib/rsvp/meal-rsvp", () => ({
 }));
 vi.mock("@/lib/rsvp/event-config", () => ({
   getEventConfigTitles: (...args: unknown[]) => getEventConfigTitles(...args),
+  getClosedEventDates: (...args: unknown[]) => getClosedEventDates(...args),
 }));
 
 import { GET, POST } from "@/app/api/rsvp/meals/route";
@@ -70,6 +72,7 @@ beforeEach(() => {
   markFamilyRsvpConfirmed.mockResolvedValue(undefined);
   getFamilyMembers.mockResolvedValue(MEMBERS);
   getEventConfigTitles.mockResolvedValue(new Map());
+  getClosedEventDates.mockResolvedValue(new Map());
 });
 
 describe("GET /api/rsvp/meals", () => {
@@ -100,6 +103,27 @@ describe("GET /api/rsvp/meals", () => {
     expect(markFamilyRsvpConfirmed).toHaveBeenCalledWith("fam-1", PHONE);
   });
 
+  it("flags a day whose RSVP cutoff has passed as closed", async () => {
+    resolveFamilyForPhone.mockResolvedValue(FAMILY);
+    getFamilyNiyazDays.mockResolvedValue([day()]);
+    getClosedEventDates.mockResolvedValue(
+      new Map([[UPCOMING, { endAt: "2020-01-01T00:00:00.000Z", title: "1st Moharram ul Haram" }]]),
+    );
+    const res = await GET(req("GET"));
+    const json = await res.json();
+    expect(json.days[0].closed).toBe(true);
+    expect(json.days[0].closedAt).toBe("2020-01-01T00:00:00.000Z");
+  });
+
+  it("marks an open day as not closed", async () => {
+    resolveFamilyForPhone.mockResolvedValue(FAMILY);
+    getFamilyNiyazDays.mockResolvedValue([day()]);
+    const res = await GET(req("GET"));
+    const json = await res.json();
+    expect(json.days[0].closed).toBe(false);
+    expect(json.days[0].closedAt).toBeNull();
+  });
+
   it("renders a single-meal day with the other meal null (e.g. Ashura dinner-only)", async () => {
     resolveFamilyForPhone.mockResolvedValue(FAMILY);
     getFamilyNiyazDays.mockResolvedValue([
@@ -125,7 +149,7 @@ describe("GET /api/rsvp/meals", () => {
     const json = await res.json();
     expect(json.status).toBe("unregistered");
     expect(json.events).toEqual([
-      { date: UPCOMING, dateLabel: UPCOMING_LABEL, title: "1st Moharram ul Haram", lunch: true, dinner: true },
+      { date: UPCOMING, dateLabel: UPCOMING_LABEL, title: "1st Moharram ul Haram", lunch: true, dinner: true, closed: false, closedAt: null, closedLabel: null },
     ]);
     expect(getFamilyNiyazDays).not.toHaveBeenCalled();
   });
@@ -205,6 +229,23 @@ describe("POST /api/rsvp/meals", () => {
       [{ attending: true, titles: undefined, dates: ["2026-06-21"], meal: "dinner", all: undefined }],
       { source: "whatsapp", phone: PHONE },
       { adults: 1, kids: 0 },
+    );
+  });
+
+  it("passes a bare `total` head count through (no adult/kid guessing)", async () => {
+    resolveFamilyForPhone.mockResolvedValue(FAMILY);
+    setFamilyNiyazRsvp.mockResolvedValue({ updated: 5, grid: [] });
+    getFamilyNiyazDays.mockResolvedValue([]);
+    const res = await POST(req("POST", {
+      entries: [{ attending: true, dates: [UPCOMING], meal: "dinner" }],
+      total: 5,
+    }));
+    expect(res.status).toBe(200);
+    expect(setFamilyNiyazRsvp).toHaveBeenCalledWith(
+      "fam-1",
+      [{ attending: true, titles: undefined, dates: [UPCOMING], meal: "dinner", all: undefined }],
+      { source: "whatsapp", phone: PHONE },
+      { adults: undefined, kids: undefined, total: 5 },
     );
   });
 

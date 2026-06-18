@@ -29,6 +29,9 @@ function builder() {
   b.select = () => b;
   b.order = () => b;
   b.limit = () => b;
+  b.is = () => b;
+  b.not = () => b;
+  b.in = () => b;
   b.eq = (c: string, v: string) => { eqCalls.push([c, v]); return b; };
   b.or = (f: string) => { orCalls.push(f); return b; };
   b.then = (resolve: (v: unknown) => void) => resolve({ data: [], error: null });

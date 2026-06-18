@@ -252,6 +252,40 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Surface recently-active REAL conversations regardless of which number they're on or the
+  // recent-by-last_message_at window. The recent query is scoped to `main` (excludes the broadcast
+  // number) and ordered by last_message_at, which broadcasts bump — so a genuine conversation the
+  // agent had ON the broadcast number (e.g. RSVP questions → "meaning of tawakul") never loads.
+  // Pull the phones with the most-recent conversational messages (not templates, not RSVP/feedback
+  // responses) and load their sessions; the content filter / KPIs then classify them.
+  if (!selectedPhone && scope === "main") {
+    const { data: convoMsgRows } = await supabase
+      .from("messages")
+      .select("phone_e164")
+      .is("raw_payload->>template", null)
+      .not("message_type", "in", "(interactive,button)")
+      .order("created_at", { ascending: false })
+      .limit(1000);
+    const convoPhones = [...new Set(((convoMsgRows ?? []) as { phone_e164: string }[]).map((r) => r.phone_e164))];
+    const havePhones = new Set(((sessions ?? []) as SessionRow[]).map((s) => s.phone_e164));
+    const missing = convoPhones.filter((p) => !havePhones.has(p));
+    if (missing.length) {
+      const { data: convoSessions } = await supabase
+        .from("conversation_sessions")
+        .select(sessionColumns)
+        .in("phone_e164", missing)
+        .order("last_message_at", { ascending: false })
+        .limit(500);
+      const have = new Set(((sessions ?? []) as SessionRow[]).map((s) => s.id));
+      for (const s of (convoSessions ?? []) as SessionRow[]) {
+        if (!have.has(s.id)) {
+          sessions.push(s);
+          have.add(s.id);
+        }
+      }
+    }
+  }
+
   const phoneNumbers = ((sessions ?? []) as SessionRow[]).map((session) => session.phone_e164);
   if (phoneNumbers.length === 0) {
     return NextResponse.json({ conversations: [], resolved_has_more: resolvedHasMore, accounts: resolveAccountsForResponse() });
@@ -283,16 +317,27 @@ export async function GET(req: NextRequest) {
   const messagesByPhone = groupRowsByPhoneChronologically((messages ?? []) as MessageRow[]);
   const toolsByPhone = groupRowsByPhoneChronologically((toolCalls ?? []) as ToolAuditRow[]);
 
-  // Reliable "religious/Lisan tool used" flag — independent of the truncated tool_calls window
-  // above (which caps total rows). One narrow query over the loaded phones.
-  const { data: religiousRows } = await supabase
+  // Per-phone agent-tool usage, independent of the truncated tool_calls window above. Powers:
+  //  • the "religious/Lisan tool used" flag, and
+  //  • RSVP-topic classification — a thread whose agent activity is RSVP-only (used an RSVP tool and
+  //    no other substantive tool) is treated as Survey/broadcast, not a real conversation, even though
+  //    it has conversational text (the person's RSVP query + the agent's reply). A thread that used a
+  //    non-RSVP tool (e.g. get_lisan_word_meaning for "meaning of tawakul") stays a real conversation.
+  const RSVP_TOOL_NAMES = ["get_family_meal_rsvps", "set_family_meal_rsvps"];
+  const religiousToolNames = RELIGIOUS_TOOL_NAMES as unknown as string[];
+  const { data: toolRows } = await supabase
     .from("tool_audit_logs")
-    .select("phone_e164")
+    .select("phone_e164, tool_name")
     .in("phone_e164", phoneNumbers)
-    .in("tool_name", RELIGIOUS_TOOL_NAMES as unknown as string[]);
-  const religiousPhones = new Set(
-    ((religiousRows ?? []) as { phone_e164: string }[]).map((r) => r.phone_e164),
-  );
+    .limit(10000);
+  const religiousPhones = new Set<string>();
+  const usedRsvpTool = new Set<string>();
+  const usedNonRsvpTool = new Set<string>();
+  for (const r of (toolRows ?? []) as { phone_e164: string; tool_name: string }[]) {
+    if (religiousToolNames.includes(r.tool_name)) religiousPhones.add(r.phone_e164);
+    if (RSVP_TOOL_NAMES.includes(r.tool_name)) usedRsvpTool.add(r.phone_e164);
+    else usedNonRsvpTool.add(r.phone_e164);
+  }
 
   // Latest CONVERSATIONAL message per loaded phone — skipping template sends (RSVP/feedback/digests/
   // notifications) and RSVP/feedback button/flow responses. Powers (a) the "Broadcast-only" filter
@@ -354,6 +399,9 @@ export async function GET(req: NextRequest) {
       used_religious_tool: religiousPhones.has(session.phone_e164),
       // False = "Broadcast-only" — the thread has no real message (RSVP/feedback broadcasts only).
       has_conversational_message: lastConvoByPhone.has(session.phone_e164),
+      // RSVP-only agent activity (used an RSVP tool, no other substantive tool) → treated as Survey,
+      // not a real conversation, even if it has conversational text.
+      is_rsvp_only: usedRsvpTool.has(session.phone_e164) && !usedNonRsvpTool.has(session.phone_e164),
       // Latest real (non-broadcast) message — drives list preview/timestamp/sort so a thread reflects
       // its last conversation, not a later broadcast. Null for broadcast-only threads.
       conversational_last_message: lastConvoByPhone.get(session.phone_e164) ?? null,

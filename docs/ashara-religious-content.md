@@ -45,6 +45,11 @@ for entering content. Grid = majlis (rows) × category (columns).
   pasted in per majlis (generated separately, e.g. by Opus). Indexed like any other cell, and the
   agent searches it alongside the sermon sources — so recurring and "list all N" questions ("the six
   qualities of a cook") get a vetted answer instead of being re-synthesized from raw reflection prose.
+  A **year-agnostic service FAQ** — a `faq` block with `year_hijri` null (no majlis) — answers
+  program/meta questions ("how do I receive daily reflections?", "why isn't the full waaz provided?").
+  `retrieveReligiousContext` keeps a null-year `faq` row even under strict year scoping (other
+  null-year rows are dropped when a concrete year is required), so it answers regardless of any year
+  cue in the query.
 - **Fill a cell:** click → `ContentBucketEditor`. English: paste the article. Lisan: read the
   original via the **↗ source** link and paste the **English translation**. Saving re-indexes it
   (`status → indexed`) and auto-generates the theme.
@@ -111,6 +116,11 @@ couldn't answer — `metrics.recent_gaps`, i.e. `answer_religious_questions` wit
 not_found/offer_last), **Needs attention** (missing words / ruling flags), and top words + Lisan
 miss-rate. The **Inbox** tab (`ReligiousInbox`) is a religious-scoped clone of the inbox conversation
 surface — only chats that used a religious/Lisan tool (server-scoped endpoint, no logistics PII). It
+shows chats **active in the last N hours by religious tool-CALL recency** (a `windowHours` dropdown:
+24 / **48 (default)** / 168) — *not* by message activity, so a chat whose religious tool-call aged
+past the window no longer clutters the Inbox even if it got a logistics/template message today; a
+Manual-mode chat with a recent handoff (within the window) is kept. The general Conversations inbox
+keeps its all-time "Religious / Lisan" filter as the archive for older religious chats. It
 **stays live by polling `/api/admin/religious/conversations` every 5s + on tab focus** (the endpoint is
 `force-dynamic`; religious monitors can't use the inbox's `canAccessInbox`-gated SSE stream). Mobile is
 WhatsApp-style master/detail (list → tap → thread + ← back). Same **AI ⇄ Manual** switch as the general
@@ -123,6 +133,13 @@ e.g. 1448, with the overview block + translation queue + theme generation); `/ad
 — free-form religious doc upload + indexed docs + the standalone Waaz FAQ-by-Topic blocks — and the
 Lisan dictionary is on the **Dictionary** tab. `/admin/knowledge` is now **logistics-only** (its "Waaz
 Talaqi" tab was removed); all religious content lives under Waaz Talaqqi.
+
+The **Dictionary** tab also has a **browser** (`LisanDictionaryBrowser`) over the indexed words:
+search by word and/or meaning (`GET /api/admin/lisan-words?list=1&q=&field=word|meaning|all`,
+paginated), **copy** buttons per word/meaning (paste a correct spelling into the Inbox), and inline
+**Edit** (`PATCH ?id`) / **Delete** (`DELETE ?id`). Adding a word that already exists (same `norm`)
+now **warns before overwriting**: the `PUT` returns `409 { status: "exists", existing }` unless
+`confirm:true` is sent, so the admin sees the existing meaning and chooses Replace vs Keep.
 
 **Religious dashboard + monitors (`/admin/religious`).** A dedicated team can oversee religious
 chats on their own page, fully separate from the logistics/event admin. A **religious monitor** is a

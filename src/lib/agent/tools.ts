@@ -169,7 +169,7 @@ export const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "move_to_escalation",
       description:
-        "Hand the conversation to the human team and create an issue for tracking. TWO uses: (1) LAST RESORT for logistics — only after you genuinely tried get_site_content_faq and still cannot, or the user is clearly frustrated after you tried, or an emergency (lost child, lost passport, medical, security); never escalate just because someone asks for a person early on. (2) RELIGIOUS FOLLOW-UP — a genuine Waaz/deen question the reflections can't answer, or a personal fiqh/fatwa question: call with category 'religious_followup' so the team can follow up (the system sends a fixed reply; do not add your own). This also creates an issue, workspace task, and notifies the department team.",
+        "Hand the conversation to the human team (on-call) for follow-up. This by itself does NOT create a tracked issue — a single person's request being escalated is not an issue. TWO uses: (1) LAST RESORT for logistics — only after you genuinely tried get_site_content_faq and still cannot, or the user is clearly frustrated after you tried, or an emergency (lost child, lost passport, medical, security); never escalate just because someone asks for a person early on. (2) RELIGIOUS FOLLOW-UP — a genuine Waaz/deen question the reflections can't answer, or a personal fiqh/fatwa question: call with category 'religious_followup' (the system sends a fixed reply; do not add your own). Set requires_department_coordination=true ONLY when the problem is an actionable issue a DEPARTMENT must coordinate to fix (see that field) — that is what creates a tracked issue, workspace task, and department notification.",
       parameters: {
         type: "object",
         properties: {
@@ -212,8 +212,13 @@ export const allToolDefinitions: ToolDefinition[] = [
             description:
               "Name of the department that should handle this. ALWAYS pick the best match from the Available Departments list. Required for issue routing and notifications.",
           },
+          requires_department_coordination: {
+            type: "boolean",
+            description:
+              "Whether this needs a tracked ISSUE for a department to coordinate a fix. Set TRUE only for an actionable PROBLEM a department must act on — something broken, missing, unsafe, or not working (e.g. shuttle not running, AC out, water spill, supplies missing, a facility/safety problem). Set FALSE for an individual request, a question, an info/registration/parking-pass ask, a religious_followup, or a plain 'talk to a person' hand-off — those are handled in the conversation or by the on-call team and must NOT create an issue.",
+          },
         },
-        required: ["reason", "priority", "category", "title", "department"],
+        required: ["reason", "priority", "category", "title", "department", "requires_department_coordination"],
         additionalProperties: false,
       },
     },
@@ -248,7 +253,7 @@ export const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "get_family_meal_rsvps",
       description:
-        "Get the caller's family's current jaman (meal) Niyaz RSVP for Ashara, organised per DAY. The response has a `days` array — one entry per Gregorian day (today→Ashura), each with `date` (YYYY-MM-DD), `title` (the day's name, e.g. \"1st Moharram ul Haram\"), `dateLabel` (e.g. \"Mon, Jun 15\", weekday already worked out — use verbatim), and `lunch`/`dinner` columns. Each meal column is either an object `{attending, total}` (attending count vs family size) or null when that meal isn't served that day (Pehli Raat and Ashura are dinner-only). Read the RSVP back to the user one line PER DAY using the title, dateLabel, and a single attending count per served meal. The response also includes `familyMembers` — an array of {name, isAdult, isHead, notAttending} for each roster-active member; use it to list names when the user claims more people than the family has. RSVP is pre-set for everyone from their arrival date, so use this to show what's already on file before changing it. RSVP is tracked for the whole family. If the caller isn't linked to a registered family, status will be 'unregistered' with the per-day jaman list in `events` and any existing unregistered RSVPs in `rsvps`.",
+        "Get the caller's family's current jaman (meal) Niyaz RSVP for Ashara, organised per DAY. The response has a `days` array — one entry per Gregorian day (today→Ashura), each with `date` (YYYY-MM-DD), `title` (the day's name, e.g. \"1st Moharram ul Haram\"), `dateLabel` (e.g. \"Mon, Jun 15\", weekday already worked out — use verbatim), and `lunch`/`dinner` columns. Each meal column is either an object `{attending, total}` (attending count vs family size) or null when that meal isn't served that day (Pehli Raat and Ashura are dinner-only). Each day also has `closed` (boolean) and `closedLabel` — when `closed` is true the day's RSVP cutoff has passed and it can no longer be changed; note it as closed and don't offer to change that day. Read the RSVP back to the user one line PER DAY using the title, dateLabel, and a single attending count per served meal. The response also includes `familyMembers` — an array of {name, isAdult, isHead, notAttending} for each roster-active member; use it to list names when the user claims more people than the family has. RSVP is pre-set for everyone from their arrival date, so use this to show what's already on file before changing it. RSVP is tracked for the whole family. If the caller isn't linked to a registered family, status will be 'unregistered' with the per-day jaman list in `events` and any existing unregistered RSVPs in `rsvps`.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
@@ -257,7 +262,7 @@ export const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "set_family_meal_rsvps",
       description:
-        "Update the caller's family's jaman (meal) Niyaz RSVP. Attendance is already pre-set for everyone from their arrival date, so use this mainly to record CHANGES — most often when the family says they will NOT attend on some day(s). To target a change, COPY the `date` of the relevant day row from get_family_meal_rsvps verbatim into the entry's `dates` and set `meal` to the column the user means (lunch/dinner) — each (date, meal) is exactly one jaman, so this never mis-targets. Omit dates (or set all=true) to apply to every day. The change applies to the WHOLE family. Always confirm back to the user. For PARTIAL attendance (e.g. 'only 1 adult on the 21st'), pass adults and/or kids with the entries — the system keeps the head of family attending first, then other adults, then kids, and marks the rest not-attending for those events. For unregistered callers (status 'unregistered'), adults/kids/its_number record their count. NEVER pass adults/kids higher than the family size — if you do, the system caps the count at the family size and returns a `clamped` object ({requestedAdults, requestedKids, maxAdults, maxKids, message}); when present you MUST tell the user the RSVP was capped at their registered family and the extra people must message this number from their own phones to register separately. Examples: 'we won't be there on the 16th' -> {attending:false, dates:['2026-06-16']}; 'skip all the dinners' -> {attending:false, meal:'dinner', all:true}; 'only 1 adult for dinner on the 21st' -> {entries:[{attending:true, dates:['2026-06-21'], meal:'dinner'}], adults:1, kids:0}.",
+        "Update the caller's family's jaman (meal) Niyaz RSVP. Attendance is already pre-set for everyone from their arrival date, so use this mainly to record CHANGES — most often when the family says they will NOT attend on some day(s). To target a change, COPY the `date` of the relevant day row from get_family_meal_rsvps verbatim into the entry's `dates` and set `meal` to the column the user means (lunch/dinner) — each (date, meal) is exactly one jaman, so this never mis-targets. Omit dates (or set all=true) to apply to every day. The change applies to the WHOLE family. Always confirm back to the user. For PARTIAL attendance (e.g. 'only 1 adult on the 21st'), pass adults and/or kids with the entries — the system keeps the head of family attending first, then other adults, then kids, and marks the rest not-attending for those events. For unregistered callers (status 'unregistered'), adults/kids/its_number record their count. NEVER pass adults/kids higher than the family size — if you do, the system caps the count at the family size and returns a `clamped` object ({requestedAdults, requestedKids, maxAdults, maxKids, message}); when present you MUST tell the user the RSVP was capped at their registered family and the extra people must message this number from their own phones to register separately. Examples: 'we won't be there on the 16th' -> {attending:false, dates:['2026-06-16']}; 'skip all the dinners' -> {attending:false, meal:'dinner', all:true}; 'only 1 adult for dinner on the 21st' -> {entries:[{attending:true, dates:['2026-06-21'], meal:'dinner'}], adults:1, kids:0}. RSVP CLOSES PER DAY: a day past its cutoff is locked — that day's change is NOT applied and the response returns a `blocked` array ({title, date, endLabel}). When `blocked` is present you MUST tell the user RSVP for that day has closed (cite title + endLabel) so it couldn't be changed; days not in `blocked` were applied.",
       parameters: {
         type: "object",
         properties: {
@@ -285,8 +290,9 @@ export const allToolDefinitions: ToolDefinition[] = [
               additionalProperties: false,
             },
           },
-          adults: { type: "number", description: "Number of adults attending. For registered families, triggers partial attendance (only this many adults attend; head of family kept first). For unregistered callers, records their head count." },
-          kids: { type: "number", description: "Number of kids attending. For registered families, triggers partial attendance (only this many kids attend). For unregistered callers, records their head count." },
+          total: { type: "number", description: "PREFERRED for a bare head count with no adult/kid split (e.g. 'change to 5 for dinner', '5 of us are coming'). The system fills that many attendees in priority order — head of family first, then other adults, then kids — and caps at the registered family size. Use this instead of guessing adults vs kids; only use adults/kids when the user explicitly states the split or which members attend." },
+          adults: { type: "number", description: "Number of ADULTS attending — use ONLY when the user explicitly gives an adult/kid split (e.g. '2 adults and 1 kid') or names which members. Do NOT put a bare total here — use `total`. Head of family kept first. For unregistered callers, records their head count." },
+          kids: { type: "number", description: "Number of KIDS attending — use ONLY alongside `adults` when the user explicitly states the split. For unregistered callers, records their head count." },
           its_number: { type: "string", description: "ITS number (optional, for unregistered callers to help match to a family later)." },
         },
         required: ["entries"],
@@ -839,6 +845,7 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
           priority: args.priority,
           category: args.category,
           department: args.department,
+          requires_department_coordination: args.requires_department_coordination === true,
           source: "ai",
         },
       });
@@ -872,7 +879,9 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
         phone: context.phoneE164,
         body: {
           entries: args.entries ?? [],
-          // Forward head-count + ITS for unregistered callers; the API ignores them for registered families.
+          // Forward head-count + ITS. `total` is a bare count (no adult/kid split); adults/kids are
+          // the explicit split. For unregistered callers these record the head count.
+          ...(args.total !== undefined ? { total: args.total } : {}),
           ...(args.adults !== undefined ? { adults: args.adults } : {}),
           ...(args.kids !== undefined ? { kids: args.kids } : {}),
           ...(args.its_number !== undefined ? { its_number: args.its_number } : {}),
@@ -972,6 +981,26 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
 function summarizeResult(result: unknown) {
   if (typeof result === "string") {
     return result.slice(0, 500);
+  }
+
+  // Religious answer results carry a `decision` + a (possibly large) `context`. Store a structured,
+  // VALID-JSON summary instead of a mid-string-truncated blob (the old slice(0,500) cut the JSON mid
+  // `context`, so evals couldn't parse `decision`/`source` and saw only the FIRST matched chunk —
+  // which made correct answers look wrong). `matched` keeps the titles / Q-headers of ALL retrieved
+  // top-K chunks (identifiers, not bodies, so it stays bounded). Religious content is not PII.
+  if (result && typeof result === "object" && "decision" in result) {
+    const r = result as { decision?: unknown; year?: unknown; source?: unknown; context?: unknown };
+    const matched: string[] = [];
+    if (typeof r.context === "string") {
+      for (const m of r.context.matchAll(/\[([^\]\n]{1,140})\]/g)) matched.push(`[${m[1].trim()}]`);
+      for (const m of r.context.matchAll(/^Q:\s*([^\n]{1,140})/gim)) matched.push(`Q: ${m[1].trim()}`);
+    }
+    return JSON.stringify({
+      decision: r.decision ?? null,
+      year: r.year ?? null,
+      source: r.source ?? null,
+      matched: matched.slice(0, 8),
+    });
   }
 
   return JSON.stringify(result).slice(0, 500);

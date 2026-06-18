@@ -186,6 +186,33 @@ describe("setFamilyNiyazRsvp partial attendance", () => {
     expect(rows.every((r) => r.registration_instance_id === "e-15-dinner")).toBe(true);
   });
 
+  it("fills a bare `total` in priority order — head, then other adults, then kids", async () => {
+    await setFamilyNiyazRsvp(
+      "fam-1",
+      [{ attending: true, dates: ["2026-06-21"], meal: "dinner" as const }],
+      { source: "whatsapp", phone: "+15551234567" },
+      { total: 2 },
+    );
+    const rows = upsertedRows[0];
+    expect(rows.find((r) => r.mumin_id === "m-head")?.attending).toBe(true);
+    expect(rows.find((r) => r.mumin_id === "m-spouse")?.attending).toBe(true);
+    expect(rows.find((r) => r.mumin_id === "m-kid")?.attending).toBe(false);
+  });
+
+  it("a bare `total` above the adult count pulls in kids rather than clamping (the '5 for dinner' bug)", async () => {
+    // Family of 2 adults + 1 kid. "3 of us" must mark all 3 attending (incl. the kid), NOT cap at 2 adults.
+    const result = await setFamilyNiyazRsvp(
+      "fam-1",
+      [{ attending: true, dates: ["2026-06-21"], meal: "dinner" as const }],
+      { source: "whatsapp", phone: "+15551234567" },
+      { total: 3 },
+    );
+    const rows = upsertedRows[0];
+    expect(rows.filter((r) => r.attending === true)).toHaveLength(3);
+    expect(rows.find((r) => r.mumin_id === "m-kid")?.attending).toBe(true);
+    expect(result.clamped).toBeUndefined();
+  });
+
   it("does not apply partial counts to attending=false events", async () => {
     await setFamilyNiyazRsvp(
       "fam-1",
