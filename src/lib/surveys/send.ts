@@ -110,6 +110,43 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
   const f = form as FormRow;
   if (f.status === "sent") return { error: "This form has already been sent." };
 
+  const emptyFunnel: SampleResult["funnel"] = {
+    candidates: 0, excludedNotAttending: 0, excludedUnregistered: 0, excludedToday: 0,
+    excludedExhausted: 0, excludedNonResponder: 0, excludedAlreadySent: 0, fresh: 0, reused: 0, chosen: 0,
+  };
+
+  // Already committed (status "sampled") but not dispatched — e.g. a first Commit & send done in
+  // "Manual links only" mode. Don't re-sample (that would exclude these as "already today" and find
+  // ~nobody); instead dispatch THIS existing batch as-is. Picking a template now finishes the send.
+  if (f.status === "sampled") {
+    const { data: existing } = await supabase
+      .from("survey_recipients")
+      .select("id, mumin_id, phone_e164, token, is_test")
+      .eq("form_id", formId)
+      .eq("status", "sampled");
+    const rows = ((existing ?? []) as { id: string; mumin_id: string; phone_e164: string; token: string; is_test: boolean }[]).filter((r) => !r.is_test);
+    if (rows.length > 0) {
+      const ids = Array.from(new Set(rows.map((r) => r.mumin_id)));
+      const nameById = new Map<string, string | null>();
+      for (let i = 0; i < ids.length; i += 500) {
+        const { data } = await supabase.from("mumineen").select("id, full_name").in("id", ids.slice(i, i + 500));
+        for (const m of (data ?? []) as { id: string; full_name: string | null }[]) nameById.set(m.id, m.full_name);
+      }
+      const funnel: SampleResult["funnel"] = { ...emptyFunnel, candidates: rows.length, chosen: rows.length };
+      const recipients: CommittedRecipient[] = rows.map((r) => ({ recipientId: r.id, muminId: r.mumin_id, phone: r.phone_e164, name: nameById.get(r.mumin_id) ?? null, token: r.token, link: surveyLink(r.token) }));
+      const templateCode = resolveSurveyTemplate(templateCodeOverride);
+      if (!templateCode) {
+        return { formId, funnel, recipients, sent: false, sendError: "These links are already committed. Pick a WhatsApp template to send them (or copy the links below)." };
+      }
+      const dispatch = await dispatchSurveyTemplate(templateCode, rows.map((r) => ({ phone: r.phone_e164, token: r.token, name: nameById.get(r.mumin_id) ?? null, muminId: r.mumin_id })));
+      if ("error" in dispatch) return { formId, funnel, recipients, sent: false, sendError: dispatch.error };
+      await supabase.from("survey_recipients").update({ status: "sent", sent_at: new Date().toISOString() }).eq("form_id", formId).eq("status", "sampled");
+      await supabase.from("survey_forms").update({ status: "sent", sent_at: new Date().toISOString() }).eq("id", formId);
+      return { formId, funnel, recipients, sent: true };
+    }
+    // No committed batch left → fall through and sample fresh.
+  }
+
   // Target is a saved group (group_id) OR an ad-hoc custom filter (rules) stored on the form.
   let targetRules: RuleGroup | null = f.rules;
   if (f.group_id) {
