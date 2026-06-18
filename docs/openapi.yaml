@@ -1964,7 +1964,7 @@ paths:
         per-day events array (date/dateLabel/title + which meals served) so the agent maps day
         references to real dates. Used by the get_family_meal_rsvps agent tool.
       responses:
-        "200": { description: "status=ok: days [{ date, dateLabel, title, hijriDate, lunch, dinner }] where lunch/dinner are each { attending, total } or null when that meal isn't served (Pehli Raat/Ashura are dinner-only); dateLabel e.g. 'Mon, Jun 15' has the weekday pre-computed for the agent's read-back. Plus familyMembers [{name, isAdult, isHead, notAttending}]. Or status=unregistered with rsvps + per-day events [{ date, dateLabel, title, lunch:boolean, dinner:boolean }] for unlinked phones." }
+        "200": { description: "status=ok: days [{ date, dateLabel, title, hijriDate, lunch, dinner, closed, closedAt, closedLabel }] where lunch/dinner are each { attending, total } or null when that meal isn't served (Pehli Raat/Ashura are dinner-only); dateLabel e.g. 'Mon, Jun 15' has the weekday pre-computed for the agent's read-back; closed=true (with closedAt/closedLabel) means the day's RSVP cutoff has passed and it can no longer be changed. Plus familyMembers [{name, isAdult, isHead, notAttending}]. Or status=unregistered with rsvps + per-day events [{ date, dateLabel, title, lunch:boolean, dinner:boolean, closed, closedAt, closedLabel }] for unlinked phones." }
         "400": { $ref: "#/components/responses/BadRequest" }
     post:
       tags: [rsvp]
@@ -1973,7 +1973,11 @@ paths:
         Self-scoped via x-whatsapp-from. Attendance is pre-set from arrival dates; this records
         changes (mostly "not coming on day X"). Each entry marks the family attending or not for
         specific dates (or all days), optionally narrowed to one meal; the change cascades to the
-        whole family. Used by set_family_meal_rsvps.
+        whole family. An entry applies globally ONLY when all=true is set explicitly — an entry with
+        no dates/titles and no all=true matches nothing and is ignored, so a single-day change can
+        never accidentally overwrite every day. Per-day RSVP cutoff: a day whose niyaz_event_config
+        rsvp_end_at has passed is locked — changes to it are NOT applied (for every source, no bypass)
+        and are returned in a blocked array. Used by set_family_meal_rsvps.
       requestBody:
         required: true
         content:
@@ -1994,12 +1998,12 @@ paths:
                       dates: { type: array, items: { type: string, format: date }, description: "Preferred selector — the day row's `date` copied verbatim from the per-day response. Pair with meal; (date, meal) is exactly one jaman, so no hijri night-shift guessing. Omit (or all=true) for every day." }
                       titles: { type: array, items: { type: string }, description: "Legacy/fallback selector — event titles (e.g. 'Pehli Raat'). Server resolves title (+meal) to a date. Prefer dates+meal copied from the day row. Pair with meal to disambiguate a title shared by a lunch and a dinner." }
                       meal: { type: string, enum: [lunch, dinner] }
-                      all: { type: boolean }
+                      all: { type: boolean, description: "Set true to apply to every day (required for any global change). An entry with no dates/titles and all!=true targets nothing and is skipped." }
                 adults: { type: integer, description: "Number of adults attending. For registered families, triggers partial attendance (head of family kept first); capped at the family's adult count. For unregistered callers, records head count." }
                 kids: { type: integer, description: "Number of kids attending. For registered families, triggers partial attendance; capped at the family's kid count. For unregistered callers, records head count." }
                 its_number: { type: string, description: "Unregistered callers only — optional ITS for family matching." }
       responses:
-        "200": { description: "Updated row count + the refreshed per-day days array (same shape as GET, today→Ashura). When the requested counts exceeded the family size, also returns clamped {requestedAdults, requestedKids, requestedTotal, maxAdults, maxKids, maxTotal, message} so the agent tells the user the count was capped and extras must register separately. requestedTotal/maxTotal carry the single-number (head-count) case; adults/kids the split case. (Or status=unregistered_recorded for unlinked phones — upserts into unregistered_rsvps.)" }
+        "200": { description: "Updated row count + the refreshed per-day days array (same shape as GET, today→Ashura). When the requested counts exceeded the family size, also returns clamped {requestedAdults, requestedKids, requestedTotal, maxAdults, maxKids, maxTotal, message} so the agent tells the user the count was capped and extras must register separately. requestedTotal/maxTotal carry the single-number (head-count) case; adults/kids the split case. When one or more targeted days were past their RSVP cutoff, returns blocked [{date, title, endAt, endLabel}] for the days that were NOT changed so the agent tells the user RSVP has closed for them. (Or status=unregistered_recorded for unlinked phones — upserts into unregistered_rsvps.)" }
         "400": { $ref: "#/components/responses/BadRequest" }
 
   /api/parking/my-passes:

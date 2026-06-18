@@ -77,11 +77,27 @@ each `{attending,total}` or null); POST entries are `{attending, titles?, dates?
 day row's `date` + `meal` — copying the server-provided `date` **verbatim** (never computing it). Since
 `(event_date, meal)` is unique, this hits exactly one jaman, so the displayed day title is presentation-only
 and never a write selector — eliminating any hijri night-shift mis-target. `titles`+`meal` remains accepted
-server-side as a legacy fallback (`decideEvents` resolves title→date). For registered families, `adults`/`kids` enable **partial attendance**: only that many
+server-side as a legacy fallback (`decideEvents` resolves title→date). **Global-cascade guard:** `decideEvents`
+applies an entry globally **only** when `all:true` is set explicitly; an entry with no `dates`/`titles` and no
+`all:true` (a bare `{attending}` or `meal`-only entry) matches **nothing** and is skipped — so a mis-scoped
+single-day change can never silently overwrite the whole Ashara. A genuine "every day" change must pass `all:true`.
+All internal callers (`scopeToEntries`, `recordFamilyHeadCount`, `recordNiyazDayRsvp`) already pass explicit
+`dates`, so only the agent path is affected. **Per-day RSVP cutoff:** every write
+funnels through `applyNiyazRsvp` / `recordUnregisteredRsvp`, which drop any decision whose **day** has a passed
+`niyaz_event_config.rsvp_end_at` (`getClosedEventDates` + the pure `partitionDecisionsByCutoff`) — so once a day
+closes, its count is locked and can't be changed in either direction. The cutoff applies to **every source**
+— no bypass, including an admin acting as their own registrant. Blocked days are returned as a `blocked`
+array (`{date, title, endAt}`, plus `endLabel` from the API) so the agent tells the user RSVP for that day has
+closed. The **GET** also tags each day with `closed`/`closedAt`/`closedLabel` so the agent can mark closed days
+and not offer to change them on read-back. This mirrors the Flow/button cutoff guard in `niyaz-interactive.ts`
+(which gates upstream by `day_id`). For registered families, `adults`/`kids` enable **partial attendance**: only that many
 members are marked attending (head of family kept first, then other adults, then kids), and the rest
 are marked not-attending for those events; for unregistered callers they record the head count.
 Changes go to `unregistered_rsvps` for unlinked phones). Agent tools: `get_family_meal_rsvps`, `set_family_meal_rsvps`
-(public; the agent mainly records *changes* — guidance in `MEAL_RSVP_FEEDBACK_RULE`). That rule
+(public; the agent mainly records *changes* — guidance in `MEAL_RSVP_FEEDBACK_RULE`). **Read-back is
+day-scoped, not the full plan:** when the caller names a day/meal the agent answers only that day's line; with
+no day named it shows only the next upcoming day and asks which day they meant; the full multi-day list is shown
+only on explicit request ("all my days"), and after a change only the changed day(s) are read back. That rule
 also routes intent: "register / sign up for Pehli Raat / a Moharram day / Ashura / a jaman" is a
 **meal RSVP**, not in-person event registration — the agent must not answer it from the registration
 FAQ, and must never tell an already-registered caller (Sender Context: `Registration: submitted`) to
