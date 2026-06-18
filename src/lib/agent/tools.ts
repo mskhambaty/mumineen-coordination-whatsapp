@@ -169,7 +169,7 @@ export const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "move_to_escalation",
       description:
-        "Hand the conversation to the human team and create an issue for tracking. TWO uses: (1) LAST RESORT for logistics — only after you genuinely tried get_site_content_faq and still cannot, or the user is clearly frustrated after you tried, or an emergency (lost child, lost passport, medical, security); never escalate just because someone asks for a person early on. (2) RELIGIOUS FOLLOW-UP — a genuine Waaz/deen question the reflections can't answer, or a personal fiqh/fatwa question: call with category 'religious_followup' so the team can follow up (the system sends a fixed reply; do not add your own). This also creates an issue, workspace task, and notifies the department team.",
+        "Hand the conversation to the human team (on-call) for follow-up. This by itself does NOT create a tracked issue — a single person's request being escalated is not an issue. TWO uses: (1) LAST RESORT for logistics — only after you genuinely tried get_site_content_faq and still cannot, or the user is clearly frustrated after you tried, or an emergency (lost child, lost passport, medical, security); never escalate just because someone asks for a person early on. (2) RELIGIOUS FOLLOW-UP — a genuine Waaz/deen question the reflections can't answer, or a personal fiqh/fatwa question: call with category 'religious_followup' (the system sends a fixed reply; do not add your own). Set requires_department_coordination=true ONLY when the problem is an actionable issue a DEPARTMENT must coordinate to fix (see that field) — that is what creates a tracked issue, workspace task, and department notification.",
       parameters: {
         type: "object",
         properties: {
@@ -212,8 +212,13 @@ export const allToolDefinitions: ToolDefinition[] = [
             description:
               "Name of the department that should handle this. ALWAYS pick the best match from the Available Departments list. Required for issue routing and notifications.",
           },
+          requires_department_coordination: {
+            type: "boolean",
+            description:
+              "Whether this needs a tracked ISSUE for a department to coordinate a fix. Set TRUE only for an actionable PROBLEM a department must act on — something broken, missing, unsafe, or not working (e.g. shuttle not running, AC out, water spill, supplies missing, a facility/safety problem). Set FALSE for an individual request, a question, an info/registration/parking-pass ask, a religious_followup, or a plain 'talk to a person' hand-off — those are handled in the conversation or by the on-call team and must NOT create an issue.",
+          },
         },
-        required: ["reason", "priority", "category", "title", "department"],
+        required: ["reason", "priority", "category", "title", "department", "requires_department_coordination"],
         additionalProperties: false,
       },
     },
@@ -839,6 +844,7 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
           priority: args.priority,
           category: args.category,
           department: args.department,
+          requires_department_coordination: args.requires_department_coordination === true,
           source: "ai",
         },
       });

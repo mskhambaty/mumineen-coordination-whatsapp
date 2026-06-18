@@ -34,7 +34,86 @@ type EscalationBody = {
   category?: unknown;
   department?: unknown;
   source?: unknown;
+  requires_department_coordination?: unknown;
 };
+
+// Create (or reuse) a tracked issue + workspace task for an escalation that needs department
+// coordination. Idempotent per conversation: if the conversation already has an OPEN linked issue
+// (e.g. a re-escalation — the ISS-21/ISS-22 case), reuse it instead of minting a duplicate.
+// Cross-conversation topical auto-linking is intentionally NOT done here (human-confirmed via the
+// suggestions endpoint; cross-conversation promotion is Trigger B, handled separately).
+async function createOrReuseIssueForEscalation(args: {
+  supabase: ReturnType<typeof getSupabaseAdmin>;
+  sessionId: string;
+  phone: string;
+  issueTitle: string;
+  issuePriority: string;
+  description: string | null;
+  departmentId: string | null;
+}): Promise<{ issueId: string | null; deduplicated: boolean }> {
+  const { supabase, sessionId, phone, issueTitle, issuePriority, description, departmentId } = args;
+  let issueId: string | null = null;
+  let deduplicated = false;
+
+  // Re-escalation guard: reuse an OPEN issue already linked to this conversation.
+  try {
+    const { data: priorLinks } = await supabase
+      .from("issue_escalation_links")
+      .select("issue_id, issues(status)")
+      .eq("conversation_session_id", sessionId);
+    const links = (priorLinks ?? []) as Array<{ issue_id: string; issues: { status: string } | { status: string }[] | null }>;
+    const openLink = links.find((l) => {
+      const issue = Array.isArray(l.issues) ? l.issues[0] : l.issues;
+      const status = issue?.status;
+      return status != null && status !== "resolved" && status !== "closed";
+    });
+    if (openLink) {
+      issueId = openLink.issue_id;
+      deduplicated = true;
+      await supabase.from("conversation_sessions").update({ linked_issue_id: issueId }).eq("id", sessionId);
+      try {
+        const { logEscalationActivity } = await import("@/lib/escalation/activity");
+        await logEscalationActivity({
+          sessionId, issueId, phoneE164: phone, action: "linked_to_issue", actorLabel: "AI Agent",
+          details: { deduplicated: true, reason: "conversation already has an open issue" },
+        });
+      } catch { /* fire-and-forget */ }
+    }
+  } catch (err) {
+    console.error("Re-escalation idempotency check failed; will create a new issue:", err);
+  }
+
+  if (issueId) return { issueId, deduplicated };
+
+  // No open issue on this conversation — create a new issue + workspace task.
+  try {
+    const { data: issue } = await supabase
+      .from("issues")
+      .insert({ title: issueTitle, description, priority: issuePriority, department_id: departmentId })
+      .select("id, title")
+      .single();
+    if (issue) {
+      issueId = issue.id;
+      await supabase.from("issue_escalation_links").insert({ issue_id: issue.id, conversation_session_id: sessionId });
+      await supabase.from("conversation_sessions").update({ linked_issue_id: issue.id }).eq("id", sessionId);
+      await supabase.from("tasks").insert({
+        title: issueTitle, description, department_id: departmentId, priority: issuePriority,
+        item_type: "issue", source: "whatsapp_agent", origin: "external", source_phone: phone,
+      });
+      try {
+        const { logEscalationActivity } = await import("@/lib/escalation/activity");
+        await logEscalationActivity({ sessionId, issueId: issue.id, phoneE164: phone, action: "created_issue", actorLabel: "AI Agent", details: { title: issueTitle, priority: issuePriority } });
+        await logEscalationActivity({ sessionId, issueId: issue.id, phoneE164: phone, action: "linked_to_issue", actorLabel: "AI Agent" });
+      } catch { /* fire-and-forget */ }
+      if (departmentId) {
+        void notifyDepartmentIssueContacts({ issueId: issue.id, title: issueTitle, description, departmentId });
+      }
+    }
+  } catch (err) {
+    console.error("Issue/task creation during escalation failed:", err);
+  }
+  return { issueId, deduplicated };
+}
 
 export async function POST(req: NextRequest) {
   const phone = req.headers.get("x-whatsapp-from");
@@ -48,6 +127,9 @@ export async function POST(req: NextRequest) {
   const description = typeof body.description === "string" ? body.description.trim() : "";
   const category = typeof body.category === "string" ? body.category : "other";
   const source = body.source === "rule" || body.source === "manual" ? body.source : "ai";
+  // Escalation ≠ issue: we only create a tracked issue when the problem needs department
+  // coordination (the agent sets this). Everything else is handed to the on-call team only.
+  const requiresDeptCoordination = body.requires_department_coordination === true;
   // The model's "urgent" label does NOT bypass the gate — only real emergency wording does.
   const isEmergency = EMERGENCY_PATTERN.test(reason);
   const priority = body.priority === "urgent" ? "urgent" : "normal";
@@ -139,124 +221,23 @@ export async function POST(req: NextRequest) {
     // fire-and-forget
   }
 
-  // An escalation does NOT topically auto-link to OTHER conversations' issues (that over-grouped
-  // unrelated escalations; cross-conversation grouping is human-confirmed via the suggestions
-  // endpoint). But it IS idempotent for THIS conversation: if the same conversation already has an
-  // open linked issue — e.g. the agent called move_to_escalation more than once in the chat, which
-  // produced the ISS-21/ISS-22 duplicate ~18s apart — reuse it instead of minting a duplicate.
+  // Escalation ≠ issue. The escalation above hands the conversation to the on-call team. We create a
+  // tracked issue + task ONLY when the agent flags that the problem needs department coordination.
   const issueTitle = title || reason || "Escalation";
   const issuePriority = priority === "urgent" ? "high" : "medium";
   let issueId: string | null = null;
   let deduplicated = false;
 
-  // Re-escalation guard: reuse an OPEN issue already linked to this conversation.
-  try {
-    const { data: priorLinks } = await supabase
-      .from("issue_escalation_links")
-      .select("issue_id, issues(status)")
-      .eq("conversation_session_id", data.id);
-    const links = (priorLinks ?? []) as Array<{ issue_id: string; issues: { status: string } | { status: string }[] | null }>;
-    const openLink = links.find((l) => {
-      const issue = Array.isArray(l.issues) ? l.issues[0] : l.issues;
-      const status = issue?.status;
-      return status != null && status !== "resolved" && status !== "closed";
-    });
-    if (openLink) {
-      issueId = openLink.issue_id;
-      deduplicated = true;
-      await supabase
-        .from("conversation_sessions")
-        .update({ linked_issue_id: issueId })
-        .eq("id", data.id);
-      try {
-        const { logEscalationActivity } = await import("@/lib/escalation/activity");
-        await logEscalationActivity({
-          sessionId: data.id,
-          issueId,
-          phoneE164: phone,
-          action: "linked_to_issue",
-          actorLabel: "AI Agent",
-          details: { deduplicated: true, reason: "conversation already has an open issue" },
-        });
-      } catch {
-        // fire-and-forget
-      }
-    }
-  } catch (err) {
-    console.error("Re-escalation idempotency check failed; will create a new issue:", err);
-  }
-
-  // Create the new issue + workspace task (only when this conversation has no open issue yet).
-  if (!issueId) {
-    try {
-      const { data: issue } = await supabase
-        .from("issues")
-        .insert({
-          title: issueTitle,
-          description: description || reason || null,
-          priority: issuePriority,
-          department_id: escalationDepartmentId,
-        })
-        .select("id, title")
-        .single();
-
-      if (issue) {
-        issueId = issue.id;
-
-        await supabase.from("issue_escalation_links").insert({
-          issue_id: issue.id,
-          conversation_session_id: data.id,
-        });
-
-        await supabase
-          .from("conversation_sessions")
-          .update({ linked_issue_id: issue.id })
-          .eq("id", data.id);
-
-        await supabase.from("tasks").insert({
-          title: issueTitle,
-          description: description || reason || null,
-          department_id: escalationDepartmentId,
-          priority: issuePriority,
-          item_type: "issue",
-          source: "whatsapp_agent",
-          origin: "external",
-          source_phone: phone,
-        });
-
-        try {
-          const { logEscalationActivity } = await import("@/lib/escalation/activity");
-          await logEscalationActivity({
-            sessionId: data.id,
-            issueId: issue.id,
-            phoneE164: phone,
-            action: "created_issue",
-            actorLabel: "AI Agent",
-            details: { title: issueTitle, priority: issuePriority },
-          });
-          await logEscalationActivity({
-            sessionId: data.id,
-            issueId: issue.id,
-            phoneE164: phone,
-            action: "linked_to_issue",
-            actorLabel: "AI Agent",
-          });
-        } catch {
-          // fire-and-forget
-        }
-
-        if (escalationDepartmentId) {
-          void notifyDepartmentIssueContacts({
-            issueId: issue.id,
-            title: issueTitle,
-            description: description || reason || null,
-            departmentId: escalationDepartmentId,
-          });
-        }
-      }
-    } catch (err) {
-      console.error("Issue/task creation during escalation failed:", err);
-    }
+  if (requiresDeptCoordination) {
+    ({ issueId, deduplicated } = await createOrReuseIssueForEscalation({
+      supabase,
+      sessionId: data.id,
+      phone,
+      issueTitle,
+      issuePriority,
+      description: description || reason || null,
+      departmentId: escalationDepartmentId,
+    }));
   }
 
   // Notify escalation team members via email + WhatsApp. Best-effort: a
