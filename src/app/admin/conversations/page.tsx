@@ -117,6 +117,9 @@ type Conversation = {
   // False = "Broadcast-only" (thread has no real message — RSVP/feedback broadcasts only). Drives the
   // Conversations/Broadcast-only filter so a real conversation isn't hidden after a broadcast reaches it.
   has_conversational_message?: boolean;
+  // True = the thread's agent activity is RSVP-only (used an RSVP tool, no other substantive tool) —
+  // an RSVP status exchange, bucketed as Survey/broadcast rather than a real conversation.
+  is_rsvp_only?: boolean;
   // Latest non-broadcast message — used for the list preview/timestamp/sort so a thread reflects its
   // last real conversation, not a later broadcast that bumped it. Null for broadcast-only threads.
   conversational_last_message?: { body: string | null; created_at: string } | null;
@@ -366,10 +369,12 @@ export default function ConversationsPage() {
 
   // Non-primary WABA numbers = "Survey" (niyaz feedback/RSVP broadcasts).
   const surveyPnids = useMemo(() => new Set(accounts.filter((a) => !a.isPrimary).map((a) => a.phoneNumberId)), [accounts]);
-  // "Broadcast-only" = the thread has no real message (RSVP/feedback broadcasts only). Keyed off the
-  // server-computed has_conversational_message (over ALL messages) so a real conversation stays under
-  // "Conversations" even after a broadcast is later sent to it. Undefined flag → treat as conversational.
-  const isBroadcastOnlyConversation = (c: Conversation): boolean => c.has_conversational_message === false;
+  // "Broadcast/Survey" = no real message (RSVP/feedback broadcasts only) OR an RSVP-only thread (the
+  // person fumbled an RSVP and the agent answered — real text, but RSVP-topic by its tool usage).
+  // Both server-computed over ALL data, so a real conversation stays under "Conversations" even after
+  // a broadcast reaches it, while RSVP status exchanges bucket as Survey. Undefined → conversational.
+  const isBroadcastOnlyConversation = (c: Conversation): boolean =>
+    c.has_conversational_message === false || c.is_rsvp_only === true;
 
   // Conversations tab KPI stats (non-escalated threads only, respecting the Helpline/Survey focus).
   const conversationStats = useMemo(() => {
