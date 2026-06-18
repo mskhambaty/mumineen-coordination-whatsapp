@@ -1,4 +1,4 @@
-import { getEventConfigTitles } from "@/lib/rsvp/event-config";
+import { getClosedEventDates, getEventConfigTitles, type ClosedDay } from "@/lib/rsvp/event-config";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 // Per-mumin Niyaz attendance over the `niyaz_rsvp` table: one row per (event, mumin), `attending`
@@ -215,7 +215,7 @@ export type ClampNotice = {
   maxKids: number;
   maxTotal: number;
 };
-export type ApplyResult = { updated: number; grid: FamilyGridRow[]; clamped?: ClampNotice };
+export type ApplyResult = { updated: number; grid: FamilyGridRow[]; clamped?: ClampNotice; blocked?: BlockedDay[] };
 
 type RsvpTarget = { muminId: string; notAttending: boolean; isAdult: boolean; isHead: boolean };
 type ApplyOpts = { source: "whatsapp" | "admin"; phone?: string | null; recordedBy?: string | null; respectNotAttending?: boolean };
@@ -223,9 +223,16 @@ type ApplyOpts = { source: "whatsapp" | "admin"; phone?: string | null; recorded
 type PartialCounts = { adults?: number; kids?: number; total?: number };
 
 // Resolve entries → a per-event attending decision (last entry wins per event).
-function decideEvents(events: NiyazEvent[], entries: NiyazRsvpEntry[]): Map<string, boolean> {
+export function decideEvents(events: NiyazEvent[], entries: NiyazRsvpEntry[]): Map<string, boolean> {
   const decisions = new Map<string, boolean>();
   for (const entry of entries) {
+    // Guard the global-cascade footgun: an entry must name day(s)/title(s) OR opt in
+    // explicitly with all:true. An entry with no selector (and a bare meal counts as no
+    // selector) targets nothing — so a mis-scoped single-day change can never silently
+    // overwrite the whole Ashara. Global changes must be deliberate (all:true).
+    const hasDates = Boolean(entry.dates && entry.dates.length > 0);
+    const hasTitles = Boolean(entry.titles && entry.titles.length > 0);
+    if (!hasDates && !hasTitles && entry.all !== true) continue;
     const dateSet = entry.all || !entry.dates || entry.dates.length === 0 ? null : new Set(entry.dates);
     const titleSet = entry.all || !entry.titles || entry.titles.length === 0 ? null : new Set(entry.titles.map(normTitle));
     for (const ev of events) {
@@ -236,6 +243,34 @@ function decideEvents(events: NiyazEvent[], entries: NiyazRsvpEntry[]): Map<stri
     }
   }
   return decisions;
+}
+
+// A day whose RSVP cutoff has passed — reported back so the caller can tell the user their change
+// wasn't applied for it.
+export type BlockedDay = { date: string; title: string | null; endAt: string };
+
+// Split per-event decisions into those the cutoff still allows vs those whose DAY's RSVP has closed.
+// Pure (the closed-day map is passed in), so the cutoff clock stays in one testable place. A change
+// to a closed day is dropped from the write entirely — neither direction (yes or no) is recorded.
+export function partitionDecisionsByCutoff(
+  events: NiyazEvent[],
+  decisions: Map<string, boolean>,
+  closed: Map<string, ClosedDay>,
+): { allowed: Map<string, boolean>; blocked: BlockedDay[] } {
+  if (closed.size === 0) return { allowed: decisions, blocked: [] };
+  const byId = new Map(events.map((e) => [e.id, e] as const));
+  const allowed = new Map<string, boolean>();
+  const blocked = new Map<string, BlockedDay>();
+  for (const [id, attending] of decisions) {
+    const ev = byId.get(id);
+    const c = ev ? closed.get(ev.eventDate) : undefined;
+    if (ev && c) {
+      blocked.set(ev.eventDate, { date: ev.eventDate, title: c.title, endAt: c.endAt });
+    } else {
+      allowed.set(id, attending);
+    }
+  }
+  return { allowed, blocked: [...blocked.values()] };
 }
 
 // Pick which members attend when the caller gives explicit adults/kids counts smaller than the
@@ -278,10 +313,19 @@ function selectPartialTargets(targets: RsvpTarget[], counts: PartialCounts): Set
 // cascade so we don't pull an absent member into attendance; an explicit individual answer doesn't).
 // When `partial` counts are given for attending=true events, only the selected subset attends and
 // the rest are marked not-attending — so the per-member rows stay accurate.
-async function applyNiyazRsvp(targets: RsvpTarget[], familyId: string | null, entries: NiyazRsvpEntry[], opts: ApplyOpts, partial?: PartialCounts): Promise<number> {
-  if (targets.length === 0) return 0;
-  const decisions = decideEvents(await getEvents(), entries);
-  if (decisions.size === 0) return 0;
+async function applyNiyazRsvp(targets: RsvpTarget[], familyId: string | null, entries: NiyazRsvpEntry[], opts: ApplyOpts, partial?: PartialCounts): Promise<{ updated: number; blocked: BlockedDay[] }> {
+  if (targets.length === 0) return { updated: 0, blocked: [] };
+  const events = await getEvents();
+  let decisions = decideEvents(events, entries);
+  if (decisions.size === 0) return { updated: 0, blocked: [] };
+
+  // Enforce the per-day RSVP cutoff for EVERY source: once a day's rsvp_end_at has passed its count is
+  // locked and nobody — including an admin acting as their own registrant — can change it. Same guard
+  // the Flow path (niyaz-interactive.ts) applies to button responses.
+  const part = partitionDecisionsByCutoff(events, decisions, await getClosedEventDates(Date.now()));
+  decisions = part.allowed;
+  const blocked = part.blocked;
+  if (decisions.size === 0) return { updated: 0, blocked };
 
   const usePartial = partial && (partial.adults !== undefined || partial.kids !== undefined || partial.total !== undefined);
   const attendingSet = usePartial ? selectPartialTargets(targets, partial) : null;
@@ -310,7 +354,7 @@ async function applyNiyazRsvp(targets: RsvpTarget[], familyId: string | null, en
       .upsert(rows.slice(i, i + 500), { onConflict: "registration_instance_id,mumin_id" });
     if (error) throw new Error(error.message);
   }
-  return rows.length;
+  return { updated: rows.length, blocked };
 }
 
 // Whole-family RSVP: cascades to ALL roster_active family members; a "yes" never flips a member
@@ -356,8 +400,8 @@ export async function setFamilyNiyazRsvp(
   const clamped: ClampNotice | undefined = wasClamped
     ? { requestedAdults: partial?.adults, requestedKids: partial?.kids, requestedTotal: partial?.total, maxAdults, maxKids, maxTotal }
     : undefined;
-  const updated = await applyNiyazRsvp(targets, familyId, entries, { ...opts, respectNotAttending: true }, clampedCounts);
-  return { updated, grid: await getFamilyNiyazGrid(familyId), clamped };
+  const { updated, blocked } = await applyNiyazRsvp(targets, familyId, entries, { ...opts, respectNotAttending: true }, clampedCounts);
+  return { updated, grid: await getFamilyNiyazGrid(familyId), clamped, blocked: blocked.length ? blocked : undefined };
 }
 
 // Individual RSVP: records only the one responding mumin (their explicit answer overrides the
@@ -368,8 +412,8 @@ export async function setMuminNiyazRsvp(
   entries: NiyazRsvpEntry[],
   opts: { source: "whatsapp" | "admin"; phone?: string | null; recordedBy?: string | null },
 ): Promise<ApplyResult> {
-  const updated = await applyNiyazRsvp([{ muminId, notAttending: false, isAdult: true, isHead: false }], familyId, entries, { ...opts, respectNotAttending: false });
-  return { updated, grid: familyId ? await getFamilyNiyazGrid(familyId) : [] };
+  const { updated, blocked } = await applyNiyazRsvp([{ muminId, notAttending: false, isAdult: true, isHead: false }], familyId, entries, { ...opts, respectNotAttending: false });
+  return { updated, grid: familyId ? await getFamilyNiyazGrid(familyId) : [], blocked: blocked.length ? blocked : undefined };
 }
 
 // --- WhatsApp daily button taps ---
@@ -683,11 +727,18 @@ export async function recordUnregisteredRsvp(input: {
   kids?: number;
   itsNumber?: string | null;
   source?: "whatsapp" | "admin";
-}): Promise<{ upserted: number }> {
-  const decisions = decideEvents(await getEvents(), input.entries);
+}): Promise<{ upserted: number; blocked?: BlockedDay[] }> {
+  const events = await getEvents();
+  const decisions = decideEvents(events, input.entries);
   if (decisions.size === 0) return { upserted: 0 };
 
-  const rows = [...decisions].map(([instanceId, attending]) => {
+  // Enforce the per-day RSVP cutoff for every source — a closed day can't be changed.
+  const part = partitionDecisionsByCutoff(events, decisions, await getClosedEventDates(Date.now()));
+  const allowed = part.allowed;
+  const blocked = part.blocked;
+  if (allowed.size === 0) return { upserted: 0, blocked };
+
+  const rows = [...allowed].map(([instanceId, attending]) => {
     const row: Record<string, unknown> = {
       phone_e164: input.phone,
       registration_instance_id: instanceId,
@@ -704,7 +755,7 @@ export async function recordUnregisteredRsvp(input: {
     .from("unregistered_rsvps")
     .upsert(rows, { onConflict: "phone_e164,registration_instance_id" });
   if (error) throw new Error(error.message);
-  return { upserted: rows.length };
+  return { upserted: rows.length, blocked: blocked.length ? blocked : undefined };
 }
 
 export async function recordUnregisteredHeadCount(
