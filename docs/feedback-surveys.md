@@ -91,7 +91,10 @@ prevent mistakes); the Results panel is collapsible. The **Questions** button op
 questions (grouped by section); for a not-yet-sent form you can edit each (text, required, comment box,
 options) or remove it — edits apply to that form's snapshot only. Compose has a per-section **Select
 all** toggle. **Duplicate** copies a form's questions/title/tags/sample/target into Compose (retired
-questions skipped) so you can change the target audience and create a variant quickly. APIs under `src/app/api/admin/surveys/**`
+questions skipped) so you can change the target audience and create a variant quickly. If a form was
+committed without a WhatsApp template (status `sampled`, no broadcast), its button becomes **Send
+committed** — selecting a template and clicking it dispatches the existing committed batch (no
+re-sampling) and marks it sent. So sends only appear under **Sends** once a template is used. APIs under `src/app/api/admin/surveys/**`
 (gated by `requirePortalCaller(isAdminOrLeadership)`). Sections and questions both **soft-delete**
 (`active=false`) so already-composed forms keep working off their snapshots; deleting a section also
 soft-deletes its questions.

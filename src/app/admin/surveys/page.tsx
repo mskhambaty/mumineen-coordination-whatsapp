@@ -673,8 +673,12 @@ function FormsTab({ forms, reload, onPickMumin, onDuplicate }: { forms: FormRow[
     setDetail({ kind: "preview", id, freeWindow, ...(await res.json().catch(() => ({}))) });
     setBusy(null);
   }
-  async function send(id: string) {
-    if (!confirm(`Commit this sample${freeWindow ? " (free-window only)" : ""}? This locks the questions for those mumineen (they won't be re-asked).`)) return;
+  async function send(id: string, status?: string) {
+    const already = status === "sampled";
+    const msg = already
+      ? `Send the already-committed links for this form via WhatsApp?${templateCode ? "" : "\n\nNo template is selected — without one this just shows the links to copy."}`
+      : `Commit this sample${freeWindow ? " (free-window only)" : ""}? This locks the questions for those mumineen (they won't be re-asked).`;
+    if (!confirm(msg)) return;
     setBusy(id);
     const res = await apiFetch(`/api/admin/surveys/forms/${id}/send`, {
       method: "POST",
@@ -763,7 +767,9 @@ function FormsTab({ forms, reload, onPickMumin, onDuplicate }: { forms: FormRow[
               <button onClick={() => setPickerFor(pickerFor === f.id ? null : f.id)} className={ghostBtn}>Test to people</button>
               {f.status !== "sent" && <button onClick={() => preview(f.id)} disabled={busy === f.id} className={ghostBtn}>Preview sample</button>}
               {f.status !== "sent" && (
-                <button onClick={() => send(f.id)} disabled={busy === f.id} className="rounded bg-emerald-600 px-3 py-1 text-xs text-white disabled:opacity-50">Commit &amp; send</button>
+                <button onClick={() => send(f.id, f.status)} disabled={busy === f.id} className="rounded bg-emerald-600 px-3 py-1 text-xs text-white disabled:opacity-50">
+                  {f.status === "sampled" ? "Send committed" : "Commit & send"}
+                </button>
               )}
               <button onClick={() => setQuestionsFor(questionsFor === f.id ? null : f.id)} className={`${ghostBtn} ${questionsFor === f.id ? "bg-gray-100 dark:bg-gray-800" : ""}`}>
                 {questionsFor === f.id ? "Hide questions" : "Questions"}
