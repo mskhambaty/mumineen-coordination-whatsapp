@@ -85,12 +85,38 @@ function dayLabel(date: string | null): string {
 
 const pct = (rate: number) => `${Math.round(rate * 100)}%`;
 
+// Both response grids hold the full event client-side (thousands of rows). Rendering all of them at
+// once freezes the page on each keystroke, so cap the rendered rows and reveal more on demand.
+const ROWS_PER_PAGE = 100;
+
 // A family's RSVP answer for the By Family grid. "responded" only means a whatsapp/admin reply exists,
 // so split it into the actual answer: attending (Yes), responded-but-zero (No), or never replied.
 type FamilyStatus = "yes" | "no" | "noresponse";
 function familyStatus(f: { responded: boolean; attending: number; guests: number }): FamilyStatus {
   if (!f.responded) return "noresponse";
   return f.attending + f.guests > 0 ? "yes" : "no";
+}
+
+// Row-count footer for a windowed table: shows how many of the filtered rows are rendered and reveals
+// more on demand (keeps the DOM small so search stays responsive on multi-thousand-row events).
+function ShowMore({ shown, total, onMore }: { shown: number; total: number; onMore: () => void }) {
+  const visible = Math.min(shown, total);
+  return (
+    <div className="sticky bottom-0 flex items-center justify-between gap-2 border-t border-gray-100 bg-white px-2 py-1.5 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
+      <span>
+        Showing {visible} of {total}
+      </span>
+      {shown < total && (
+        <button
+          type="button"
+          onClick={onMore}
+          className="rounded-md border border-gray-300 px-2 py-1 font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+        >
+          Show more ({total - visible} more)
+        </button>
+      )}
+    </div>
+  );
 }
 
 // Small segmented control used for the responses-table filters.
@@ -150,6 +176,9 @@ function NiyazEventPageInner() {
   const [ageFilter, setAgeFilter] = useState<"all" | "adults" | "kids">("all");
   const [rsvpFilter, setRsvpFilter] = useState<"all" | "yes" | "no">("all");
   const [responseFilter, setResponseFilter] = useState<"all" | "responded" | "not">("all");
+  // How many rows each grid currently renders (capped for performance; "Show more" raises it).
+  const [indivShown, setIndivShown] = useState(ROWS_PER_PAGE);
+  const [familyShown, setFamilyShown] = useState(ROWS_PER_PAGE);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -192,6 +221,14 @@ function NiyazEventPageInner() {
   useEffect(() => {
     if (id && respView === "family" && families === null) void loadFamilies(id);
   }, [id, respView, families, loadFamilies]);
+
+  // A changed search/filter should show results from the top again, not deep in a previous window.
+  useEffect(() => {
+    setIndivShown(ROWS_PER_PAGE);
+  }, [respSearch, typeFilter, ageFilter, rsvpFilter, responseFilter]);
+  useEffect(() => {
+    setFamilyShown(ROWS_PER_PAGE);
+  }, [familySearch, familyRespFilter]);
 
   const q = respSearch.trim().toLowerCase();
   const chipFiltersActive = typeFilter !== "all" || ageFilter !== "all" || rsvpFilter !== "all" || responseFilter !== "all";
@@ -417,7 +454,7 @@ function NiyazEventPageInner() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredFamilies.map((f) => {
+                        {filteredFamilies.slice(0, familyShown).map((f) => {
                           const status = familyStatus(f);
                           const rsvp =
                             status === "yes"
@@ -447,6 +484,7 @@ function NiyazEventPageInner() {
                         })}
                       </tbody>
                     </table>
+                    <ShowMore shown={familyShown} total={filteredFamilies.length} onMore={() => setFamilyShown((n) => n + ROWS_PER_PAGE)} />
                   </div>
                 )}
               </>
@@ -538,7 +576,7 @@ function NiyazEventPageInner() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredResponses.map((r) => {
+                        {filteredResponses.slice(0, indivShown).map((r) => {
                           const meta = sourceMeta(r.source);
                           return (
                             <tr key={r.id} className="border-t border-gray-100 dark:border-gray-800">
@@ -559,6 +597,7 @@ function NiyazEventPageInner() {
                         })}
                       </tbody>
                     </table>
+                    <ShowMore shown={indivShown} total={filteredResponses.length} onMore={() => setIndivShown((n) => n + ROWS_PER_PAGE)} />
                   </div>
                 )}
 
