@@ -290,8 +290,9 @@ export const allToolDefinitions: ToolDefinition[] = [
               additionalProperties: false,
             },
           },
-          adults: { type: "number", description: "Number of adults attending. For registered families, triggers partial attendance (only this many adults attend; head of family kept first). For unregistered callers, records their head count." },
-          kids: { type: "number", description: "Number of kids attending. For registered families, triggers partial attendance (only this many kids attend). For unregistered callers, records their head count." },
+          total: { type: "number", description: "PREFERRED for a bare head count with no adult/kid split (e.g. 'change to 5 for dinner', '5 of us are coming'). The system fills that many attendees in priority order — head of family first, then other adults, then kids — and caps at the registered family size. Use this instead of guessing adults vs kids; only use adults/kids when the user explicitly states the split or which members attend." },
+          adults: { type: "number", description: "Number of ADULTS attending — use ONLY when the user explicitly gives an adult/kid split (e.g. '2 adults and 1 kid') or names which members. Do NOT put a bare total here — use `total`. Head of family kept first. For unregistered callers, records their head count." },
+          kids: { type: "number", description: "Number of KIDS attending — use ONLY alongside `adults` when the user explicitly states the split. For unregistered callers, records their head count." },
           its_number: { type: "string", description: "ITS number (optional, for unregistered callers to help match to a family later)." },
         },
         required: ["entries"],
@@ -878,7 +879,9 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
         phone: context.phoneE164,
         body: {
           entries: args.entries ?? [],
-          // Forward head-count + ITS for unregistered callers; the API ignores them for registered families.
+          // Forward head-count + ITS. `total` is a bare count (no adult/kid split); adults/kids are
+          // the explicit split. For unregistered callers these record the head count.
+          ...(args.total !== undefined ? { total: args.total } : {}),
           ...(args.adults !== undefined ? { adults: args.adults } : {}),
           ...(args.kids !== undefined ? { kids: args.kids } : {}),
           ...(args.its_number !== undefined ? { its_number: args.its_number } : {}),

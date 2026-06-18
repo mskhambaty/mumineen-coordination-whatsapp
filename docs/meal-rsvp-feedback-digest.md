@@ -90,9 +90,12 @@ closes, its count is locked and can't be changed in either direction. The cutoff
 array (`{date, title, endAt}`, plus `endLabel` from the API) so the agent tells the user RSVP for that day has
 closed. The **GET** also tags each day with `closed`/`closedAt`/`closedLabel` so the agent can mark closed days
 and not offer to change them on read-back. This mirrors the Flow/button cutoff guard in `niyaz-interactive.ts`
-(which gates upstream by `day_id`). For registered families, `adults`/`kids` enable **partial attendance**: only that many
-members are marked attending (head of family kept first, then other adults, then kids), and the rest
-are marked not-attending for those events; for unregistered callers they record the head count.
+(which gates upstream by `day_id`). For registered families, **partial attendance** marks only some
+members attending (head of family kept first, then other adults, then kids), the rest not-attending:
+a **bare head count** uses `total` (e.g. "change to 5" → 5 attending, filled head→adults→kids), while
+an **explicit split** uses `adults`/`kids`. `total` is what the agent should send for a plain count —
+sending it as `adults` wrongly reads "5" as "5 adults" and can hit the family's adult cap. All counts
+are capped at the registered family size; for unregistered callers they record the head count.
 Changes go to `unregistered_rsvps` for unlinked phones). Agent tools: `get_family_meal_rsvps`, `set_family_meal_rsvps`
 (public; the agent mainly records *changes* — guidance in `MEAL_RSVP_FEEDBACK_RULE`). **Read-back is
 day-scoped, not the full plan:** when the caller names a day/meal the agent answers only that day's line; with

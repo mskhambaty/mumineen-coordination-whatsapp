@@ -232,6 +232,23 @@ describe("POST /api/rsvp/meals", () => {
     );
   });
 
+  it("passes a bare `total` head count through (no adult/kid guessing)", async () => {
+    resolveFamilyForPhone.mockResolvedValue(FAMILY);
+    setFamilyNiyazRsvp.mockResolvedValue({ updated: 5, grid: [] });
+    getFamilyNiyazDays.mockResolvedValue([]);
+    const res = await POST(req("POST", {
+      entries: [{ attending: true, dates: [UPCOMING], meal: "dinner" }],
+      total: 5,
+    }));
+    expect(res.status).toBe(200);
+    expect(setFamilyNiyazRsvp).toHaveBeenCalledWith(
+      "fam-1",
+      [{ attending: true, titles: undefined, dates: [UPCOMING], meal: "dinner", all: undefined }],
+      { source: "whatsapp", phone: PHONE },
+      { adults: undefined, kids: undefined, total: 5 },
+    );
+  });
+
   it("still passes title-targeted entries through (legacy fallback)", async () => {
     resolveFamilyForPhone.mockResolvedValue(FAMILY);
     setFamilyNiyazRsvp.mockResolvedValue({ updated: 3, grid: [] });

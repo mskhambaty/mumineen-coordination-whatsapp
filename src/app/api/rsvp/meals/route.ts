@@ -25,6 +25,7 @@ const postSchema = z.object({
   entries: z.array(entrySchema).min(1).max(60),
   adults: z.number().int().min(0).optional(),
   kids: z.number().int().min(0).optional(),
+  total: z.number().int().min(0).optional(),
   its_number: z.string().optional(),
 });
 
@@ -112,7 +113,8 @@ export async function POST(req: NextRequest) {
     const { upserted, blocked } = await recordUnregisteredRsvp({
       phone,
       entries: parsed.data.entries,
-      adults: parsed.data.adults,
+      // Unregistered callers have no roster split, so a bare `total` is their head count (adults).
+      adults: parsed.data.adults ?? parsed.data.total,
       kids: parsed.data.kids,
       itsNumber: parsed.data.its_number,
     });
@@ -121,8 +123,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: "unregistered_recorded", updated: upserted, rsvps, blocked: blockedLabeled });
   }
 
-  const partial = parsed.data.adults !== undefined || parsed.data.kids !== undefined
-    ? { adults: parsed.data.adults, kids: parsed.data.kids }
+  const partial = parsed.data.adults !== undefined || parsed.data.kids !== undefined || parsed.data.total !== undefined
+    ? { adults: parsed.data.adults, kids: parsed.data.kids, total: parsed.data.total }
     : undefined;
 
   const result = await setFamilyNiyazRsvp(
