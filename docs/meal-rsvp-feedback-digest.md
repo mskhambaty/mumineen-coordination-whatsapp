@@ -115,7 +115,8 @@ opens the **responses** section, which has two tabbed views (toggle in the secti
   it), plus Type/Age/RSVP/Response chip filters. Below it, an **Unregistered guests** table lists
   `unregistered_rsvps` (phone, RSVP, adults, kids, ITS). This list is capped at 1000 rows (db-max-rows).
 - **By Family** (`GET /api/admin/niyaz/instances/{id}/families`, lazy-loaded): one row per roster-active
-  family — HOF name (+ITS), Responded (yes/no), Attending count, Guests, and when / by whom. Comes from
+  family — HOF name (+ITS), **RSVP** (Yes = attending · No = replied not attending · No response = no
+  reply yet; derived in the page from `responded`+`attending`+`guests`), Attending count, Guests, and when / by whom. Comes from
   the `niyaz_event_family_grid` DB aggregate (responded = any whatsapp/admin row; attending = real
   members; guests = sentinel-ITS placeholders; when/by from the latest confirmed row — derived from
   niyaz_rsvp, since `niyaz_family_headcount` is often empty). **Paged server-side** (`fetchAllRows`) so

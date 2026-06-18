@@ -89,6 +89,14 @@ function dayLabel(date: string | null): string {
 
 const pct = (rate: number) => `${Math.round(rate * 100)}%`;
 
+// A family's RSVP answer for the By Family grid. "responded" only means a whatsapp/admin reply exists,
+// so split it into the actual answer: attending (Yes), responded-but-zero (No), or never replied.
+type FamilyStatus = "yes" | "no" | "noresponse";
+function familyStatus(f: { responded: boolean; attending: number; guests: number }): FamilyStatus {
+  if (!f.responded) return "noresponse";
+  return f.attending + f.guests > 0 ? "yes" : "no";
+}
+
 // Small segmented control used for the responses-table filters.
 function FilterChips<T extends string>({
   label,
@@ -140,7 +148,7 @@ function NiyazEventPageInner() {
   const [respView, setRespView] = useState<"family" | "individual">("family");
   const [families, setFamilies] = useState<FamilyRow[] | null>(null);
   const [familySearch, setFamilySearch] = useState("");
-  const [familyRespFilter, setFamilyRespFilter] = useState<"all" | "responded" | "not">("all");
+  const [familyRespFilter, setFamilyRespFilter] = useState<"all" | "yes" | "no" | "noresponse">("all");
   const [respSearch, setRespSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "local" | "mehman">("all");
   const [ageFilter, setAgeFilter] = useState<"all" | "adults" | "kids">("all");
@@ -218,7 +226,7 @@ function NiyazEventPageInner() {
   const fq = familySearch.trim().toLowerCase();
   const familyFilterActive = fq.length > 0 || familyRespFilter !== "all";
   const filteredFamilies = (families ?? []).filter((f) => {
-    if (familyRespFilter !== "all" && (familyRespFilter === "responded") !== f.responded) return false;
+    if (familyRespFilter !== "all" && familyStatus(f) !== familyRespFilter) return false;
     if (fq) return f.hof_name.toLowerCase().includes(fq) || f.hof_its.toLowerCase().includes(fq);
     return true;
   });
@@ -377,13 +385,14 @@ function NiyazEventPageInner() {
                     className={`${inputCls} max-w-xs`}
                   />
                   <FilterChips
-                    label="Responded"
+                    label="RSVP"
                     value={familyRespFilter}
                     onChange={setFamilyRespFilter}
                     options={[
                       { value: "all", label: "All" },
-                      { value: "responded", label: "Yes" },
-                      { value: "not", label: "No" },
+                      { value: "yes", label: "Yes" },
+                      { value: "no", label: "No" },
+                      { value: "noresponse", label: "No response" },
                     ]}
                   />
                   {familyFilterActive && families && (
@@ -404,7 +413,7 @@ function NiyazEventPageInner() {
                       <thead className="sticky top-0 bg-white text-xs uppercase text-gray-400 dark:bg-gray-900">
                         <tr>
                           <th className="px-2 py-1.5">Head of family</th>
-                          <th className="px-2 py-1.5">Responded</th>
+                          <th className="px-2 py-1.5" title="Yes = attending · No = replied not attending · No response = no reply yet">RSVP</th>
                           <th className="px-2 py-1.5 text-right">Attending</th>
                           <th className="px-2 py-1.5 text-right">Guests</th>
                           <th className="px-2 py-1.5" title="Phone (WhatsApp) or admin who responded">By</th>
@@ -412,25 +421,34 @@ function NiyazEventPageInner() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredFamilies.map((f) => (
-                          <tr key={f.family_id} className="border-t border-gray-100 dark:border-gray-800">
-                            <td className="px-2 py-1.5">
-                              {f.hof_name}
-                              {f.hof_name !== f.hof_its && (
-                                <span className="ml-1 font-mono text-xs text-gray-400">{f.hof_its}</span>
-                              )}
-                            </td>
-                            <td className="px-2 py-1.5">
-                              <span className={f.responded ? "text-green-600 dark:text-green-400" : "text-gray-400"}>{f.responded ? "Yes" : "No"}</span>
-                            </td>
-                            <td className="px-2 py-1.5 text-right tabular-nums">{f.responded ? f.attending : "—"}</td>
-                            <td className="px-2 py-1.5 text-right tabular-nums">{f.guests > 0 ? f.guests : f.responded ? 0 : "—"}</td>
-                            <td className="px-2 py-1.5 font-mono text-xs text-gray-500">{f.responded_by ?? "—"}</td>
-                            <td className="px-2 py-1.5 text-xs text-gray-500">
-                              {f.responded_at ? new Date(f.responded_at).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "—"}
-                            </td>
-                          </tr>
-                        ))}
+                        {filteredFamilies.map((f) => {
+                          const status = familyStatus(f);
+                          const rsvp =
+                            status === "yes"
+                              ? { label: "Yes", cls: "text-green-600 dark:text-green-400" }
+                              : status === "no"
+                                ? { label: "No", cls: "text-red-500" }
+                                : { label: "No response", cls: "text-gray-400" };
+                          return (
+                            <tr key={f.family_id} className="border-t border-gray-100 dark:border-gray-800">
+                              <td className="px-2 py-1.5">
+                                {f.hof_name}
+                                {f.hof_name !== f.hof_its && (
+                                  <span className="ml-1 font-mono text-xs text-gray-400">{f.hof_its}</span>
+                                )}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <span className={rsvp.cls}>{rsvp.label}</span>
+                              </td>
+                              <td className="px-2 py-1.5 text-right tabular-nums">{f.responded ? f.attending : "—"}</td>
+                              <td className="px-2 py-1.5 text-right tabular-nums">{f.guests > 0 ? f.guests : f.responded ? 0 : "—"}</td>
+                              <td className="px-2 py-1.5 font-mono text-xs text-gray-500">{f.responded_by ?? "—"}</td>
+                              <td className="px-2 py-1.5 text-xs text-gray-500">
+                                {f.responded_at ? new Date(f.responded_at).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "—"}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
