@@ -128,6 +128,15 @@ opens the **responses** section, which has two tabbed views (toggle in the secti
   all ~1k families are returned past the 1000-row cap. Searchable by HOF name / ITS with a Responded
   filter. The default tab is By Family.
 
+Between the Breakdown table and the responses section the page renders a **Responses over time** card
+(twin daily/cumulative bar charts) showing when RSVPs arrived. It's computed client-side from the
+already-loaded `responses` (counted on `updated_at`, excluding `source: "default"` seed rows) plus all
+`unregistered` rows (counted on `created_at`) via the pure `buildDailyTimeline()` helper
+(`src/lib/charts/timeline.ts`), and drawn with the shared `VBars` component
+(`src/components/admin/charts/VBars.tsx`, also used by the Registration analytics "Registrations Over
+Time" panel). No API change — it's a presentation-only transform of data the `/responses` endpoint
+already returns, and it's mode-independent (it counts when a response arrived, not head counts).
+
 ### 1a. Daily button RSVP (individual + family)
 
 RSVP is collected day-by-day via WhatsApp templates with **quick-reply buttons** (Both meals / Lunch

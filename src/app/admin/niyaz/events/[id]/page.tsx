@@ -6,6 +6,8 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { canAccessPortal } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
 import InfoIcon from "@/components/admin/niyaz/InfoIcon";
+import VBars from "@/components/admin/charts/VBars";
+import { buildDailyTimeline } from "@/lib/charts/timeline";
 import { hasResponded, isKid, isMehman, type NiyazBreakdown } from "@/lib/rsvp/niyaz-breakdown";
 
 type RespRow = {
@@ -269,6 +271,15 @@ function NiyazEventPageInner() {
   const noCount = tally?.no ?? 0;
   const thaals = Math.ceil(yesCount / 8); // one thaal per 8 attending heads
 
+  // "Responses over time": when RSVPs actually arrived. Registered rows count on their updated_at, but
+  // only genuine responses (source !== "default" excludes seeded arrival rows, which would otherwise
+  // spike on event-setup day). Unregistered rows are always real responses → count on created_at.
+  const responseTimeline = buildDailyTimeline([
+    ...responses.filter((r) => r.source !== "default").map((r) => r.updated_at),
+    ...unregResponses.map((u) => u.created_at),
+  ]);
+  const totalResponses = responseTimeline.reduce((sum, t) => sum + t.count, 0);
+
   const title = instance?.title || dayLabel(instance?.event_date ?? null);
   const subtitle = [dayLabel(instance?.event_date ?? null), instance?.meal, instance?.serving_type].filter(Boolean).join(" · ");
 
@@ -392,6 +403,19 @@ function NiyazEventPageInner() {
             </div>
             )}
           </div>
+
+          {responseTimeline.length > 0 && (
+            <div className="mb-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <h2 className="mb-3 flex items-center gap-1 text-lg font-semibold">
+                Responses over time
+                <InfoIcon label="When RSVPs were received, by day. Counts genuine responses (registration, WhatsApp, admin) on the date they were last set, plus unregistered RSVPs; seeded arrival defaults are excluded." />
+              </h2>
+              <p className="mb-1 text-xs text-gray-400">Daily responses</p>
+              <VBars data={responseTimeline.map((t) => ({ date: t.date, count: t.count }))} color="bg-blue-500" height={64} />
+              <p className="mb-1 mt-4 text-xs text-gray-400">Cumulative ({totalResponses} total)</p>
+              <VBars data={responseTimeline.map((t) => ({ date: t.date, count: t.cumulative }))} color="bg-green-500" height={64} />
+            </div>
+          )}
 
           <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">

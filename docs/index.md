@@ -116,6 +116,8 @@ src/components/admin/niyaz/EventFormModal.tsx — Create/Edit Niyaz event modal 
 src/app/api/admin/niyaz/instances/[id]/responses/route.ts — GET per-event responses (paged server-side, uncapped) + event meta + mode-aware tally + eligible-population breakdown (niyaz_event_breakdown RPC)
 src/app/api/admin/niyaz/instances/[id]/families/route.ts — GET per-family RSVP grid (niyaz_event_family_grid RPC, paged server-side past the 1000-row cap) for the "By Family" view
 src/lib/rsvp/niyaz-breakdown.ts — assembleBreakdown + classifiers (local/mehman/guest) for the event-detail Breakdown panel
+src/lib/charts/timeline.ts — buildDailyTimeline(): pure ISO-timestamps → per-day {count, cumulative} points for "over time" bar charts (niyaz responses, registrations)
+src/components/admin/charts/VBars.tsx — shared vertical bar chart (daily/cumulative); used by the niyaz event-detail "Responses over time" card and the Registration "Registrations Over Time" panel
 src/app/admin/niyaz/days/page.tsx        — Niyaz days view: lists prefilled 1st–10th Moharram days; click a day (or ?date=) to configure + send RSVP (composer)
 src/app/api/admin/niyaz/days/route.ts    — GET list of Niyaz days (config + representative instance id per date)
 src/app/api/admin/niyaz/days/[date]/route.ts — GET/PUT day-level config by date
