@@ -17,10 +17,10 @@ export async function GET(req: NextRequest) {
 
   const { data: forms } = await supabase
     .from("survey_forms")
-    .select("id, title, group_id, rules, tags, sample_size, event_date, status, created_at, sent_at")
+    .select("id, title, group_id, rules, sample_plan, tags, sample_size, event_date, status, created_at, sent_at")
     .order("created_at", { ascending: false })
     .limit(100);
-  const formRows = (forms ?? []) as { id: string; group_id: string | null; rules: unknown; tags: string[] | null }[];
+  const formRows = (forms ?? []) as { id: string; group_id: string | null; rules: unknown; sample_plan: { label: string; size: number }[] | null; tags: string[] | null }[];
 
   const [{ data: groups }, { data: recips }] = await Promise.all([
     supabase.from("survey_groups").select("id, name"),
@@ -39,7 +39,9 @@ export async function GET(req: NextRequest) {
     forms: formRows.map((f) => ({
       ...f,
       tags: f.tags ?? [],
-      group_name: f.group_id ? groupName.get(f.group_id) ?? null : f.rules ? "Custom filter" : null,
+      group_name: f.sample_plan?.length
+        ? `Stratified: ${f.sample_plan.map((s) => `${s.label} ${s.size}`).join(" + ")}`
+        : f.group_id ? groupName.get(f.group_id) ?? null : f.rules ? "Custom filter" : null,
       recipient_count: counts.get(f.id)?.sent ?? 0,
       completed_count: counts.get(f.id)?.completed ?? 0,
     })),
@@ -50,16 +52,19 @@ export async function GET(req: NextRequest) {
 // Target is EITHER a saved group (group_id) OR an ad-hoc custom audience filter (rules) — the latter
 // lets the admin carve out exclusions (e.g. attending AND NOT rahat) so a broad form doesn't re-hit
 // people already covered by a narrower one.
+const ruleGroupSchema = z.object({ combinator: z.string().optional(), rules: z.array(z.unknown()) }).passthrough();
 const bodySchema = z
   .object({
     title: z.string().min(2).max(160),
     group_id: z.string().uuid().optional(),
-    rules: z.object({ combinator: z.string().optional(), rules: z.array(z.unknown()) }).passthrough().optional(),
+    rules: ruleGroupSchema.optional(),
+    // Stratified target: each stratum its own filter + quota (e.g. Local 107, Mehman 70).
+    sample_plan: z.array(z.object({ label: z.string().min(1).max(40), rules: ruleGroupSchema, size: z.number().int().min(1).max(2000) })).min(1).max(10).optional(),
     tags: z.array(z.string().min(1).max(40)).max(12).optional(),
     sample_size: z.number().int().min(1).max(2000).optional(),
     question_ids: z.array(z.string().uuid()).min(1).max(200),
   })
-  .refine((b) => Boolean(b.group_id) !== Boolean(b.rules), "Provide exactly one of group_id or rules.");
+  .refine((b) => [b.group_id, b.rules, b.sample_plan].filter(Boolean).length === 1, "Provide exactly one target: group_id, rules, or sample_plan.");
 
 export async function POST(req: NextRequest) {
   const guard = await requirePortalCaller(req, isAdminOrLeadership);
@@ -68,10 +73,16 @@ export async function POST(req: NextRequest) {
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid body", details: parsed.error.flatten() }, { status: 400 });
   const b = parsed.data;
-  // Validate a custom filter against the field catalog before storing it.
+  // Validate any custom filter / stratum rules against the field catalog before storing.
   if (b.rules) {
     const err = validateRules(b.rules as unknown as RuleGroup);
     if (err) return NextResponse.json({ error: `Invalid filter: ${err}` }, { status: 400 });
+  }
+  if (b.sample_plan) {
+    for (const s of b.sample_plan) {
+      const err = validateRules(s.rules as unknown as RuleGroup);
+      if (err) return NextResponse.json({ error: `Invalid filter in stratum "${s.label}": ${err}` }, { status: 400 });
+    }
   }
   const supabase = getSupabaseAdmin();
 
@@ -93,6 +104,7 @@ export async function POST(req: NextRequest) {
       title: b.title,
       group_id: b.group_id ?? null,
       rules: b.rules ?? null,
+      sample_plan: b.sample_plan ?? null,
       tags: b.tags ?? [],
       sample_size: b.sample_size ?? 40,
       event_date: chicagoToday(),

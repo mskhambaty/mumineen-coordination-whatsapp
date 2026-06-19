@@ -160,6 +160,48 @@ export async function suggestSample(
   };
 }
 
+// One stratum of a stratified plan: its own audience filter + quota (e.g. Local → 107, Mehman → 70).
+export type Stratum = { label: string; rules: RuleGroup; size: number };
+
+// Stratified sampling: sample each stratum from its own pool, then COMBINE into one set, deduping by
+// phone/mumin across strata (so a person picked in one stratum isn't double-counted in another). The
+// per-form `sampledToday` exclusion still applies globally, so sending several plan-forms in sequence
+// partitions the day's audience (one survey per person per day). Returns a SampleResult plus a
+// per-stratum breakdown for the preview.
+export async function suggestSamplePlan(
+  plan: Stratum[],
+  formQuestionIds: string[],
+  eventDate: string = chicagoToday(),
+  opts: { freeWindowOnly?: boolean; windowHours?: number; excludeAlreadySent?: boolean } = {},
+): Promise<SampleResult & { strata: Array<{ label: string; requested: number; got: number; candidates: number }> }> {
+  const chosen: SampleCandidate[] = [];
+  const seenPhone = new Set<string>();
+  const seenMumin = new Set<string>();
+  const strata: Array<{ label: string; requested: number; got: number; candidates: number }> = [];
+  const funnel: SampleResult["funnel"] = {
+    candidates: 0, excludedNotAttending: 0, excludedUnregistered: 0, excludedToday: 0,
+    excludedExhausted: 0, excludedNonResponder: 0, excludedAlreadySent: 0, fresh: 0, reused: 0, chosen: 0,
+  };
+  for (const s of plan) {
+    // Over-fetch a little so cross-stratum dedup can't leave us short of the quota.
+    const res = await suggestSample(s.rules, formQuestionIds, s.size + seenPhone.size, eventDate, opts);
+    const picks = res.chosen.filter((c) => !seenPhone.has(c.phone) && !seenMumin.has(c.muminId)).slice(0, Math.max(0, s.size));
+    for (const c of picks) { seenPhone.add(c.phone); seenMumin.add(c.muminId); chosen.push(c); }
+    strata.push({ label: s.label, requested: s.size, got: picks.length, candidates: res.funnel.candidates });
+    funnel.candidates += res.funnel.candidates;
+    funnel.excludedNotAttending += res.funnel.excludedNotAttending;
+    funnel.excludedUnregistered += res.funnel.excludedUnregistered;
+    funnel.excludedToday += res.funnel.excludedToday;
+    funnel.excludedExhausted += res.funnel.excludedExhausted;
+    funnel.excludedNonResponder += res.funnel.excludedNonResponder;
+    funnel.excludedAlreadySent += res.funnel.excludedAlreadySent;
+  }
+  funnel.fresh = chosen.filter((c) => c.priorSends === 0).length;
+  funnel.reused = chosen.filter((c) => c.priorSends > 0).length;
+  funnel.chosen = chosen.length;
+  return { chosen, funnel, strata };
+}
+
 // Suggest which questions to include for a section: the section's active questions ordered by
 // fewest prior exposures (so the databank rotates as the event progresses), capped at `k`.
 export async function suggestQuestionsForSection(

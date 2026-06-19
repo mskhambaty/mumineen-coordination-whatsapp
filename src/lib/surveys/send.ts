@@ -8,7 +8,7 @@ import type { AudienceKey, Recipient } from "@/lib/whatsapp/audience";
 export const SURVEY_AUDIENCE_KEY = "feedback_survey" as AudienceKey;
 import type { RuleGroup } from "@/lib/whatsapp/audience-filter";
 import { resolveApprovedTemplateForAnyAccount } from "@/lib/whatsapp/send-template";
-import { suggestSample, type SampleResult } from "@/lib/surveys/sampling";
+import { suggestSample, suggestSamplePlan, type SampleResult, type Stratum } from "@/lib/surveys/sampling";
 import { generateSurveyToken, chicagoToday } from "@/lib/surveys/tokens";
 
 // The roster's full_name already carries the honorific (e.g. "Murtaza bhai Alihusain bhai
@@ -95,7 +95,7 @@ export type CommitResult = {
   sendError?: string;
 };
 
-type FormRow = { id: string; group_id: string | null; rules: RuleGroup | null; sample_size: number; status: string };
+type FormRow = { id: string; group_id: string | null; rules: RuleGroup | null; sample_plan: Stratum[] | null; sample_size: number; status: string };
 
 export async function commitAndSendForm(formId: string, templateCodeOverride?: string | null, freeWindowOnly = false, excludeAlreadySent = false): Promise<CommitResult | { error: string }> {
   const supabase = getSupabaseAdmin();
@@ -103,7 +103,7 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
 
   const { data: form } = await supabase
     .from("survey_forms")
-    .select("id, group_id, rules, sample_size, status")
+    .select("id, group_id, rules, sample_plan, sample_size, status")
     .eq("id", formId)
     .maybeSingle();
   if (!form) return { error: "Form not found." };
@@ -147,18 +147,21 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
     // No committed batch left → fall through and sample fresh.
   }
 
-  // Target is a saved group (group_id) OR an ad-hoc custom filter (rules) stored on the form.
+  // Target: a stratified sample_plan (Local 107 + Mehman 70, …) OR a saved group OR a custom filter.
   let targetRules: RuleGroup | null = f.rules;
-  if (f.group_id) {
-    const { data: group } = await supabase
-      .from("survey_groups")
-      .select("id, rules")
-      .eq("id", f.group_id)
-      .maybeSingle();
-    if (!group) return { error: "Target group not found." };
-    targetRules = (group as { rules: RuleGroup }).rules;
+  const plan = Array.isArray(f.sample_plan) && f.sample_plan.length > 0 ? f.sample_plan : null;
+  if (!plan) {
+    if (f.group_id) {
+      const { data: group } = await supabase
+        .from("survey_groups")
+        .select("id, rules")
+        .eq("id", f.group_id)
+        .maybeSingle();
+      if (!group) return { error: "Target group not found." };
+      targetRules = (group as { rules: RuleGroup }).rules;
+    }
+    if (!targetRules) return { error: "Form has no target group or filter." };
   }
-  if (!targetRules) return { error: "Form has no target group or filter." };
 
   const { data: fqs } = await supabase
     .from("survey_form_questions")
@@ -169,8 +172,11 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
     .filter((id): id is string => Boolean(id));
   if (questionIds.length === 0) return { error: "Form has no questions composed." };
 
-  // Sample fresh-first, excluding today's other samples and question-exhausted mumineen.
-  const sample = await suggestSample(targetRules, questionIds, f.sample_size, eventDate, { freeWindowOnly, excludeAlreadySent });
+  // Sample fresh-first, excluding today's other samples and question-exhausted mumineen. A
+  // sample_plan samples each stratum from its pool; otherwise one pool to sample_size.
+  const sample: SampleResult = plan
+    ? await suggestSamplePlan(plan, questionIds, eventDate, { freeWindowOnly, excludeAlreadySent })
+    : await suggestSample(targetRules as RuleGroup, questionIds, f.sample_size, eventDate, { freeWindowOnly, excludeAlreadySent });
   if (sample.chosen.length === 0) {
     return { formId, funnel: sample.funnel, recipients: [], sent: false, sendError: "No eligible recipients to sample." };
   }
