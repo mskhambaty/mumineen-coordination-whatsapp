@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
 
   const { data: forms } = await supabase
     .from("survey_forms")
-    .select("id, title, group_id, rules, sample_plan, tags, sample_size, event_date, status, created_at, sent_at")
+    .select("id, title, public_title, group_id, rules, sample_plan, tags, sample_size, event_date, status, created_at, sent_at")
     .order("created_at", { ascending: false })
     .limit(100);
   const formRows = (forms ?? []) as { id: string; group_id: string | null; rules: unknown; sample_plan: { label: string; size: number }[] | null; tags: string[] | null }[];
@@ -56,6 +56,7 @@ const ruleGroupSchema = z.object({ combinator: z.string().optional(), rules: z.a
 const bodySchema = z
   .object({
     title: z.string().min(2).max(160),
+    public_title: z.string().min(2).max(160).optional(),
     group_id: z.string().uuid().optional(),
     rules: ruleGroupSchema.optional(),
     // Stratified target: each stratum its own filter + quota (e.g. Local 107, Mehman 70).
@@ -102,6 +103,7 @@ export async function POST(req: NextRequest) {
     .from("survey_forms")
     .insert({
       title: b.title,
+      public_title: b.public_title ?? null,
       group_id: b.group_id ?? null,
       rules: b.rules ?? null,
       sample_plan: b.sample_plan ?? null,

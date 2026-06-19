@@ -46,8 +46,10 @@ export async function loadFormForToken(token: string): Promise<LoadedForm> {
 
   const r = recipient as { id: string; form_id: string; mumin_id: string | null; status: string; completed_at: string | null };
 
-  const { data: form } = await supabase.from("survey_forms").select("title, status").eq("id", r.form_id).maybeSingle();
+  const { data: form } = await supabase.from("survey_forms").select("public_title, status").eq("id", r.form_id).maybeSingle();
   if (form && (form as { status: string }).status === "closed") return { status: "closed" };
+  // Recipient-facing header: the admin-set public_title only — never the internal label.
+  const publicTitle = (form as { public_title: string | null } | null)?.public_title ?? null;
 
   // One-time submission: a completed token is locked (no re-open / re-edit).
   if (r.completed_at) {
@@ -56,7 +58,7 @@ export async function loadFormForToken(token: string): Promise<LoadedForm> {
       const { data: mm } = await supabase.from("mumineen").select("full_name").eq("id", r.mumin_id).maybeSingle();
       firstName = (mm as { full_name: string | null } | null)?.full_name?.trim() ?? null;
     }
-    return { status: "completed", firstName, formTitle: (form as { title: string } | null)?.title };
+    return { status: "completed", firstName, formTitle: publicTitle ?? undefined };
   }
 
   const { data: fqs } = await supabase
@@ -100,7 +102,7 @@ export async function loadFormForToken(token: string): Promise<LoadedForm> {
     status: "ok",
     recipientId: r.id,
     firstName,
-    formTitle: (form as { title: string } | null)?.title,
+    formTitle: publicTitle ?? undefined,
     alreadyCompleted: Boolean(r.completed_at),
     sections,
   };
