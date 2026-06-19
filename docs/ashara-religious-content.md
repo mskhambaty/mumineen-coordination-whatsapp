@@ -37,10 +37,16 @@ answers and accurate follow-up menus.
 The **Ashara Daily Content** dashboard (External → Ashara Daily Content) is the single surface
 for entering content. Grid = majlis (rows) × category (columns).
 
-- **Seed a day:** "Seed all" creates the per-majlis category slots (the 6 source cells + a **Q&A**
-  cell). English → `placeholder`, Lisan → `pending_translation`. The daily cron
+- **This year's scope = Reflections + Q&A (per majlis) + one Tazyeen block (whole Ashara).** The
+  per-majlis grid has just two columns — Reflections and Q&A (`ASHARA_CATEGORIES` /
+  `DEFAULT_ASHARA_CATEGORIES` in `ashara-config.ts`). **Tazyeen** is a single year-level block
+  (`TAZYEEN_CATEGORY`, `majlis_number` null) edited from a button above the grid, like the
+  Overall-theme block — one Tazyeen article for all of 1448. **Al-Dars, Jumla, Kalema, Unwaan are not
+  used this year** (removed from the dashboard; historical 1447 rows stay in the DB and remain
+  answerable by the agent, just not shown in the grid).
+- **Seed a day:** "Seed" creates the per-majlis slots (Reflections + Q&A). The daily cron
   `/api/cron/seed-majlis-day` (gated by `ASHARA_START_DATE` / `ASHARA_YEAR`) does this automatically
-  each Ashara day; `seedMajlisDay()` is the shared logic (driven by `ASHARA_CATEGORIES`).
+  each Ashara day; `seedMajlisDay()` is the shared logic (driven by `DEFAULT_ASHARA_CATEGORIES`).
 - **Q&A cell (`category='faq'`):** a curated bucket of likely member questions + grounded answers,
   pasted in per majlis (generated separately, e.g. by Opus). Indexed like any other cell, and the
   agent searches it alongside the sermon sources — so recurring and "list all N" questions ("the six

@@ -8,12 +8,16 @@ import {
   ASHARA_CATEGORIES,
   ASHARA_ROWS,
   DEFAULT_ACTIVE_YEAR,
+  TAZYEEN_CATEGORY,
   defaultStatus,
   majlisRowForToday,
   topicTitle,
   type AsharaCategory,
   type AsharaRow,
 } from "@/lib/knowledge/ashara-config";
+
+// This year only Reflections + Q&A are published per majlis (the grid). Tazyeen is a single
+// year-level block (one for the whole Ashara), edited like the Overall-theme block below.
 
 // The Ashara majlis × category content grid — extracted from /admin/ashara so it can live inside
 // the Waaz Talaqqi "Content" tab. This is where the daily majlis content (incl. the active year,
@@ -92,6 +96,9 @@ export default function AsharaContent() {
 
   const cellKey = (cat: AsharaCategory, row: AsharaRow) => `${cat.key}:${row.isAshura ? "ashura" : row.majlisNumber}`;
 
+  // Per-majlis grid columns: Reflections + Q&A only this year.
+  const visibleCats = ASHARA_CATEGORIES;
+
   const todayRowIdx = useMemo(() => {
     const todayIso = new Date().toISOString().slice(0, 10);
     return majlisRowForToday(year, todayIso);
@@ -100,10 +107,10 @@ export default function AsharaContent() {
   const progress = useMemo(() => {
     let indexed = 0;
     for (const t of cellMap.values()) if (t.status === "indexed") indexed++;
-    return { indexed, total: ASHARA_ROWS.length * ASHARA_CATEGORIES.length };
-  }, [cellMap]);
+    return { indexed, total: ASHARA_ROWS.length * visibleCats.length };
+  }, [cellMap, visibleCats]);
 
-  const rowDone = (row: AsharaRow) => ASHARA_CATEGORIES.filter((c) => cellMap.get(cellKey(c, row))?.status === "indexed").length;
+  const rowDone = (row: AsharaRow) => visibleCats.filter((c) => cellMap.get(cellKey(c, row))?.status === "indexed").length;
 
   const pendingQueue = useMemo(() => {
     return topics
@@ -191,6 +198,37 @@ export default function AsharaContent() {
     [topics, year],
   );
 
+  // Tazyeen is one year-level block for the whole Ashara (majlis_number null).
+  const tazyeenBlock = useMemo(
+    () => topics.find((t) => t.category === "tazyeen" && t.year_hijri === year && t.majlis_number == null) ?? null,
+    [topics, year],
+  );
+
+  async function openTazyeen() {
+    if (tazyeenBlock) { setEditing(tazyeenBlock); return; }
+    setBusyCell("tazyeen");
+    setError(null);
+    try {
+      const res = await apiFetch("/api/admin/religious-topics", {
+        method: "POST",
+        body: JSON.stringify({
+          title: `${TAZYEEN_CATEGORY.label} — Ashara ${year}H`,
+          year_hijri: year, majlis_number: null, is_ashura: false,
+          category: TAZYEEN_CATEGORY.key, language: TAZYEEN_CATEGORY.language, status: "placeholder",
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to create");
+      const created = (await res.json()) as { id: string };
+      const fresh = (await (await apiFetch("/api/admin/religious-topics")).json()).topics as Topic[];
+      setTopics(fresh);
+      setEditing(fresh.find((t) => t.id === created.id) ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create");
+    } finally {
+      setBusyCell(null);
+    }
+  }
+
   async function openOverview() {
     if (overviewBlock) { setEditing(overviewBlock); return; }
     setBusyCell("overview");
@@ -257,8 +295,8 @@ export default function AsharaContent() {
           <div>
             <p className="font-medium">How to fill this in</p>
             <ul className="mt-1 list-disc space-y-0.5 pl-5 text-gray-600 dark:text-gray-400">
-              <li><span className="font-medium text-gray-800 dark:text-gray-200">English</span> (Reflections, Tazyeen, Al-Dars): open the cell, paste the article, Save. Add a source link if you have one.</li>
-              <li><span className="font-medium text-gray-800 dark:text-gray-200">Lisan</span> (Jumla, Kalema, Unwaan): open the cell, type the <span className="font-medium">English translation</span>, Save.</li>
+              <li>Each majlis has <span className="font-medium text-gray-800 dark:text-gray-200">Reflections</span> and <span className="font-medium text-gray-800 dark:text-gray-200">Q&amp;A</span>. Open a cell, paste the content, Save.</li>
+              <li><span className="font-medium text-gray-800 dark:text-gray-200">Tazyeen</span> is a single block for the whole Ashara — edit it from the button above the grid.</li>
               <li>Saving indexes it for the WhatsApp agent and turns the chip green.</li>
             </ul>
           </div>
@@ -310,6 +348,25 @@ export default function AsharaContent() {
         </span>
       </button>
 
+      <button
+        type="button"
+        onClick={() => void openTazyeen()}
+        disabled={busyCell === "tazyeen"}
+        className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-3 text-left shadow-sm transition hover:border-blue-400 dark:border-gray-800 dark:bg-gray-900"
+      >
+        <div>
+          <span className="text-sm font-semibold">Tazyeen — Ashara {year}H</span>
+          <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+            {busyCell === "tazyeen" ? "Creating…" : tazyeenBlock?.content?.trim()
+              ? "Edit this year's single Tazyeen (decoration) article"
+              : "One Tazyeen article for the whole Ashara — click to add it"}
+          </span>
+        </div>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tazyeenBlock?.content?.trim() ? STATUS_STYLE.indexed : STATUS_STYLE.placeholder}`}>
+          {tazyeenBlock?.content?.trim() ? "Indexed" : "Empty"}
+        </span>
+      </button>
+
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
        <div className="min-w-0">
         {/* Desktop: the wide table */}
@@ -318,7 +375,7 @@ export default function AsharaContent() {
             <thead className="bg-gray-50 dark:bg-gray-800/60">
               <tr>
                 <th className="px-3 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Majlis</th>
-                {ASHARA_CATEGORIES.map((c) => (
+                {visibleCats.map((c) => (
                   <th key={c.key} className="px-3 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
                     {c.label}
                     {c.language === "lisan" && <span className="ml-1 text-[10px] font-normal lowercase text-amber-600">(lisan)</span>}
@@ -328,7 +385,7 @@ export default function AsharaContent() {
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
               {loading ? (
-                <tr><td colSpan={ASHARA_CATEGORIES.length + 1} className="px-3 py-8 text-center text-gray-500">Loading…</td></tr>
+                <tr><td colSpan={visibleCats.length + 1} className="px-3 py-8 text-center text-gray-500">Loading…</td></tr>
               ) : (
                 ASHARA_ROWS.map((row, rowIdx) => {
                   const isToday = rowIdx === todayRowIdx;
@@ -340,17 +397,17 @@ export default function AsharaContent() {
                           {row.label}
                           {isToday && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">Today</span>}
                         </div>
-                        <div className="mt-0.5 text-[11px] font-normal text-gray-400">{done}/{ASHARA_CATEGORIES.length} done</div>
+                        <div className="mt-0.5 text-[11px] font-normal text-gray-400">{done}/{visibleCats.length} done</div>
                         <button
                           type="button"
                           disabled={busyCell === `seed:${row.label}`}
                           onClick={() => void seedRow(row)}
                           className="mt-1 text-[11px] font-normal text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
                         >
-                          {busyCell === `seed:${row.label}` ? "Seeding…" : "Seed all 6"}
+                          {busyCell === `seed:${row.label}` ? "Seeding…" : "Seed"}
                         </button>
                       </td>
-                      {ASHARA_CATEGORIES.map((cat) => {
+                      {visibleCats.map((cat) => {
                         const t = cellMap.get(cellKey(cat, row));
                         const key = cellKey(cat, row);
                         return (
@@ -413,7 +470,7 @@ export default function AsharaContent() {
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-gray-800 dark:text-gray-200">{row.label}</span>
                       {isToday && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">Today</span>}
-                      <span className="text-[11px] text-gray-400">{done}/{ASHARA_CATEGORIES.length}</span>
+                      <span className="text-[11px] text-gray-400">{done}/{visibleCats.length}</span>
                     </div>
                     <button
                       type="button"
@@ -421,11 +478,11 @@ export default function AsharaContent() {
                       onClick={() => void seedRow(row)}
                       className="text-[11px] font-medium text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
                     >
-                      {busyCell === `seed:${row.label}` ? "Seeding…" : "Seed all 6"}
+                      {busyCell === `seed:${row.label}` ? "Seeding…" : "Seed"}
                     </button>
                   </div>
                   <ul className="divide-y divide-gray-100 dark:divide-gray-800">
-                    {ASHARA_CATEGORIES.map((cat) => {
+                    {visibleCats.map((cat) => {
                       const t = cellMap.get(cellKey(cat, row));
                       const key = cellKey(cat, row);
                       return (
