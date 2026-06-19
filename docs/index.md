@@ -64,6 +64,7 @@ src/lib/meta/whatsapp.ts                 — Meta Graph API calls + signature ve
 src/lib/whatsapp/send-template.ts        — Standardized template-send pipeline (resolve→validate→send→log); cross-account template resolution (resolveApprovedTemplateForAnyAccount, listApprovedTemplatesForAllAccounts)
 src/lib/whatsapp/templates.ts            — Template descriptor + components builder + body preview
 src/lib/whatsapp/template-settings.ts    — Per-template friendly-name + active flag (get/upsert) for the send console, keyed by (WABA, template name)
+src/app/api/admin/whatsapp/accounts/route.ts — GET configured WhatsApp sending numbers (no secrets) for the send console's "Send from" picker
 src/app/api/admin/templates/settings/route.ts — PUT template friendly-name / active flag (admin/leadership)
 src/app/api/admin/templates/segments/route.ts — GET Niyaz reach-segment sizes (free/paid split) for the console header
 src/lib/escalation/notify.ts             — On-call escalation email + WhatsApp template notifications

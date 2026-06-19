@@ -23,7 +23,16 @@ export type WhatsAppAccount = {
   verifyToken?: string;
   // Display phone number (e.g. +1630…) — optional, used for labeling / inbound allow-checks.
   displayNumber?: string;
+  // Friendly name (e.g. "AI Bot", "Anjuman e Saifee") — optional, shown in the send console's
+  // "Send from" picker. Falls back to displayNumber, then label, when unset.
+  displayName?: string;
 };
+
+// Human-readable handle for an account in admin UIs: friendly name, else display number, else label.
+// Never includes secrets.
+export function accountDisplayName(account: WhatsAppAccount): string {
+  return account.displayName?.trim() || account.displayNumber?.trim() || account.label;
+}
 
 export const PRIMARY_LABEL = "primary";
 export const BROADCAST_LABEL = "broadcast";
@@ -40,6 +49,7 @@ export function getPrimaryAccount(): WhatsAppAccount {
     appSecret: optionalEnv("META_APP_SECRET"),
     verifyToken: optionalEnv("META_WEBHOOK_VERIFY_TOKEN"),
     displayNumber: optionalEnv("WHATSAPP_DISPLAY_PHONE_NUMBER"),
+    displayName: optionalEnv("WHATSAPP_DISPLAY_NAME"),
   };
 }
 
@@ -58,6 +68,7 @@ export function getBroadcastAccount(): WhatsAppAccount | null {
     appSecret: optionalEnv("META_APP_SECRET_BROADCAST"),
     verifyToken: optionalEnv("META_WEBHOOK_VERIFY_TOKEN_BROADCAST"),
     displayNumber: optionalEnv("WHATSAPP_DISPLAY_PHONE_NUMBER_BROADCAST"),
+    displayName: optionalEnv("WHATSAPP_DISPLAY_NAME_BROADCAST"),
   };
 }
 

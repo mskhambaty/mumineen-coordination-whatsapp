@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   let query = getSupabaseAdmin()
     .from("template_broadcasts")
     .select(
-      "id, template_code, audience_key, status, total_recipients, count_free, count_paid, count_sent, count_failed, est_cost_usd, started_at, finished_at",
+      "id, message_kind, template_code, audience_key, status, total_recipients, count_free, count_paid, count_sent, count_failed, est_cost_usd, started_at, finished_at",
     )
     .order("started_at", { ascending: false })
     .limit(50);
