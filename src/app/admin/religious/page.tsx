@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { canMonitorReligiousChats, isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
+import { ACTIVE_ASHARA_YEAR, asharaStartIso } from "@/lib/knowledge/ashara-config";
 import ReligiousInbox from "@/components/admin/religious/ReligiousInbox";
 import ContentTab from "@/components/admin/religious/ContentTab";
 import DictionaryTab from "@/components/admin/religious/DictionaryTab";
@@ -47,13 +48,23 @@ function daysAgoIso(days: number): string {
   return new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10);
 }
 
+// Date-range options for the metrics/export filter. "ashara" floors at the active Ashara's first
+// majlis (so pre-event TESTING data — e.g. the 47 test ruling flags — is excluded WITHOUT deleting
+// anything). Defaults to "ashara" during the event so the KPIs reflect real engagement.
+const ASHARA_START = asharaStartIso(ACTIVE_ASHARA_YEAR); // e.g. "2026-06-16", or null pre-calendar
+function rangeFromIso(range: string): string {
+  if (range === "ashara" && ASHARA_START) return ASHARA_START;
+  return daysAgoIso(Number(range) || 30);
+}
+
 export default function WaazTalaqqiPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
 
   const [tab, setTab] = useState<TabKey>("overview");
-  const [days, setDays] = useState(30);
+  // Default to "ashara" so the KPIs exclude pre-event testing data out of the box.
+  const [range, setRange] = useState<string>(ASHARA_START ? "ashara" : "30");
 
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [requests, setRequests] = useState<WordRequest[]>([]);
@@ -83,16 +94,16 @@ export default function WaazTalaqqiPage() {
   }
 
   const loadAll = useCallback(async () => {
-    const from = daysAgoIso(days);
+    const from = rangeFromIso(range);
     const [m, w, f] = await Promise.all([
       apiFetch(`/api/admin/religious/metrics?from=${from}`),
       apiFetch("/api/admin/religious/word-requests?status=open"),
-      apiFetch("/api/admin/ruling-flags"),
+      apiFetch(`/api/admin/ruling-flags?from=${from}`),
     ]);
     if (m.ok) setMetrics(await m.json());
     if (w.ok) setRequests((await w.json()).requests ?? []);
     if (f.ok) setFlags((await f.json()).recent ?? []);
-  }, [days]);
+  }, [range]);
 
   const loadMonitors = useCallback(async () => {
     const res = await apiFetch("/api/admin/religious/monitors");
@@ -173,17 +184,18 @@ export default function WaazTalaqqiPage() {
         </div>
         <div className="flex items-center gap-2">
           <select
-            value={days}
-            onChange={(e) => setDays(Number(e.target.value))}
+            value={range}
+            onChange={(e) => setRange(e.target.value)}
             className="rounded-md border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
           >
-            <option value={7}>Last 7 days</option>
-            <option value={30}>Last 30 days</option>
-            <option value={90}>Last 90 days</option>
+            {ASHARA_START && <option value="ashara">Since Ashara (Jun 16)</option>}
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
           </select>
           {isAdmin && (
             <a
-              href={`/api/admin/conversations/religious-export?from=${daysAgoIso(days)}`}
+              href={`/api/admin/conversations/religious-export?from=${rangeFromIso(range)}`}
               className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
             >
               Export
