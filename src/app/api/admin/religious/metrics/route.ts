@@ -54,10 +54,16 @@ export async function GET(req: NextRequest) {
     .limit(5000);
   if (toIso) auditQuery = auditQuery.lte("created_at", toIso);
 
+  // Ruling flags are date-scoped to the same window so pre-event TEST flags don't inflate the count
+  // (e.g. "Since Ashara" excludes the ~47 testing-mode flags) — no rows are deleted.
   const [{ data: audit, error }, openReq, rulingFlags] = await Promise.all([
     auditQuery,
     supabase.from("lisan_word_requests").select("id", { count: "exact", head: true }).eq("status", "open"),
-    supabase.from("religious_ruling_flags").select("id", { count: "exact", head: true }).eq("reviewed", false),
+    supabase
+      .from("religious_ruling_flags")
+      .select("id", { count: "exact", head: true })
+      .eq("reviewed", false)
+      .gte("created_at", fromIso),
   ]);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

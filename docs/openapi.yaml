@@ -732,6 +732,12 @@ paths:
         Counts + recent personal fiqh / halal-haram questions the assistant refused (redirecting to
         the Aamil Saheb) and quietly flagged via the deterministic ruling guard. NOT escalations —
         no one is paged. Phone is masked to the last 4 digits. Admin/leadership or a religious monitor.
+      parameters:
+        - in: query
+          name: from
+          required: false
+          schema: { type: string, format: date }
+          description: Floor flags by date (YYYY-MM-DD), e.g. "Since Ashara", to exclude pre-event test flags.
       security: [{ portalSession: [] }, { adminKey: [] }]
       responses:
         "200": { description: "{ total, unreviewed, recent[] } of flagged ruling questions." }

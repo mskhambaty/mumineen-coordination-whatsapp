@@ -16,7 +16,8 @@ function supabaseWith(audit: AuditRow[]) {
   const auditChain: Record<string, unknown> = {};
   ["select", "in", "gte", "lte", "order"].forEach((m) => (auditChain[m] = () => auditChain));
   auditChain.limit = () => Promise.resolve({ data: audit, error: null });
-  const countChain = { select: () => ({ eq: () => Promise.resolve({ count: 0 }) }) };
+  // Head-count chains: word-requests is .select().eq(); ruling-flags is .select().eq().gte().
+  const countChain = { select: () => ({ eq: () => ({ gte: () => Promise.resolve({ count: 0 }), then: (r: (v: unknown) => void) => r({ count: 0 }) }) }) };
   return {
     from: (table: string) => (table === "tool_audit_logs" ? auditChain : countChain),
   };
