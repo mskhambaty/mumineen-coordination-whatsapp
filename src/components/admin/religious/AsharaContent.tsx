@@ -8,6 +8,7 @@ import {
   ASHARA_CATEGORIES,
   ASHARA_ROWS,
   DEFAULT_ACTIVE_YEAR,
+  TAZYEEN_CATEGORY,
   defaultStatus,
   majlisRowForToday,
   topicTitle,
@@ -15,8 +16,8 @@ import {
   type AsharaRow,
 } from "@/lib/knowledge/ashara-config";
 
-// This year only Reflections + Q&A are published, so the grid shows just those by default. Other
-// block types appear automatically if a year already has them, or when added via "Add block".
+// This year only Reflections + Q&A are published per majlis (the grid). Tazyeen is a single
+// year-level block (one for the whole Ashara), edited like the Overall-theme block below.
 
 // The Ashara majlis × category content grid — extracted from /admin/ashara so it can live inside
 // the Waaz Talaqqi "Content" tab. This is where the daily majlis content (incl. the active year,
@@ -58,8 +59,6 @@ export default function AsharaContent() {
   const [editing, setEditing] = useState<Topic | null>(null);
   const [themeBusy, setThemeBusy] = useState(false);
   const [themeMsg, setThemeMsg] = useState<string | null>(null);
-  // Extra (non-default) block types the admin chose to reveal this session.
-  const [addedCats, setAddedCats] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     void load();
@@ -97,17 +96,8 @@ export default function AsharaContent() {
 
   const cellKey = (cat: AsharaCategory, row: AsharaRow) => `${cat.key}:${row.isAshura ? "ashura" : row.majlisNumber}`;
 
-  // Columns to show: the default ones (Reflections + Q&A), plus any category this year already has
-  // content for, plus any the admin revealed via "Add block". Order follows ASHARA_CATEGORIES.
-  const visibleCats = useMemo(() => {
-    const present = new Set<string>();
-    for (const t of topics) if (t.year_hijri === year && t.category) present.add(t.category);
-    return ASHARA_CATEGORIES.filter((c) => c.isDefault || present.has(c.key) || addedCats.has(c.key));
-  }, [topics, year, addedCats]);
-  const hiddenCats = useMemo(
-    () => ASHARA_CATEGORIES.filter((c) => !visibleCats.some((v) => v.key === c.key)),
-    [visibleCats],
-  );
+  // Per-majlis grid columns: Reflections + Q&A only this year.
+  const visibleCats = ASHARA_CATEGORIES;
 
   const todayRowIdx = useMemo(() => {
     const todayIso = new Date().toISOString().slice(0, 10);
@@ -208,6 +198,37 @@ export default function AsharaContent() {
     [topics, year],
   );
 
+  // Tazyeen is one year-level block for the whole Ashara (majlis_number null).
+  const tazyeenBlock = useMemo(
+    () => topics.find((t) => t.category === "tazyeen" && t.year_hijri === year && t.majlis_number == null) ?? null,
+    [topics, year],
+  );
+
+  async function openTazyeen() {
+    if (tazyeenBlock) { setEditing(tazyeenBlock); return; }
+    setBusyCell("tazyeen");
+    setError(null);
+    try {
+      const res = await apiFetch("/api/admin/religious-topics", {
+        method: "POST",
+        body: JSON.stringify({
+          title: `${TAZYEEN_CATEGORY.label} — Ashara ${year}H`,
+          year_hijri: year, majlis_number: null, is_ashura: false,
+          category: TAZYEEN_CATEGORY.key, language: TAZYEEN_CATEGORY.language, status: "placeholder",
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to create");
+      const created = (await res.json()) as { id: string };
+      const fresh = (await (await apiFetch("/api/admin/religious-topics")).json()).topics as Topic[];
+      setTopics(fresh);
+      setEditing(fresh.find((t) => t.id === created.id) ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create");
+    } finally {
+      setBusyCell(null);
+    }
+  }
+
   async function openOverview() {
     if (overviewBlock) { setEditing(overviewBlock); return; }
     setBusyCell("overview");
@@ -242,25 +263,6 @@ export default function AsharaContent() {
           <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">One row per majlis, one column per type. Click any cell to add its content.</p>
         </div>
         <div className="flex items-end gap-3">
-          {hiddenCats.length > 0 && (
-            <label className="text-sm text-gray-700 dark:text-gray-300">
-              Add block
-              <select
-                value=""
-                onChange={(e) => {
-                  const key = e.target.value;
-                  if (key) setAddedCats((prev) => new Set(prev).add(key));
-                }}
-                className="mt-1 block rounded-md border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-                title="This year shows Reflections + Q&A by default. Add another block type if you need it."
-              >
-                <option value="">+ Add block…</option>
-                {hiddenCats.map((c) => (
-                  <option key={c.key} value={c.key}>{c.label}</option>
-                ))}
-              </select>
-            </label>
-          )}
           <button
             type="button"
             onClick={() => void backfillThemes()}
@@ -293,8 +295,8 @@ export default function AsharaContent() {
           <div>
             <p className="font-medium">How to fill this in</p>
             <ul className="mt-1 list-disc space-y-0.5 pl-5 text-gray-600 dark:text-gray-400">
-              <li>This year shows <span className="font-medium text-gray-800 dark:text-gray-200">Reflections</span> and <span className="font-medium text-gray-800 dark:text-gray-200">Q&amp;A</span>. Open a cell, paste the content, Save.</li>
-              <li>Need another block type (Tazyeen, Al-Dars, Jumla…)? Use <span className="font-medium">Add block</span> above. Lisan blocks take the <span className="font-medium">English translation</span>.</li>
+              <li>Each majlis has <span className="font-medium text-gray-800 dark:text-gray-200">Reflections</span> and <span className="font-medium text-gray-800 dark:text-gray-200">Q&amp;A</span>. Open a cell, paste the content, Save.</li>
+              <li><span className="font-medium text-gray-800 dark:text-gray-200">Tazyeen</span> is a single block for the whole Ashara — edit it from the button above the grid.</li>
               <li>Saving indexes it for the WhatsApp agent and turns the chip green.</li>
             </ul>
           </div>
@@ -343,6 +345,25 @@ export default function AsharaContent() {
         </div>
         <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${overviewBlock?.content?.trim() ? STATUS_STYLE.indexed : STATUS_STYLE.placeholder}`}>
           {overviewBlock?.content?.trim() ? "Indexed" : "Empty"}
+        </span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => void openTazyeen()}
+        disabled={busyCell === "tazyeen"}
+        className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-3 text-left shadow-sm transition hover:border-blue-400 dark:border-gray-800 dark:bg-gray-900"
+      >
+        <div>
+          <span className="text-sm font-semibold">Tazyeen — Ashara {year}H</span>
+          <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+            {busyCell === "tazyeen" ? "Creating…" : tazyeenBlock?.content?.trim()
+              ? "Edit this year's single Tazyeen (decoration) article"
+              : "One Tazyeen article for the whole Ashara — click to add it"}
+          </span>
+        </div>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tazyeenBlock?.content?.trim() ? STATUS_STYLE.indexed : STATUS_STYLE.placeholder}`}>
+          {tazyeenBlock?.content?.trim() ? "Indexed" : "Empty"}
         </span>
       </button>
 
