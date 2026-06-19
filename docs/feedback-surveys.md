@@ -45,6 +45,13 @@ responses through a per-recipient **tokenized web form** delivered over WhatsApp
 Returns the chosen set + a funnel for the admin preview. `suggestQuestionsForSection` rotates the
 databank by preferring least-exposed questions.
 
+**Stratified sampling** (`suggestSamplePlan`): a form can carry a `sample_plan` — an array of strata,
+each its own audience filter + quota (e.g. `[{Local,107},{Mehman,70}]`). Preview/Commit sample each
+stratum from its pool, dedup across strata, and send one broadcast. Because the ≤1-sample/day rule is
+global, sending several plan-forms in sequence **partitions the day's audience** (each person gets one
+section/day). Reachable pools dedup to one number per household — so quotas are sized off the deduped
+pool (≈ Local 748 / Mehman 490 ÷ 7 daily forms ≈ 107 / 70).
+
 ## Sentiment (`src/lib/surveys/sentiment.ts`, pure + unit-tested)
 
 `answerSentiment(question, answer) → 1..5 | null`. Choice = option position (best-first); scale10 =
