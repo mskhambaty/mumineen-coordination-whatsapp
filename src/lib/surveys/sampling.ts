@@ -69,14 +69,23 @@ export async function suggestSample(
   const excludedUnregistered = attending.length - reachable.length;
 
   // 2. Prior survey history (real sends only — is_test self/team links don't count): how many times
-  // each mumin was sent, when last, whether sampled today, and how many they've completed.
-  const { data: recipientRows } = await supabase
-    .from("survey_recipients")
-    .select("mumin_id, event_date, created_at, completed_at, is_test");
+  // each mumin was sent, whether sampled today, and how many they've completed. MUST paginate — a
+  // single PostgREST read caps at 1000 rows, and a truncated history silently breaks the
+  // "already sampled today" / once-per-day guarantee once the table grows past 1000.
+  const recipientRows: { mumin_id: string | null; event_date: string | null; completed_at: string | null; is_test: boolean }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from("survey_recipients")
+      .select("mumin_id, event_date, completed_at, is_test")
+      .range(from, from + 999);
+    if (error) break;
+    recipientRows.push(...((data ?? []) as typeof recipientRows));
+    if (!data || data.length < 1000) break;
+  }
   const priorSends = new Map<string, number>();
   const completedCount = new Map<string, number>();
   const sampledToday = new Set<string>();
-  for (const r of (recipientRows ?? []) as { mumin_id: string | null; event_date: string | null; created_at: string; completed_at: string | null; is_test: boolean }[]) {
+  for (const r of recipientRows) {
     if (!r.mumin_id || r.is_test) continue;
     priorSends.set(r.mumin_id, (priorSends.get(r.mumin_id) ?? 0) + 1);
     if (r.completed_at) completedCount.set(r.mumin_id, (completedCount.get(r.mumin_id) ?? 0) + 1);
@@ -84,13 +93,21 @@ export async function suggestSample(
   }
 
   // 3. Exposure to THIS form's questions: a candidate exposed to every question is exhausted.
+  // Paginate (1000-row cap) — a popular question accumulates many exposures across forms.
   const exposedByMumin = new Map<string, Set<string>>();
   if (formQuestionIds.length > 0) {
-    const { data: exposures } = await supabase
-      .from("survey_question_exposures")
-      .select("mumin_id, question_id")
-      .in("question_id", formQuestionIds);
-    for (const e of (exposures ?? []) as { mumin_id: string; question_id: string }[]) {
+    const exposures: { mumin_id: string; question_id: string }[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabase
+        .from("survey_question_exposures")
+        .select("mumin_id, question_id")
+        .in("question_id", formQuestionIds)
+        .range(from, from + 999);
+      if (error) break;
+      exposures.push(...((data ?? []) as typeof exposures));
+      if (!data || data.length < 1000) break;
+    }
+    for (const e of exposures) {
       let set = exposedByMumin.get(e.mumin_id);
       if (!set) exposedByMumin.set(e.mumin_id, (set = new Set()));
       set.add(e.question_id);

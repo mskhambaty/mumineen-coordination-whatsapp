@@ -22,13 +22,18 @@ export async function GET(req: NextRequest) {
     .limit(100);
   const formRows = (forms ?? []) as { id: string; group_id: string | null; rules: unknown; sample_plan: { label: string; size: number }[] | null; tags: string[] | null }[];
 
-  const [{ data: groups }, { data: recips }] = await Promise.all([
-    supabase.from("survey_groups").select("id, name"),
-    supabase.from("survey_recipients").select("form_id, status"),
-  ]);
+  const { data: groups } = await supabase.from("survey_groups").select("id, name");
+  // Paginate — a single read caps at 1000 rows and would undercount recipients once the table grows.
+  const recips: { form_id: string; status: string }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from("survey_recipients").select("form_id, status").range(from, from + 999);
+    if (error) break;
+    recips.push(...((data ?? []) as typeof recips));
+    if (!data || data.length < 1000) break;
+  }
   const groupName = new Map(((groups ?? []) as { id: string; name: string }[]).map((g) => [g.id, g.name]));
   const counts = new Map<string, { sent: number; completed: number }>();
-  for (const r of (recips ?? []) as { form_id: string; status: string }[]) {
+  for (const r of recips) {
     const c = counts.get(r.form_id) ?? { sent: 0, completed: 0 };
     c.sent += 1;
     if (r.status === "completed") c.completed += 1;

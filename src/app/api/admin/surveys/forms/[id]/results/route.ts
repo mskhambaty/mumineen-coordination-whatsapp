@@ -15,12 +15,21 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const includeTest = new URL(req.url).searchParams.get("includeTest") === "1";
   const supabase = getSupabaseAdmin();
 
-  const [{ data: form }, { data: recips }, { data: answers }, { data: fqs }] = await Promise.all([
+  // A big form can have >1000 answers (recipients × questions), so paginate that read.
+  type AnsRow = { recipient_id: string; section_id: string | null; question_id: string | null; area: string | null; answer_text: string | null; reason_text: string | null; sentiment_1_5: number | null };
+  const answersAll: AnsRow[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from("survey_answers").select("recipient_id, section_id, question_id, area, answer_text, reason_text, sentiment_1_5").eq("form_id", id).range(from, from + 999);
+    if (error) break;
+    answersAll.push(...((data ?? []) as AnsRow[]));
+    if (!data || data.length < 1000) break;
+  }
+  const [{ data: form }, { data: recips }, { data: fqs }] = await Promise.all([
     supabase.from("survey_forms").select("id, title, status, event_date").eq("id", id).maybeSingle(),
     supabase.from("survey_recipients").select("id, status, is_test").eq("form_id", id),
-    supabase.from("survey_answers").select("recipient_id, section_id, question_id, area, answer_text, reason_text, sentiment_1_5").eq("form_id", id),
     supabase.from("survey_form_questions").select("section_id, question_id, area, snapshot").eq("form_id", id),
   ]);
+  const answers = answersAll;
   if (!form) return NextResponse.json({ error: "Form not found." }, { status: 404 });
 
   // By default exclude is_test recipients (self-test / in-team links). includeTest=1 shows them

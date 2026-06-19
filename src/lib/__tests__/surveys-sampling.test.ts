@@ -9,11 +9,12 @@ let exposureRows: unknown[] = [];
 vi.mock("@/lib/supabase/server", () => ({
   getSupabaseAdmin: () => ({
     from(table: string) {
+      // Paginated reads: .range(from,...) returns the rows on the first page, [] after (loop ends).
       if (table === "survey_recipients") {
-        return { select: () => Promise.resolve({ data: recipientRows }) };
+        return { select: () => ({ range: (from: number) => Promise.resolve({ data: from === 0 ? recipientRows : [] }) }) };
       }
       if (table === "survey_question_exposures") {
-        return { select: () => ({ in: () => Promise.resolve({ data: exposureRows }) }) };
+        return { select: () => ({ in: () => ({ range: (from: number) => Promise.resolve({ data: from === 0 ? exposureRows : [] }) }) }) };
       }
       throw new Error(`unexpected table ${table}`);
     },
