@@ -26,6 +26,7 @@ type TemplateDescriptor = {
   phoneNumberId: string;
   displayNumber: string | null;
 };
+type AccountOption = { label: string; name: string; displayName: string | null; displayNumber: string | null; phoneNumberId: string };
 type SegmentCount = { key: string; label: string; total: number; in_window: number; out_window: number };
 type SelectableUser = { id: string; name: string; role: string };
 type Preview = { total: number; in_window: number; out_window: number; est_cost_usd: number; recipients?: { phone: string; full_name: string | null; its: string | null; inWindow: boolean }[]; funnel?: { matched: number; with_whatsapp: number; unique: number } | null; csv_stats?: { parsed: number; skipped: number; duplicates: number; corrupted: number } | null };
@@ -46,7 +47,8 @@ type BroadcastAudit = {
 type FullRecipient = { phone: string; name: string | null; its: string | null; status: string; was_in_window: boolean | null; sent_at: string | null; detail: string | null };
 type Broadcast = {
   id: string;
-  template_code: string;
+  message_kind?: string | null;
+  template_code: string | null;
   audience_key: string;
   status: string;
   total_recipients: number;
@@ -100,6 +102,8 @@ const input = "rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark
 export default function SendTemplatesPage() {
   const [mode, setMode] = useState<"broadcast" | "single">("broadcast");
   const [templates, setTemplates] = useState<TemplateDescriptor[]>([]);
+  const [accounts, setAccounts] = useState<AccountOption[]>([]);
+  const [account, setAccount] = useState<string>(""); // selected sending number (phoneNumberId)
   const [users, setUsers] = useState<SelectableUser[]>([]);
   const [segments, setSegments] = useState<SegmentCount[]>([]);
   const [windowHours, setWindowHours] = useState<number>(24); // configured free-window size (WHATSAPP_WINDOW_HOURS)
@@ -109,6 +113,8 @@ export default function SendTemplatesPage() {
   const [notice, setNotice] = useState<string | null>(null);
 
   // Broadcast state
+  const [broadcastKind, setBroadcastKind] = useState<"template" | "text">("template");
+  const [broadcastText, setBroadcastText] = useState("");
   const [tpl, setTpl] = useState<string>("");
   const [audience, setAudience] = useState<string>("selected_users");
   const [windowFilter, setWindowFilter] = useState<"all" | "in_window" | "out_window">("all");
@@ -234,6 +240,18 @@ export default function SendTemplatesPage() {
     return false;
   }, []);
 
+  // Load the configured WhatsApp sending numbers for the "Send from" picker. Default the selection to
+  // the first account so free-text sends (which need an explicit number) always have one, even in
+  // single-account deployments where the picker stays hidden.
+  const loadAccounts = useCallback(async () => {
+    const res = await apiFetch("/api/admin/whatsapp/accounts");
+    if (res.ok) {
+      const list = ((await res.json()).accounts as AccountOption[]) ?? [];
+      setAccounts(list);
+      setAccount((prev) => prev || list[0]?.phoneNumberId || "");
+    }
+  }, []);
+
   // Load the header reach-segment sizes. `hours` overrides the free-window size; when omitted we
   // adopt the server's configured default (WHATSAPP_WINDOW_HOURS) as the editable starting value.
   const loadSegments = useCallback(async (hours?: number) => {
@@ -255,15 +273,21 @@ export default function SendTemplatesPage() {
         setCatalog((fd.fields as CatalogField[]) ?? []);
         setMappable((fd.mappableFields as MappableField[]) ?? []);
       }
-      await Promise.all([loadBroadcasts(), loadSegments()]);
+      await Promise.all([loadBroadcasts(), loadSegments(), loadAccounts()]);
     })();
-  }, [loadBroadcasts, loadTemplates, loadSegments]);
+  }, [loadBroadcasts, loadTemplates, loadSegments, loadAccounts]);
 
   // Templates offered in the pickers: active only (deactivated ones are managed in the popup).
   const activeTemplates = useMemo(() => templates.filter((t) => t.isActive), [templates]);
-  // Only surface the sending number when more than one WhatsApp account exists — keeps the
+  // Only surface the sending-number controls when more than one WhatsApp account exists — keeps the
   // single-number deployment's UI unchanged.
-  const multiAccount = useMemo(() => new Set(templates.map((t) => t.accountLabel)).size > 1, [templates]);
+  const multiAccount = accounts.length > 1;
+  // When a sending number is chosen (multi-account), narrow the template pickers to that number's
+  // templates — a template can only be sent from the WABA that owns it.
+  const accountTemplates = useMemo(
+    () => (multiAccount && account ? activeTemplates.filter((t) => t.phoneNumberId === account) : activeTemplates),
+    [activeTemplates, account, multiAccount],
+  );
 
   const selectedTpl = templates.find((t) => t.name === tpl) ?? null;
   const selectedSingleTpl = templates.find((t) => t.name === singleTpl) ?? null;
@@ -313,6 +337,16 @@ export default function SendTemplatesPage() {
       return "(could not render rules)";
     }
   }, [detail, rqbFields]);
+
+  // Switching the sending number invalidates any template chosen for the previous number, so clear the
+  // template selections and the preview.
+  function changeAccount(phoneNumberId: string) {
+    setAccount(phoneNumberId);
+    setTpl("");
+    setSingleTpl("");
+    setBindings({});
+    setPreview(null);
+  }
 
   function selectBroadcastTemplate(name: string) {
     setTpl(name);
@@ -427,11 +461,21 @@ export default function SendTemplatesPage() {
   }
 
   async function send() {
-    if (!selectedTpl) return setError("Pick a template.");
+    const isText = broadcastKind === "text";
+    if (isText) {
+      if (!broadcastText.trim()) return setError("Enter a message.");
+      if (!account) return setError("Pick a sending number.");
+    } else if (!selectedTpl) {
+      return setError("Pick a template.");
+    }
     if (!preview) return setError("Run a preview first.");
+    const what = isText ? "this free-text message" : `"${selectedTpl!.name}"`;
     const ok = window.confirm(
-      `Send "${selectedTpl.name}" to ${preview.total} recipients ` +
-        `(${preview.in_window} free, ${preview.out_window} paid ≈ $${preview.est_cost_usd})?`,
+      isText
+        ? `Send ${what} to ${preview.in_window} recipient(s) inside the ${windowHours}h window (free)? ` +
+            `Recipients outside the window can't receive free text and are not included.`
+        : `Send ${what} to ${preview.total} recipients ` +
+            `(${preview.in_window} free, ${preview.out_window} paid ≈ $${preview.est_cost_usd})?`,
     );
     if (!ok) return;
     setBusy(true);
@@ -440,21 +484,25 @@ export default function SendTemplatesPage() {
       const res = await apiFetch("/api/admin/templates/send", {
         method: "POST",
         body: JSON.stringify({
-          template_code: selectedTpl.name,
-          template_language: selectedTpl.language,
+          message_kind: broadcastKind,
+          phone_number_id: account || undefined,
+          template_code: isText ? undefined : selectedTpl!.name,
+          template_language: isText ? undefined : selectedTpl!.language,
+          text: isText ? broadcastText.trim() : undefined,
           audience_key: audience,
           selected_user_ids: selectedUsers,
           rules: audience === "custom" ? query : undefined,
           csv: audience === "csv_upload" ? csvText : undefined,
           window: windowFilter,
           window_hours: windowHours,
-          variable_bindings: buildBindingsPayload(),
+          variable_bindings: isText ? undefined : buildBindingsPayload(),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Send failed");
       setNotice(`Started: ${data.total} queued (${data.free} free / ${data.paid} paid${data.skipped ? `, ${data.skipped} skipped` : ""}). Draining in batches…`);
       setPreview(null);
+      if (broadcastKind === "text") setBroadcastText("");
       await loadBroadcasts();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Send failed");
@@ -473,7 +521,7 @@ export default function SendTemplatesPage() {
     try {
       const body =
         singleKind === "text"
-          ? { its: recipient.trim(), kind: "text", text: singleText.trim() }
+          ? { its: recipient.trim(), kind: "text", text: singleText.trim(), phone_number_id: account || undefined }
           : {
               its: recipient.trim(),
               kind: "template",
@@ -531,19 +579,44 @@ export default function SendTemplatesPage() {
         </button>
       </div>
 
+      {multiAccount && (
+        <label className="mt-3 block max-w-sm text-xs uppercase tracking-wide text-gray-400">
+          Send from
+          <select value={account} onChange={(e) => changeAccount(e.target.value)} className={`${input} mt-1 block w-full`}>
+            {accounts.map((a) => (
+              <option key={a.phoneNumberId} value={a.phoneNumberId}>
+                {a.name}{a.displayNumber && a.displayName ? ` (${a.displayNumber})` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
       {error && <div className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950">{error}</div>}
       {notice && <div className="mt-3 rounded-md bg-green-50 p-3 text-sm text-green-700 dark:bg-green-950">{notice}</div>}
 
       {mode === "broadcast" ? (
         <section className="mt-5 space-y-4 rounded-lg border border-gray-200 p-4 dark:border-gray-800">
+          <div className="flex gap-2">
+            <button type="button" onClick={() => { setBroadcastKind("template"); setPreview(null); }} className={`rounded-md px-3 py-1.5 text-sm font-medium ${broadcastKind === "template" ? "bg-blue-600 text-white" : "border border-gray-300 dark:border-gray-700"}`}>Template</button>
+            <button type="button" onClick={() => { setBroadcastKind("text"); setWindowFilter("in_window"); setPreview(null); }} className={`rounded-md px-3 py-1.5 text-sm font-medium ${broadcastKind === "text" ? "bg-blue-600 text-white" : "border border-gray-300 dark:border-gray-700"}`}>Free text</button>
+          </div>
+
+          {broadcastKind === "text" ? (
+            <div>
+              <textarea value={broadcastText} onChange={(e) => setBroadcastText(e.target.value)} rows={4} placeholder="Message…" className={`${input} block w-full`} />
+              <p className="mt-1 text-xs text-amber-600">Free text only reaches people who messaged you within the last {windowHours}h; everyone outside that window can&apos;t receive it and is excluded. The audience is locked to the free window below.</p>
+            </div>
+          ) : (
+          <>
           <div className="flex items-end justify-between gap-2">
             <label className="block flex-1 text-xs uppercase tracking-wide text-gray-400">
               Template
               <select value={tpl} onChange={(e) => selectBroadcastTemplate(e.target.value)} className={`${input} mt-1 block w-full`}>
                 <option value="">Select a template…</option>
-                {activeTemplates.map((t) => (
+                {accountTemplates.map((t) => (
                   <option key={tplKey(t)} value={t.name}>
-                    {tplLabel(t)} ({t.language}){multiAccount ? ` · ${accountTag(t)}` : ""}{t.bodyVarCount > 0 ? " — has variables" : ""}
+                    {tplLabel(t)} ({t.language}){multiAccount && !account ? ` · ${accountTag(t)}` : ""}{t.bodyVarCount > 0 ? " — has variables" : ""}
                   </option>
                 ))}
               </select>
@@ -552,10 +625,6 @@ export default function SendTemplatesPage() {
               Manage templates
             </button>
           </div>
-
-          {selectedTpl && multiAccount && (
-            <p className="text-xs text-gray-500">Broadcasts from {accountTag(selectedTpl)}.</p>
-          )}
 
           {selectedTpl && <div className="rounded-md bg-gray-50 p-3 text-sm whitespace-pre-wrap dark:bg-gray-900">{previewText() || selectedTpl.bodyText || "(no body preview)"}</div>}
 
@@ -575,6 +644,8 @@ export default function SendTemplatesPage() {
               <p className="text-xs text-gray-500">Static = same for everyone. Field = each recipient&apos;s value; recipients missing that field are skipped &amp; reported.</p>
             </div>
           )}
+          </>
+          )}
 
           <label className="block text-xs uppercase tracking-wide text-gray-400">
             Audience
@@ -591,7 +662,7 @@ export default function SendTemplatesPage() {
           <div className="flex flex-wrap items-start gap-3">
             <label className="block min-w-[12rem] flex-1 text-xs uppercase tracking-wide text-gray-400">
               Conversation window
-              <select value={windowFilter} onChange={(e) => { setWindowFilter(e.target.value as typeof windowFilter); setPreview(null); }} className={`${input} mt-1 block w-full`}>
+              <select value={windowFilter} disabled={broadcastKind === "text"} onChange={(e) => { setWindowFilter(e.target.value as typeof windowFilter); setPreview(null); }} className={`${input} mt-1 block w-full disabled:opacity-60`}>
                 <option value="all">All recipients</option>
                 <option value="in_window">Conversed ≤{windowHours}h (free)</option>
                 <option value="out_window">Not conversed (paid)</option>
@@ -737,7 +808,7 @@ export default function SendTemplatesPage() {
             </div>
           )}
 
-          <button type="button" onClick={send} disabled={busy || !preview || !selectedTpl} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+          <button type="button" onClick={send} disabled={busy || !preview || (broadcastKind === "text" ? !broadcastText.trim() : !selectedTpl)} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
             Send broadcast
           </button>
         </section>
@@ -767,8 +838,8 @@ export default function SendTemplatesPage() {
                 className={`${input} block w-full`}
               >
                 <option value="">Select a template…</option>
-                {activeTemplates.map((t) => (
-                  <option key={tplKey(t)} value={t.name}>{tplLabel(t)} ({t.language}){multiAccount ? ` · ${accountTag(t)}` : ""}</option>
+                {accountTemplates.map((t) => (
+                  <option key={tplKey(t)} value={t.name}>{tplLabel(t)} ({t.language}){multiAccount && !account ? ` · ${accountTag(t)}` : ""}</option>
                 ))}
               </select>
               {selectedSingleTpl && multiAccount && (
@@ -841,7 +912,7 @@ export default function SendTemplatesPage() {
                       className="cursor-pointer border-t border-gray-100 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900/50"
                       onClick={() => toggleDetail(b)}
                     >
-                      <td className="px-2 py-1.5 font-mono text-xs">{expanded === b.id ? "▾ " : "▸ "}{b.template_code}</td>
+                      <td className="px-2 py-1.5 font-mono text-xs">{expanded === b.id ? "▾ " : "▸ "}{b.message_kind === "text" ? "Free text" : b.template_code}</td>
                       <td className="px-2 py-1.5">{b.audience_key}</td>
                       <td className="px-2 py-1.5">
                         {b.status}

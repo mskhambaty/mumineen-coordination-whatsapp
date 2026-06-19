@@ -61,17 +61,22 @@ Because the two numbers live under separate Meta Apps, each has its **own** app 
 verify token. All Meta Apps point at the **same** callback URL (`/api/whatsapp/webhook`); the handler
 routes each delivery to the right account by `metadata.phone_number_id` (see
 [`whatsapp-webhook.md`](./whatsapp-webhook.md)), so adding a number never adds a route. A template
-lives in exactly one WABA, so the chosen template determines which number a broadcast/send goes out
-from; replies are always sent from the number the message arrived on.
+lives in exactly one WABA, so the chosen template determines which number a template send goes out
+from; replies are always sent from the number the message arrived on. The send console's **"Send from"**
+picker (shown only when more than one account is configured) lets an admin choose the number explicitly —
+this both filters the template list to that account and sets the number for **free-text** broadcasts
+(which have no template to derive the number from).
 
 | Name | Accepted Aliases | Default | Notes |
 |------|-----------------|---------|-------|
+| `WHATSAPP_DISPLAY_NAME` | `Whatsapp_display_name` | (unset) | Friendly name for the **primary** number in the send console's "Send from" picker (e.g. `AI Bot`). Falls back to the display number, then the label. |
 | `WHATSAPP_PHONE_NUMBER_ID_BROADCAST` | `Whatsapp_phone_number_id_broadcast` | (unset) | Phone number id of the second number. Presence of this var is what enables the broadcast account. |
 | `WHATSAPP_ACCESS_TOKEN_BROADCAST` | `Whatsapp_access_token_broadcast` | (unset) | Access token for the second number's Meta App. Required when the broadcast account is enabled. |
 | `WHATSAPP_BUSINESS_ACCOUNT_ID_BROADCAST` | `Whatsapp_business_account_id_broadcast` | (unset) | WABA id that owns the second number's templates. |
 | `META_APP_SECRET_BROADCAST` | `Meta_app_secret_broadcast` | (unset) | App secret of the second Meta App; validates `X-Hub-Signature-256` on the broadcast webhook route. |
 | `META_WEBHOOK_VERIFY_TOKEN_BROADCAST` | `Meta_webhook_verify_token_broadcast` | (unset) | Verify token for the second Meta App's GET handshake. Its webhook points at the shared `/api/whatsapp/webhook` URL (the handshake accepts any account's token). |
 | `WHATSAPP_DISPLAY_PHONE_NUMBER_BROADCAST` | `Whatsapp_display_phone_number_broadcast` | (unset) | Optional display number for labeling / inbound allow-checks. |
+| `WHATSAPP_DISPLAY_NAME_BROADCAST` | `Whatsapp_display_name_broadcast` | (unset) | Friendly name for the **broadcast** number in the send console's "Send from" picker (e.g. `Anjuman e Saifee`). |
 
 > **Model compatibility (GPT-5.x / o-series).** These are reasoning models: they reject a custom
 > `temperature` and the deprecated `max_tokens`, requiring `max_completion_tokens` instead. All

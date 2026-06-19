@@ -2875,28 +2875,67 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
-  /api/admin/templates/send:
+  /api/admin/whatsapp/accounts:
+    get:
+      tags: [admin, templates]
+      summary: List configured WhatsApp sending numbers
+      description: Admin/leadership only. Returns the configured WhatsApp accounts for the send console's "Send from" picker. No secrets — only the non-PII routing id and display labels.
+      responses:
+        "200":
+          description: "{ accounts: [{ label, name, displayName, displayNumber, phoneNumberId }] }"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/whatsapp/send:
     post:
       tags: [admin, templates]
-      summary: Start a manual template broadcast
-      description: Admin/leadership only. Creates a broadcast, enqueues recipients, then drains inline until the queue is empty (bounded); the minute cron is a backstop. Manual — no auto-scheduling. For audience_key=custom pass rules; for csv_upload pass csv (raw CSV text in the audience-export/failures-export format); template variables are bound via variable_bindings.
+      summary: Send a free-text or template message to one recipient
+      description: Admin/leadership only. Resolves an ITS or phone to a destination number and sends a free-text (kind=text) or template (kind=template) message. Free-text sends from phone_number_id when provided (else primary); template sends from the account whose WABA owns the template.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [template_code, audience_key]
+              required: [kind]
               properties:
-                template_code: { type: string }
+                its: { type: string, description: "ITS code (resolved to the roster member's WhatsApp number). One of its/phone required." }
+                phone: { type: string, description: "E.164 phone number. One of its/phone required." }
+                kind: { type: string, enum: [text, template] }
+                text: { type: string, description: "Free-text body (kind=text)." }
+                phone_number_id: { type: string, description: "Account/number to send a free-text message from (kind=text); defaults to primary." }
+                template: { type: object, description: "Template payload (kind=template): name, language, bodyParams, optional header/url-button params." }
+      responses:
+        "200": { description: "{ ok, to, name, kind, template? }" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/templates/send:
+    post:
+      tags: [admin, templates]
+      summary: Start a manual template or free-text broadcast
+      description: Admin/leadership only. Creates a broadcast, enqueues recipients, then drains inline until the queue is empty (bounded); the minute cron is a backstop. Manual — no auto-scheduling. message_kind=template (default) sends an approved template (template_code required; variables bound via variable_bindings). message_kind=text sends a plain free-text message (text + phone_number_id required); free-text only delivers inside the recipient's 24h window, so the audience is forced to in_window. For audience_key=custom pass rules; for csv_upload pass csv (raw CSV text in the audience-export/failures-export format).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [audience_key]
+              properties:
+                message_kind: { type: string, enum: [template, text], default: template, description: "template = approved template send; text = plain free-text send." }
+                template_code: { type: string, description: "Required when message_kind=template." }
                 template_language: { type: string }
+                text: { type: string, description: "Free-text body; required when message_kind=text." }
+                phone_number_id: { type: string, description: "WhatsApp account/number to send from. Required for free-text; for templates it is validated against the template's owning WABA." }
                 audience_key: { type: string, enum: [selected_users, chicago_committee, arrived_hof, registered_hof, all_members, segment_all_users, segment_hof, segment_hof_unresponded, custom, csv_upload] }
                 selected_user_ids: { type: array, items: { type: string, format: uuid } }
                 rules: { type: object, description: react-querybuilder rule tree (audience_key=custom) }
                 csv: { type: string, description: Raw CSV text in the audience-export format (audience_key=csv_upload) }
-                window: { type: string, enum: [all, in_window, out_window], default: all, description: "Restrict the audience to one side of the customer-service window — in_window (free) or out_window (paid)." }
+                window: { type: string, enum: [all, in_window, out_window], default: all, description: "Restrict the audience to one side of the customer-service window — in_window (free) or out_window (paid). Ignored for free-text (forced in_window)." }
                 window_hours: { type: number, minimum: 1, description: "Override the free-window size in hours, any positive value (defaults to WHATSAPP_WINDOW_HOURS, 24)." }
-                variable_bindings: { type: object, description: Per-variable static value or roster-field mapping }
+                variable_bindings: { type: object, description: Per-variable static value or roster-field mapping (template sends only) }
       responses:
         "200": { description: "status=started + broadcastId + counts." }
         "400": { $ref: "#/components/responses/BadRequest" }

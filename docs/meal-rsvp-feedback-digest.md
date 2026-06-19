@@ -342,6 +342,25 @@ renders open ticket counts and titles in each department card.
 `requireAdminLeadership`). Pick an approved template, pick an audience, preview free/paid counts +
 cost, send. No auto-scheduling — every send is a button press.
 
+**Choosing the sending number ("Send from").** When more than one WhatsApp account is configured
+(e.g. an **AI Bot** number + an **Anjuman e Saifee** broadcast number — see
+[environment.md](./environment.md#multiple-whatsapp-numbers-accounts)), a top-level **Send from**
+picker appears. It's sourced from `GET /api/admin/whatsapp/accounts` (labels only, no secrets), and
+choosing a number both **filters the template list** to that account's templates (a template can only
+be sent from the WABA that owns it) and **sets the number for free-text sends**. The selection is
+threaded to `POST /send` (and the single-recipient `POST /api/admin/whatsapp/send`) as
+`phone_number_id`; `createBroadcast` records it on the `template_broadcasts.phone_number_id` column and
+the drain sends through that account. Single-account deployments never see the picker (behavior
+unchanged), but the only account is still used as the implicit sending number.
+
+**Free-text broadcasts.** Both the Broadcast and Single-recipient views have a **Template / Free text**
+toggle. Free text sends a plain WhatsApp message with no template (`message_kind=text`, `text` body on
+`POST /send`). Because Meta only delivers free-form messages **inside the recipient's 24h
+conversation window** (it rejects out-of-window free text with error 131047), a free-text broadcast is
+**locked to the in-window audience**: the UI disables the Conversation-window dropdown (forcing
+`in_window`) and `createBroadcast` re-forces it server-side as a guardrail. These sends are free
+(`est_cost_usd = 0`), carry no `body_params`, and surface as "Free text" in the broadcast log.
+
 **Why the page is shaped this way:** Meta caps us at ~250 template messages/day, so the console
 helps staff spend that quota deliberately. People who **messaged us in the last 24h** sit inside the
 free customer-service window and can be answered without a template (don't count against the cap);
