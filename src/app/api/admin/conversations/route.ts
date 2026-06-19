@@ -90,6 +90,10 @@ function resolveAccountsForResponse(): Array<{
   }
 }
 
+// Non-template message sources that are still system broadcasts, not real conversation (mirrors the
+// client isBroadcastMessage). Template/interactive/button are filtered separately.
+const SYSTEM_BROADCAST_SOURCES = new Set(["niyaz_rsvp_ended", "issue_close_broadcast"]);
+
 export async function GET(req: NextRequest) {
   const auth = await requirePortalCaller(req, canAccessInbox);
   if (auth instanceof NextResponse) return auth;
@@ -261,12 +265,20 @@ export async function GET(req: NextRequest) {
   if (!selectedPhone && scope === "main") {
     const { data: convoMsgRows } = await supabase
       .from("messages")
-      .select("phone_e164")
+      .select("phone_e164, src:raw_payload->>source")
       .is("raw_payload->>template", null)
       .not("message_type", "in", "(interactive,button)")
       .order("created_at", { ascending: false })
-      .limit(1000);
-    const convoPhones = [...new Set(((convoMsgRows ?? []) as { phone_e164: string }[]).map((r) => r.phone_e164))];
+      .limit(2000);
+    // Drop system broadcast texts (e.g. the "Shukran for your reply. RSVP…" niyaz_rsvp_ended note)
+    // — they have no template key but are not real conversation, matching the client classifier.
+    const convoPhones = [
+      ...new Set(
+        ((convoMsgRows ?? []) as { phone_e164: string; src: string | null }[])
+          .filter((r) => !SYSTEM_BROADCAST_SOURCES.has(r.src ?? ""))
+          .map((r) => r.phone_e164),
+      ),
+    ];
     const havePhones = new Set(((sessions ?? []) as SessionRow[]).map((s) => s.phone_e164));
     const missing = convoPhones.filter((p) => !havePhones.has(p));
     if (missing.length) {
@@ -346,14 +358,18 @@ export async function GET(req: NextRequest) {
   // ordered newest-first, so the first row seen per phone is its latest conversational message.
   const { data: convoRows } = await supabase
     .from("messages")
-    .select("phone_e164, body, created_at")
+    .select("phone_e164, body, created_at, src:raw_payload->>source")
     .in("phone_e164", phoneNumbers)
     .is("raw_payload->>template", null)
     .not("message_type", "in", "(interactive,button)")
     .order("created_at", { ascending: false })
     .limit(5000);
   const lastConvoByPhone = new Map<string, { body: string | null; created_at: string }>();
-  for (const r of (convoRows ?? []) as { phone_e164: string; body: string | null; created_at: string }[]) {
+  for (const r of (convoRows ?? []) as { phone_e164: string; body: string | null; created_at: string; src: string | null }[]) {
+    // Drop system broadcast texts (niyaz_rsvp_ended "Shukran…", issue_close_broadcast) — no template
+    // key but not real conversation. This is what makes has_conversational_message / the preview match
+    // the client's in-thread classifier (so an RSVP-button-only thread isn't counted as a conversation).
+    if (SYSTEM_BROADCAST_SOURCES.has(r.src ?? "")) continue;
     if (!lastConvoByPhone.has(r.phone_e164)) lastConvoByPhone.set(r.phone_e164, { body: r.body, created_at: r.created_at });
   }
 

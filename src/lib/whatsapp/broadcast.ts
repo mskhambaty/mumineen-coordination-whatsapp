@@ -4,7 +4,8 @@ import { getAccountByPhoneNumberId, type WhatsAppAccount } from "@/lib/whatsapp/
 import { resolveApprovedTemplate, sendTemplateNotification } from "@/lib/whatsapp/send-template";
 import { suppressedPhones } from "@/lib/whatsapp/undeliverable";
 import { resolveBindings, type SendComponentInputs, type VariableBindings } from "@/lib/whatsapp/templates";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { sendWhatsAppText } from "@/lib/meta/whatsapp";
+import { getSupabaseAdmin, recordOutboundMessage } from "@/lib/supabase/server";
 
 // Broadcast engine for the template-send console. A broadcast is created with all its recipients
 // enqueued ('queued'), then drained in throttled batches by a cron so the work survives serverless
@@ -17,8 +18,13 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 const DEFAULT_BATCH_SIZE = 150; // per drain invocation; ~4k recipients clear in well under an hour
 
 export type CreateBroadcastInput = {
-  templateCode: string;
+  // "template" sends an approved template (the default); "text" sends a plain free-text message.
+  messageKind?: "template" | "text";
+  // Required for template sends; omitted for free-text sends.
+  templateCode?: string;
   templateLanguage?: string;
+  // Free-text body, required when messageKind === "text".
+  text?: string;
   audienceKey?: AudienceKey; // omit when passing an explicit `recipients` list
   selectedUserIds?: string[];
   rules?: RuleGroup; // for the "custom" audience
@@ -46,33 +52,41 @@ export type CreateBroadcastResult = { broadcastId: string; total: number; free: 
 // one recipient row per phone.
 export async function createBroadcast(input: CreateBroadcastInput): Promise<CreateBroadcastResult | { error: string }> {
   const supabase = getSupabaseAdmin();
+  const messageKind = input.messageKind ?? "template";
 
-  // Validate the template exists & is approved before enqueuing anything. Resolve from the sending
-  // account's WABA — the template must live in the WABA we'll send it from.
-  let desc;
-  try {
-    desc = await resolveApprovedTemplate(input.templateCode, input.account);
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : "Template not found" };
-  }
-
-  // Every template variable must have a binding.
+  // For template sends, validate the template exists & is approved before enqueuing anything, and that
+  // every variable has a binding. Resolve from the sending account's WABA — the template must live in
+  // the WABA we'll send it from. Free-text sends have no template or bindings.
+  let desc: Awaited<ReturnType<typeof resolveApprovedTemplate>> | undefined;
   const bindings: VariableBindings = input.variableBindings ?? {};
-  for (const tok of desc.bodyVars) {
-    if (!bindings.body?.[tok]) return { error: `Missing binding for variable "${tok}".` };
-  }
-  if (desc.header?.format === "TEXT" && desc.headerVar && !bindings.header) {
-    return { error: `Missing binding for header variable "${desc.headerVar}".` };
-  }
-  if (desc.header && desc.header.format !== "TEXT" && !bindings.headerMediaUrl) {
-    return { error: "This template has a media header — provide a media URL." };
-  }
-  if (desc.urlButtons.some((b) => b.hasVar) && !bindings.urlButton) {
-    return { error: "Missing binding for the URL button value." };
+  if (messageKind === "template") {
+    try {
+      desc = await resolveApprovedTemplate(input.templateCode ?? "", input.account);
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "Template not found" };
+    }
+    for (const tok of desc.bodyVars) {
+      if (!bindings.body?.[tok]) return { error: `Missing binding for variable "${tok}".` };
+    }
+    if (desc.header?.format === "TEXT" && desc.headerVar && !bindings.header) {
+      return { error: `Missing binding for header variable "${desc.headerVar}".` };
+    }
+    if (desc.header && desc.header.format !== "TEXT" && !bindings.headerMediaUrl) {
+      return { error: "This template has a media header — provide a media URL." };
+    }
+    if (desc.urlButtons.some((b) => b.hasVar) && !bindings.urlButton) {
+      return { error: "Missing binding for the URL button value." };
+    }
+  } else {
+    // Free-text: the sending number isn't derivable from a template, so it must be explicit. And
+    // free-text only delivers inside the 24h window (Meta error 131047 otherwise), so force the
+    // audience to the in-window side as a server-side guardrail regardless of the requested filter.
+    if (!input.account) return { error: "A WhatsApp account is required for a free-text send." };
+    if (!input.text?.trim()) return { error: "Free-text message body is empty." };
   }
 
   // Recipients: an explicit list (Niyaz RSVP send) or a resolved audience. Both carry an inWindow flag.
-  const windowFilter: WindowFilter = input.windowFilter ?? "all";
+  const windowFilter: WindowFilter = messageKind === "text" ? "in_window" : input.windowFilter ?? "all";
   let recipients: (Recipient & { inWindow: boolean })[];
   if (input.recipients) {
     const [inWindow, suppressed] = await Promise.all([getInWindowPhones(input.windowHours), suppressedPhones()]);
@@ -101,12 +115,18 @@ export async function createBroadcast(input: CreateBroadcastInput): Promise<Crea
   }
   if (recipients.length === 0) return { error: "No recipients in the selected audience." };
 
-  // Resolve each recipient's params now; recipients missing a mapped field are marked skipped.
+  // Resolve each recipient's params now; recipients missing a mapped field are marked skipped. Free-text
+  // sends carry no params and never skip (all recipients are in-window by construction).
   type Row = { family_id: string | null; phone_e164: string; was_in_window: boolean; send_status: "queued" | "skipped"; skip_reason: string | null; body_params: SendComponentInputs | null };
   const prelim: Row[] = [];
   let skipped = 0, free = 0, paid = 0;
   for (const r of recipients) {
-    const { inputs, skipReason } = resolveBindings(desc, bindings, r.fields ?? {});
+    if (messageKind === "text") {
+      if (r.inWindow) free += 1; else paid += 1;
+      prelim.push({ family_id: r.familyId, phone_e164: r.phone, was_in_window: r.inWindow, send_status: "queued", skip_reason: null, body_params: null });
+      continue;
+    }
+    const { inputs, skipReason } = resolveBindings(desc!, bindings, r.fields ?? {});
     if (skipReason) {
       skipped += 1;
       prelim.push({ family_id: r.familyId, phone_e164: r.phone, was_in_window: r.inWindow, send_status: "skipped", skip_reason: skipReason, body_params: null });
@@ -116,13 +136,16 @@ export async function createBroadcast(input: CreateBroadcastInput): Promise<Crea
       prelim.push({ family_id: r.familyId, phone_e164: r.phone, was_in_window: r.inWindow, send_status: "queued", skip_reason: null, body_params: inputs });
     }
   }
-  const estCostUsd = Number((paid * utilityMessageCostUsd()).toFixed(2));
+  // Free-text in-window sends are free; only paid (out-of-window template) recipients accrue cost.
+  const estCostUsd = messageKind === "text" ? 0 : Number((paid * utilityMessageCostUsd()).toFixed(2));
 
   const { data: broadcast, error } = await supabase
     .from("template_broadcasts")
     .insert({
-      template_code: input.templateCode,
-      template_language: input.templateLanguage ?? desc.language ?? "en_US",
+      message_kind: messageKind,
+      template_code: messageKind === "text" ? null : input.templateCode,
+      freeform_text: messageKind === "text" ? input.text : null,
+      template_language: input.templateLanguage ?? desc?.language ?? "en_US",
       audience_key: input.audienceKey ?? "niyaz_rsvp",
       audience_rules: input.rules ?? null,
       variable_bindings: input.variableBindings ?? null,
@@ -191,11 +214,15 @@ export async function drainBroadcasts(batchSize = DEFAULT_BATCH_SIZE): Promise<D
   const broadcastIds = [...new Set(rows.map((r) => r.broadcast_id))];
   const { data: broadcastRows } = await supabase
     .from("template_broadcasts")
-    .select("id, phone_number_id")
+    .select("id, phone_number_id, message_kind, freeform_text")
     .in("id", broadcastIds);
   const accountByBroadcast = new Map<string, WhatsAppAccount | undefined>();
-  for (const b of (broadcastRows ?? []) as { id: string; phone_number_id: string | null }[]) {
+  const kindByBroadcast = new Map<string, string>();
+  const textByBroadcast = new Map<string, string | null>();
+  for (const b of (broadcastRows ?? []) as { id: string; phone_number_id: string | null; message_kind: string | null; freeform_text: string | null }[]) {
     accountByBroadcast.set(b.id, b.phone_number_id ? getAccountByPhoneNumberId(b.phone_number_id) : undefined);
+    kindByBroadcast.set(b.id, b.message_kind ?? "template");
+    textByBroadcast.set(b.id, b.freeform_text);
   }
 
   // Resolve each distinct (account, template) once for this batch.
@@ -205,8 +232,38 @@ export async function drainBroadcasts(batchSize = DEFAULT_BATCH_SIZE): Promise<D
 
   for (const row of rows) {
     touched.add(row.broadcast_id);
-    const code = row.template_code;
     const account = accountByBroadcast.get(row.broadcast_id);
+
+    // Free-text broadcast: send a plain text message (no template). Mirrors the template branch's
+    // status updates + counter bumps. recordOutboundMessage keeps the audit trail; no PII is logged.
+    if (kindByBroadcast.get(row.broadcast_id) === "text") {
+      const text = textByBroadcast.get(row.broadcast_id) ?? "";
+      try {
+        const res = await sendWhatsAppText(row.phone_e164, text, account);
+        const waMessageId = res.messages?.[0]?.id;
+        await recordOutboundMessage({
+          phoneE164: row.phone_e164,
+          body: text,
+          whatsappMessageId: waMessageId,
+          rawPayload: { source: "template_broadcast", kind: "text", broadcast_id: row.broadcast_id, recipient_id: row.id, meta_response: res },
+        });
+        await supabase
+          .from("template_broadcast_recipients")
+          .update({ send_status: "sent", wa_message_id: waMessageId ?? null, sent_at: new Date().toISOString() })
+          .eq("id", row.id);
+        await bumpCounter(row.broadcast_id, "count_sent");
+      } catch (err) {
+        await supabase
+          .from("template_broadcast_recipients")
+          .update({ send_status: "failed", error_detail: err instanceof Error ? err.message : "send failed" })
+          .eq("id", row.id);
+        await bumpCounter(row.broadcast_id, "count_failed");
+      }
+      processed++;
+      continue;
+    }
+
+    const code = row.template_code;
     const descKey = `${account?.phoneNumberId ?? "primary"}:${code}`;
     if (!descriptors.has(descKey)) {
       descriptors.set(descKey, await resolveApprovedTemplate(code, account).catch(() => null));

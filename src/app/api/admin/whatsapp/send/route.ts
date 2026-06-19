@@ -7,6 +7,7 @@ import {
 } from "@/lib/meta/whatsapp";
 import { str } from "@/lib/registration/normalize";
 import { getSupabaseAdmin, recordOutboundMessage } from "@/lib/supabase/server";
+import { getAccountByPhoneNumberId } from "@/lib/whatsapp/accounts";
 import { resolveApprovedTemplateForAnyAccount } from "@/lib/whatsapp/send-template";
 import { buildSendComponents, previewBody } from "@/lib/whatsapp/templates";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
@@ -21,7 +22,7 @@ type TemplatePayload = {
   headerMediaUrl?: unknown;
   urlButtonParam?: unknown;
 };
-type SendBody = { its?: unknown; phone?: unknown; kind?: unknown; text?: unknown; template?: TemplatePayload };
+type SendBody = { its?: unknown; phone?: unknown; kind?: unknown; text?: unknown; phone_number_id?: unknown; template?: TemplatePayload };
 
 function normalizePhone(input: string): string {
   const digits = input.replace(/[^\d]/g, "");
@@ -71,12 +72,20 @@ export async function POST(req: NextRequest) {
     if (kind === "text") {
       const text = str(body.text);
       if (!text) return NextResponse.json({ error: "Message text is empty." }, { status: 400 });
-      const res = await sendWhatsAppText(to.phone, text);
+      // Send from the chosen number when one was passed; otherwise the primary account. An unknown id
+      // is a 400 rather than a silent fall-back, so a stale UI can't misroute the send.
+      const phoneNumberId = str(body.phone_number_id);
+      let account;
+      if (phoneNumberId) {
+        account = getAccountByPhoneNumberId(phoneNumberId);
+        if (!account) return NextResponse.json({ error: "Unknown WhatsApp account." }, { status: 400 });
+      }
+      const res = await sendWhatsAppText(to.phone, text, account);
       await recordOutboundMessage({
         phoneE164: to.phone,
         body: text,
         whatsappMessageId: res.messages?.[0]?.id,
-        rawPayload: { source: "whatsapp_composer", kind: "text", meta_response: res },
+        rawPayload: { source: "whatsapp_composer", kind: "text", account: account?.label ?? "primary", meta_response: res },
       });
       return NextResponse.json({ ok: true, to: to.phone, name: to.name, kind });
     }

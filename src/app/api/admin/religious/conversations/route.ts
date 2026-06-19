@@ -89,15 +89,28 @@ export async function GET(req: NextRequest) {
   );
   if (phones.length === 0) return NextResponse.json({ conversations: [] });
 
-  const [{ data: msgs }, { data: users }, { data: sessions }] = await Promise.all([
+  const [{ data: msgs }, { data: inboundRows }, { data: users }, { data: sessions }] = await Promise.all([
     supabase
       .from("messages")
-      .select("phone_e164, direction, body, created_at")
+      .select("phone_e164, direction, body, created_at, message_type, src:raw_payload->>source")
       .in("phone_e164", phones)
-      // DESCENDING (newest first) is critical: PostgREST caps the response at its db-max-rows
-      // setting (~1000), which OVERRIDES .limit(8000). Ascending order would return the OLDEST
-      // ~1000 messages and drop everything recent, making every last_at stale (the Jun-14 bug).
-      // Newest-first keeps the recent messages; we restore chronological order per phone below.
+      // Exclude broadcast/automated messages AT THE QUERY so the response cap (PostgREST ~1000 rows,
+      // which OVERRIDES .limit) fills with REAL conversation, not RSVP/feedback templates and button
+      // responses. Otherwise a member who got many broadcasts has only those in the loaded window and
+      // their genuine religious messages fall off → an empty thread. (System-source texts like
+      // niyaz_rsvp_ended have no template key; they're stripped in JS below.)
+      .is("raw_payload->>template", null)
+      .not("message_type", "in", "(interactive,button)")
+      // DESCENDING (newest first): the cap keeps the recent messages; restored to chronological below.
+      .order("created_at", { ascending: false })
+      .limit(8000),
+    // Latest inbound of ANY kind (incl. RSVP button/flow clicks) per phone — for the WhatsApp 24h
+    // reply window, which opens on any inbound. Separate from the display query (which excludes them).
+    supabase
+      .from("messages")
+      .select("phone_e164, created_at")
+      .in("phone_e164", phones)
+      .eq("direction", "inbound")
       .order("created_at", { ascending: false })
       .limit(8000),
     supabase.from("whatsapp_users").select("phone_e164, display_name").in("phone_e164", phones),
@@ -114,9 +127,23 @@ export async function GET(req: NextRequest) {
     sessionByPhone.set(s.phone_e164, { handling_mode: s.handling_mode, handling_mode_at: s.handling_mode_at });
   }
 
-  type Msg = { phone_e164: string; direction: string; body: string | null; created_at: string };
+  type Msg = { phone_e164: string; direction: string; body: string | null; created_at: string; message_type: string | null; src: string | null };
+  // Residual broadcast/automated messages the query didn't already exclude — system-broadcast texts
+  // (no template key) like the "Shukran for your reply. RSVP for…" note. (Templates + button/flow
+  // responses are excluded in SQL above.) Mirrors the main inbox classifier.
+  const isBroadcastMsg = (m: Msg): boolean =>
+    m.src === "niyaz_rsvp_ended" ||
+    m.src === "issue_close_broadcast" ||
+    (m.body ?? "").startsWith("[template:");
+  // Latest inbound of ANY kind per phone — drives the WhatsApp 24h reply window (which opens on any
+  // inbound, incl. RSVP button clicks). Newest-first → first seen per phone is the latest.
+  const lastInboundAt = new Map<string, string>();
+  for (const r of (inboundRows ?? []) as { phone_e164: string; created_at: string }[]) {
+    if (!lastInboundAt.has(r.phone_e164)) lastInboundAt.set(r.phone_e164, r.created_at);
+  }
   const byPhone = new Map<string, Msg[]>();
   for (const m of (msgs ?? []) as Msg[]) {
+    if (isBroadcastMsg(m)) continue; // keep the displayed thread strictly to the real conversation
     const list = byPhone.get(m.phone_e164) ?? [];
     list.push(m);
     byPhone.set(m.phone_e164, list);
@@ -128,8 +155,8 @@ export async function GET(req: NextRequest) {
   const now = Date.now();
   const conversations = phones.map((phone) => {
     const list = byPhone.get(phone) ?? [];
-    const lastInbound = [...list].reverse().find((m) => m.direction === "inbound");
-    const inWindow = lastInbound ? now - new Date(lastInbound.created_at).getTime() < WINDOW_MS : false;
+    const inboundAt = lastInboundAt.get(phone);
+    const inWindow = inboundAt ? now - new Date(inboundAt).getTime() < WINDOW_MS : false;
     const lastAt = list.length ? list[list.length - 1].created_at : null;
     const session = sessionByPhone.get(phone);
     // Sort key = the latest GENUINE religious activity: the religious tool-call, a manual handoff, or
@@ -137,7 +164,7 @@ export async function GET(req: NextRequest) {
     const sortKey = [
       lastReligiousCallAt.get(phone),
       manualHandoffAt.get(phone),
-      lastInbound?.created_at,
+      inboundAt,
     ]
       .filter((v): v is string => Boolean(v))
       .sort()
