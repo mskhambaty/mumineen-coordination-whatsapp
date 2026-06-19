@@ -39,6 +39,13 @@ export type SampleResult = {
 // Stop including someone once they've been SENT this many real surveys without ever responding.
 export const NON_RESPONDER_SEND_CAP = 2;
 
+// Section ids flagged dedup_exempt (Seating, Overall Experience, …) — their questions ride along on
+// many forms and are NOT tracked for exposure/exhaustion, so they don't distort the fresh-sample set.
+export async function dedupExemptSectionIds(supabase: ReturnType<typeof getSupabaseAdmin>): Promise<Set<string>> {
+  const { data } = await supabase.from("survey_sections").select("id").eq("dedup_exempt", true);
+  return new Set(((data ?? []) as { id: string }[]).map((s) => s.id));
+}
+
 // Suggest a sample of up to `size` mumineen for a form targeting `groupRules`, given the form's
 // question ids (for once-per-event dedup). Ranking: fresh-first (never-surveyed before reused), then
 // RANDOM within each freshness tier — so selection is fair and non-deterministic across days.

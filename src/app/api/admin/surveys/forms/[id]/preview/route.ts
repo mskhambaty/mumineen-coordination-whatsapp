@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { suggestSample, suggestSamplePlan, type Stratum, type SampleResult } from "@/lib/surveys/sampling";
+import { suggestSample, suggestSamplePlan, dedupExemptSectionIds, type Stratum, type SampleResult } from "@/lib/surveys/sampling";
 import { chicagoToday } from "@/lib/surveys/tokens";
 import type { RuleGroup } from "@/lib/whatsapp/audience-filter";
 
@@ -33,8 +33,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!targetRules) return NextResponse.json({ error: "Form has no target group or filter." }, { status: 400 });
   }
 
-  const { data: fqs } = await supabase.from("survey_form_questions").select("question_id").eq("form_id", id);
-  const questionIds = ((fqs ?? []) as { question_id: string | null }[]).map((q) => q.question_id).filter((q): q is string => Boolean(q));
+  const { data: fqs } = await supabase.from("survey_form_questions").select("question_id, section_id").eq("form_id", id);
+  // Exhaustion is driven only by core sections — Seating / Overall Experience (dedup_exempt) ride
+  // along on many forms and must not affect who's "fresh".
+  const exemptSectionIds = await dedupExemptSectionIds(supabase);
+  const questionIds = ((fqs ?? []) as { question_id: string | null; section_id: string | null }[])
+    .filter((q) => q.question_id && !(q.section_id && exemptSectionIds.has(q.section_id)))
+    .map((q) => q.question_id as string);
 
   const body = (await req.json().catch(() => ({}))) as { freeWindowOnly?: unknown; excludeAlreadySent?: unknown };
   const freeWindowOnly = body.freeWindowOnly === true;

@@ -8,7 +8,7 @@ import type { AudienceKey, Recipient } from "@/lib/whatsapp/audience";
 export const SURVEY_AUDIENCE_KEY = "feedback_survey" as AudienceKey;
 import type { RuleGroup } from "@/lib/whatsapp/audience-filter";
 import { resolveApprovedTemplateForAnyAccount } from "@/lib/whatsapp/send-template";
-import { suggestSample, suggestSamplePlan, type SampleResult, type Stratum } from "@/lib/surveys/sampling";
+import { suggestSample, suggestSamplePlan, dedupExemptSectionIds, type SampleResult, type Stratum } from "@/lib/surveys/sampling";
 import { generateSurveyToken, chicagoToday } from "@/lib/surveys/tokens";
 
 // The roster's full_name already carries the honorific (e.g. "Murtaza bhai Alihusain bhai
@@ -165,12 +165,15 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
 
   const { data: fqs } = await supabase
     .from("survey_form_questions")
-    .select("question_id")
+    .select("question_id, section_id")
     .eq("form_id", formId);
-  const questionIds = ((fqs ?? []) as { question_id: string | null }[])
-    .map((q) => q.question_id)
-    .filter((id): id is string => Boolean(id));
-  if (questionIds.length === 0) return { error: "Form has no questions composed." };
+  const fqRows = (fqs ?? []) as { question_id: string | null; section_id: string | null }[];
+  const allQuestionIds = fqRows.map((q) => q.question_id).filter((id): id is string => Boolean(id));
+  if (allQuestionIds.length === 0) return { error: "Form has no questions composed." };
+  // Dedup/exhaustion is driven ONLY by the form's core sections — sections flagged dedup_exempt
+  // (Seating, Overall Experience) ride along on many forms and must not affect who's "fresh".
+  const exemptSectionIds = await dedupExemptSectionIds(supabase);
+  const questionIds = fqRows.filter((q) => q.question_id && !(q.section_id && exemptSectionIds.has(q.section_id))).map((q) => q.question_id as string);
 
   // Sample fresh-first, excluding today's other samples and question-exhausted mumineen. A
   // sample_plan samples each stratum from its pool; otherwise one pool to sample_size.
