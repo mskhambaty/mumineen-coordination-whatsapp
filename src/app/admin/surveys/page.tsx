@@ -650,6 +650,7 @@ function FormsTab({ forms, reload, onPickMumin, onDuplicate }: { forms: FormRow[
   const [detail, setDetail] = useState<Detail | null>(null);
   const [pickerFor, setPickerFor] = useState<string | null>(null);
   const [questionsFor, setQuestionsFor] = useState<string | null>(null);
+  const [openDays, setOpenDays] = useState<Set<string>>(new Set());
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templateCode, setTemplateCode] = useState("");
   const [freeWindow, setFreeWindow] = useState(false);
@@ -662,6 +663,12 @@ function FormsTab({ forms, reload, onPickMumin, onDuplicate }: { forms: FormRow[
       .then((j) => setTemplates(((j.templates ?? []) as Template[]).filter((t) => (t.urlButtons ?? []).some((b) => b.hasVar))))
       .catch(() => setTemplates([]));
   }, []);
+
+  // Default: open the most recent day's group; leave older days collapsed (seed once).
+  useEffect(() => {
+    const dates = forms.map((f) => f.event_date ?? "—");
+    if (dates.length) setOpenDays((prev) => (prev.size ? prev : new Set([dates.sort().reverse()[0]])));
+  }, [forms]);
 
   async function call(id: string, kind: string, path: string, method = "GET") {
     setBusy(id);
@@ -759,7 +766,30 @@ function FormsTab({ forms, reload, onPickMumin, onDuplicate }: { forms: FormRow[
         </label>
       </div>
       {forms.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">No forms yet — compose one.</p>}
-      {forms.map((f) => (
+      {(() => {
+        // Group forms by send date (newest first), each a collapsible section.
+        const groups: { date: string; forms: FormRow[] }[] = [];
+        const byDate = new Map<string, { date: string; forms: FormRow[] }>();
+        for (const f of forms) {
+          const d = f.event_date ?? "—";
+          let g = byDate.get(d);
+          if (!g) { g = { date: d, forms: [] }; byDate.set(d, g); groups.push(g); }
+          g.forms.push(f);
+        }
+        groups.sort((a, b) => (a.date < b.date ? 1 : -1));
+        return groups.map((g) => {
+          const open = openDays.has(g.date);
+          const responded = g.forms.reduce((s, f) => s + (f.completed_count ?? 0), 0);
+          const sent = g.forms.reduce((s, f) => s + (f.recipient_count ?? 0), 0);
+          return (
+            <div key={g.date} className="space-y-2">
+              <button
+                onClick={() => setOpenDays((prev) => { const n = new Set(prev); if (n.has(g.date)) n.delete(g.date); else n.add(g.date); return n; })}
+                className="flex w-full items-center justify-between rounded-lg bg-gray-100 px-3 py-2 text-left text-sm font-semibold text-gray-800 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
+              >
+                <span>{open ? "▾" : "▸"} {g.date} <span className="text-xs font-normal text-gray-500 dark:text-gray-400">· {g.forms.length} form{g.forms.length === 1 ? "" : "s"}{sent ? ` · ${responded}/${sent} responded` : ""}</span></span>
+              </button>
+              {open && g.forms.map((f) => (
         <div key={f.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
           <div className="space-y-2">
             <div>
@@ -798,7 +828,11 @@ function FormsTab({ forms, reload, onPickMumin, onDuplicate }: { forms: FormRow[
           {questionsFor === f.id && <FormQuestionsPanel formId={f.id} editable={f.status !== "sent"} reload={reload} />}
           {detail && detail.id === f.id && <DetailView detail={detail} onPickMumin={onPickMumin} onResultsToggleTest={(inc) => results(f.id, inc)} onClose={() => setDetail(null)} />}
         </div>
-      ))}
+              ))}
+            </div>
+          );
+        });
+      })()}
     </div>
   );
 }
