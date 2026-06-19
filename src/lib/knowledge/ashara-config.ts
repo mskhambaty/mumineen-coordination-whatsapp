@@ -16,22 +16,22 @@ export type AsharaCategory = {
   isDefault?: boolean;
 };
 
-// The per-majlis content cells. By default only Reflections + Q&A are active (this year's scope);
-// the rest are addable on demand. "Q&A" is a curated bucket of likely member questions + grounded
-// answers (pasted in), indexed like the rest so the agent answers recurring / "list all N" questions
-// from a vetted answer rather than raw prose.
+// The per-majlis content cells. This year's scope is Reflections + Q&A only. "Q&A" is a curated
+// bucket of likely member questions + grounded answers (pasted in), indexed like the rest so the
+// agent answers recurring / "list all N" questions from a vetted answer rather than raw prose.
+// Tazyeen is NOT per-majlis this year — it's a single year-level block (see TAZYEEN_CATEGORY,
+// rendered like the Overall-theme block). Al-Dars / Jumla / Kalema / Unwaan are not used this year.
 export const ASHARA_CATEGORIES: AsharaCategory[] = [
   { key: "reflection", label: "Reflections", language: "en", isDefault: true },
   { key: "faq", label: "Q&A", language: "en", isDefault: true },
-  { key: "tazyeen", label: "Tazyeen", language: "en" },
-  { key: "al_dars", label: "Al-Dars", language: "en" },
-  { key: "jumla", label: "Jumla", language: "lisan", sameDayTranslate: true },
-  { key: "kalema", label: "Kalema", language: "lisan", sameDayTranslate: true },
-  { key: "unwaan", label: "Unwaan", language: "lisan", sameDayTranslate: true },
 ];
 
 // Categories shown + seeded by default (this year: Reflections + Q&A only).
 export const DEFAULT_ASHARA_CATEGORIES: AsharaCategory[] = ASHARA_CATEGORIES.filter((c) => c.isDefault);
+
+// Tazyeen is a SINGLE year-level block for the whole Ashara (one article for all of 1448), edited
+// like the Overall-theme block — not a per-majlis grid column.
+export const TAZYEEN_CATEGORY: AsharaCategory = { key: "tazyeen", label: "Tazyeen", language: "en" };
 
 export const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
   ASHARA_CATEGORIES.map((c) => [c.key, c.label]),
