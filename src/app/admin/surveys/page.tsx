@@ -701,6 +701,15 @@ function FormsTab({ forms, reload, onPickMumin, onDuplicate }: { forms: FormRow[
     if (detail?.kind === "results" && detail.id === id) { setDetail(null); return; }
     void results(id, false);
   }
+  // Exact clone into a fresh draft for today (carries the stratified sample_plan + questions), so a
+  // daily form can be re-sent to a new unique sample. The clone appears as a draft → Commit & send.
+  async function clone(id: string) {
+    setBusy(id);
+    const res = await apiFetch(`/api/admin/surveys/forms/${id}/clone`, { method: "POST" });
+    setBusy(null);
+    if (res.ok) reload();
+    else alert((await res.json().catch(() => ({}))).error ?? "Failed to clone.");
+  }
   async function testLink(id: string) {
     const its = window.prompt("Send test to which ITS? (leave blank for an anonymous 'you' preview link):", "")?.trim() ?? "";
     let deliver = false;
@@ -780,7 +789,8 @@ function FormsTab({ forms, reload, onPickMumin, onDuplicate }: { forms: FormRow[
               <button onClick={() => toggleResults(f.id)} disabled={busy === f.id} className={`${ghostBtn} ${detail?.kind === "results" && detail.id === f.id ? "bg-gray-100 dark:bg-gray-800" : ""}`}>
                 {detail?.kind === "results" && detail.id === f.id ? "Hide results" : "Results"}
               </button>
-              <button onClick={() => onDuplicate(f)} disabled={busy === f.id} className={ghostBtn} title="Copy this form's questions into Compose to create a new one (e.g. for a different audience)">Duplicate</button>
+              <button onClick={() => clone(f.id)} disabled={busy === f.id} className={ghostBtn} title="Make an exact draft copy for today (same target + questions) to re-send to a fresh, unique sample">Clone for today</button>
+              <button onClick={() => onDuplicate(f)} disabled={busy === f.id} className={ghostBtn} title="Copy this form's questions into Compose to edit before creating (e.g. for a different audience)">Duplicate</button>
               {f.status !== "sent" && <button onClick={() => del(f.id)} disabled={busy === f.id} className="rounded border border-red-300 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40">Delete</button>}
             </div>
           </div>
