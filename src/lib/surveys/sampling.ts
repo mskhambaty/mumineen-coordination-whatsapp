@@ -40,8 +40,8 @@ export type SampleResult = {
 export const NON_RESPONDER_SEND_CAP = 2;
 
 // Suggest a sample of up to `size` mumineen for a form targeting `groupRules`, given the form's
-// question ids (for once-per-event dedup). Fresh-first, then least-previously-sent, then
-// longest-since-last-sent.
+// question ids (for once-per-event dedup). Ranking: fresh-first (never-surveyed before reused), then
+// RANDOM within each freshness tier — so selection is fair and non-deterministic across days.
 export async function suggestSample(
   groupRules: RuleGroup,
   formQuestionIds: string[],
@@ -75,14 +75,11 @@ export async function suggestSample(
     .select("mumin_id, event_date, created_at, completed_at, is_test");
   const priorSends = new Map<string, number>();
   const completedCount = new Map<string, number>();
-  const lastSentAt = new Map<string, string>();
   const sampledToday = new Set<string>();
   for (const r of (recipientRows ?? []) as { mumin_id: string | null; event_date: string | null; created_at: string; completed_at: string | null; is_test: boolean }[]) {
     if (!r.mumin_id || r.is_test) continue;
     priorSends.set(r.mumin_id, (priorSends.get(r.mumin_id) ?? 0) + 1);
     if (r.completed_at) completedCount.set(r.mumin_id, (completedCount.get(r.mumin_id) ?? 0) + 1);
-    const prev = lastSentAt.get(r.mumin_id);
-    if (!prev || r.created_at > prev) lastSentAt.set(r.mumin_id, r.created_at);
     if (r.event_date === eventDate) sampledToday.add(r.mumin_id);
   }
 
@@ -134,12 +131,14 @@ export async function suggestSample(
     });
   }
 
+  // Rank fresh-first (never-surveyed before reused, so coverage spreads before anyone repeats), but
+  // RANDOMIZE within each freshness tier so selection is fair and non-deterministic — otherwise the
+  // same low-ITS people get picked every day. A per-call random key gives a uniform shuffle per tier.
+  const rnd = new Map<string, number>();
+  for (const c of eligible) rnd.set(c.muminId, Math.random());
   eligible.sort((a, b) => {
     if (a.priorSends !== b.priorSends) return a.priorSends - b.priorSends; // fresh first
-    const la = lastSentAt.get(a.muminId) ?? ""; // longest-since-last next ("" = never, sorts first)
-    const lb = lastSentAt.get(b.muminId) ?? "";
-    if (la !== lb) return la < lb ? -1 : 1;
-    return a.muminId < b.muminId ? -1 : 1; // stable
+    return (rnd.get(a.muminId) ?? 0) - (rnd.get(b.muminId) ?? 0); // random within the tier
   });
 
   const chosen = eligible.slice(0, Math.max(0, size));
