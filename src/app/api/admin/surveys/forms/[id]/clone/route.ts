@@ -19,7 +19,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const { data: src } = await supabase
     .from("survey_forms")
-    .select("title, public_title, tags, group_id, rules, sample_plan, sample_size")
+    .select("title, public_title, tags, group_id, rules, sample_plan, resend_until_responded, sample_size")
     .eq("id", id)
     .maybeSingle();
   if (!src) return NextResponse.json({ error: "Form not found." }, { status: 404 });

@@ -6,6 +6,7 @@ vi.mock("@/lib/whatsapp/audience-filter", () => ({ runFilter: (...a: unknown[]) 
 
 let recipientRows: unknown[] = [];
 let exposureRows: unknown[] = [];
+let answerRows: unknown[] = [];
 vi.mock("@/lib/supabase/server", () => ({
   getSupabaseAdmin: () => ({
     from(table: string) {
@@ -15,6 +16,9 @@ vi.mock("@/lib/supabase/server", () => ({
       }
       if (table === "survey_question_exposures") {
         return { select: () => ({ in: () => ({ range: (from: number) => Promise.resolve({ data: from === 0 ? exposureRows : [] }) }) }) };
+      }
+      if (table === "survey_answers") {
+        return { select: () => ({ in: () => ({ range: (from: number) => Promise.resolve({ data: from === 0 ? answerRows : [] }) }) }) };
       }
       throw new Error(`unexpected table ${table}`);
     },
@@ -34,6 +38,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   recipientRows = [];
   exposureRows = [];
+  answerRows = [];
 });
 
 describe("suggestSample", () => {
@@ -82,6 +87,16 @@ describe("suggestSample", () => {
     const res = await suggestSample(RULES, [], 10, TODAY);
     expect(res.chosen.map((c) => c.muminId)).toEqual(["A"]);
     expect(res.funnel).toMatchObject({ candidates: 1, excludedNotAttending: 1, chosen: 1 });
+  });
+
+  it("resend-until-responded: excludes people who already ANSWERED, keeps non-responders", async () => {
+    runFilter.mockResolvedValue([row("A"), row("B"), row("C")]);
+    answerRows = [{ mumin_id: "A" }]; // A already responded
+    // resend mode: no exhaustion (formQuestionIds empty), exclude responders via question ids
+    const res = await suggestSample(RULES, [], 10, TODAY, { respondedExcludeQuestionIds: ["q1", "q2"] });
+    const ids = res.chosen.map((c) => c.muminId).sort();
+    expect(ids).toEqual(["B", "C"]); // A excluded (responded), B/C re-nudged
+    expect(res.funnel.excludedResponded).toBe(1);
   });
 
   it("respects the sample size cap", async () => {

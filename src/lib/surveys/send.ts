@@ -95,7 +95,7 @@ export type CommitResult = {
   sendError?: string;
 };
 
-type FormRow = { id: string; group_id: string | null; rules: RuleGroup | null; sample_plan: Stratum[] | null; sample_size: number; status: string };
+type FormRow = { id: string; group_id: string | null; rules: RuleGroup | null; sample_plan: Stratum[] | null; resend_until_responded: boolean | null; sample_size: number; status: string };
 
 export async function commitAndSendForm(formId: string, templateCodeOverride?: string | null, freeWindowOnly = false, excludeAlreadySent = false): Promise<CommitResult | { error: string }> {
   const supabase = getSupabaseAdmin();
@@ -103,7 +103,7 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
 
   const { data: form } = await supabase
     .from("survey_forms")
-    .select("id, group_id, rules, sample_plan, sample_size, status")
+    .select("id, group_id, rules, sample_plan, resend_until_responded, sample_size, status")
     .eq("id", formId)
     .maybeSingle();
   if (!form) return { error: "Form not found." };
@@ -112,7 +112,7 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
 
   const emptyFunnel: SampleResult["funnel"] = {
     candidates: 0, excludedNotAttending: 0, excludedUnregistered: 0, excludedToday: 0,
-    excludedExhausted: 0, excludedNonResponder: 0, excludedAlreadySent: 0, fresh: 0, reused: 0, chosen: 0,
+    excludedExhausted: 0, excludedNonResponder: 0, excludedResponded: 0, excludedAlreadySent: 0, fresh: 0, reused: 0, chosen: 0,
   };
 
   // Already committed (status "sampled") but not dispatched — e.g. a first Commit & send done in
@@ -173,13 +173,19 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
   // Dedup/exhaustion is driven ONLY by the form's core sections — sections flagged dedup_exempt
   // (Seating, Overall Experience) ride along on many forms and must not affect who's "fresh".
   const exemptSectionIds = await dedupExemptSectionIds(supabase);
-  const questionIds = fqRows.filter((q) => q.question_id && !(q.section_id && exemptSectionIds.has(q.section_id))).map((q) => q.question_id as string);
+  const coreQuestionIds = fqRows.filter((q) => q.question_id && !(q.section_id && exemptSectionIds.has(q.section_id))).map((q) => q.question_id as string);
+
+  // Resend-until-responded forms (Atfaal/Rahat reminders) don't exhaust on send — instead they
+  // exclude people who've already ANSWERED, so non-responders get re-nudged until they reply.
+  const resendMode = f.resend_until_responded === true;
+  const questionIds = resendMode ? [] : coreQuestionIds; // exhaustion off in resend mode
+  const sampleOpts = { freeWindowOnly, excludeAlreadySent, ...(resendMode ? { respondedExcludeQuestionIds: coreQuestionIds } : {}) };
 
   // Sample fresh-first, excluding today's other samples and question-exhausted mumineen. A
   // sample_plan samples each stratum from its pool; otherwise one pool to sample_size.
   const sample: SampleResult = plan
-    ? await suggestSamplePlan(plan, questionIds, eventDate, { freeWindowOnly, excludeAlreadySent })
-    : await suggestSample(targetRules as RuleGroup, questionIds, f.sample_size, eventDate, { freeWindowOnly, excludeAlreadySent });
+    ? await suggestSamplePlan(plan, questionIds, eventDate, sampleOpts)
+    : await suggestSample(targetRules as RuleGroup, questionIds, f.sample_size, eventDate, sampleOpts);
   if (sample.chosen.length === 0) {
     return { formId, funnel: sample.funnel, recipients: [], sent: false, sendError: "No eligible recipients to sample." };
   }

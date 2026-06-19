@@ -17,9 +17,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   const supabase = getSupabaseAdmin();
 
-  const { data: form } = await supabase.from("survey_forms").select("group_id, rules, sample_plan, sample_size").eq("id", id).maybeSingle();
+  const { data: form } = await supabase.from("survey_forms").select("group_id, rules, sample_plan, resend_until_responded, sample_size").eq("id", id).maybeSingle();
   if (!form) return NextResponse.json({ error: "Form not found." }, { status: 404 });
-  const f = form as { group_id: string | null; rules: RuleGroup | null; sample_plan: Stratum[] | null; sample_size: number };
+  const f = form as { group_id: string | null; rules: RuleGroup | null; sample_plan: Stratum[] | null; resend_until_responded: boolean | null; sample_size: number };
 
   // Target: a stratified sample_plan OR a saved group OR an ad-hoc custom filter.
   let targetRules: RuleGroup | null = f.rules;
@@ -37,16 +37,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // Exhaustion is driven only by core sections — Seating / Overall Experience (dedup_exempt) ride
   // along on many forms and must not affect who's "fresh".
   const exemptSectionIds = await dedupExemptSectionIds(supabase);
-  const questionIds = ((fqs ?? []) as { question_id: string | null; section_id: string | null }[])
+  const coreQuestionIds = ((fqs ?? []) as { question_id: string | null; section_id: string | null }[])
     .filter((q) => q.question_id && !(q.section_id && exemptSectionIds.has(q.section_id)))
     .map((q) => q.question_id as string);
+  // Resend-until-responded: no exhaustion; exclude people who've already ANSWERED this form.
+  const resendMode = f.resend_until_responded === true;
+  const questionIds = resendMode ? [] : coreQuestionIds;
 
   const body = (await req.json().catch(() => ({}))) as { freeWindowOnly?: unknown; excludeAlreadySent?: unknown };
   const freeWindowOnly = body.freeWindowOnly === true;
   const excludeAlreadySent = body.excludeAlreadySent === true;
+  const sampleOpts = { freeWindowOnly, excludeAlreadySent, ...(resendMode ? { respondedExcludeQuestionIds: coreQuestionIds } : {}) };
   const sample: SampleResult & { strata?: Array<{ label: string; requested: number; got: number; candidates: number }> } = plan
-    ? await suggestSamplePlan(plan, questionIds, chicagoToday(), { freeWindowOnly, excludeAlreadySent })
-    : await suggestSample(targetRules as RuleGroup, questionIds, f.sample_size, chicagoToday(), { freeWindowOnly, excludeAlreadySent });
+    ? await suggestSamplePlan(plan, questionIds, chicagoToday(), sampleOpts)
+    : await suggestSample(targetRules as RuleGroup, questionIds, f.sample_size, chicagoToday(), sampleOpts);
   // Admin-gated preview: return the chosen sample (name + ITS + freshness) so the admin can search
   // it and verify a specific person was selected. No phone numbers.
   return NextResponse.json({

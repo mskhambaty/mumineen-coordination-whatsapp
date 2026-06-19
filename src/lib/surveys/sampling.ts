@@ -30,6 +30,7 @@ export type SampleResult = {
     excludedToday: number; // already in one of today's samples
     excludedExhausted: number; // already exposed to every question in this form
     excludedNonResponder: number; // sent NON_RESPONDER_SEND_CAP+ times, never responded → stop asking
+    excludedResponded: number; // resend-until-responded: already ANSWERED this form's questions
     excludedAlreadySent: number; // opt-in: already sent ANY survey this event (cross-form de-overlap)
     fresh: number; // of chosen, never asked THIS form's section before (new to this section)
     reused: number; // of chosen, partially asked this section before (fully-asked are excluded as exhausted)
@@ -55,7 +56,7 @@ export async function suggestSample(
   formQuestionIds: string[],
   size: number,
   eventDate: string = chicagoToday(),
-  opts: { freeWindowOnly?: boolean; windowHours?: number; excludeAlreadySent?: boolean } = {},
+  opts: { freeWindowOnly?: boolean; windowHours?: number; excludeAlreadySent?: boolean; respondedExcludeQuestionIds?: string[] } = {},
 ): Promise<SampleResult> {
   const supabase = getSupabaseAdmin();
 
@@ -130,15 +131,33 @@ export async function suggestSample(
     return true;
   };
 
+  // 3b. Resend-until-responded: mumineen who have ALREADY ANSWERED any of these questions are
+  // excluded (they've given feedback); non-responders stay eligible to be re-nudged.
+  const respondedSet = new Set<string>();
+  if (opts.respondedExcludeQuestionIds?.length) {
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabase
+        .from("survey_answers")
+        .select("mumin_id")
+        .in("question_id", opts.respondedExcludeQuestionIds)
+        .range(from, from + 999);
+      if (error) break;
+      for (const a of (data ?? []) as { mumin_id: string | null }[]) if (a.mumin_id) respondedSet.add(a.mumin_id);
+      if (!data || data.length < 1000) break;
+    }
+  }
+
   // 4. Filter + rank.
   let excludedToday = 0;
   let excludedExhausted = 0;
   let excludedNonResponder = 0;
+  let excludedResponded = 0;
   let excludedAlreadySent = 0;
   const eligible: SampleCandidate[] = [];
   for (const r of reachable) {
     const id = r.mumin_id;
     if (sampledToday.has(id)) { excludedToday++; continue; }
+    if (respondedSet.has(id)) { excludedResponded++; continue; }
     if (isExhausted(id)) { excludedExhausted++; continue; }
     // Opt-in: drop anyone who's already been sent ANY real survey this event, so a broad form
     // doesn't re-survey people a narrower one already reached (regardless of which questions).
@@ -178,6 +197,7 @@ export async function suggestSample(
       excludedToday,
       excludedExhausted,
       excludedNonResponder,
+      excludedResponded,
       excludedAlreadySent,
       fresh: chosen.filter((c) => c.seenThisForm === 0).length,
       reused: chosen.filter((c) => c.seenThisForm > 0).length,
@@ -198,7 +218,7 @@ export async function suggestSamplePlan(
   plan: Stratum[],
   formQuestionIds: string[],
   eventDate: string = chicagoToday(),
-  opts: { freeWindowOnly?: boolean; windowHours?: number; excludeAlreadySent?: boolean } = {},
+  opts: { freeWindowOnly?: boolean; windowHours?: number; excludeAlreadySent?: boolean; respondedExcludeQuestionIds?: string[] } = {},
 ): Promise<SampleResult & { strata: Array<{ label: string; requested: number; got: number; candidates: number }> }> {
   const chosen: SampleCandidate[] = [];
   const seenPhone = new Set<string>();
@@ -206,7 +226,7 @@ export async function suggestSamplePlan(
   const strata: Array<{ label: string; requested: number; got: number; candidates: number }> = [];
   const funnel: SampleResult["funnel"] = {
     candidates: 0, excludedNotAttending: 0, excludedUnregistered: 0, excludedToday: 0,
-    excludedExhausted: 0, excludedNonResponder: 0, excludedAlreadySent: 0, fresh: 0, reused: 0, chosen: 0,
+    excludedExhausted: 0, excludedNonResponder: 0, excludedResponded: 0, excludedAlreadySent: 0, fresh: 0, reused: 0, chosen: 0,
   };
   for (const s of plan) {
     // Over-fetch a little so cross-stratum dedup can't leave us short of the quota.
@@ -220,6 +240,7 @@ export async function suggestSamplePlan(
     funnel.excludedToday += res.funnel.excludedToday;
     funnel.excludedExhausted += res.funnel.excludedExhausted;
     funnel.excludedNonResponder += res.funnel.excludedNonResponder;
+    funnel.excludedResponded += res.funnel.excludedResponded;
     funnel.excludedAlreadySent += res.funnel.excludedAlreadySent;
   }
   funnel.fresh = chosen.filter((c) => c.seenThisForm === 0).length;
