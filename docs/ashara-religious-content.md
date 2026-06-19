@@ -73,6 +73,26 @@ from the model's general knowledge. **Short follow-ups** ("Tazyeen", "Al dars", 
 number) inherit the majlis+year (or the offered option) from the previous turn — the agent
 re-calls the tool with the full reference rather than answering from memory.
 
+**Deterministic routing + year scoping (so the bot doesn't falsely say "I couldn't find it" or
+answer from the wrong year):**
+- **Forced tool-call (F0):** when a message concretely references religious content — a specific
+  majlis (`parseMajlisRef`, e.g. "majlis 1 1448", "give point for majlis 1", "first waaz") or an
+  overview ask (`isOverviewQuery`) — `runAgent` forces `tool_choice` to `answer_religious_questions`
+  instead of `"auto"`. Terse phrasings previously left the model not calling the tool, and the
+  no-tool guard then returned a false `NOT_FOUND_REPLY` for content that is indexed. (Not forced for
+  own-RSVP or clearly-social messages.)
+- **Active-year default (F1):** an UNqualified query (no year/today/this cue) no longer searches
+  across years (which let 1447 content answer current questions). `answer_religious_questions`
+  defaults the year to the **active** Ashara once it has started (`resolveAsharaYear().activeStarted`),
+  else the last completed one; if the active year has no match it returns `offer_last` ("1448 isn't
+  posted — want 1447?") rather than silently answering from 1447.
+- **Curated-Q&A preference (F3):** in the vector path the curated `faq` chunk is promoted ahead of
+  raw reflection prose (`retrieveReligiousContext(..., preferCategory: "faq")`) so recurring
+  questions get the vetted answer consistently.
+- **Follow-up gating (F2):** the vector path now returns `available_facets` (derived from the leading
+  chunk's majlis+year), so the al-Dars deep-dive / tazyeen follow-up is offered only when that
+  content actually exists.
+
 **Two-way lookup.** The dictionary works in both directions. *Forward* (default) takes a Lisan
 word → English meaning. *Reverse* (`direction: "to_lisan"` on the tool, or an explicit "what is
 the Lisan word for X" / "what is X in lisan ud dawat" phrase caught deterministically by

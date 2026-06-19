@@ -5,7 +5,7 @@ import { SYSTEM_PROMPT, loadAgentSystemPrompt, loadRuleOverrides } from "@/lib/a
 import { AGENT_TEMPERATURE, AI_MODEL, AI_MODEL_HIGH, chatParams, getAIClient, MAX_AGENT_TOKENS, MAX_FINAL_TOKENS } from "@/lib/ai/model";
 import { isPersonalRuling, flagRulingQuestion, RULING_REFUSAL_REPLY } from "@/lib/agent/ruling-guard";
 import { lookupEnglishMeaning, lookupLisanWord } from "@/lib/knowledge/lisan-words";
-import { resolveArchiveUrl } from "@/lib/knowledge/religious-topics";
+import { isOverviewQuery, parseMajlisRef, resolveArchiveUrl } from "@/lib/knowledge/religious-topics";
 import { SOURCE_COLLAPSE_THRESHOLD } from "@/lib/knowledge/ashara-config";
 import {
   NOT_FOUND_REPLY,
@@ -595,11 +595,23 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     });
   }
 
+  // F0: when the message concretely references religious content — a specific majlis ("majlis 1
+  // 1448", "give point for majlis 1", "first waaz") or an overview ask — the model sometimes fails
+  // to call answer_religious_questions for terse phrasings, and the no-tool guard then FALSELY says
+  // "I couldn't find this" for content that is indexed. Force the tool so the grounded path always
+  // runs. Not for own-RSVP or clearly-social messages (handled above / elsewhere).
+  const forceReligiousTool =
+    !looksLikeOwnRsvpIntent(input.message) &&
+    !isClearlySocial(input.message) &&
+    (parseMajlisRef(input.message) != null || isOverviewQuery(input.message));
+
   const firstResponse = await client.chat.completions.create({
     ...chatParams(AI_MODEL, { maxTokens: MAX_AGENT_TOKENS, temperature: AGENT_TEMPERATURE }),
     messages,
     tools: toolDefinitionsFor(input.user),
-    tool_choice: "auto",
+    tool_choice: forceReligiousTool
+      ? { type: "function", function: { name: "answer_religious_questions" } }
+      : "auto",
   });
 
   const firstMessage = firstResponse.choices[0]?.message;

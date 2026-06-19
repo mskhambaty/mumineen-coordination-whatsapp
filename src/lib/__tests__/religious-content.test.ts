@@ -70,6 +70,18 @@ describe("retrieveReligiousContext", () => {
     expect(out).toContain("Reflections — 1448 Majlis 1"); // correct-year row survives
     expect(out).not.toContain("Null-year reflection"); // year-null non-faq is dropped
   });
+
+  it("F3: preferCategory promotes the curated faq chunk ahead of reflection prose", async () => {
+    mocks.rpc.mockResolvedValue({
+      data: [
+        { page_title: "Reflections — 1448 Majlis 2", content: "raw reflection prose", category: "reflection", year_hijri: "1448" },
+        { page_title: "Q&A — 1448 Majlis 2", content: "vetted answer", category: "faq", year_hijri: "1448" },
+      ],
+      error: null,
+    });
+    const out = await retrieveReligiousContext("five qualities of IT", 5, ["reflection", "faq"], "1448", 0.4, "faq");
+    expect(out.indexOf("Q&A — 1448 Majlis 2")).toBeLessThan(out.indexOf("Reflections — 1448 Majlis 2"));
+  });
 });
 
 describe("indexReligiousTopic", () => {
