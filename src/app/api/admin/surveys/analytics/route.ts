@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
   // analytics aggregate once answers/recipients exceed 1000.
   const scopeIds = scopeFormIds.length ? scopeFormIds : ["00000000-0000-0000-0000-000000000000"];
   type Recip = { id: string; form_id: string; mumin_id: string | null; status: string; is_test: boolean };
-  type Answer = { recipient_id: string; form_id: string; mumin_id: string | null; section_id: string | null; question_id: string | null; area: string | null; answer_text: string | null; reason_text: string | null; sentiment_1_5: number | null; event_date: string | null };
+  type Answer = { recipient_id: string; form_id: string; mumin_id: string | null; section_id: string | null; question_id: string | null; area: string | null; answer_text: string | null; reason_text: string | null; sentiment_1_5: number | null; event_date: string | null; created_at: string | null };
   const recips: Recip[] = [];
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase.from("survey_recipients").select("id, form_id, mumin_id, status, is_test").in("form_id", scopeIds).range(from, from + 999);
@@ -80,13 +80,25 @@ export async function POST(req: NextRequest) {
     recips.push(...((data ?? []) as Recip[]));
     if (!data || data.length < 1000) break;
   }
-  const answers: Answer[] = [];
+  const rawAnswers: Answer[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabase.from("survey_answers").select("recipient_id, form_id, mumin_id, section_id, question_id, area, answer_text, reason_text, sentiment_1_5, event_date").in("form_id", scopeIds).range(from, from + 999);
+    const { data, error } = await supabase.from("survey_answers").select("recipient_id, form_id, mumin_id, section_id, question_id, area, answer_text, reason_text, sentiment_1_5, event_date, created_at").in("form_id", scopeIds).range(from, from + 999);
     if (error) break;
-    answers.push(...((data ?? []) as Answer[]));
+    rawAnswers.push(...((data ?? []) as Answer[]));
     if (!data || data.length < 1000) break;
   }
+  // Dedupe to ONE answer per (mumin, question), keeping the latest — so duplicate sends (and shared
+  // sections like Overall/Seating that ride every form) can't inflate any count. Rows missing
+  // mumin_id or question_id can't be deduped, so they pass through as-is.
+  const latestByPair = new Map<string, Answer>();
+  const answers: Answer[] = [];
+  for (const a of rawAnswers) {
+    if (!a.mumin_id || !a.question_id) { answers.push(a); continue; }
+    const k = `${a.mumin_id}:${a.question_id}`;
+    const prev = latestByPair.get(k);
+    if (!prev || (a.created_at ?? "") > (prev.created_at ?? "")) latestByPair.set(k, a);
+  }
+  answers.push(...latestByPair.values());
   const { data: sectionsRaw } = await supabase.from("survey_sections").select("id, title");
   const sectionTitle = new Map(((sectionsRaw ?? []) as { id: string; title: string }[]).map((s) => [s.id, s.title]));
 
