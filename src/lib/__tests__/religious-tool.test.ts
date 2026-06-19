@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   retrieveReligiousContext: vi.fn(),
   retrieveSiteContext: vi.fn(),
   recordToolAudit: vi.fn(),
+  availableFacets: vi.fn(),
 }));
 
 vi.mock("@/lib/scraper/retrieve-site-context", () => ({
@@ -17,7 +18,15 @@ vi.mock("@/lib/supabase/server", () => ({
   getSupabaseAdmin: vi.fn(),
 }));
 
+// Keep the real religious-topics helpers (parseMajlisRef, isOverviewQuery, …) but stub the
+// DB-backed availableFacets so the F2 follow-up-gating path is testable without Supabase.
+vi.mock("@/lib/knowledge/religious-topics", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/knowledge/religious-topics")>();
+  return { ...actual, availableFacets: mocks.availableFacets };
+});
+
 import { executeTool, allToolDefinitions } from "@/lib/agent/tools";
+import { ACTIVE_ASHARA_YEAR } from "@/lib/knowledge/ashara-config";
 import { canUseTool, publicTools } from "@/lib/permissions";
 import {
   RELIGIOUS_GUIDANCE_RULE,
@@ -63,10 +72,52 @@ describe("answer_religious_questions tool", () => {
     );
 
     // Sermon-content fallback searches the sermon categories + the curated Q&A bucket
-    // (decoration/tazyeen excluded), year-scoped (null = no time cue → most-recent indexed).
-    expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith("what is vaaz talaqi", 5, ["reflection", "al_dars", "overview", "faq"], null, 0.4);
+    // (decoration/tazyeen excluded). F1: a no-cue query during the active Ashara scopes to the
+    // ACTIVE year (not null/cross-year). F3: the curated 'faq' is preferred via the 6th arg.
+    expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith(
+      "what is vaaz talaqi", 5, ["reflection", "al_dars", "overview", "faq"], ACTIVE_ASHARA_YEAR, 0.4, "faq",
+    );
     expect(mocks.retrieveSiteContext).not.toHaveBeenCalled();
     expect(result).toMatchObject({ status: "ok", decision: "answer", source: "indexed_religious_content" });
+  });
+
+  it("F1: scopes to the explicit year when the query names one", async () => {
+    mocks.retrieveReligiousContext.mockResolvedValue("[Reflections — Ashara 1447H, Majlis 1]\n…");
+    await executeTool(
+      "answer_religious_questions",
+      { query: "what was the reflection about in 1447" },
+      { user: visitor, phoneE164: "+1555" },
+    );
+    expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith(
+      expect.any(String), 5, expect.any(Array), "1447", 0.4, "faq",
+    );
+  });
+
+  it("F1: offers last year when the active year has no match", async () => {
+    // No cue → defaults to the active year (no match) → falls back to offer last year (has content).
+    mocks.retrieveReligiousContext
+      .mockResolvedValueOnce("") // active year: empty
+      .mockResolvedValueOnce("[Reflections — Ashara 1447H, Majlis 1]\n…"); // last year: has it
+    const result = await executeTool(
+      "answer_religious_questions",
+      { query: "tell me about the reflection" },
+      { user: visitor, phoneE164: "+1555" },
+    );
+    expect(result).toMatchObject({ decision: "offer_last", year: "1447" });
+  });
+
+  it("F2: returns available_facets derived from the leading vector chunk", async () => {
+    mocks.retrieveReligiousContext.mockResolvedValue(
+      "[Reflections — Ashara 1448H, Majlis 2 — Source: https://x]\nThe theme was discernment.",
+    );
+    mocks.availableFacets.mockResolvedValue(["tazyeen"]);
+    const result = await executeTool(
+      "answer_religious_questions",
+      { query: "what was discussed about discernment" },
+      { user: visitor, phoneE164: "+1555" },
+    );
+    expect(mocks.availableFacets).toHaveBeenCalledWith(expect.objectContaining({ majlisNum: 2, year: "1448" }));
+    expect(result).toMatchObject({ decision: "answer", available_facets: ["tazyeen"] });
   });
 
   it("reports no match when the religious store is empty", async () => {
