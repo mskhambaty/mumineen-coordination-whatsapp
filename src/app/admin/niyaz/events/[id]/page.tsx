@@ -8,7 +8,7 @@ import { apiFetch, readAdminUser } from "@/lib/admin/client";
 import InfoIcon from "@/components/admin/niyaz/InfoIcon";
 import VBars from "@/components/admin/charts/VBars";
 import { buildDailyTimeline } from "@/lib/charts/timeline";
-import { hasResponded, isKid, isMehman, type NiyazBreakdown } from "@/lib/rsvp/niyaz-breakdown";
+import { isKid, isMehman, type NiyazBreakdown } from "@/lib/rsvp/niyaz-breakdown";
 
 type RespRow = {
   id: string;
@@ -63,6 +63,24 @@ type FamilyRow = {
   responded_by: string | null;
 };
 
+// One row per eligible-to-RSVP member for the "By Individual" view (from GET …/instances/[id]/individuals).
+// Left-joined to niyaz_rsvp, so members who never replied appear with attending/source null + responded
+// false ("No response"). `whatsapp` is the member's contact number for the CSV export.
+type IndividualRow = {
+  mumin_id: string;
+  its: string | null;
+  full_name: string | null;
+  is_adult: boolean | null;
+  local_mehman: string | null;
+  hof_its: string | null;
+  whatsapp: string | null;
+  attending: boolean | null;
+  source: string | null;
+  responded_by: string | null;
+  updated_at: string | null;
+  responded: boolean;
+};
+
 // How each niyaz_rsvp row got its value — lets staff tell a real confirmation from a seeded default.
 const SOURCE_META: Record<string, { label: string; cls: string }> = {
   default: { label: "Seeded (arrival)", cls: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300" },
@@ -97,6 +115,19 @@ type FamilyStatus = "yes" | "no" | "noresponse";
 function familyStatus(f: { responded: boolean; attending: number; guests: number }): FamilyStatus {
   if (!f.responded) return "noresponse";
   return f.attending + f.guests > 0 ? "yes" : "no";
+}
+
+// A member's RSVP answer for the By Individual grid. "responded" only means a whatsapp/admin reply
+// exists; without one the member never replied (no row, or just a seeded/registration default).
+function individualStatus(r: { responded: boolean; attending: boolean | null }): FamilyStatus {
+  if (!r.responded) return "noresponse";
+  return r.attending ? "yes" : "no";
+}
+
+// CSV cell escaping (quote when the value holds a comma, quote, or newline) — mirrors the registration
+// export. Used by the By Individual "Export CSV" action.
+function csvCell(v: string): string {
+  return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 }
 
 // Row-count footer for a windowed table: shows how many of the filtered rows are rendered and reveals
@@ -173,23 +204,22 @@ function NiyazEventPageInner() {
   const [families, setFamilies] = useState<FamilyRow[] | null>(null);
   const [familySearch, setFamilySearch] = useState("");
   const [familyRespFilter, setFamilyRespFilter] = useState<"all" | "yes" | "no" | "noresponse">("all");
+  // The By Individual grid (one row per eligible member, paged server-side) — loaded lazily on first view.
+  const [individuals, setIndividuals] = useState<IndividualRow[] | null>(null);
   const [respSearch, setRespSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "local" | "mehman">("all");
   const [ageFilter, setAgeFilter] = useState<"all" | "adults" | "kids">("all");
-  const [rsvpFilter, setRsvpFilter] = useState<"all" | "yes" | "no">("all");
-  const [responseFilter, setResponseFilter] = useState<"all" | "responded" | "not">("all");
+  const [rsvpFilter, setRsvpFilter] = useState<"all" | "yes" | "no" | "noresponse">("all");
   // How many rows each grid currently renders (capped for performance; "Show more" raises it).
   const [indivShown, setIndivShown] = useState(ROWS_PER_PAGE);
   const [familyShown, setFamilyShown] = useState(ROWS_PER_PAGE);
   const [error, setError] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async (instanceId: string, m: string) => {
     const res = await apiFetch(`/api/admin/niyaz/instances/${instanceId}/responses?mode=${m}`);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       setError(data.error ?? "Failed to load event.");
-      setLoaded(true);
       return;
     }
     setInstance((data.instance as Instance) ?? null);
@@ -197,7 +227,6 @@ function NiyazEventPageInner() {
     setUnregResponses((data.unregistered as UnregRow[]) ?? []);
     setTally((data.tally as Tally) ?? null);
     setBreakdown((data.breakdown as NiyazBreakdown) ?? null);
-    setLoaded(true);
   }, []);
 
   // The By Family grid (~1k rows, paged server-side) is loaded lazily the first time that tab is shown.
@@ -205,6 +234,13 @@ function NiyazEventPageInner() {
     const res = await apiFetch(`/api/admin/niyaz/instances/${instanceId}/families`);
     const data = await res.json().catch(() => ({}));
     setFamilies(res.ok ? ((data.families as FamilyRow[]) ?? []) : []);
+  }, []);
+
+  // The By Individual grid (one row per eligible member, paged server-side) is also loaded lazily.
+  const loadIndividuals = useCallback(async (instanceId: string) => {
+    const res = await apiFetch(`/api/admin/niyaz/instances/${instanceId}/individuals`);
+    const data = await res.json().catch(() => ({}));
+    setIndividuals(res.ok ? ((data.individuals as IndividualRow[]) ?? []) : []);
   }, []);
 
   useEffect(() => {
@@ -224,29 +260,33 @@ function NiyazEventPageInner() {
     if (id && respView === "family" && families === null) void loadFamilies(id);
   }, [id, respView, families, loadFamilies]);
 
+  useEffect(() => {
+    if (id && respView === "individual" && individuals === null) void loadIndividuals(id);
+  }, [id, respView, individuals, loadIndividuals]);
+
   // A changed search/filter should show results from the top again, not deep in a previous window.
   useEffect(() => {
     setIndivShown(ROWS_PER_PAGE);
-  }, [respSearch, typeFilter, ageFilter, rsvpFilter, responseFilter]);
+  }, [respSearch, typeFilter, ageFilter, rsvpFilter]);
   useEffect(() => {
     setFamilyShown(ROWS_PER_PAGE);
   }, [familySearch, familyRespFilter]);
 
   const q = respSearch.trim().toLowerCase();
-  const chipFiltersActive = typeFilter !== "all" || ageFilter !== "all" || rsvpFilter !== "all" || responseFilter !== "all";
-  const filteredResponses = responses.filter((r) => {
+  const chipFiltersActive = typeFilter !== "all" || ageFilter !== "all" || rsvpFilter !== "all";
+  const filteredIndividuals = (individuals ?? []).filter((r) => {
     if (q) {
       const matchesSearch =
-        (r.mumin?.full_name ?? "").toLowerCase().includes(q) ||
-        (r.mumin?.its ?? "").toLowerCase().includes(q) ||
-        (r.family?.hof_its ?? "").toLowerCase().includes(q) ||
-        (r.responded_by_phone ?? "").toLowerCase().includes(q);
+        (r.full_name ?? "").toLowerCase().includes(q) ||
+        (r.its ?? "").toLowerCase().includes(q) ||
+        (r.hof_its ?? "").toLowerCase().includes(q) ||
+        (r.responded_by ?? "").toLowerCase().includes(q) ||
+        (r.whatsapp ?? "").toLowerCase().includes(q);
       if (!matchesSearch) return false;
     }
-    if (typeFilter !== "all" && (typeFilter === "mehman") !== isMehman(r.mumin?.local_mehman ?? null)) return false;
-    if (ageFilter !== "all" && (ageFilter === "kids") !== isKid(r.mumin?.is_adult ?? null)) return false;
-    if (rsvpFilter !== "all" && (rsvpFilter === "yes") !== r.attending) return false;
-    if (responseFilter !== "all" && (responseFilter === "responded") !== hasResponded(r.source)) return false;
+    if (typeFilter !== "all" && (typeFilter === "mehman") !== isMehman(r.local_mehman)) return false;
+    if (ageFilter !== "all" && (ageFilter === "kids") !== isKid(r.is_adult)) return false;
+    if (rsvpFilter !== "all" && individualStatus(r) !== rsvpFilter) return false;
     return true;
   });
   // The chip filters describe per-mumin attributes that unregistered guests don't carry, so any active
@@ -282,6 +322,30 @@ function NiyazEventPageInner() {
 
   const title = instance?.title || dayLabel(instance?.event_date ?? null);
   const subtitle = [dayLabel(instance?.event_date ?? null), instance?.meal, instance?.serving_type].filter(Boolean).join(" · ");
+
+  // Export the *currently filtered* By Individual rows (e.g. filter to "No response" first) so staff
+  // get the exact contact list to follow up with. Client-side Blob download with a UTF-8 BOM so Excel
+  // reads it without mojibake — mirrors the registration export.
+  const exportIndividualsCsv = () => {
+    const header = ["Name", "ITS", "Local/Mehman", "WhatsApp number"];
+    const lines = filteredIndividuals.map((r) =>
+      [
+        r.full_name ?? "",
+        r.its ?? "",
+        isMehman(r.local_mehman) ? "Mehman" : "Local",
+        r.whatsapp ?? "",
+      ]
+        .map(csvCell)
+        .join(","),
+    );
+    const blob = new Blob(["﻿" + [header.join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `niyaz-${instance?.event_date ?? "event"}-individuals.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
@@ -516,9 +580,8 @@ function NiyazEventPageInner() {
 
             {respView === "individual" && (
             <>
-            {(responses.length > 0 || unregResponses.length > 0) && (
               <div className="mb-3 space-y-2">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <input
                     type="search"
                     value={respSearch}
@@ -526,9 +589,18 @@ function NiyazEventPageInner() {
                     placeholder="Search by name, ITS, or phone…"
                     className={`${inputCls} max-w-xs`}
                   />
-                  {(q || chipFiltersActive) && (
+                  <button
+                    type="button"
+                    onClick={exportIndividualsCsv}
+                    disabled={filteredIndividuals.length === 0}
+                    title="Export the filtered rows (Name, ITS, Local/Mehman, WhatsApp number) as CSV"
+                    className="rounded-md border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                  >
+                    Export CSV
+                  </button>
+                  {(q || chipFiltersActive) && individuals && (
                     <span className="text-xs text-gray-500 dark:text-gray-400">
-                      {filteredResponses.length + filteredUnreg.length} of {responses.length + unregResponses.length}
+                      {filteredIndividuals.length + filteredUnreg.length} of {individuals.length + unregResponses.length}
                     </span>
                   )}
                 </div>
@@ -561,67 +633,70 @@ function NiyazEventPageInner() {
                       { value: "all", label: "All" },
                       { value: "yes", label: "Yes" },
                       { value: "no", label: "No" },
-                    ]}
-                  />
-                  <FilterChips
-                    label="Response"
-                    value={responseFilter}
-                    onChange={setResponseFilter}
-                    options={[
-                      { value: "all", label: "All" },
-                      { value: "responded", label: "Responded" },
-                      { value: "not", label: "Not" },
+                      { value: "noresponse", label: "No response" },
                     ]}
                   />
                 </div>
               </div>
-            )}
 
-            {!loaded ? (
+            {individuals === null ? (
               <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
-            ) : responses.length === 0 && unregResponses.length === 0 ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">No responses yet.</p>
             ) : (
               <>
-                {filteredResponses.length === 0 && filteredUnreg.length === 0 && (q || chipFiltersActive) ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">No responses match the current filters.</p>
+                {filteredIndividuals.length === 0 && filteredUnreg.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {q || chipFiltersActive ? "No members match the current filters." : "No members."}
+                  </p>
                 ) : null}
 
-                {filteredResponses.length > 0 && (
+                {filteredIndividuals.length > 0 && (
                   <div className="max-h-96 overflow-auto">
                     <table className="w-full text-left text-sm">
                       <thead className="sticky top-0 bg-white text-xs uppercase text-gray-400 dark:bg-gray-900">
                         <tr>
                           <th className="px-2 py-1.5">Name</th>
-                          <th className="px-2 py-1.5">RSVP</th>
+                          <th className="px-2 py-1.5" title="Yes = attending · No = replied not attending · No response = no reply yet">RSVP</th>
                           <th className="px-2 py-1.5" title="How this RSVP was set">Source</th>
                           <th className="px-2 py-1.5" title="Phone (WhatsApp) or admin who set it">Responded by</th>
                           <th className="px-2 py-1.5">When</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredResponses.slice(0, indivShown).map((r) => {
-                          const meta = sourceMeta(r.source);
+                        {filteredIndividuals.slice(0, indivShown).map((r) => {
+                          const status = individualStatus(r);
+                          const rsvp =
+                            status === "yes"
+                              ? { label: "Yes", cls: "text-green-600 dark:text-green-400" }
+                              : status === "no"
+                                ? { label: "No", cls: "text-red-500" }
+                                : { label: "No response", cls: "text-gray-400" };
+                          const meta = r.source ? sourceMeta(r.source) : null;
                           return (
-                            <tr key={r.id} className="border-t border-gray-100 dark:border-gray-800">
+                            <tr key={r.mumin_id} className="border-t border-gray-100 dark:border-gray-800">
                               <td className="px-2 py-1.5">
-                                {r.mumin?.full_name ?? r.mumin?.its ?? "—"}
-                                {r.mumin?.is_adult === false ? <span className="ml-1 text-xs text-gray-400">(kid)</span> : null}
+                                {r.full_name ?? r.its ?? "—"}
+                                {r.is_adult === false ? <span className="ml-1 text-xs text-gray-400">(kid)</span> : null}
                               </td>
                               <td className="px-2 py-1.5">
-                                <span className={r.attending ? "text-green-600 dark:text-green-400" : "text-red-500"}>{r.attending ? "Yes" : "No"}</span>
+                                <span className={rsvp.cls}>{rsvp.label}</span>
                               </td>
                               <td className="px-2 py-1.5">
-                                <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${meta.cls}`}>{meta.label}</span>
+                                {meta ? (
+                                  <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${meta.cls}`}>{meta.label}</span>
+                                ) : (
+                                  <span className="text-gray-400">—</span>
+                                )}
                               </td>
-                              <td className="px-2 py-1.5 font-mono text-xs text-gray-500">{r.responded_by_phone ?? r.recorded_by ?? "—"}</td>
-                              <td className="px-2 py-1.5 text-xs text-gray-500">{new Date(r.updated_at).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}</td>
+                              <td className="px-2 py-1.5 font-mono text-xs text-gray-500">{r.responded_by ?? "—"}</td>
+                              <td className="px-2 py-1.5 text-xs text-gray-500">
+                                {r.updated_at ? new Date(r.updated_at).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "—"}
+                              </td>
                             </tr>
                           );
                         })}
                       </tbody>
                     </table>
-                    <ShowMore shown={indivShown} total={filteredResponses.length} onMore={() => setIndivShown((n) => n + ROWS_PER_PAGE)} />
+                    <ShowMore shown={indivShown} total={filteredIndividuals.length} onMore={() => setIndivShown((n) => n + ROWS_PER_PAGE)} />
                   </div>
                 )}
 
