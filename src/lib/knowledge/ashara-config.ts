@@ -11,20 +11,27 @@ export type AsharaCategory = {
   // Lisan items must be translated by a human before indexing; English ones are just
   // awaiting their content (auto-fetch or transcription).
   sameDayTranslate?: boolean;
+  // Shown + seeded BY DEFAULT. This year only Reflections + Q&A are published; the others
+  // (Tazyeen, Al-Dars, Jumla, Kalema, Unwaan) are added on demand via the grid's "Add block".
+  isDefault?: boolean;
 };
 
-// The per-majlis content cells (user-selected scope). The first six are the sources; "Q&A" is a
-// curated bucket of likely member questions + grounded answers (pasted in), indexed like the rest so
-// the agent answers recurring / "list all N" questions from a vetted answer rather than raw prose.
+// The per-majlis content cells. By default only Reflections + Q&A are active (this year's scope);
+// the rest are addable on demand. "Q&A" is a curated bucket of likely member questions + grounded
+// answers (pasted in), indexed like the rest so the agent answers recurring / "list all N" questions
+// from a vetted answer rather than raw prose.
 export const ASHARA_CATEGORIES: AsharaCategory[] = [
-  { key: "reflection", label: "Reflections", language: "en" },
+  { key: "reflection", label: "Reflections", language: "en", isDefault: true },
+  { key: "faq", label: "Q&A", language: "en", isDefault: true },
   { key: "tazyeen", label: "Tazyeen", language: "en" },
   { key: "al_dars", label: "Al-Dars", language: "en" },
   { key: "jumla", label: "Jumla", language: "lisan", sameDayTranslate: true },
   { key: "kalema", label: "Kalema", language: "lisan", sameDayTranslate: true },
   { key: "unwaan", label: "Unwaan", language: "lisan", sameDayTranslate: true },
-  { key: "faq", label: "Q&A", language: "en" },
 ];
+
+// Categories shown + seeded by default (this year: Reflections + Q&A only).
+export const DEFAULT_ASHARA_CATEGORIES: AsharaCategory[] = ASHARA_CATEGORIES.filter((c) => c.isDefault);
 
 export const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
   ASHARA_CATEGORIES.map((c) => [c.key, c.label]),

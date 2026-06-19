@@ -182,8 +182,11 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  // Newest religious activity first.
-  conversations.sort((a, b) => b.sort_key.localeCompare(a.sort_key));
+  // Order by the VISIBLE last message (last_at) so the list order matches the timestamp shown on
+  // each row — fixes the "a chat shows an older time but sits near the top" mismatch. Broadcasts are
+  // already excluded from last_at, so they still can't bump a chat. Fall back to sort_key only when a
+  // chat has no displayable message yet (e.g. a fresh manual handoff).
+  conversations.sort((a, b) => (b.last_at ?? b.sort_key).localeCompare(a.last_at ?? a.sort_key));
 
   return NextResponse.json({ conversations, window_hours: windowHours });
 }

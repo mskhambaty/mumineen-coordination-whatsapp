@@ -15,6 +15,9 @@ import {
   type AsharaRow,
 } from "@/lib/knowledge/ashara-config";
 
+// This year only Reflections + Q&A are published, so the grid shows just those by default. Other
+// block types appear automatically if a year already has them, or when added via "Add block".
+
 // The Ashara majlis × category content grid — extracted from /admin/ashara so it can live inside
 // the Waaz Talaqqi "Content" tab. This is where the daily majlis content (incl. the active year,
 // 1448) is ingested. Auth + page container are the parent shell's job; this renders inside a tab.
@@ -55,6 +58,8 @@ export default function AsharaContent() {
   const [editing, setEditing] = useState<Topic | null>(null);
   const [themeBusy, setThemeBusy] = useState(false);
   const [themeMsg, setThemeMsg] = useState<string | null>(null);
+  // Extra (non-default) block types the admin chose to reveal this session.
+  const [addedCats, setAddedCats] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     void load();
@@ -92,6 +97,18 @@ export default function AsharaContent() {
 
   const cellKey = (cat: AsharaCategory, row: AsharaRow) => `${cat.key}:${row.isAshura ? "ashura" : row.majlisNumber}`;
 
+  // Columns to show: the default ones (Reflections + Q&A), plus any category this year already has
+  // content for, plus any the admin revealed via "Add block". Order follows ASHARA_CATEGORIES.
+  const visibleCats = useMemo(() => {
+    const present = new Set<string>();
+    for (const t of topics) if (t.year_hijri === year && t.category) present.add(t.category);
+    return ASHARA_CATEGORIES.filter((c) => c.isDefault || present.has(c.key) || addedCats.has(c.key));
+  }, [topics, year, addedCats]);
+  const hiddenCats = useMemo(
+    () => ASHARA_CATEGORIES.filter((c) => !visibleCats.some((v) => v.key === c.key)),
+    [visibleCats],
+  );
+
   const todayRowIdx = useMemo(() => {
     const todayIso = new Date().toISOString().slice(0, 10);
     return majlisRowForToday(year, todayIso);
@@ -100,10 +117,10 @@ export default function AsharaContent() {
   const progress = useMemo(() => {
     let indexed = 0;
     for (const t of cellMap.values()) if (t.status === "indexed") indexed++;
-    return { indexed, total: ASHARA_ROWS.length * ASHARA_CATEGORIES.length };
-  }, [cellMap]);
+    return { indexed, total: ASHARA_ROWS.length * visibleCats.length };
+  }, [cellMap, visibleCats]);
 
-  const rowDone = (row: AsharaRow) => ASHARA_CATEGORIES.filter((c) => cellMap.get(cellKey(c, row))?.status === "indexed").length;
+  const rowDone = (row: AsharaRow) => visibleCats.filter((c) => cellMap.get(cellKey(c, row))?.status === "indexed").length;
 
   const pendingQueue = useMemo(() => {
     return topics
@@ -225,6 +242,25 @@ export default function AsharaContent() {
           <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">One row per majlis, one column per type. Click any cell to add its content.</p>
         </div>
         <div className="flex items-end gap-3">
+          {hiddenCats.length > 0 && (
+            <label className="text-sm text-gray-700 dark:text-gray-300">
+              Add block
+              <select
+                value=""
+                onChange={(e) => {
+                  const key = e.target.value;
+                  if (key) setAddedCats((prev) => new Set(prev).add(key));
+                }}
+                className="mt-1 block rounded-md border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                title="This year shows Reflections + Q&A by default. Add another block type if you need it."
+              >
+                <option value="">+ Add block…</option>
+                {hiddenCats.map((c) => (
+                  <option key={c.key} value={c.key}>{c.label}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <button
             type="button"
             onClick={() => void backfillThemes()}
@@ -257,8 +293,8 @@ export default function AsharaContent() {
           <div>
             <p className="font-medium">How to fill this in</p>
             <ul className="mt-1 list-disc space-y-0.5 pl-5 text-gray-600 dark:text-gray-400">
-              <li><span className="font-medium text-gray-800 dark:text-gray-200">English</span> (Reflections, Tazyeen, Al-Dars): open the cell, paste the article, Save. Add a source link if you have one.</li>
-              <li><span className="font-medium text-gray-800 dark:text-gray-200">Lisan</span> (Jumla, Kalema, Unwaan): open the cell, type the <span className="font-medium">English translation</span>, Save.</li>
+              <li>This year shows <span className="font-medium text-gray-800 dark:text-gray-200">Reflections</span> and <span className="font-medium text-gray-800 dark:text-gray-200">Q&amp;A</span>. Open a cell, paste the content, Save.</li>
+              <li>Need another block type (Tazyeen, Al-Dars, Jumla…)? Use <span className="font-medium">Add block</span> above. Lisan blocks take the <span className="font-medium">English translation</span>.</li>
               <li>Saving indexes it for the WhatsApp agent and turns the chip green.</li>
             </ul>
           </div>
@@ -318,7 +354,7 @@ export default function AsharaContent() {
             <thead className="bg-gray-50 dark:bg-gray-800/60">
               <tr>
                 <th className="px-3 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Majlis</th>
-                {ASHARA_CATEGORIES.map((c) => (
+                {visibleCats.map((c) => (
                   <th key={c.key} className="px-3 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
                     {c.label}
                     {c.language === "lisan" && <span className="ml-1 text-[10px] font-normal lowercase text-amber-600">(lisan)</span>}
@@ -328,7 +364,7 @@ export default function AsharaContent() {
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
               {loading ? (
-                <tr><td colSpan={ASHARA_CATEGORIES.length + 1} className="px-3 py-8 text-center text-gray-500">Loading…</td></tr>
+                <tr><td colSpan={visibleCats.length + 1} className="px-3 py-8 text-center text-gray-500">Loading…</td></tr>
               ) : (
                 ASHARA_ROWS.map((row, rowIdx) => {
                   const isToday = rowIdx === todayRowIdx;
@@ -340,17 +376,17 @@ export default function AsharaContent() {
                           {row.label}
                           {isToday && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">Today</span>}
                         </div>
-                        <div className="mt-0.5 text-[11px] font-normal text-gray-400">{done}/{ASHARA_CATEGORIES.length} done</div>
+                        <div className="mt-0.5 text-[11px] font-normal text-gray-400">{done}/{visibleCats.length} done</div>
                         <button
                           type="button"
                           disabled={busyCell === `seed:${row.label}`}
                           onClick={() => void seedRow(row)}
                           className="mt-1 text-[11px] font-normal text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
                         >
-                          {busyCell === `seed:${row.label}` ? "Seeding…" : "Seed all 6"}
+                          {busyCell === `seed:${row.label}` ? "Seeding…" : "Seed"}
                         </button>
                       </td>
-                      {ASHARA_CATEGORIES.map((cat) => {
+                      {visibleCats.map((cat) => {
                         const t = cellMap.get(cellKey(cat, row));
                         const key = cellKey(cat, row);
                         return (
@@ -413,7 +449,7 @@ export default function AsharaContent() {
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-gray-800 dark:text-gray-200">{row.label}</span>
                       {isToday && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">Today</span>}
-                      <span className="text-[11px] text-gray-400">{done}/{ASHARA_CATEGORIES.length}</span>
+                      <span className="text-[11px] text-gray-400">{done}/{visibleCats.length}</span>
                     </div>
                     <button
                       type="button"
@@ -421,11 +457,11 @@ export default function AsharaContent() {
                       onClick={() => void seedRow(row)}
                       className="text-[11px] font-medium text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
                     >
-                      {busyCell === `seed:${row.label}` ? "Seeding…" : "Seed all 6"}
+                      {busyCell === `seed:${row.label}` ? "Seeding…" : "Seed"}
                     </button>
                   </div>
                   <ul className="divide-y divide-gray-100 dark:divide-gray-800">
-                    {ASHARA_CATEGORIES.map((cat) => {
+                    {visibleCats.map((cat) => {
                       const t = cellMap.get(cellKey(cat, row));
                       const key = cellKey(cat, row);
                       return (
