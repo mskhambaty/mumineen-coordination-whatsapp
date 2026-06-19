@@ -52,6 +52,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   return NextResponse.json({
     funnel: sample.funnel,
     strata: sample.strata ?? null,
-    sample: sample.chosen.map((c) => ({ name: c.fullName ?? "—", its: c.its, fresh: c.priorSends === 0 })),
+    sample: sample.chosen.map((c) => ({ name: c.fullName ?? "—", its: c.its, fresh: c.seenThisForm === 0 })),
   });
 }

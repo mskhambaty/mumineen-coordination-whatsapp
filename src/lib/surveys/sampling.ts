@@ -17,7 +17,8 @@ export type SampleCandidate = {
   phone: string;
   fullName: string | null;
   gender: string | null;
-  priorSends: number; // how many surveys they've previously been sent (freshness)
+  priorSends: number; // how many surveys they've previously been sent (any form — drives non-responder cap)
+  seenThisForm: number; // how many of THIS form's tracked questions they've already been asked (0 = fresh for this section)
 };
 
 export type SampleResult = {
@@ -30,8 +31,8 @@ export type SampleResult = {
     excludedExhausted: number; // already exposed to every question in this form
     excludedNonResponder: number; // sent NON_RESPONDER_SEND_CAP+ times, never responded → stop asking
     excludedAlreadySent: number; // opt-in: already sent ANY survey this event (cross-form de-overlap)
-    fresh: number; // of chosen, never previously surveyed
-    reused: number; // of chosen, surveyed before
+    fresh: number; // of chosen, never asked THIS form's section before (new to this section)
+    reused: number; // of chosen, partially asked this section before (fully-asked are excluded as exhausted)
     chosen: number;
   };
 };
@@ -152,16 +153,18 @@ export async function suggestSample(
       fullName: r.full_name,
       gender: r.gender,
       priorSends: priorSends.get(id) ?? 0,
+      seenThisForm: exposedByMumin.get(id)?.size ?? 0, // how many of this form's tracked questions they've seen
     });
   }
 
-  // Rank fresh-first (never-surveyed before reused, so coverage spreads before anyone repeats), but
-  // RANDOMIZE within each freshness tier so selection is fair and non-deterministic — otherwise the
-  // same low-ITS people get picked every day. A per-call random key gives a uniform shuffle per tier.
+  // Rank fresh-FOR-THIS-SECTION first (people who haven't seen any of this form's tracked questions
+  // before those who've partially seen it — coverage spreads per section), then RANDOMIZE within
+  // each tier so selection is fair and non-deterministic. Someone who did OTHER sections counts as
+  // fresh here; only this form's own questions matter.
   const rnd = new Map<string, number>();
   for (const c of eligible) rnd.set(c.muminId, Math.random());
   eligible.sort((a, b) => {
-    if (a.priorSends !== b.priorSends) return a.priorSends - b.priorSends; // fresh first
+    if (a.seenThisForm !== b.seenThisForm) return a.seenThisForm - b.seenThisForm; // section-fresh first
     return (rnd.get(a.muminId) ?? 0) - (rnd.get(b.muminId) ?? 0); // random within the tier
   });
 
@@ -176,8 +179,8 @@ export async function suggestSample(
       excludedExhausted,
       excludedNonResponder,
       excludedAlreadySent,
-      fresh: chosen.filter((c) => c.priorSends === 0).length,
-      reused: chosen.filter((c) => c.priorSends > 0).length,
+      fresh: chosen.filter((c) => c.seenThisForm === 0).length,
+      reused: chosen.filter((c) => c.seenThisForm > 0).length,
       chosen: chosen.length,
     },
   };
@@ -219,8 +222,8 @@ export async function suggestSamplePlan(
     funnel.excludedNonResponder += res.funnel.excludedNonResponder;
     funnel.excludedAlreadySent += res.funnel.excludedAlreadySent;
   }
-  funnel.fresh = chosen.filter((c) => c.priorSends === 0).length;
-  funnel.reused = chosen.filter((c) => c.priorSends > 0).length;
+  funnel.fresh = chosen.filter((c) => c.seenThisForm === 0).length;
+  funnel.reused = chosen.filter((c) => c.seenThisForm > 0).length;
   funnel.chosen = chosen.length;
   return { chosen, funnel, strata };
 }

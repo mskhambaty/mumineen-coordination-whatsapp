@@ -37,27 +37,30 @@ beforeEach(() => {
 });
 
 describe("suggestSample", () => {
-  it("prefers fresh people, excludes today's samples and question-exhausted mumineen", async () => {
+  it("excludes today's samples and question-exhausted mumineen; counts fresh per section", async () => {
     runFilter.mockResolvedValue([
-      row("A"),                                  // fresh
-      row("B"),                                  // surveyed once before (reused)
+      row("A"),                                  // never surveyed -> fresh for this section
+      row("B"),                                  // surveyed another section before, NOT this one -> still fresh here
       row("C"),                                  // already sampled today -> excluded
-      row("D"),                                  // exposed to every form question -> excluded
+      row("D"),                                  // exposed to every form question -> exhausted, excluded
+      row("E2"),                                 // partially exposed to this form (q1 only) -> reused for this section
       { ...row("E"), whatsapp_e164: null },      // no phone -> not reachable
     ]);
     recipientRows = [
-      { mumin_id: "B", event_date: "2026-06-14", created_at: "2026-06-14T10:00:00Z" },
-      { mumin_id: "C", event_date: TODAY, created_at: `${TODAY}T08:00:00Z` },
+      { mumin_id: "B", event_date: "2026-06-14", created_at: "2026-06-14T10:00:00Z", completed_at: null, is_test: false },
+      { mumin_id: "C", event_date: TODAY, created_at: `${TODAY}T08:00:00Z`, completed_at: null, is_test: false },
     ];
     exposureRows = [
       { mumin_id: "D", question_id: "q1" },
       { mumin_id: "D", question_id: "q2" },
+      { mumin_id: "E2", question_id: "q1" }, // partial → reused for this section
     ];
 
     const res = await suggestSample(RULES, ["q1", "q2"], 10, TODAY);
 
-    expect(res.chosen.map((c) => c.muminId)).toEqual(["A", "B"]); // fresh A before reused B
-    expect(res.funnel).toMatchObject({ candidates: 4, excludedToday: 1, excludedExhausted: 1, fresh: 1, reused: 1, chosen: 2 });
+    const ids = res.chosen.map((c) => c.muminId).sort();
+    expect(ids).toEqual(["A", "B", "E2"]); // A, B fresh-for-section + E2 partial; C/D excluded
+    expect(res.funnel).toMatchObject({ candidates: 5, excludedToday: 1, excludedExhausted: 1, fresh: 2, reused: 1, chosen: 3 });
   });
 
   it("only samples registered households (excludes registration not_started)", async () => {
