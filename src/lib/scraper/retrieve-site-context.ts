@@ -36,6 +36,7 @@ async function retrieveContext(
   allowedCategories?: string[],
   allowedYear?: string | null,
   minScore?: number,
+  preferCategory?: string,
 ): Promise<string> {
   const openai = getAIClient();
   const supabase = getSupabaseAdmin();
@@ -88,6 +89,11 @@ async function retrieveContext(
     // reflections", which should answer regardless of any year cue in the query.
     rows = rows.filter((r) => r.year_hijri === allowedYear || (!r.year_hijri && r.category === "faq"));
   }
+  if (preferCategory) {
+    // Stable-promote the preferred category (e.g. the curated 'faq' Q&A) ahead of other matches so
+    // the model leads with the vetted answer. Both groups keep their similarity order.
+    rows = [...rows.filter((r) => r.category === preferCategory), ...rows.filter((r) => r.category !== preferCategory)];
+  }
   rows = rows.slice(0, topK);
   if (!rows.length) return "";
 
@@ -116,8 +122,9 @@ export async function retrieveReligiousContext(
   categories?: string[],
   year?: string | null,
   minScore?: number,
+  preferCategory?: string,
 ): Promise<string> {
-  return retrieveContext("match_religious_content", RELIGIOUS_CONTEXT, query, topK, categories, year, minScore);
+  return retrieveContext("match_religious_content", RELIGIOUS_CONTEXT, query, topK, categories, year, minScore, preferCategory);
 }
 
 // Relevance floor for the free-text religious vector fallback (higher than the logistics base 0.3):

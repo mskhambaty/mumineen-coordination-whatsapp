@@ -742,6 +742,11 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       const today = new Date().toISOString().slice(0, 10);
       // Resolve "this year / today / last year / 1447" to a concrete event year. cue "none" → null.
       const yr = resolveAsharaYear(query, today);
+      // F1: an UNqualified query (cue "none") must NOT search across years (which let last year's
+      // 1447 content answer current questions — the cross-year "hallucination"). Default to the
+      // active Ashara once it has started, else the last completed one. The offer_last fallbacks
+      // below then turn "no active-year match" into "1448 isn't posted — want 1447?".
+      const defaultYear = yr.activeStarted ? ACTIVE_ASHARA_YEAR : LAST_COMPLETED_ASHARA_YEAR;
       const renderHits = (hits: { title: string; content: string; source_url: string | null; theme?: string | null }[]) =>
         hits.map((t) => `[${t.title}${t.source_url ? ` — Source: ${t.source_url}` : ""}]\n${t.theme ? `Theme: ${t.theme}\n` : ""}${t.content}`).join("\n\n---\n\n");
       const yearFromContext = (s: string): string | null => {
@@ -762,7 +767,7 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       // 1. Specific majlis ("Majlis 2", "second waaz", "4th Muharram") → exact indexed block(s).
       const ref = parseMajlisRef(query);
       if (ref) {
-        const targetYear = yr.year ?? ref.year ?? null;
+        const targetYear = yr.year ?? ref.year ?? defaultYear;
         const hits = await findMajlisForRef({ ...ref, year: targetYear });
         if (hits.length) {
           const hitYear = hits[0].year_hijri ?? targetYear ?? null;
@@ -791,7 +796,7 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
           if (themes.length) parts.push(`Majlis themes — Ashara ${y}H:\n` + themes.map((t) => `- ${t.majlisLabel}: ${t.theme}`).join("\n"));
           return parts.join("\n\n---\n\n");
         };
-        const year = yr.year ?? LAST_COMPLETED_ASHARA_YEAR;
+        const year = yr.year ?? defaultYear;
         const ctx = await overviewCtx(year);
         if (ctx) return { status: "ok", decision: "answer", source: "religious_overview", answer_style: "overview", year, context: ctx };
         if (year === ACTIVE_ASHARA_YEAR) {
@@ -807,16 +812,25 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       // 'faq' = the curated per-majlis Q&A bucket; searched alongside the sermon sources so a member's
       // question matches a vetted answer (the Q text ranks high against the question's wording).
       const cats = decoration ? ["tazyeen"] : ["reflection", "al_dars", "overview", "faq"];
-      const targetYear = yr.year ?? null;
-      const ctx = await retrieveReligiousContext(query, 5, cats, targetYear, RELIGIOUS_FALLBACK_MIN_SCORE);
+      const targetYear = yr.year ?? defaultYear;
+      // F3: prefer the curated Q&A (faq) chunk — a vetted answer the weak model narrates verbatim —
+      // over raw reflection prose when both match, for consistent replies.
+      const ctx = await retrieveReligiousContext(query, 5, cats, targetYear, RELIGIOUS_FALLBACK_MIN_SCORE, "faq");
       if (ctx) {
+        const year = targetYear ?? yearFromContext(ctx);
+        // F2: derive the leading chunk's majlis+year so the follow-up only offers the al-Dars
+        // deep-dive / tazyeen when that facet actually exists (path 1 returns this; path 3 didn't).
+        const header = ctx.match(/^\[([^\]]+)\]/)?.[1] ?? "";
+        const facetYear = header.match(/Ashara\s+(14\d\d)\s*H/i)?.[1] ?? year ?? null;
+        const facetRef = parseMajlisRef(header);
+        const facets = facetRef && facetYear ? await availableFacets({ ...facetRef, year: facetYear }) : undefined;
         return {
           status: "ok", decision: "answer", source: "indexed_religious_content",
-          year: targetYear ?? yearFromContext(ctx), context: ctx,
+          year, available_facets: facets, context: ctx,
         };
       }
       if (targetYear === ACTIVE_ASHARA_YEAR) {
-        const altCtx = await retrieveReligiousContext(query, 5, cats, LAST_COMPLETED_ASHARA_YEAR, RELIGIOUS_FALLBACK_MIN_SCORE);
+        const altCtx = await retrieveReligiousContext(query, 5, cats, LAST_COMPLETED_ASHARA_YEAR, RELIGIOUS_FALLBACK_MIN_SCORE, "faq");
         if (altCtx) return { decision: "offer_last", year: LAST_COMPLETED_ASHARA_YEAR };
       }
       return { decision: "not_found" };
