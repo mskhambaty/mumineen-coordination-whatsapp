@@ -14,8 +14,9 @@ type Row = { key: string; sentiment: number | null; responses: number; people: n
 type QRow = { question_id: string; text: string; section: string | null; sentiment: number | null; responses: number; breakdown: Record<string, number> };
 type Comment = { text: string; area: string | null; section: string | null; question: string | null; sentiment: number | null };
 type Data = {
-  forms: { id: string; title: string; status: string; tags: string[] }[];
+  forms: { id: string; title: string; status: string; tags: string[]; event_date: string | null; sent_at: string | null }[];
   options: { jamaats: string[]; categories: string[]; sections: { id: string; title: string }[] };
+  by_day?: Row[];
   overview: { sent: number; responded: number; response_rate: number; avg_sentiment: number | null; scored_answers: number; comment_count: number };
   distribution: { score: number; count: number }[];
   by_section: Row[];
@@ -32,7 +33,7 @@ type Ai = { overall_sentiment: string; sentiment_score_1_5: number; summary: str
 type Filters = {
   formIds: string[]; areas: string[]; sectionIds: string[]; includeTest: boolean;
   gender?: "M" | "F"; ageMin?: number; ageMax?: number; localMehman?: "Local" | "Mehman";
-  rahatOnly: boolean; jamaats: string[]; categories: string[];
+  rahatOnly: boolean; jamaats: string[]; categories: string[]; dateFrom?: string; dateTo?: string;
 };
 const EMPTY: Filters = { formIds: [], areas: [], sectionIds: [], includeTest: false, rahatOnly: false, jamaats: [], categories: [] };
 
@@ -79,6 +80,8 @@ function buildBody(fl: Filters): Record<string, unknown> {
   if (fl.ageMax != null) body.ageMax = fl.ageMax;
   if (fl.jamaats.length) body.jamaats = fl.jamaats;
   if (fl.categories.length) body.categories = fl.categories;
+  if (fl.dateFrom) body.dateFrom = fl.dateFrom;
+  if (fl.dateTo) body.dateTo = fl.dateTo;
   return body;
 }
 
@@ -140,7 +143,7 @@ export function AnalyticsTab() {
           <div className="flex flex-wrap gap-1.5">
             {(data?.forms ?? []).map((fm) => (
               <button key={fm.id} onClick={() => toggleArr("formIds", fm.id)} className={chip(filters.formIds.includes(fm.id))}>
-                {fm.title}{fm.tags.length ? ` · ${fm.tags.join(", ")}` : ""} · {fm.status}
+                {fm.title}{fm.tags.length ? ` · ${fm.tags.join(", ")}` : ""} · {fm.status}{fm.event_date ? ` · ${fm.event_date}` : ""}
               </button>
             ))}
           </div>
@@ -161,6 +164,12 @@ export function AnalyticsTab() {
           </label>
           <label className="flex flex-col gap-0.5 text-[11px] text-gray-500 dark:text-gray-400">Age max
             <input type="number" min={0} value={filters.ageMax ?? ""} onChange={(e) => setFilters((f) => ({ ...f, ageMax: e.target.value ? parseInt(e.target.value, 10) : undefined }))} className={`w-20 ${inputCls}`} />
+          </label>
+          <label className="flex flex-col gap-0.5 text-[11px] text-gray-500 dark:text-gray-400">Sent from
+            <input type="date" value={filters.dateFrom ?? ""} onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value || undefined }))} className={inputCls} />
+          </label>
+          <label className="flex flex-col gap-0.5 text-[11px] text-gray-500 dark:text-gray-400">Sent to
+            <input type="date" value={filters.dateTo ?? ""} onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value || undefined }))} className={inputCls} />
           </label>
           <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300"><input type="checkbox" checked={filters.rahatOnly} onChange={(e) => setFilters((f) => ({ ...f, rahatOnly: e.target.checked }))} className="accent-blue-600" /> Rahat / accessibility only</label>
           <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300"><input type="checkbox" checked={filters.includeTest} onChange={(e) => setFilters((f) => ({ ...f, includeTest: e.target.checked }))} className="accent-blue-600" /> Include test submissions</label>
@@ -310,6 +319,19 @@ export function AnalyticsTab() {
             <RowTable title="Rahat vs general" rows={data.by_attribute.rahat} />
             <RowTable title="By jamaat (top)" rows={data.by_attribute.jamaat} />
           </div>
+
+          {/* Sentiment trend by send-date (chronological) */}
+          {(data.by_day?.length ?? 0) > 1 && (
+            <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+              <p className="mb-1 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">By day (send date)</p>
+              {data.by_day!.map((r) => (
+                <div key={r.key} className="flex items-center justify-between gap-3 py-0.5">
+                  <span className="text-xs text-gray-700 dark:text-gray-300">{r.key} <span className="text-gray-400">({r.people} {r.people === 1 ? "person" : "people"} · {r.responses} answers)</span></span>
+                  <Badge value={r.sentiment} />
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Per-question, grouped by section (sections ordered by their lowest-sentiment question) */}
           {data.by_question.length > 0 && (() => {

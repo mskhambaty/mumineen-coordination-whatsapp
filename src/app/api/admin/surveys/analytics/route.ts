@@ -23,6 +23,9 @@ const filterSchema = z.object({
   rahatOnly: z.boolean().optional(),
   jamaats: z.array(z.string()).optional(),
   categories: z.array(z.string()).optional(),
+  // Inclusive send-date range (answer.event_date, YYYY-MM-DD) to scope to specific day(s).
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   // Drill-down: when set, also return the individual responses whose sentiment equals this score
   // (who answered what), so the distribution bars can open a "who responded" side pane.
   drillScore: z.number().int().min(1).max(5).optional(),
@@ -60,18 +63,18 @@ export async function POST(req: NextRequest) {
   const supabase = getSupabaseAdmin();
 
   // Forms in scope (for the filter dropdown + default = all forms).
-  const { data: formsRaw } = await supabase.from("survey_forms").select("id, title, status, tags, group_id, rules").order("created_at", { ascending: false });
-  const allForms = (formsRaw ?? []) as { id: string; title: string; status: string; tags: string[] | null }[];
+  const { data: formsRaw } = await supabase.from("survey_forms").select("id, title, status, tags, event_date, sent_at, group_id, rules").order("created_at", { ascending: false });
+  const allForms = (formsRaw ?? []) as { id: string; title: string; status: string; tags: string[] | null; event_date: string | null; sent_at: string | null }[];
   const scopeFormIds = f.formIds && f.formIds.length ? f.formIds : allForms.map((x) => x.id);
 
   // Recipients (response-rate denominators + test exclusion) and answers, scoped to those forms.
   const [{ data: recipsRaw }, { data: answersRaw }, { data: sectionsRaw }] = await Promise.all([
     supabase.from("survey_recipients").select("id, form_id, mumin_id, status, is_test").in("form_id", scopeFormIds.length ? scopeFormIds : ["00000000-0000-0000-0000-000000000000"]),
-    supabase.from("survey_answers").select("recipient_id, form_id, mumin_id, section_id, question_id, area, answer_text, reason_text, sentiment_1_5").in("form_id", scopeFormIds.length ? scopeFormIds : ["00000000-0000-0000-0000-000000000000"]),
+    supabase.from("survey_answers").select("recipient_id, form_id, mumin_id, section_id, question_id, area, answer_text, reason_text, sentiment_1_5, event_date").in("form_id", scopeFormIds.length ? scopeFormIds : ["00000000-0000-0000-0000-000000000000"]),
     supabase.from("survey_sections").select("id, title"),
   ]);
   const recips = (recipsRaw ?? []) as { id: string; form_id: string; mumin_id: string | null; status: string; is_test: boolean }[];
-  const answers = (answersRaw ?? []) as { recipient_id: string; form_id: string; mumin_id: string | null; section_id: string | null; question_id: string | null; area: string | null; answer_text: string | null; reason_text: string | null; sentiment_1_5: number | null }[];
+  const answers = (answersRaw ?? []) as { recipient_id: string; form_id: string; mumin_id: string | null; section_id: string | null; question_id: string | null; area: string | null; answer_text: string | null; reason_text: string | null; sentiment_1_5: number | null; event_date: string | null }[];
   const sectionTitle = new Map(((sectionsRaw ?? []) as { id: string; title: string }[]).map((s) => [s.id, s.title]));
 
   // Roster attributes for everyone referenced (for personal filters + attribute breakdowns).
@@ -109,11 +112,13 @@ export async function POST(req: NextRequest) {
   const sentMumin = new Set(fRecips.map((r) => r.mumin_id).filter((x): x is string => Boolean(x)));
   const respondedMumin = new Set(fRecips.filter((r) => r.status === "completed").map((r) => r.mumin_id).filter((x): x is string => Boolean(x)));
 
-  // Answers in filter: area/section + personal + (test exclusion via recipient).
+  // Answers in filter: area/section + date range + personal + (test exclusion via recipient).
   const fAnswers = answers.filter((a) => {
     if (!f.includeTest && testRecipIds.has(a.recipient_id)) return false;
     if (f.areas?.length && (!a.area || !f.areas.includes(a.area))) return false;
     if (f.sectionIds?.length && (!a.section_id || !f.sectionIds.includes(a.section_id))) return false;
+    if (f.dateFrom && (!a.event_date || a.event_date < f.dateFrom)) return false;
+    if (f.dateTo && (!a.event_date || a.event_date > f.dateTo)) return false;
     return passesPersonal(a.mumin_id);
   });
 
@@ -146,6 +151,8 @@ export async function POST(req: NextRequest) {
   const byAge = toRows(group((a) => (a.mumin_id ? ageBucket(attr.get(a.mumin_id)?.age ?? null) : null)));
   const byRahat = toRows(group((a) => (a.mumin_id ? (attr.get(a.mumin_id)?.rahat ? "Rahat / accessibility" : "General") : null)));
   const byJamaat = toRows(group((a) => (a.mumin_id ? attr.get(a.mumin_id)?.jamaat ?? null : null))).slice(0, 20);
+  // Sentiment trend by send-date (chronological), so day-over-day movement is visible.
+  const byDay = toRows(group((a) => a.event_date)).sort((a, b) => (a.key < b.key ? -1 : 1));
 
   // Per question: sentiment + answer breakdown + its section (so the UI can group questions).
   const qText = new Map<string, string>();
@@ -216,7 +223,7 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({
-    forms: allForms.map((x) => ({ id: x.id, title: x.title, status: x.status, tags: x.tags ?? [] })),
+    forms: allForms.map((x) => ({ id: x.id, title: x.title, status: x.status, tags: x.tags ?? [], event_date: x.event_date, sent_at: x.sent_at })),
     options: { jamaats: jamaatOpts, categories: categoryOpts, sections: Array.from(sectionTitle.entries()).map(([id, title]) => ({ id, title })) },
     overview: {
       sent: sentMumin.size,
@@ -231,6 +238,7 @@ export async function POST(req: NextRequest) {
     by_area: byArea,
     by_question: byQuestion,
     by_attribute: { local_mehman: byMehman, gender: byGender, age: byAge, rahat: byRahat, jamaat: byJamaat },
+    by_day: byDay,
     comments,
     ...(responses ? { drill_score: f.drillScore, responses } : {}),
   });
