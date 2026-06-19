@@ -2284,6 +2284,28 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "500": { $ref: "#/components/responses/ServerError" }
 
+  /api/admin/niyaz/instances/{id}/individuals:
+    get:
+      tags: [admin]
+      summary: Per-member RSVP grid for an event (the admin "By Individual" view)
+      description: >-
+        Admin/leadership (portal). One row per eligible-to-RSVP member from the
+        `niyaz_event_individual_grid` DB aggregate — the per-person parallel of the By Family grid.
+        Eligible population is identical to `niyaz_event_breakdown` (roster-active, not_attending=false,
+        active family, local OR submitted-mehman), LEFT-joined to niyaz_rsvp so members who never
+        replied still appear with `responded=false` and null rsvp fields ("No response"). Each row:
+        `mumin_id`, `its`, `full_name`, `is_adult`, `local_mehman`, `hof_its`, `whatsapp` (own
+        whatsapp_e164 else primary mumin_phone_links, for the CSV export), `attending`, `source`,
+        `responded_by`, `updated_at`, `responded`. So the "No response" count ties out to the Breakdown
+        panel's "Not responded" total. PAGED server-side (fetchAllRows, stable order by mumin_id) past
+        PostgREST's 1000-row db-max-rows cap.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "JSON { individuals: [{ mumin_id, its, full_name, is_adult, local_mehman, hof_its, whatsapp, attending, source, responded_by, updated_at, responded }] }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
   /api/admin/niyaz/instances/{id}/broadcast:
     get:
       tags: [admin]

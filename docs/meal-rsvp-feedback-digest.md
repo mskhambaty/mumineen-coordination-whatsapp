@@ -111,14 +111,23 @@ registered + unregistered count columns, backed by
 `GET /api/admin/niyaz/instances?mode=max|min` (reads the tallies view / function). Clicking an event
 opens the **responses** section, which has two tabbed views (toggle in the section header):
 
-- **By Individual** (`responses` from `GET /api/admin/niyaz/instances/{id}/responses`): the per-mumin
-  list — searchable by name / ITS / phone, with columns for Name, RSVP, **Source** (a labelled badge —
-  `default`=Seeded from arrival, `registration`, `whatsapp`, `admin`, `roster` — so staff can tell a
-  real confirmation from a seeded default) and **Responded by** (the WhatsApp phone or admin that set
-  it), plus Type/Age/RSVP/Response chip filters. Below it, an **Unregistered guests** table lists
-  `unregistered_rsvps` (phone, RSVP, adults, kids, ITS). Both lists are **paged server-side**
-  (`fetchAllRows`) so search/filters cover the whole event (not just the most-recent 1000) — the route
-  pages on a stable id order and sorts by `updated_at` desc for display.
+- **By Individual** (`GET /api/admin/niyaz/instances/{id}/individuals`, lazy-loaded): one row per
+  **eligible-to-RSVP member** — the per-person parallel of By Family. Comes from the
+  `niyaz_event_individual_grid` DB aggregate, whose eligible population is **identical to
+  `niyaz_event_breakdown`** (roster-active, attending, active family, local OR submitted-mehman),
+  left-joined to `niyaz_rsvp` so members who never replied still appear as **No response**. (The
+  earlier version listed only `niyaz_rsvp` rows, so non-responders — who have no row — were invisible:
+  "No response" returned ~4 instead of the real count. The "No response" count now ties out exactly to
+  the Breakdown panel's "Not responded" total.) Columns: Name, **RSVP** (Yes / No / No response,
+  derived from `responded`+`attending`), **Source** (a labelled badge — `default`=Seeded from arrival,
+  `registration`, `whatsapp`, `admin` — `—` when the member has no row) and **Responded by** (the
+  WhatsApp phone or admin that set it). Searchable by name / ITS / HOF-ITS / phone, with
+  **Type / Age / RSVP** chip filters (RSVP includes **No response**). An **Export CSV** button
+  downloads the *currently filtered* rows (Name, ITS, Local/Mehman, WhatsApp number — resolved like
+  `sender-profile.ts`: own `whatsapp_e164` else primary `mumin_phone_links`) so staff can filter to
+  "No response" and export the exact follow-up list. Below it, an **Unregistered guests** table lists
+  `unregistered_rsvps` (phone, RSVP, adults, kids, ITS). **Paged server-side** (`fetchAllRows`, stable
+  order by `mumin_id`) so search/filters cover the whole event past the 1000-row cap.
 - **By Family** (`GET /api/admin/niyaz/instances/{id}/families`, lazy-loaded): one row per roster-active
   family — HOF name (+ITS), **RSVP** (Yes = attending · No = replied not attending · No response = no
   reply yet; derived in the page from `responded`+`attending`+`guests`), Attending count, Guests, and when / by whom. Comes from
