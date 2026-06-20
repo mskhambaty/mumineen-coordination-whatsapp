@@ -23,7 +23,8 @@ const filterSchema = z.object({
   rahatOnly: z.boolean().optional(),
   jamaats: z.array(z.string()).optional(),
   categories: z.array(z.string()).optional(),
-  // Inclusive send-date range (answer.event_date, YYYY-MM-DD) to scope to specific day(s).
+  // Inclusive send-date range (event_date, YYYY-MM-DD) — scopes BOTH recipients (sent/response-rate)
+  // and answers to the chosen day(s), so the overview cards track the range, not all-time.
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   // Drill-down: when set, also return the individual responses whose sentiment equals this score
@@ -71,11 +72,11 @@ export async function POST(req: NextRequest) {
   // Both paginate — a single PostgREST read caps at 1000 rows, which would silently truncate every
   // analytics aggregate once answers/recipients exceed 1000.
   const scopeIds = scopeFormIds.length ? scopeFormIds : ["00000000-0000-0000-0000-000000000000"];
-  type Recip = { id: string; form_id: string; mumin_id: string | null; status: string; is_test: boolean };
+  type Recip = { id: string; form_id: string; mumin_id: string | null; status: string; is_test: boolean; event_date: string | null };
   type Answer = { recipient_id: string; form_id: string; mumin_id: string | null; section_id: string | null; question_id: string | null; area: string | null; answer_text: string | null; reason_text: string | null; sentiment_1_5: number | null; event_date: string | null; created_at: string | null };
   const recips: Recip[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabase.from("survey_recipients").select("id, form_id, mumin_id, status, is_test").in("form_id", scopeIds).range(from, from + 999);
+    const { data, error } = await supabase.from("survey_recipients").select("id, form_id, mumin_id, status, is_test, event_date").in("form_id", scopeIds).range(from, from + 999);
     if (error) break;
     recips.push(...((data ?? []) as Recip[]));
     if (!data || data.length < 1000) break;
@@ -132,8 +133,14 @@ export async function POST(req: NextRequest) {
 
   // Recipients in filter (non-test unless includeTest) → response-rate. Counted as DISTINCT people:
   // "sent" = unique mumineen the survey went to, "responded" = unique mumineen who completed it.
+  // Inclusive send-date range, applied identically to recipients and answers via their event_date.
+  const inDateRange = (eventDate: string | null): boolean => {
+    if (f.dateFrom && (!eventDate || eventDate < f.dateFrom)) return false;
+    if (f.dateTo && (!eventDate || eventDate > f.dateTo)) return false;
+    return true;
+  };
   const testRecipIds = new Set(recips.filter((r) => r.is_test).map((r) => r.id));
-  const fRecips = recips.filter((r) => (f.includeTest || !r.is_test) && passesPersonal(r.mumin_id));
+  const fRecips = recips.filter((r) => (f.includeTest || !r.is_test) && inDateRange(r.event_date) && passesPersonal(r.mumin_id));
   const sentMumin = new Set(fRecips.map((r) => r.mumin_id).filter((x): x is string => Boolean(x)));
   const respondedMumin = new Set(fRecips.filter((r) => r.status === "completed").map((r) => r.mumin_id).filter((x): x is string => Boolean(x)));
 
@@ -142,8 +149,7 @@ export async function POST(req: NextRequest) {
     if (!f.includeTest && testRecipIds.has(a.recipient_id)) return false;
     if (f.areas?.length && (!a.area || !f.areas.includes(a.area))) return false;
     if (f.sectionIds?.length && (!a.section_id || !f.sectionIds.includes(a.section_id))) return false;
-    if (f.dateFrom && (!a.event_date || a.event_date < f.dateFrom)) return false;
-    if (f.dateTo && (!a.event_date || a.event_date > f.dateTo)) return false;
+    if (!inDateRange(a.event_date)) return false;
     return passesPersonal(a.mumin_id);
   });
 
