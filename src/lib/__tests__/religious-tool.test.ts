@@ -140,19 +140,35 @@ describe("answer_religious_questions tool", () => {
     expect(result).toMatchObject({ decision: "answer", available_facets: ["tazyeen"] });
   });
 
-  it("Fix T: 'today's waaz' resolves to the current majlis (not a vector guess)", async () => {
+  it("Fix T: 'today's waaz' resolves to the current majlis — even with the year appended", async () => {
     mocks.majlisRowForToday.mockReturnValue(4); // ASHARA_ROWS[4] = Majlis 5
     mocks.findMajlisForRef.mockResolvedValue([
       { title: "Reflections — Ashara 1448H, Majlis 5", content: "today's content", source_url: null, theme: null, year_hijri: "1448" },
     ]);
+    // Regression: the model appends the year ("…Ashara 1448H"), which makes resolveAsharaYear's cue
+    // "explicit", not "today". The resolver must still fire (detect "today" directly) — else it falls
+    // to the vector path and answers from Majlis 1.
     const result = await executeTool(
       "answer_religious_questions",
-      { query: "what was today's waaz about" },
+      { query: "what was today's waaz about Ashara 1448H" },
       { user: visitor, phoneE164: "+1555" },
     );
     expect(mocks.findMajlisForRef).toHaveBeenCalledWith(expect.objectContaining({ majlisNum: 5, year: ACTIVE_ASHARA_YEAR }));
     expect(result).toMatchObject({ decision: "answer", source: "religious_topic_exact", year: ACTIVE_ASHARA_YEAR });
     expect(mocks.retrieveReligiousContext).not.toHaveBeenCalled(); // deterministic, no vector guess
+  });
+
+  it("Fix T guard: 'today's waaz 1447' (explicit other year) does NOT hijack to today's majlis", async () => {
+    mocks.majlisRowForToday.mockReturnValue(4);
+    mocks.retrieveReligiousContext.mockResolvedValue("[Reflections — Ashara 1447H, Majlis 1]\n…");
+    await executeTool(
+      "answer_religious_questions",
+      { query: "today's waaz Ashara 1447H" },
+      { user: visitor, phoneE164: "+1555" },
+    );
+    // Explicit 1447 → today-resolver skipped, normal year-scoped path uses 1447.
+    expect(mocks.findMajlisForRef).not.toHaveBeenCalled();
+    expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith(expect.any(String), 5, expect.any(Array), "1447", 0.4, "faq");
   });
 
   it("Fix T: today's majlis not posted yet → notice + latest published majlis (never 1447)", async () => {
