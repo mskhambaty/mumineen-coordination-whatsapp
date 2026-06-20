@@ -5,13 +5,15 @@ import { retrieveReligiousContext, retrieveSiteContext, RELIGIOUS_FALLBACK_MIN_S
 import { lookupEnglishMeaning, lookupLisanWord } from "@/lib/knowledge/lisan-words";
 import { recordMissingLisanWord } from "@/lib/knowledge/lisan-word-requests";
 import { maybeSingleWordQuery } from "@/lib/agent/religious-guard";
-import { ACTIVE_ASHARA_YEAR, LAST_COMPLETED_ASHARA_YEAR, resolveAsharaYear } from "@/lib/knowledge/ashara-config";
+import { ACTIVE_ASHARA_YEAR, ASHARA_ROWS, LAST_COMPLETED_ASHARA_YEAR, majlisRowForToday, resolveAsharaYear } from "@/lib/knowledge/ashara-config";
 import {
   availableFacets,
   findMajlisForRef,
   getOverviewBlock,
   isDeepQuery,
   isOverviewQuery,
+  isSummaryQuery,
+  latestPublishedReflection,
   listMajlisThemes,
   parseMajlisRef,
 } from "@/lib/knowledge/religious-topics";
@@ -753,6 +755,10 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
         const m = s.match(/Ashara\s+(14\d\d)\s*H/i);
         return m ? m[1] : null;
       };
+      // A "summary/recap" ask gets the fuller summary style; an explicit "go deeper" gets deep;
+      // otherwise the short brief.
+      const styleFor = (q: string): "summary" | "deep" | "brief" =>
+        isSummaryQuery(q) ? "summary" : isDeepQuery(q) ? "deep" : "brief";
 
       // Decision contract (consumed deterministically by runAgent — the model only narrates an
       // "answer"): { decision: "answer", year, context, ... } | { decision: "offer_last" } |
@@ -764,6 +770,41 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       const wordAsk = maybeSingleWordQuery(query);
       if (wordAsk?.forceAnswer) return { decision: "word_lookup", word: wordAsk.word };
 
+      // 0.5 "today / aaj / tonight" (and "yesterday") with NO explicit majlis → resolve to the day's
+      // majlis deterministically (not a vector guess that returns a random earlier majlis). Only
+      // during the active Ashara. If today's majlis isn't posted yet, offer the most recent PUBLISHED
+      // one (same year — never 1447), with a notice the reply leads with.
+      const isYesterday = /\byesterday\b|\bkal\b|gai\s*kaal/i.test(query);
+      if ((yr.cue === "today" || isYesterday) && yr.activeStarted) {
+        const idx = majlisRowForToday(ACTIVE_ASHARA_YEAR, today);
+        const targetIdx = idx == null ? null : idx - (isYesterday ? 1 : 0);
+        if (targetIdx != null && targetIdx >= 0 && targetIdx < ASHARA_ROWS.length) {
+          const row = ASHARA_ROWS[targetIdx];
+          const tref = { lailat: row.isAshura, majlisNum: row.majlisNumber, wantsTazyeen: false, wantsDars: false, wantsCategory: null as null, year: ACTIVE_ASHARA_YEAR };
+          const hits = await findMajlisForRef(tref);
+          if (hits.length) {
+            return {
+              status: "ok", decision: "answer", source: "religious_topic_exact",
+              answer_style: styleFor(query), year: ACTIVE_ASHARA_YEAR,
+              available_facets: await availableFacets(tref), context: renderHits(hits),
+            };
+          }
+          // Today's majlis not posted yet → lead with a notice + the latest published majlis (same year).
+          if (!isYesterday) {
+            const latest = await latestPublishedReflection(ACTIVE_ASHARA_YEAR);
+            const notice = `Today's waaz (${row.label}, Ashara ${ACTIVE_ASHARA_YEAR}H) isn't posted yet — reflections go up after the majlis.`;
+            if (latest) {
+              return {
+                status: "ok", decision: "answer", source: "religious_topic_exact",
+                answer_style: styleFor(query), year: ACTIVE_ASHARA_YEAR,
+                notice: `${notice} Here's the most recent one:`, context: renderHits([latest]),
+              };
+            }
+            return { decision: "not_found", notice };
+          }
+        }
+      }
+
       // 1. Specific majlis ("Majlis 2", "second waaz", "4th Muharram") → exact indexed block(s).
       const ref = parseMajlisRef(query);
       if (ref) {
@@ -774,15 +815,11 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
           const facets = await availableFacets({ ...ref, year: hitYear });
           return {
             status: "ok", decision: "answer", source: "religious_topic_exact",
-            answer_style: isDeepQuery(query) ? "deep" : "brief",
+            answer_style: styleFor(query),
             year: hitYear, available_facets: facets, context: renderHits(hits),
           };
         }
-        // Explicitly asked for the active (unpublished) year, but last year has it → offer.
-        if (targetYear === ACTIVE_ASHARA_YEAR) {
-          const altHits = await findMajlisForRef({ ...ref, year: LAST_COMPLETED_ASHARA_YEAR });
-          if (altHits.length) return { decision: "offer_last", year: LAST_COMPLETED_ASHARA_YEAR };
-        }
+        // Fix Y: never silently fall back to 1447 — only an explicit "1447 / last year" serves it.
         return { decision: "not_found" };
       }
 
@@ -799,10 +836,7 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
         const year = yr.year ?? defaultYear;
         const ctx = await overviewCtx(year);
         if (ctx) return { status: "ok", decision: "answer", source: "religious_overview", answer_style: "overview", year, context: ctx };
-        if (year === ACTIVE_ASHARA_YEAR) {
-          const altCtx = await overviewCtx(LAST_COMPLETED_ASHARA_YEAR);
-          if (altCtx) return { decision: "offer_last", year: LAST_COMPLETED_ASHARA_YEAR };
-        }
+        // Fix Y: no auto-1447 fallback.
         return { decision: "not_found" };
       }
 
@@ -826,13 +860,10 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
         const facets = facetRef && facetYear ? await availableFacets({ ...facetRef, year: facetYear }) : undefined;
         return {
           status: "ok", decision: "answer", source: "indexed_religious_content",
-          year, available_facets: facets, context: ctx,
+          answer_style: styleFor(query), year, available_facets: facets, context: ctx,
         };
       }
-      if (targetYear === ACTIVE_ASHARA_YEAR) {
-        const altCtx = await retrieveReligiousContext(query, 5, cats, LAST_COMPLETED_ASHARA_YEAR, RELIGIOUS_FALLBACK_MIN_SCORE, "faq");
-        if (altCtx) return { decision: "offer_last", year: LAST_COMPLETED_ASHARA_YEAR };
-      }
+      // Fix Y: never silently fall back to 1447 — only an explicit "1447 / last year" serves it.
       return { decision: "not_found" };
     }
     case "get_lisan_word_meaning": {

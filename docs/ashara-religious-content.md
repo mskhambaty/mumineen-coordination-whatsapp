@@ -90,8 +90,20 @@ answer from the wrong year):**
 - **Active-year default (F1):** an UNqualified query (no year/today/this cue) no longer searches
   across years (which let 1447 content answer current questions). `answer_religious_questions`
   defaults the year to the **active** Ashara once it has started (`resolveAsharaYear().activeStarted`),
-  else the last completed one; if the active year has no match it returns `offer_last` ("1448 isn't
-  posted — want 1447?") rather than silently answering from 1447.
+  else the last completed one.
+- **No 1447 unless explicit (Fix Y):** 1447 is served ONLY when the user explicitly asks ("1447",
+  "last year"). The old auto-`offer_last` fallback was removed — an unmatched active-year query
+  returns a clean not-found (or, for "today", the not-posted notice below), never a 1447 offer.
+- **"Today / aaj / tonight" → the current majlis (Fix T):** resolved deterministically via
+  `majlisRowForToday` to today's `ASHARA_ROWS` entry and answered from that exact block (not a vector
+  guess that returned a random earlier majlis). "yesterday" → majlis − 1. If today's majlis isn't
+  posted yet, the reply LEADS with a notice ("Today's waaz (Majlis N) isn't posted yet…") and then the
+  most recent **published** majlis (same year), via `latestPublishedReflection`.
+- **Summaries (Fix S):** a summary/recap/"main points" ask (`isSummaryQuery`) uses a dedicated
+  `summary` answer_style — *bold theme* + 5–7 key points, ~700–1000 chars minimum (never a 2-line
+  blurb). "summary of [today | majlis N]" answers from THAT majlis; `isOverviewQuery` is reserved for
+  genuinely year-level asks ("all majlis themes", "overview of the whole Ashara") and no longer fires
+  on a bare "summary".
 - **Curated-Q&A preference (F3):** in the vector path the curated `faq` chunk is promoted ahead of
   raw reflection prose (`retrieveReligiousContext(..., preferCategory: "faq")`) so recurring
   questions get the vetted answer consistently.

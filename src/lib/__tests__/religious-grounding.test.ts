@@ -93,11 +93,13 @@ describe("runAgent — religious grounding guard", () => {
     expect(reply).not.toContain("Source:");
   });
 
-  it("T3: 'theme of Majlis 3 this year' → OFFER_LAST (no 1448 content)", async () => {
+  it("T3: 'theme of Majlis 3 this year' → NOT_FOUND, never auto-offers 1447 (Fix Y)", async () => {
     m.history = [{ direction: "inbound", body: "What was the theme of Majlis 3 this year?" }];
     createQueue = [toolCall("What was the theme of Majlis 3 this year?")];
     const reply = await run("What was the theme of Majlis 3 this year?");
-    expect(reply).toBe(THIS_YEAR_OFFER_LAST);
+    expect(reply).toContain(NOT_FOUND_REPLY);
+    expect(reply).not.toBe(THIS_YEAR_OFFER_LAST);
+    expect(reply).not.toContain("1447"); // never surfaces last year unless explicitly asked
     expect(reply).not.toContain("Source:");
   });
 
@@ -147,12 +149,13 @@ describe("runAgent — religious grounding guard", () => {
     expect(reply).not.toBe(NOT_FOUND_REPLY);
   });
 
-  it("T12: 'majlis themes for 1448' → OFFER_LAST and lists NO placeholder themes", async () => {
+  it("T12: 'majlis themes for 1448' (none indexed) → NOT_FOUND, no 1447 fallback (Fix Y)", async () => {
     m.history = [{ direction: "inbound", body: "List the majlis themes for 1448" }];
     m.themes.mockResolvedValue([]); // status='indexed' filter → zero 1448 themes
     createQueue = [toolCall("List the majlis themes for 1448")];
     const reply = await run("List the majlis themes for 1448");
-    expect(reply).toBe(THIS_YEAR_OFFER_LAST);
+    expect(reply).toContain(NOT_FOUND_REPLY);
+    expect(reply).not.toBe(THIS_YEAR_OFFER_LAST);
     expect(reply).not.toMatch(/Saturn|Jupiter|Majlis \d/); // no placeholder theme content leaked
   });
 
