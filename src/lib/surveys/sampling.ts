@@ -39,7 +39,9 @@ export type SampleResult = {
 };
 
 // Stop including someone once they've been SENT this many real surveys without ever responding.
-export const NON_RESPONDER_SEND_CAP = 2;
+// Set to 5 (was 2): a low cap shrank the usable daily pool too aggressively — especially after the
+// 6/18 duplicate-send incident inflated send counts — benching people who'd effectively had one real ask.
+export const NON_RESPONDER_SEND_CAP = 5;
 
 // Section ids flagged dedup_exempt (Seating, Overall Experience, …) — their questions ride along on
 // many forms and are NOT tracked for exposure/exhaustion, so they don't distort the fresh-sample set.

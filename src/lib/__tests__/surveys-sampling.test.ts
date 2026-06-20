@@ -112,14 +112,20 @@ describe("suggestSample", () => {
     expect(res.chosen).toHaveLength(2);
   });
 
-  it("drops chronic non-responders (2+ real sends, never responded) but keeps responders", async () => {
+  it("drops chronic non-responders (NON_RESPONDER_SEND_CAP+ real sends, never responded) but keeps responders", async () => {
     runFilter.mockResolvedValue([row("A"), row("N"), row("Rsp")]);
     recipientRows = [
-      // N: sent twice, never completed -> excluded.
+      // N: sent 5 times (>= cap of 5), never completed -> excluded.
+      { mumin_id: "N", event_date: "2026-06-10", created_at: "2026-06-10T10:00:00Z", completed_at: null, is_test: false },
+      { mumin_id: "N", event_date: "2026-06-11", created_at: "2026-06-11T10:00:00Z", completed_at: null, is_test: false },
       { mumin_id: "N", event_date: "2026-06-12", created_at: "2026-06-12T10:00:00Z", completed_at: null, is_test: false },
+      { mumin_id: "N", event_date: "2026-06-13", created_at: "2026-06-13T10:00:00Z", completed_at: null, is_test: false },
       { mumin_id: "N", event_date: "2026-06-14", created_at: "2026-06-14T10:00:00Z", completed_at: null, is_test: false },
-      // Rsp: sent twice but responded once -> still eligible.
-      { mumin_id: "Rsp", event_date: "2026-06-12", created_at: "2026-06-12T10:00:00Z", completed_at: "2026-06-12T11:00:00Z", is_test: false },
+      // Rsp: sent many times but responded once -> still eligible.
+      { mumin_id: "Rsp", event_date: "2026-06-10", created_at: "2026-06-10T10:00:00Z", completed_at: "2026-06-10T11:00:00Z", is_test: false },
+      { mumin_id: "Rsp", event_date: "2026-06-11", created_at: "2026-06-11T10:00:00Z", completed_at: null, is_test: false },
+      { mumin_id: "Rsp", event_date: "2026-06-12", created_at: "2026-06-12T10:00:00Z", completed_at: null, is_test: false },
+      { mumin_id: "Rsp", event_date: "2026-06-13", created_at: "2026-06-13T10:00:00Z", completed_at: null, is_test: false },
       { mumin_id: "Rsp", event_date: "2026-06-14", created_at: "2026-06-14T10:00:00Z", completed_at: null, is_test: false },
     ];
     const res = await suggestSample(RULES, [], 10, TODAY);

@@ -38,15 +38,18 @@ responses through a per-recipient **tokenized web form** delivered over WhatsApp
 1. `runFilter` → reachable candidates. **Baseline (always, every group AND custom filter):**
    roster-active, has a WhatsApp number, **attending** (not `not_attending`), and **registration
    `submitted`** — we never survey not-attending or unregistered people, regardless of the filter.
-2. Exclude anyone **already sampled today** (≤1 sample/day) and anyone **exposed to every** question
-   in this form. Optional: `freeWindowOnly` (only people inside the 24h free window) and
+2. Exclude anyone **already sampled today** (≤1 sample/day), anyone **exposed to every** question
+   in this form, and **chronic non-responders** — sent `NON_RESPONDER_SEND_CAP` (5) real surveys
+   without ever responding. Optional: `freeWindowOnly` (only people inside the 24h free window) and
    `excludeAlreadySent` (drop anyone sent any survey this event).
 3. Rank **fresh first** (0 prior sends), then fewest sends, then longest-since-last.
 Returns the chosen set + a funnel for the admin preview. `suggestQuestionsForSection` rotates the
 databank by preferring least-exposed questions.
 
 **Stratified sampling** (`suggestSamplePlan`): a form can carry a `sample_plan` — an array of strata,
-each its own audience filter + quota (e.g. `[{Local,107},{Mehman,70}]`). Preview/Commit sample each
+each its own audience filter + quota (e.g. `[{Local,105},{Mehman,40}]`). A form's `sample_size`, when
+set, acts as an overall **total cap** on the plan, scaling the strata down proportionally (e.g. 145 →
+no-op; 100 → strata shrink to sum 100). Preview/Commit sample each
 stratum from its pool, dedup across strata, and send one broadcast. Because the ≤1-sample/day rule is
 global, sending several plan-forms in sequence **partitions the day's audience** (each person gets one
 section/day). Reachable pools dedup to one number per household — so quotas are sized off the deduped
