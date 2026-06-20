@@ -29,10 +29,21 @@ vi.mock("@/lib/rsvp/meal-rsvp", () => ({
 }));
 // The breakdown RPC rows the route assembles into body.breakdown.
 let breakdownRows: unknown[] = [];
+// The cross-meal RPC rows (paged via fetchAllRows → .order().range()).
+let crossMealRows: unknown[] = [];
+// Capture the args the cross-meal RPC was called with (to assert p_confirmed_only follows the mode).
+let crossMealArgs: unknown = null;
 vi.mock("@/lib/supabase/server", () => ({
   getSupabaseAdmin: () => ({
     from: (t: string) => builder(t),
-    rpc: () => Promise.resolve({ data: breakdownRows, error: null }),
+    // breakdown is awaited directly; cross_meal is paged via fetchAllRows (.order().range()).
+    rpc: (fn: string, args: unknown) => {
+      if (fn === "niyaz_event_cross_meal") {
+        crossMealArgs = args;
+        return { order: () => ({ range: () => Promise.resolve({ data: crossMealRows, error: null }) }) };
+      }
+      return Promise.resolve({ data: breakdownRows, error: null });
+    },
   }),
 }));
 
@@ -67,10 +78,15 @@ const tally = (id: string) => ({
   rsvpCount: 1445,
 });
 
+// The dinner sibling of e1 (same date), so the route's sibling lookup finds it.
+const dinnerSibling = () => ({ ...tally("e1-dinner"), meal: "dinner" });
+
 beforeEach(() => {
   vi.clearAllMocks();
   requirePortalCaller.mockResolvedValue(allow());
   getFamilyHeadCounts.mockResolvedValue([]);
+  crossMealRows = [];
+  crossMealArgs = null;
   // fetchAllRows pages via the mocked .range() (one page here). r1 is older than r2 so we can assert
   // the route sorts the assembled list by updated_at desc for display.
   tableData["niyaz_rsvp"] = {
@@ -140,5 +156,32 @@ describe("GET niyaz responses", () => {
     getEventTallies.mockResolvedValue([tally("other")]);
     const res = await GET(req("min"), { params });
     expect(res.status).toBe(404);
+  });
+
+  it("returns the cross-meal list when the day has a sibling meal (and threads the mode)", async () => {
+    getEventTallies.mockResolvedValue([tally("e1"), dinnerSibling()]);
+    crossMealRows = [
+      { mumin_id: "m9", its: "30000009", full_name: "Yusuf bhai", is_adult: null, local_mehman: null, hof_its: "30000009", whatsapp: "+1888" },
+    ];
+    const res = await GET(req("min"), { params });
+    const body = await res.json();
+    expect(body.crossMeal).toMatchObject({ otherMeal: "dinner" });
+    expect(body.crossMeal.members).toHaveLength(1);
+    expect(body.crossMeal.members[0]).toMatchObject({ full_name: "Yusuf bhai", whatsapp: "+1888" });
+    // min mode → confirmed-only true.
+    expect(crossMealArgs).toMatchObject({ p_instance_id: "e1", p_confirmed_only: true });
+  });
+
+  it("max mode asks the cross-meal RPC for face-value counts (p_confirmed_only false)", async () => {
+    getEventTallies.mockResolvedValue([tally("e1"), dinnerSibling()]);
+    await GET(req("max"), { params });
+    expect(crossMealArgs).toMatchObject({ p_confirmed_only: false });
+  });
+
+  it("returns crossMeal null when the day has no sibling meal", async () => {
+    getEventTallies.mockResolvedValue([tally("e1")]);
+    const res = await GET(req("min"), { params });
+    const body = await res.json();
+    expect(body.crossMeal).toBeNull();
   });
 });

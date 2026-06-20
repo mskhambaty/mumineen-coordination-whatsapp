@@ -113,7 +113,7 @@ src/lib/rsvp/niyaz-day-grouping.ts       — Pure, client-safe groupTalliesByDay
 src/app/admin/niyaz/page.tsx             — Niyaz days overview: days (grouped instances) with Yes count; expand → jaman; Send RSVP → composer; Edit/New via modal; click jaman → event detail
 src/app/admin/niyaz/events/[id]/page.tsx — Niyaz event detail: headline counts, eligible-population Breakdown, and the RSVP responses section with By Family / By Individual tabbed views
 src/components/admin/niyaz/EventFormModal.tsx — Create/Edit Niyaz event modal (POST/PATCH /api/admin/niyaz/instances), incl. manual thaal_wardi_count / actual_count
-src/app/api/admin/niyaz/instances/[id]/responses/route.ts — GET per-event responses (paged server-side, uncapped) + event meta + mode-aware tally + eligible-population breakdown (niyaz_event_breakdown RPC)
+src/app/api/admin/niyaz/instances/[id]/responses/route.ts — GET per-event responses (paged server-side, uncapped) + event meta + mode-aware tally + eligible-population breakdown (niyaz_event_breakdown RPC) + crossMeal list (niyaz_event_cross_meal RPC: yes-this-meal/no-other-meal)
 src/app/api/admin/niyaz/instances/[id]/families/route.ts — GET per-family RSVP grid (niyaz_event_family_grid RPC, paged server-side past the 1000-row cap) for the "By Family" view
 src/app/api/admin/niyaz/instances/[id]/individuals/route.ts — GET per-member RSVP grid (niyaz_event_individual_grid RPC, paged server-side) for the "By Individual" view — eligible members incl. non-responders + WhatsApp number for CSV export
 src/lib/rsvp/niyaz-breakdown.ts — assembleBreakdown + classifiers (local/mehman/guest) for the event-detail Breakdown panel

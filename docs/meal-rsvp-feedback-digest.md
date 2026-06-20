@@ -143,6 +143,17 @@ the section header):
   all ~1k families are returned past the 1000-row cap. Searchable by HOF name / ITS with a Responded
   filter. The default tab is By Family.
 
+At the **bottom** of the event-detail page, an **"Attending {meal}, not {other meal}"** card lists
+the mumineen who said **yes to this meal but no to the day's other meal** (lunch page →
+yes-lunch/no-dinner; dinner page → yes-dinner/no-lunch) — useful for per-meal kitchen planning. It
+shows the count (+ adults/kids), the member list (Name · ITS · Type · WhatsApp, windowed via
+`ShowMore`), and an **Export CSV** (same Name/ITS/Local-Mehman/WhatsApp columns as By Individual).
+Backed by the `niyaz_event_cross_meal(p_instance_id, p_confirmed_only)` RPC (self-join of `niyaz_rsvp`
+across the day's two meal instances, found by `(event_date, meal)`), returned as `crossMeal` on the
+`/responses` payload. It respects the **Min/Max** view (`p_confirmed_only = mode === "min"`, the same
+whatsapp/admin-confirmed rule as `niyaz_event_tallies_min`) and is **`null` / hidden** when the day
+has no sibling meal (e.g. dinner-only days).
+
 Between the Breakdown table and the responses section the page renders a **Responses over time** card
 (twin daily/cumulative bar charts) showing when RSVPs arrived. It's computed client-side from the
 already-loaded `responses` (counted on `updated_at`, excluding `source: "default"` seed rows) plus all

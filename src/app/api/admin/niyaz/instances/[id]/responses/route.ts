@@ -34,6 +34,17 @@ type UnregDbRow = {
   created_at: string;
 };
 
+// One mumin attending THIS meal but not the day's other meal (niyaz_event_cross_meal RPC).
+type CrossMember = {
+  mumin_id: string;
+  its: string | null;
+  full_name: string | null;
+  is_adult: boolean | null;
+  local_mehman: string | null;
+  hof_its: string | null;
+  whatsapp: string | null;
+};
+
 const REG_SELECT =
   "id, mumin_id, family_id, attending, source, responded_by_phone, recorded_by, updated_at, " +
   "mumin:mumineen!niyaz_rsvp_mumin_id_fkey(full_name, its, is_adult, local_mehman), " +
@@ -92,6 +103,21 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   // Free-text family head counts for this event (separate input from the per-mumin button responses).
   const headcounts = await getFamilyHeadCounts(id);
 
+  // Cross-meal "yes here / no there": mumineen attending THIS meal but not the day's other meal (e.g.
+  // on a lunch event, yes-lunch/no-dinner). Only meaningful when the day has a sibling meal; the list
+  // (and its count) respects the Min/Max mode via p_confirmed_only. Paged past the 1000-row cap.
+  const sibling = tallies.find((t) => t.eventDate === tally.eventDate && t.meal && t.meal !== tally.meal);
+  let crossMeal: { otherMeal: string; members: CrossMember[] } | null = null;
+  if (sibling?.meal) {
+    const members = await fetchAllRows<CrossMember>(
+      () =>
+        supabase
+          .rpc("niyaz_event_cross_meal", { p_instance_id: id, p_confirmed_only: mode === "min" })
+          .order("mumin_id", { ascending: true }) as unknown as Pageable<CrossMember>,
+    );
+    crossMeal = { otherMeal: sibling.meal, members };
+  }
+
   return NextResponse.json({
     instance: {
       id: tally.id,
@@ -119,5 +145,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     responses: rows,
     unregistered: unregRows,
     headcounts,
+    crossMeal,
   });
 }

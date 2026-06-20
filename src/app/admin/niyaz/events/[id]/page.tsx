@@ -83,6 +83,17 @@ type IndividualRow = {
   responded: boolean;
 };
 
+// One mumin attending THIS meal but not the day's other meal (from the responses payload's crossMeal).
+type CrossMember = {
+  mumin_id: string;
+  its: string | null;
+  full_name: string | null;
+  is_adult: boolean | null;
+  local_mehman: string | null;
+  hof_its: string | null;
+  whatsapp: string | null;
+};
+
 // How each niyaz_rsvp row got its value — lets staff tell a real confirmation from a seeded default.
 const SOURCE_META: Record<string, { label: string; cls: string }> = {
   default: { label: "Seeded (arrival)", cls: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300" },
@@ -215,6 +226,9 @@ function NiyazEventPageInner() {
   // How many rows each grid currently renders (capped for performance; "Show more" raises it).
   const [indivShown, setIndivShown] = useState(ROWS_PER_PAGE);
   const [familyShown, setFamilyShown] = useState(ROWS_PER_PAGE);
+  // Cross-meal "yes this meal / no the other meal" list (null when the day has no sibling meal).
+  const [crossMeal, setCrossMeal] = useState<{ otherMeal: string; members: CrossMember[] } | null>(null);
+  const [crossShown, setCrossShown] = useState(ROWS_PER_PAGE);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (instanceId: string, m: string) => {
@@ -229,6 +243,8 @@ function NiyazEventPageInner() {
     setUnregResponses((data.unregistered as UnregRow[]) ?? []);
     setTally((data.tally as Tally) ?? null);
     setBreakdown((data.breakdown as NiyazBreakdown) ?? null);
+    setCrossMeal((data.crossMeal as { otherMeal: string; members: CrossMember[] }) ?? null);
+    setCrossShown(ROWS_PER_PAGE);
   }, []);
 
   // The By Family grid (~1k rows, paged server-side) is loaded lazily the first time that tab is shown.
@@ -325,29 +341,27 @@ function NiyazEventPageInner() {
   const title = instance?.title || dayLabel(instance?.event_date ?? null);
   const subtitle = [dayLabel(instance?.event_date ?? null), instance?.meal, instance?.serving_type].filter(Boolean).join(" · ");
 
-  // Export the *currently filtered* By Individual rows (e.g. filter to "No response" first) so staff
-  // get the exact contact list to follow up with. Client-side Blob download with a UTF-8 BOM so Excel
-  // reads it without mojibake — mirrors the registration export.
-  const exportIndividualsCsv = () => {
+  // Download a member list (Name / ITS / Local-Mehman / WhatsApp) as CSV. Client-side Blob with a
+  // UTF-8 BOM so Excel reads it without mojibake — mirrors the registration export. Shared by the By
+  // Individual grid and the cross-meal list so staff get the exact contact list to follow up with.
+  const downloadMembersCsv = (
+    rows: { full_name: string | null; its: string | null; local_mehman: string | null; whatsapp: string | null }[],
+    filename: string,
+  ) => {
     const header = ["Name", "ITS", "Local/Mehman", "WhatsApp number"];
-    const lines = filteredIndividuals.map((r) =>
-      [
-        r.full_name ?? "",
-        r.its ?? "",
-        isMehman(r.local_mehman) ? "Mehman" : "Local",
-        r.whatsapp ?? "",
-      ]
-        .map(csvCell)
-        .join(","),
+    const lines = rows.map((r) =>
+      [r.full_name ?? "", r.its ?? "", isMehman(r.local_mehman) ? "Mehman" : "Local", r.whatsapp ?? ""].map(csvCell).join(","),
     );
     const blob = new Blob(["﻿" + [header.join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `niyaz-${instance?.event_date ?? "event"}-individuals.csv`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
   };
+  // Export the *currently filtered* By Individual rows (e.g. filter to "No response" first).
+  const exportIndividualsCsv = () => downloadMembersCsv(filteredIndividuals, `niyaz-${instance?.event_date ?? "event"}-individuals.csv`);
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
@@ -758,6 +772,70 @@ function NiyazEventPageInner() {
             </>
             )}
           </div>
+
+          {crossMeal && instance?.meal && (
+            <div className="mt-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="flex items-center gap-1 text-lg font-semibold">
+                  <span>Attending <span className="capitalize">{instance.meal}</span>, not <span className="capitalize">{crossMeal.otherMeal}</span></span>
+                  <InfoIcon label={`Mumineen attending ${instance.meal} but not ${crossMeal.otherMeal} that day. Respects the Min/Max view (Min = whatsapp/admin-confirmed only).`} />
+                </h2>
+                <button
+                  type="button"
+                  onClick={() =>
+                    downloadMembersCsv(
+                      crossMeal.members,
+                      `niyaz-${instance.event_date ?? "event"}-${instance.meal}-not-${crossMeal.otherMeal}.csv`,
+                    )
+                  }
+                  disabled={crossMeal.members.length === 0}
+                  title="Export this list (Name, ITS, Local/Mehman, WhatsApp) as CSV"
+                  className="rounded-md border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  Export CSV
+                </button>
+              </div>
+              <div className="mb-3 text-3xl font-bold tabular-nums text-gray-800 dark:text-gray-100">
+                {crossMeal.members.length}
+                <span className="ml-2 text-sm font-normal text-gray-500 dark:text-gray-400">
+                  {crossMeal.members.filter((m) => !isKid(m.is_adult)).length} adults ·{" "}
+                  {crossMeal.members.filter((m) => isKid(m.is_adult)).length} kids
+                </span>
+              </div>
+              {crossMeal.members.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  No mumineen are attending {instance.meal} but not {crossMeal.otherMeal}.
+                </p>
+              ) : (
+                <div className="max-h-96 overflow-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="sticky top-0 bg-white text-xs uppercase text-gray-400 dark:bg-gray-900">
+                      <tr>
+                        <th className="px-2 py-1.5">Name</th>
+                        <th className="px-2 py-1.5">ITS</th>
+                        <th className="px-2 py-1.5">Type</th>
+                        <th className="px-2 py-1.5">WhatsApp</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {crossMeal.members.slice(0, crossShown).map((m) => (
+                        <tr key={m.mumin_id} className="border-t border-gray-100 dark:border-gray-800">
+                          <td className="px-2 py-1.5">
+                            {m.full_name ?? m.its ?? "—"}
+                            {m.is_adult === false ? <span className="ml-1 text-xs text-gray-400">(kid)</span> : null}
+                          </td>
+                          <td className="px-2 py-1.5 font-mono text-xs text-gray-500">{m.its ?? "—"}</td>
+                          <td className="px-2 py-1.5 text-xs">{isMehman(m.local_mehman) ? "Mehmaan" : "Local"}</td>
+                          <td className="px-2 py-1.5 font-mono text-xs text-gray-500">{m.whatsapp ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <ShowMore shown={crossShown} total={crossMeal.members.length} onMore={() => setCrossShown((n) => n + ROWS_PER_PAGE)} />
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
     </main>
