@@ -22,6 +22,8 @@ type NiyazEvent = {
   meal: Meal | null;
   servingType: ServingType | null;
   description: string | null;
+  thaalWardiCount: number | null;
+  actualCount: number | null;
   yesAdults: number;
   yesKids: number;
   yesFamilies: number;
@@ -50,7 +52,17 @@ function thaalsOf(yes: number): number {
 }
 
 function toEditable(e: NiyazEvent): EditableInstance {
-  return { id: e.id, title: e.title, eventDate: e.eventDate, hijriDate: e.hijriDate, meal: e.meal, servingType: e.servingType, description: e.description };
+  return {
+    id: e.id,
+    title: e.title,
+    eventDate: e.eventDate,
+    hijriDate: e.hijriDate,
+    meal: e.meal,
+    servingType: e.servingType,
+    description: e.description,
+    thaalWardiCount: e.thaalWardiCount,
+    actualCount: e.actualCount,
+  };
 }
 
 export default function NiyazPage() {
@@ -221,9 +233,11 @@ export default function NiyazPage() {
                             <th className="px-3 py-1.5 text-right">
                               <span className="inline-flex items-center gap-1">
                                 Thaals
-                                <InfoIcon label="Thaals = Yes count ÷ 8 (rounded up)" />
+                                <InfoIcon label="Thaals = Yes count ÷ 8 (rounded up) — the estimate. Wardi/Actual are the manually-entered thaals ordered vs served." />
                               </span>
                             </th>
+                            <th className="px-3 py-1.5 text-right" title="Thaals ordered (manually entered)">Wardi</th>
+                            <th className="px-3 py-1.5 text-right" title="Thaals actually served (manually entered)">Actual</th>
                             <th className="px-3 py-1.5"></th>
                           </tr>
                         </thead>
@@ -240,6 +254,8 @@ export default function NiyazPage() {
                               </td>
                               <td className="px-3 py-1.5 text-right font-semibold tabular-nums">{yesOf(e)}</td>
                               <td className="px-3 py-1.5 text-right tabular-nums text-gray-600 dark:text-gray-300">{thaalsOf(yesOf(e))}</td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-gray-600 dark:text-gray-300">{e.thaalWardiCount ?? "—"}</td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-gray-600 dark:text-gray-300">{e.actualCount ?? "—"}</td>
                               <td className="px-3 py-1.5 text-right" onClick={(ev) => ev.stopPropagation()}>
                                 <button
                                   type="button"

@@ -2117,7 +2117,8 @@ paths:
         Admin/leadership (portal). Returns all events ordered by date, each with
         per-event attendance tallies (yes/no by adult/kid/family, thaal count,
         unregistered adults/kids). Thaal count includes both registered and
-        unregistered attendees.
+        unregistered attendees. Each item also carries the manually-entered
+        thaal_wardi_count (thaals ordered) and actual_count (thaals served), or null.
       parameters:
         - name: mode
           in: query
@@ -2146,9 +2147,41 @@ paths:
                 meal: { type: string, enum: [lunch, dinner] }
                 serving_type: { type: string, enum: [thaal, packet] }
                 description: { type: string }
+                thaal_wardi_count: { type: integer, minimum: 0, nullable: true, description: "Thaals ordered (the wardi). Negative/non-numeric → null." }
+                actual_count: { type: integer, minimum: 0, nullable: true, description: "Thaals actually served on the day. Negative/non-numeric → null." }
       responses:
         "201": { description: "{ instance: { id } }." }
         "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/niyaz/instances/{id}:
+    patch:
+      tags: [admin]
+      summary: Edit a Niyaz event
+      description: >-
+        Admin/leadership (portal). Partial patch of an event's day / meal / serving type / details
+        and the manually-entered thaal_wardi_count & actual_count — only provided fields are written.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                event_date: { type: string, format: date }
+                hijri_date: { type: string }
+                meal: { type: string, enum: [lunch, dinner] }
+                serving_type: { type: string, enum: [thaal, packet] }
+                description: { type: string }
+                thaal_wardi_count: { type: integer, minimum: 0, nullable: true, description: "Thaals ordered. Negative/non-numeric/empty → null." }
+                actual_count: { type: integer, minimum: 0, nullable: true, description: "Thaals served. Negative/non-numeric/empty → null." }
+      responses:
+        "200": { description: "{ instance: { id, title, event_date, hijri_date, meal, serving_type, description, thaal_wardi_count, actual_count, updated_at } }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /api/admin/niyaz/days:
     get:
@@ -2247,7 +2280,7 @@ paths:
       summary: Recorded Niyaz RSVP responses for an event
       description: >-
         Admin/leadership (portal). Returns the event's instance meta (title, event_date, hijri_date,
-        meal, serving_type), a mode-aware Yes/No `tally`, a mode-independent `breakdown` of the
+        meal, serving_type, thaal_wardi_count, actual_count), a mode-aware Yes/No `tally`, a mode-independent `breakdown` of the
         eligible-to-RSVP population grouped into local/mehman/guest (per-group eligible + confirmation-based
         Yes/No with adults/kids + responded/not-responded + response rate, from the `niyaz_event_breakdown`
         DB aggregate; guests are sentinel-ITS yes-only and excluded from the member total), the per-mumin niyaz_rsvp rows (name, attending, source, `is_adult`,

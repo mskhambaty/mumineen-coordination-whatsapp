@@ -108,8 +108,14 @@ come to the masjid to register again. Admin:
 `/admin/niyaz` shows the events sorted by date with **Max/Min tabs** (max = arrival-date defaults,
 min = confirmed only — an inline legend on the page spells out each definition + the thaal formula),
 registered + unregistered count columns, backed by
-`GET /api/admin/niyaz/instances?mode=max|min` (reads the tallies view / function). Clicking an event
-opens the **responses** section, which has two tabbed views (toggle in the section header):
+`GET /api/admin/niyaz/instances?mode=max|min` (reads the tallies view / function). Each meal row
+(and the event-detail headline cards) also shows two **manually-entered** operational thaal numbers
+alongside the computed Thaals estimate (`ceil(yes/8)`): **Thaal wardi count** (thaals *ordered*) and
+**Actual count** (thaals *actually served*). They live on `rsvp_registration_instance`
+(`thaal_wardi_count` / `actual_count`, nullable, per meal), are edited in the **Edit event** modal
+(`POST`/`PATCH /api/admin/niyaz/instances[/{id}]`, normalized via `nonNegInt`), and are never derived
+from RSVPs. Clicking an event opens the **responses** section, which has two tabbed views (toggle in
+the section header):
 
 - **By Individual** (`GET /api/admin/niyaz/instances/{id}/individuals`, lazy-loaded): one row per
   **eligible-to-RSVP member** — the per-person parallel of By Family. Comes from the

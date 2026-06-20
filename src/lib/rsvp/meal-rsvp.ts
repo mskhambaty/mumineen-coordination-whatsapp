@@ -17,6 +17,10 @@ export type NiyazEvent = {
   meal: Meal | null;
   servingType: string | null; // 'thaal' | 'packet'
   description: string | null;
+  // Manually-entered operational thaal numbers (null until staff fill them in): thaals ordered
+  // (wardi) vs thaals actually served. Distinct from the computed thaalCount estimate (ceil(yes/8)).
+  thaalWardiCount: number | null;
+  actualCount: number | null;
 };
 
 type RawEvent = {
@@ -27,6 +31,8 @@ type RawEvent = {
   meal: Meal | null;
   serving_type: string | null;
   description: string | null;
+  thaal_wardi_count: number | null;
+  actual_count: number | null;
 };
 const toEvent = (r: RawEvent): NiyazEvent => ({
   id: r.id,
@@ -36,13 +42,15 @@ const toEvent = (r: RawEvent): NiyazEvent => ({
   meal: r.meal,
   servingType: r.serving_type,
   description: r.description,
+  thaalWardiCount: r.thaal_wardi_count,
+  actualCount: r.actual_count,
 });
 
 // All Niyaz events (instances with an event_date), ordered by day then meal.
 export async function getEvents(): Promise<NiyazEvent[]> {
   const { data } = await getSupabaseAdmin()
     .from("rsvp_registration_instance")
-    .select("id, title, event_date, hijri_date, meal, serving_type, description")
+    .select("id, title, event_date, hijri_date, meal, serving_type, description, thaal_wardi_count, actual_count")
     .not("event_date", "is", null)
     .order("event_date", { ascending: true })
     .order("meal", { ascending: false });

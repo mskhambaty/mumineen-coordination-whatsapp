@@ -49,6 +49,8 @@ type Instance = {
   hijri_date: string | null;
   meal: string | null;
   serving_type: string | null;
+  thaal_wardi_count: number | null;
+  actual_count: number | null;
 };
 
 // One row per roster-active family for the "By Family" view (from GET …/instances/[id]/families).
@@ -369,7 +371,7 @@ function NiyazEventPageInner() {
 
       {!error && (
         <>
-          <div className="mb-6 grid grid-cols-3 gap-4 sm:max-w-xl">
+          <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
             <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
               <div className="text-xs uppercase tracking-wide text-gray-400">Yes count</div>
               <div className="mt-1 text-3xl font-bold tabular-nums text-green-600 dark:text-green-400">{yesCount}</div>
@@ -386,10 +388,28 @@ function NiyazEventPageInner() {
             </div>
             <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
               <div className="flex items-center gap-1 text-xs uppercase tracking-wide text-gray-400">
-                Thaals
-                <InfoIcon label="Thaals = Yes count ÷ 8 (rounded up)" />
+                Thaals (est.)
+                <InfoIcon label="Estimate = Yes count ÷ 8 (rounded up). Compare against the manually-entered Thaal wardi (ordered) and Actual (served) counts." />
               </div>
               <div className="mt-1 text-3xl font-bold tabular-nums text-gray-700 dark:text-gray-200">{thaals}</div>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="flex items-center gap-1 text-xs uppercase tracking-wide text-gray-400">
+                Thaal wardi
+                <InfoIcon label="Thaals ordered (the wardi). Entered by admin via Edit event." />
+              </div>
+              <div className="mt-1 text-3xl font-bold tabular-nums text-gray-700 dark:text-gray-200">
+                {instance?.thaal_wardi_count ?? "—"}
+              </div>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="flex items-center gap-1 text-xs uppercase tracking-wide text-gray-400">
+                Actual
+                <InfoIcon label="Thaals actually served on the day. Entered by admin via Edit event." />
+              </div>
+              <div className="mt-1 text-3xl font-bold tabular-nums text-gray-700 dark:text-gray-200">
+                {instance?.actual_count ?? "—"}
+              </div>
             </div>
           </div>
 

@@ -100,6 +100,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       hijri_date: tally.hijriDate,
       meal: tally.meal,
       serving_type: tally.servingType,
+      thaal_wardi_count: tally.thaalWardiCount,
+      actual_count: tally.actualCount,
     },
     // Mode-aware aggregate (matches the admin days overview). Yes/No are registered attending heads.
     tally: {

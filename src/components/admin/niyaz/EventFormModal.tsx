@@ -16,6 +16,8 @@ export type EditableInstance = {
   meal: Meal | null;
   servingType: ServingType | null;
   description: string | null;
+  thaalWardiCount: number | null;
+  actualCount: number | null;
 };
 
 type InstanceForm = {
@@ -25,9 +27,20 @@ type InstanceForm = {
   meal: "" | Meal;
   serving_type: "" | ServingType;
   description: string;
+  thaal_wardi_count: string;
+  actual_count: string;
 };
 
-const emptyForm: InstanceForm = { title: "", event_date: "", hijri_date: "", meal: "", serving_type: "", description: "" };
+const emptyForm: InstanceForm = {
+  title: "",
+  event_date: "",
+  hijri_date: "",
+  meal: "",
+  serving_type: "",
+  description: "",
+  thaal_wardi_count: "",
+  actual_count: "",
+};
 
 const inputCls =
   "block w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-950";
@@ -41,6 +54,8 @@ function formFor(instance: EditableInstance | null): InstanceForm {
     meal: instance.meal ?? "",
     serving_type: instance.servingType ?? "",
     description: instance.description ?? "",
+    thaal_wardi_count: instance.thaalWardiCount == null ? "" : String(instance.thaalWardiCount),
+    actual_count: instance.actualCount == null ? "" : String(instance.actualCount),
   };
 }
 
@@ -91,6 +106,8 @@ export default function EventFormModal({
         meal: form.meal || null,
         serving_type: form.serving_type || null,
         description: form.description,
+        thaal_wardi_count: form.thaal_wardi_count.trim() === "" ? null : Number(form.thaal_wardi_count),
+        actual_count: form.actual_count.trim() === "" ? null : Number(form.actual_count),
       };
       const url = editingId ? `/api/admin/niyaz/instances/${editingId}` : "/api/admin/niyaz/instances";
       const res = await apiFetch(url, { method: editingId ? "PATCH" : "POST", body: JSON.stringify(payload) });
@@ -145,6 +162,28 @@ export default function EventFormModal({
               <option value="thaal">Thaal</option>
               <option value="packet">Packet</option>
             </select>
+          </label>
+          <label className="text-xs uppercase tracking-wide text-gray-400">Thaal wardi count
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={form.thaal_wardi_count}
+              onChange={(e) => setForm({ ...form, thaal_wardi_count: e.target.value })}
+              className={inputCls}
+              placeholder="Thaals ordered"
+            />
+          </label>
+          <label className="text-xs uppercase tracking-wide text-gray-400">Actual count
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={form.actual_count}
+              onChange={(e) => setForm({ ...form, actual_count: e.target.value })}
+              className={inputCls}
+              placeholder="Thaals actually served"
+            />
           </label>
           <label className="sm:col-span-2 text-xs uppercase tracking-wide text-gray-400">Description
             <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} className={inputCls} />
