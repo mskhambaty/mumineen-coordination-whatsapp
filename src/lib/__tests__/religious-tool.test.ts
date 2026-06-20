@@ -241,6 +241,12 @@ describe("RELIGIOUS_GUIDANCE_RULE", () => {
     expect(RELIGIOUS_GUIDANCE_RULE).toContain("move_to_escalation");
   });
 
+  it("forbids general-knowledge answers and enforces subject fidelity (H1/H2)", () => {
+    expect(RELIGIOUS_GUIDANCE_RULE.toLowerCase()).toContain("general knowledge");
+    expect(RELIGIOUS_GUIDANCE_RULE.toLowerCase()).toContain("subject fidelity");
+    expect(RELIGIOUS_GUIDANCE_RULE).toContain("Imam Mansoor"); // the false-subject example
+  });
+
   it("requires citing the source (with the blog-link allowance)", () => {
     expect(RELIGIOUS_GUIDANCE_RULE).toContain("Source:");
     expect(RELIGIOUS_GUIDANCE_RULE).toContain("blogs.jameasaifiyah.edu");

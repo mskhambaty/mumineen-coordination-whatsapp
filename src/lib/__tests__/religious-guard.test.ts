@@ -11,6 +11,7 @@ import {
   renderReverseLisanReply,
   isClearlySocial,
   hasReligiousSignal,
+  looksLikeFactualLookup,
   looksLikeOwnRsvpIntent,
   isAffirmative,
   isDidYouMeanFollowUp,
@@ -19,6 +20,34 @@ import {
   extractHijriYears,
   yearLabelMismatch,
 } from "@/lib/agent/religious-guard";
+
+describe("looksLikeFactualLookup", () => {
+  it("matches who/what-was factual person/term lookups (must answer from reflections only)", () => {
+    for (const q of [
+      "Who was Abu sufyan",
+      "who is Abu Sufyan?",
+      "What was imam Mansoor known for and what Maula mention yesterday",
+      "tell me about al-Mahdiyya",
+      "what is sehr-e-halal",
+    ]) {
+      expect(looksLikeFactualLookup(q), q).toBe(true);
+    }
+  });
+
+  it("does NOT match self/meta or logistics-shaped phrasings", () => {
+    for (const q of [
+      "who are you",
+      "what is this",
+      "what is this number",
+      "what is my rsvp",
+      "what time is the waaz",
+      "where is parking",
+      "can I bring a wheelchair",
+    ]) {
+      expect(looksLikeFactualLookup(q), q).toBe(false);
+    }
+  });
+});
 
 describe("looksLikeOwnRsvpIntent", () => {
   it("matches possessive RSVP/attendance questions even when they name a Moharram day", () => {

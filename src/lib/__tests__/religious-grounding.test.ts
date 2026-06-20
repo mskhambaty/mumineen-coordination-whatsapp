@@ -93,6 +93,15 @@ describe("runAgent — religious grounding guard", () => {
     expect(reply).not.toContain("Source:");
   });
 
+  it("H1: a factual person lookup with NO religious keyword ('who was Abu Sufyan') is NOT answered from general knowledge", async () => {
+    m.history = [{ direction: "inbound", body: "Who was Abu sufyan" }];
+    // Model tries to free-answer from general knowledge, with no tool call.
+    createQueue = [content("Abu Sufyan is a historical figure from early Islamic history, a leader of the Quraysh.")];
+    const reply = await run("Who was Abu sufyan");
+    expect(reply).toContain(NOT_FOUND_REPLY);
+    expect(reply).not.toMatch(/Quraysh|historical figure|early Islamic history/); // general knowledge must not leak
+  });
+
   it("T3: 'theme of Majlis 3 this year' → NOT_FOUND, never auto-offers 1447 (Fix Y)", async () => {
     m.history = [{ direction: "inbound", body: "What was the theme of Majlis 3 this year?" }];
     createQueue = [toolCall("What was the theme of Majlis 3 this year?")];
