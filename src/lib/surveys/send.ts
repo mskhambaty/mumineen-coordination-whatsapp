@@ -184,7 +184,7 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
   // Sample fresh-first, excluding today's other samples and question-exhausted mumineen. A
   // sample_plan samples each stratum from its pool; otherwise one pool to sample_size.
   const sample: SampleResult = plan
-    ? await suggestSamplePlan(plan, questionIds, eventDate, sampleOpts)
+    ? await suggestSamplePlan(plan, questionIds, eventDate, { ...sampleOpts, totalCap: f.sample_size })
     : await suggestSample(targetRules as RuleGroup, questionIds, f.sample_size, eventDate, sampleOpts);
   if (sample.chosen.length === 0) {
     return { formId, funnel: sample.funnel, recipients: [], sent: false, sendError: "No eligible recipients to sample." };

@@ -209,6 +209,23 @@ export async function suggestSample(
 // One stratum of a stratified plan: its own audience filter + quota (e.g. Local → 107, Mehman → 70).
 export type Stratum = { label: string; rules: RuleGroup; size: number };
 
+// Scale a plan's per-stratum quotas down so they sum to `totalCap`, preserving each stratum's share
+// of the original total (largest-remainder rounding → the scaled sizes sum to exactly `totalCap`).
+// Only ever scales DOWN: a cap >= the plan total (or <= 0) leaves the plan untouched.
+export function scalePlanToTotal(plan: Stratum[], totalCap: number): Stratum[] {
+  const planTotal = plan.reduce((sum, s) => sum + s.size, 0);
+  if (!totalCap || totalCap <= 0 || totalCap >= planTotal || planTotal <= 0) return plan;
+  const rows = plan.map((s, i) => {
+    const exact = (s.size * totalCap) / planTotal;
+    const base = Math.floor(exact);
+    return { i, base, rem: exact - base };
+  });
+  let remaining = totalCap - rows.reduce((sum, r) => sum + r.base, 0);
+  // Hand out the leftover units to the strata with the largest fractional remainder.
+  [...rows].sort((a, b) => b.rem - a.rem).forEach((r) => { if (remaining > 0) { r.base += 1; remaining -= 1; } });
+  return plan.map((s, i) => ({ ...s, size: rows[i].base }));
+}
+
 // Stratified sampling: sample each stratum from its own pool, then COMBINE into one set, deduping by
 // phone/mumin across strata (so a person picked in one stratum isn't double-counted in another). The
 // per-form `sampledToday` exclusion still applies globally, so sending several plan-forms in sequence
@@ -218,8 +235,10 @@ export async function suggestSamplePlan(
   plan: Stratum[],
   formQuestionIds: string[],
   eventDate: string = chicagoToday(),
-  opts: { freeWindowOnly?: boolean; windowHours?: number; excludeAlreadySent?: boolean; respondedExcludeQuestionIds?: string[] } = {},
+  opts: { freeWindowOnly?: boolean; windowHours?: number; excludeAlreadySent?: boolean; respondedExcludeQuestionIds?: string[]; totalCap?: number } = {},
 ): Promise<SampleResult & { strata: Array<{ label: string; requested: number; got: number; candidates: number }> }> {
+  // A non-zero totalCap (the form's sample_size) caps the whole plan, scaling strata proportionally.
+  plan = scalePlanToTotal(plan, opts.totalCap ?? 0);
   const chosen: SampleCandidate[] = [];
   const seenPhone = new Set<string>();
   const seenMumin = new Set<string>();

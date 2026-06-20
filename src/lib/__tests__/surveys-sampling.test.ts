@@ -25,7 +25,7 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
-import { suggestSample } from "@/lib/surveys/sampling";
+import { suggestSample, scalePlanToTotal } from "@/lib/surveys/sampling";
 
 const RULES = { combinator: "and" as const, rules: [] };
 const TODAY = "2026-06-16";
@@ -128,6 +128,22 @@ describe("suggestSample", () => {
     expect(ids).toContain("Rsp");
     expect(ids).not.toContain("N");
     expect(res.funnel.excludedNonResponder).toBe(1);
+  });
+
+  it("scalePlanToTotal: caps a plan to a total, preserving stratum ratio and summing exactly", () => {
+    const rule = { combinator: "and" as const, rules: [] };
+    const plan = [
+      { label: "Local", rules: rule, size: 107 },
+      { label: "Mehman", rules: rule, size: 51 },
+    ];
+    // Cap 158 → 25, ratio preserved (107:51 ≈ 2.1:1), sums to exactly 25.
+    const scaled = scalePlanToTotal(plan, 25);
+    expect(scaled.map((s) => s.size)).toEqual([17, 8]);
+    expect(scaled.reduce((a, s) => a + s.size, 0)).toBe(25);
+    // No-op when cap is >= plan total or non-positive.
+    expect(scalePlanToTotal(plan, 158)).toEqual(plan);
+    expect(scalePlanToTotal(plan, 999)).toEqual(plan);
+    expect(scalePlanToTotal(plan, 0)).toEqual(plan);
   });
 
   it("ignores is_test sends when counting history", async () => {

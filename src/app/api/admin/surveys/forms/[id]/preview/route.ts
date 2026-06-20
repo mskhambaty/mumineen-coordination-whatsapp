@@ -49,7 +49,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const excludeAlreadySent = body.excludeAlreadySent === true;
   const sampleOpts = { freeWindowOnly, excludeAlreadySent, ...(resendMode ? { respondedExcludeQuestionIds: coreQuestionIds } : {}) };
   const sample: SampleResult & { strata?: Array<{ label: string; requested: number; got: number; candidates: number }> } = plan
-    ? await suggestSamplePlan(plan, questionIds, chicagoToday(), sampleOpts)
+    ? await suggestSamplePlan(plan, questionIds, chicagoToday(), { ...sampleOpts, totalCap: f.sample_size })
     : await suggestSample(targetRules as RuleGroup, questionIds, f.sample_size, chicagoToday(), sampleOpts);
   // Admin-gated preview: return the chosen sample (name + ITS + freshness) so the admin can search
   // it and verify a specific person was selected. No phone numbers.
