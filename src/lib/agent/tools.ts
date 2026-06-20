@@ -770,12 +770,16 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       const wordAsk = maybeSingleWordQuery(query);
       if (wordAsk?.forceAnswer) return { decision: "word_lookup", word: wordAsk.word };
 
-      // 0.5 "today / aaj / tonight" (and "yesterday") with NO explicit majlis → resolve to the day's
-      // majlis deterministically (not a vector guess that returns a random earlier majlis). Only
-      // during the active Ashara. If today's majlis isn't posted yet, offer the most recent PUBLISHED
-      // one (same year — never 1447), with a notice the reply leads with.
-      const isYesterday = /\byesterday\b|\bkal\b|gai\s*kaal/i.test(query);
-      if ((yr.cue === "today" || isYesterday) && yr.activeStarted) {
+      // 0.5 "today / aaj / tonight" (and "yesterday") → resolve to the day's majlis deterministically
+      // (not a vector guess that returns a random earlier majlis). Detect the word DIRECTLY, not via
+      // resolveAsharaYear's cue: the model usually appends the year ("today's waaz Ashara 1448H"),
+      // which makes the cue "explicit" and would otherwise skip this. Only during the active Ashara,
+      // and only when no OTHER (non-active) year was explicitly named. If today's majlis isn't posted
+      // yet, lead with a notice + the most recent PUBLISHED majlis (same year — never 1447).
+      const mentionsToday = /\b(today|todays|today'?s|tonight|aaj|aaj\s*no)\b/i.test(query);
+      const isYesterday = /\b(yesterday|yesterdays|yesterday'?s|kal)\b|gai\s*kaal/i.test(query);
+      const todayYearOk = !yr.year || yr.year === ACTIVE_ASHARA_YEAR; // "today's waaz 1447" → not today
+      if ((mentionsToday || isYesterday) && yr.activeStarted && todayYearOk) {
         const idx = majlisRowForToday(ACTIVE_ASHARA_YEAR, today);
         const targetIdx = idx == null ? null : idx - (isYesterday ? 1 : 0);
         if (targetIdx != null && targetIdx >= 0 && targetIdx < ASHARA_ROWS.length) {
