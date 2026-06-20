@@ -5,6 +5,9 @@ const mocks = vi.hoisted(() => ({
   retrieveSiteContext: vi.fn(),
   recordToolAudit: vi.fn(),
   availableFacets: vi.fn(),
+  findMajlisForRef: vi.fn(),
+  latestPublishedReflection: vi.fn(),
+  majlisRowForToday: vi.fn(),
 }));
 
 vi.mock("@/lib/scraper/retrieve-site-context", () => ({
@@ -18,11 +21,23 @@ vi.mock("@/lib/supabase/server", () => ({
   getSupabaseAdmin: vi.fn(),
 }));
 
-// Keep the real religious-topics helpers (parseMajlisRef, isOverviewQuery, …) but stub the
-// DB-backed availableFacets so the F2 follow-up-gating path is testable without Supabase.
+// Keep the real religious-topics helpers (parseMajlisRef, isOverviewQuery, isSummaryQuery, …) but
+// stub the DB-backed ones so the today/facets/summary paths are testable without Supabase.
 vi.mock("@/lib/knowledge/religious-topics", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/knowledge/religious-topics")>();
-  return { ...actual, availableFacets: mocks.availableFacets };
+  return {
+    ...actual,
+    availableFacets: mocks.availableFacets,
+    findMajlisForRef: mocks.findMajlisForRef,
+    latestPublishedReflection: mocks.latestPublishedReflection,
+  };
+});
+
+// Keep the real config (resolveAsharaYear, ASHARA_ROWS, year constants) but stub majlisRowForToday
+// so "today → current majlis" is deterministic regardless of the wall-clock date.
+vi.mock("@/lib/knowledge/ashara-config", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/knowledge/ashara-config")>();
+  return { ...actual, majlisRowForToday: mocks.majlisRowForToday };
 });
 
 import { executeTool, allToolDefinitions } from "@/lib/agent/tools";
@@ -39,6 +54,12 @@ const visitor = { id: "u1", phone_e164: "+1555", role: "visitor" as const, statu
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.recordToolAudit.mockResolvedValue(undefined);
+  // Safe defaults (clearAllMocks doesn't reset implementations) so each test sets only what it needs.
+  mocks.availableFacets.mockResolvedValue([]);
+  mocks.findMajlisForRef.mockResolvedValue([]);
+  mocks.latestPublishedReflection.mockResolvedValue(null);
+  mocks.majlisRowForToday.mockReturnValue(null);
+  mocks.retrieveReligiousContext.mockResolvedValue("");
 });
 
 describe("answer_religious_questions tool", () => {
@@ -93,17 +114,16 @@ describe("answer_religious_questions tool", () => {
     );
   });
 
-  it("F1: offers last year when the active year has no match", async () => {
-    // No cue → defaults to the active year (no match) → falls back to offer last year (has content).
-    mocks.retrieveReligiousContext
-      .mockResolvedValueOnce("") // active year: empty
-      .mockResolvedValueOnce("[Reflections — Ashara 1447H, Majlis 1]\n…"); // last year: has it
+  it("Fix Y: no 1447 fallback when the active year has no match (not_found, never retries 1447)", async () => {
+    // No cue → defaults to the active year. No 1448 match → NOT_FOUND. The tool must NOT retry 1447.
+    mocks.retrieveReligiousContext.mockResolvedValue("");
     const result = await executeTool(
       "answer_religious_questions",
       { query: "tell me about the reflection" },
       { user: visitor, phoneE164: "+1555" },
     );
-    expect(result).toMatchObject({ decision: "offer_last", year: "1447" });
+    expect(result).toMatchObject({ decision: "not_found" });
+    expect(mocks.retrieveReligiousContext).toHaveBeenCalledTimes(1); // no second (1447) retrieval
   });
 
   it("F2: returns available_facets derived from the leading vector chunk", async () => {
@@ -118,6 +138,50 @@ describe("answer_religious_questions tool", () => {
     );
     expect(mocks.availableFacets).toHaveBeenCalledWith(expect.objectContaining({ majlisNum: 2, year: "1448" }));
     expect(result).toMatchObject({ decision: "answer", available_facets: ["tazyeen"] });
+  });
+
+  it("Fix T: 'today's waaz' resolves to the current majlis (not a vector guess)", async () => {
+    mocks.majlisRowForToday.mockReturnValue(4); // ASHARA_ROWS[4] = Majlis 5
+    mocks.findMajlisForRef.mockResolvedValue([
+      { title: "Reflections — Ashara 1448H, Majlis 5", content: "today's content", source_url: null, theme: null, year_hijri: "1448" },
+    ]);
+    const result = await executeTool(
+      "answer_religious_questions",
+      { query: "what was today's waaz about" },
+      { user: visitor, phoneE164: "+1555" },
+    );
+    expect(mocks.findMajlisForRef).toHaveBeenCalledWith(expect.objectContaining({ majlisNum: 5, year: ACTIVE_ASHARA_YEAR }));
+    expect(result).toMatchObject({ decision: "answer", source: "religious_topic_exact", year: ACTIVE_ASHARA_YEAR });
+    expect(mocks.retrieveReligiousContext).not.toHaveBeenCalled(); // deterministic, no vector guess
+  });
+
+  it("Fix T: today's majlis not posted yet → notice + latest published majlis (never 1447)", async () => {
+    mocks.majlisRowForToday.mockReturnValue(4); // Majlis 5
+    mocks.findMajlisForRef.mockResolvedValue([]); // today's not indexed yet
+    mocks.latestPublishedReflection.mockResolvedValue({
+      title: "Reflections — Ashara 1448H, Majlis 4", content: "latest content", source_url: null, theme: null, year_hijri: "1448",
+    });
+    const result = await executeTool(
+      "answer_religious_questions",
+      { query: "today's waaz" },
+      { user: visitor, phoneE164: "+1555" },
+    ) as { decision: string; notice?: string; year?: string };
+    expect(result.decision).toBe("answer");
+    expect(result.year).toBe(ACTIVE_ASHARA_YEAR);
+    expect(result.notice).toMatch(/isn't posted yet/i);
+    expect(mocks.latestPublishedReflection).toHaveBeenCalledWith(ACTIVE_ASHARA_YEAR);
+  });
+
+  it("Fix S: a summary ask gets answer_style 'summary'", async () => {
+    mocks.findMajlisForRef.mockResolvedValue([
+      { title: "Reflections — Ashara 1448H, Majlis 4", content: "m4", source_url: null, theme: null, year_hijri: "1448" },
+    ]);
+    const result = await executeTool(
+      "answer_religious_questions",
+      { query: "give me a summary of majlis 4" },
+      { user: visitor, phoneE164: "+1555" },
+    ) as { answer_style?: string };
+    expect(result.answer_style).toBe("summary");
   });
 
   it("reports no match when the religious store is empty", async () => {

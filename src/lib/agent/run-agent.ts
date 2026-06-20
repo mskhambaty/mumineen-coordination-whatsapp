@@ -170,14 +170,15 @@ export const RELIGIOUS_GUIDANCE_RULE = `\n\n## Religious & Vaaz Questions (Iqtib
 - Carry context into follow-ups: if the user's reply is a SHORT follow-up that only names a category ("Tazyeen", "Al dars", "the reflection", "the iqtibasaat") — i.e. one of the options you just offered — combine it with the majlis AND year from YOUR PREVIOUS answer and pass the FULL reference to answer_religious_questions (e.g. after you answered about *Majlis 8, Ashara 1447H*, the user replies "Tazyeen" → call the tool with "Tazyeen of Majlis 8 Ashara 1447"). NEVER answer such a follow-up from memory or with a generic improvisation — always re-call the tool with the inherited majlis+year so the answer stays grounded in that exact block.
 - Keep it SHORT and progressive — this is WhatsApp, not an essay. The tool result includes an "answer_style":
   - "brief" (default): lead with the *bold theme*, then 1–2 tight sentences. Aim for ~400–700 characters. Do NOT dump the whole reflection.
+  - "summary" (the user asked for a summary / recap / main points of a majlis): lead with the *bold theme*, then a bulleted list of the **5–7 main points** of that majlis. This MUST be substantial — at least ~700 characters (aim ~700–1000) — never a 1–2 line blurb. Cover the day's key narrative(s) and lessons, all strictly from the passages.
   - "deep" (ONLY when the user explicitly asked to go deeper / for stories / for detail): a fuller answer is fine, up to ~1200 characters, using a short bullet list.
-  - "overview": the result is already a per-majlis theme list — render it as a tight bulleted list, one short line per majlis (~450 characters total). Never expand a single majlis here.
+  - "overview": the result is already a per-majlis theme list (the WHOLE Ashara) — render it as a tight bulleted list, one short line per majlis (~450 characters total). Never expand a single majlis here.
 - Drive the conversation so the user keeps learning (a few back-and-forths). END a majlis answer with a SHORT follow-up made of these TWO questions (offer ONLY the parts that apply, keep each to one line):
   1. General — "Do you want more details on a specific point, the day's _tazyeen_ decoration, or the meaning of a _Lisan ud Dawat_ word?" — drop the "_tazyeen_ decoration" part when tazyeen is NOT in the result's "available_facets"; the "meaning of a word" part may always be offered (it uses get_lisan_word_meaning). ALWAYS frame the _tazyeen_ strictly as the separate decoration, never as part of the sermon.
   2. Al-Dars deep-dive — "Want to study this waaz more deeply through its _al-Dars_ (the detailed breakdown of its points)?" — offer ONLY when al_dars is in available_facets.
   This is the one place you SHOULD ask a follow-up — the "don't volley / know when to stop" rule does NOT apply here. (Still send the no-reply token for a bare "thanks/shukran".)
 - The follow-up may contain ONLY those two questions' options (a specific point, the _tazyeen_ decoration, a Lisan word meaning, the _al-Dars_ deep-dive) — NOTHING else. Do NOT invent any other follow-up: no "teen-/youth-friendly" version, no "simplified" version, no "takeaway"/"key takeaways", no "summary", no "quiz"/"MCQs", no "another format". Never offer the al_dars or tazyeen unless it is in available_facets.
-- Year discipline (IMPORTANT — removes the 1447/1448 mix-up): ALWAYS state the concrete Ashara year in your answer (e.g. "In *Ashara 1447H*, Majlis 4…"), taken from the tool result's year / the block title. NEVER echo a vague "this year" back, and NEVER present one year's content under a different year's label. We are currently before Ashara 1448H (it begins mid-June) — so "this year / today / this Ashara" means 1448H, which has NOT happened yet.
+- Year discipline (IMPORTANT — removes the 1447/1448 mix-up): ALWAYS state the concrete Ashara year in your answer (e.g. "In *Ashara 1448H*, Majlis 4…"), taken from the tool result's year / the block title. NEVER echo a vague "this year" back, and NEVER present one year's content under a different year's label. Ashara Mubaraka 1448H is currently in progress — so "this year / today / this Ashara" means 1448H, and "today's waaz" is the current day's majlis (each majlis's reflection is posted after that majlis). Only answer from 1447H when the user EXPLICITLY asks for last year / 1447.
 - If status is "not_available": that majlis/category isn't published yet for the requested year — say so plainly and name it (e.g. "*Ashara 1448H* hasn't taken place yet / isn't posted"). NEVER invent content. The tool may include an "available_year" with last year's content in the context — in that case, after saying the requested year isn't posted, DO offer and answer from last year's, clearly labelled as that year (e.g. "Here's last year's — *Ashara 1447H*, Majlis 4: …"). If available_facets is non-empty, offer those categories for that majlis.
 - NEVER produce Arabic ayat or hadith text unless it appears verbatim in the tool result. Do not compose, complete, or paraphrase scripture.
 - Reverent register (for these religious replies): keep a respectful, dignified tone. No casual or hype words ("cool", "awesome", "fun"), no playful filler, no emojis. Always keep honorifics (SA, AS, TUS, RA). If the user EXPLICITLY asks you to simplify or explain for younger readers, that just means shorter sentences and plainer words — never a casual tone — and it is NEVER something you proactively offer or mention.
@@ -636,6 +637,7 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   let religiousDecision: string | null = null;
   let groundedYear: string | null = null;
   let religiousWord: string | null = null;
+  let religiousNotice: string | null = null;
   const sources = newSourceCollector();
 
   for (const toolCall of firstMessage.tool_calls) {
@@ -664,10 +666,11 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     }
 
     if (toolCall.function.name === "answer_religious_questions") {
-      const r = toolResult as { decision?: string; year?: string | null; word?: string };
+      const r = toolResult as { decision?: string; year?: string | null; word?: string; notice?: string };
       religiousDecision = r.decision ?? null;
       groundedYear = r.year ?? null;
       religiousWord = r.word ?? null;
+      religiousNotice = typeof r.notice === "string" && r.notice.trim() ? r.notice.trim() : null;
     }
 
     collectSources(sources, toolCall.function.name, toolResult);
@@ -695,7 +698,8 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     // Safety net: an own-RSVP question mis-routed to the religious tool must not get the
     // "I only answer from published reflections" reply — point it back to the RSVP path.
     if (looksLikeOwnRsvpIntent(input.message)) return OWN_RSVP_REDIRECT;
-    return appendOnCallSuggestion(NOT_FOUND_REPLY, history, { force: true });
+    // A specific notice (e.g. "today's waaz isn't posted yet") is clearer than the generic reply.
+    return appendOnCallSuggestion(religiousNotice ?? NOT_FOUND_REPLY, history, { force: true });
   }
   if (religiousDecision === "offer_last") return THIS_YEAR_OFFER_LAST;
   // Word-meaning that was routed to the waaz tool → answer from the dictionary, deterministically.
@@ -705,6 +709,9 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
       role: "system",
       content:
         "Answer ONLY from the tool result passages above — never add a fact that is not present in them. " +
+        (religiousNotice
+          ? `Begin your reply with EXACTLY this line (verbatim), then continue with the answer: "${religiousNotice}" `
+          : "") +
         (groundedYear
           ? `State the Ashara year as exactly ${groundedYear}H and mention no other Hijri year.`
           : "Do not state any Hijri year.") +
