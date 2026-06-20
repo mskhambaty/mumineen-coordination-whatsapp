@@ -13,31 +13,46 @@ export const RULING_REFUSAL_REPLY =
 
 export type RulingDetection = { ruling: boolean; via: "keyword" | "classifier" | "logistics" | "none" };
 
-// Ruling-INTENT patterns — they key on the *ask for a personal normative ruling*
-// (halal/haram, wajib/farz, permissibility, "should I personally do <religious act>"),
-// NOT on topic words. So "what did Maula say about fasting in Majlis 5" (a content question)
-// does NOT match, while "is dragon fruit halal" / "do I need to fast" do.
-const RULING_PATTERNS: RegExp[] = [
-  // Explicit fiqh verdict vocabulary (English + common Lisan/Arabic loanwords).
-  /\b(halal|haraam|haram|makruh|makrooh|mubah)\b/i,
-  /\b(wajib|waajib|farz|fardh|fard|jaiz|jaaez|naajaiz|na-?jaiz)\b/i,
-  /\b(fatwa|fatwah|permissible|impermissible|obligatory|mandatory|compulsory|sinful|gunah|gunaah)\b/i,
-  // Permissibility / obligation phrasing. NOTE: "do i/we need to" must be followed by a
-  // religious act — otherwise logistics ("do I need to register / provide a raza letter")
-  // was wrongly caught as a fatwa and refused.
+// Waaz CONCEPTS that merely CONTAIN a ruling keyword but are never a personal fatwa — e.g.
+// "sehr-e-halal" (the licit "magic" of speech from Majlis 4). Stripped before keyword matching so
+// the embedded "halal" can't trip the topic-word patterns. Grow this as such terms come up.
+const RULING_CONCEPT_RE = /\bsehr[\s-]*(?:e|al|ul)?[\s-]*halaal?\b/gi;
+
+// A DEFINITIONAL / content question ("what is X", "explain X", "how did Imam…", "riwayat of…").
+// Topic words inside such a question are content, not a personal verdict request — so an indexed
+// Q&A like "what is sehr-e-halal" must go through to answer_religious_questions, not be refused.
+const CONTENT_QUESTION_RE =
+  /\b(what(?:'?s|\s+(?:is|are|was|were|did|do|does))|meaning of|define|explain|describe|how (?:did|do|does|is)|why (?:is|did|does)|riwayat|story of|tell me about|summary of|main (?:point|points|message|theme))\b/i;
+
+// EXPLICIT verdict-seeking — ALWAYS a personal ruling, content phrasing or not. Keeps the refusal
+// as strong as before for genuine fatwa asks ("is it allowed", "do I need to fast", "halal che",
+// "what is the ruling on…").
+const RULING_INTENT: RegExp[] = [
+  /\b(fatwa|fatwah|hukm|hukum|ruling)\b/i,
   /\b(is it (allowed|permitted|permissible)|am i allowed|are we allowed|(do (i|we) )?need(ed)? to (fast|pray|wear|observe|keep\s+roza|keep\s+fast|do\s+matam))\b/i,
-  // "should/do/must/can I|we|women|men <religious act>"
   /\b(do|should|must|can|may)\s+(i|we|one|she|he|women|men|ladies|a\s+\w+)\b[^?]*\b(fast|roza|namaz|namaaz|pray|matam|maatam|wear|observe|keep\s+roza)\b/i,
-  // Lisan/Gujarati: "... che ke nai" (is it / isn't it), "farz che", "karva joiye" (should one do).
   /\bche\s+ke\s+na(i|hi)\b/i,
   /\b(farz|jaiz|wajib|halal|haram)\s+che\b/i,
   /\b(karva|karwa|rakhva|rakhwa|farz)\s+joiye\b/i,
 ];
 
-// Deterministic fast-path: true when the message clearly asks for a ruling. No LLM call.
+// TOPIC words — fiqh vocabulary that can appear inside a legitimate content question ("what is
+// sehr-e-halal", "why is namaz wajib"). These only count as a ruling when the message is NOT a
+// definitional/content question.
+const RULING_TOPIC_WORDS: RegExp[] = [
+  /\b(halal|haraam|haram|makruh|makrooh|mubah)\b/i,
+  /\b(wajib|waajib|farz|fardh|fard|jaiz|jaaez|naajaiz|na-?jaiz)\b/i,
+  /\b(permissible|impermissible|obligatory|mandatory|compulsory|sinful|gunah|gunaah)\b/i,
+];
+
+// Deterministic fast-path: true when the message clearly asks for a PERSONAL ruling. No LLM call.
 export function rulingKeywordHit(message: string): boolean {
-  const m = ` ${message.toLowerCase()} `;
-  return RULING_PATTERNS.some((re) => re.test(m));
+  // Strip waaz concepts (e.g. "sehr-e-halal") so their embedded ruling word doesn't false-trigger.
+  const m = ` ${message.toLowerCase().replace(RULING_CONCEPT_RE, " ")} `;
+  if (RULING_INTENT.some((re) => re.test(m))) return true;
+  // A bare topic word counts only when this isn't a "what is / explain / how did…" content question.
+  if (!CONTENT_QUESTION_RE.test(m) && RULING_TOPIC_WORDS.some((re) => re.test(m))) return true;
+  return false;
 }
 
 // Cheap pre-filter: is the message even permission/obligation-shaped? Only then is it worth an
