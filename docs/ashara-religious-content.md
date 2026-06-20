@@ -91,6 +91,15 @@ answer from the wrong year):**
   across years (which let 1447 content answer current questions). `answer_religious_questions`
   defaults the year to the **active** Ashara once it has started (`resolveAsharaYear().activeStarted`),
   else the last completed one.
+- **No general-knowledge answers (H1):** a factual "who/what was X" lookup (`looksLikeFactualLookup`)
+  about a person/place/term is forced through `answer_religious_questions` (and the no-tool guard
+  backstops it), so the bot answers only from the indexed reflections — never from the model's own
+  knowledge. Eval: "who was Abu Sufyan" had been answered from general knowledge with no tool call.
+- **Subject fidelity / no false premise (H2):** the answer-grounding instruction requires the reply to
+  be about EXACTLY the person/term asked. If it isn't in the retrieved passages, the bot says the
+  reflection doesn't mention it rather than answering about a different figure or validating an
+  invented premise. Eval: "Imam Mansoor" was answered about Imam Husain; "Saani and Aashir" (not in
+  the waaz) were validated as if real.
 - **No 1447 unless explicit (Fix Y):** 1447 is served ONLY when the user explicitly asks ("1447",
   "last year"). The old auto-`offer_last` fallback was removed — an unmatched active-year query
   returns a clean not-found (or, for "today", the not-posted notice below), never a 1447 offer.

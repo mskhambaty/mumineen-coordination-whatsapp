@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { executeTool, toolDefinitionsFor } from "@/lib/agent/tools";
 import { SYSTEM_PROMPT, loadAgentSystemPrompt, loadRuleOverrides } from "@/lib/agent/prompts";
 import { AGENT_TEMPERATURE, AI_MODEL, AI_MODEL_HIGH, chatParams, getAIClient, MAX_AGENT_TOKENS, MAX_FINAL_TOKENS } from "@/lib/ai/model";
-import { isPersonalRuling, flagRulingQuestion, RULING_REFUSAL_REPLY } from "@/lib/agent/ruling-guard";
+import { isPersonalRuling, flagRulingQuestion, looksLogistics, RULING_REFUSAL_REPLY } from "@/lib/agent/ruling-guard";
 import { lookupEnglishMeaning, lookupLisanWord } from "@/lib/knowledge/lisan-words";
 import { isOverviewQuery, parseMajlisRef, resolveArchiveUrl } from "@/lib/knowledge/religious-topics";
 import { SOURCE_COLLAPSE_THRESHOLD } from "@/lib/knowledge/ashara-config";
@@ -20,6 +20,7 @@ import {
   isAffirmative,
   isClearlySocial,
   hasReligiousSignal,
+  looksLikeFactualLookup,
   looksLikeOwnRsvpIntent,
   yearLabelMismatch,
 } from "@/lib/agent/religious-guard";
@@ -158,6 +159,8 @@ const CONVERSATION_FLOW_RULE = `\n\n## Conversation Flow — Read the Room, Know
 export const RELIGIOUS_GUIDANCE_RULE = `\n\n## Religious & Vaaz Questions (Iqtibasaat / Vaaz Talaqi / Lisan ud Dawat)
 - For ANY question about the Vaaz / waaz / bayan, a specific majlis, the Tazyeen / decoration / calligraphy / artwork of a majlis, Iqtibasaat (the Quranic/hadith references used in the sermon), or Vaaz Talaqi (understanding/discussing the majalis), you MUST use the answer_religious_questions tool. For the meaning of a single Lisan ud Dawat WORD, use the get_lisan_word_meaning tool instead. These are religious topics — NEVER answer them from general knowledge or from get_site_content_faq, and NEVER point the user to the logistics/event website for them. "Tazyeen" and "decoration/sajawat" of a majlis are religious (handled by answer_religious_questions), not event logistics.
 - Sourced only: answer strictly from what answer_religious_questions returns. Frame Vaaz answers as based on the published reflection and say which majlis it is from. If the tool returns no match, say you don't have it yet — do NOT guess or improvise.
+- NEVER answer a religious/historical question (who a person was, what a term means, what happened) from your own general knowledge — even if you "know" it. Such questions must come from the tool result only; if it isn't there, say it's not in the published reflections.
+- Subject fidelity (no false premise): answer about EXACTLY the person/term the user named. If they ask about "Imam Mansoor" but the retrieved passage is about Imam Husain, do NOT answer about Imam Husain — say the reflection you have doesn't cover Imam Mansoor. If the user asserts the waaz "talked about X" and X is not in the passages (e.g. invented or mis-remembered names), do NOT play along — gently note the reflection doesn't mention X and state what it actually covered.
 - Know what each content type IS, and route accordingly:
   - *reflection* — the PRIMARY source: the official English summary of Syedna al-Dai al-Ajal TUS's actual sermon (waaz). This is what was SAID in the majlis. Answer "what was discussed / the topic / about X / the theme" from the reflection FIRST.
   - *al-Dars* — SECONDARY, for going deeper: a deep-dive into a specific point/topic from the sermon. Use when the user wants more depth.
@@ -596,15 +599,17 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     });
   }
 
-  // F0: when the message concretely references religious content — a specific majlis ("majlis 1
-  // 1448", "give point for majlis 1", "first waaz") or an overview ask — the model sometimes fails
-  // to call answer_religious_questions for terse phrasings, and the no-tool guard then FALSELY says
-  // "I couldn't find this" for content that is indexed. Force the tool so the grounded path always
-  // runs. Not for own-RSVP or clearly-social messages (handled above / elsewhere).
+  // F0 + H1: force the religious tool when the message either concretely references religious content
+  // (a specific majlis / overview) OR is a factual "who/what was X" lookup about a person/term (e.g.
+  // "who was Abu Sufyan"). The latter closes the hole where the model answered such questions from its
+  // OWN general knowledge (no tool call) — the religious bot must answer only from indexed reflections.
+  // Never forced for own-RSVP, clearly-social, or logistics messages (handled by their own tools).
+  const isReligiousContentRef = parseMajlisRef(input.message) != null || isOverviewQuery(input.message);
+  const isFactualLookup = looksLikeFactualLookup(input.message) && !looksLogistics(input.message);
   const forceReligiousTool =
     !looksLikeOwnRsvpIntent(input.message) &&
     !isClearlySocial(input.message) &&
-    (parseMajlisRef(input.message) != null || isOverviewQuery(input.message));
+    (isReligiousContentRef || isFactualLookup);
 
   const firstResponse = await client.chat.completions.create({
     ...chatParams(AI_MODEL, { maxTokens: MAX_AGENT_TOKENS, temperature: AGENT_TEMPERATURE }),
@@ -628,6 +633,11 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     // with the religious-only not-found; redirect to the RSVP path instead.
     if (looksLikeOwnRsvpIntent(input.message)) return OWN_RSVP_REDIRECT;
     if (hasReligiousSignal(input.message)) return appendOnCallSuggestion(NOT_FOUND_REPLY, history, { force: true });
+    // H1 backstop: a factual "who/what was X" lookup that isn't logistics must never be answered from
+    // the model's general knowledge — return the honest not-found instead (e.g. "who was Abu Sufyan").
+    if (looksLikeFactualLookup(input.message) && !looksLogistics(input.message)) {
+      return appendOnCallSuggestion(NOT_FOUND_REPLY, history, { force: true });
+    }
     return content;
   }
 
@@ -709,6 +719,13 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
       role: "system",
       content:
         "Answer ONLY from the tool result passages above — never add a fact that is not present in them. " +
+        // Subject fidelity / no false premise: the passages were retrieved for the user's question, but
+        // may be about a DIFFERENT person/topic than they named. If the specific person, name, or term
+        // the user asked about does NOT actually appear in the passages, do NOT answer about a different
+        // person/topic and do NOT accept the user's premise — reply plainly that the published
+        // reflection does not mention it (and, only if helpful, name what that majlis actually covered).
+        "If the specific person/name/term the user asked about is NOT present in the passages above, say " +
+        "the published reflection doesn't mention it rather than answering about someone/something else. " +
         (religiousNotice
           ? `Begin your reply with EXACTLY this line (verbatim), then continue with the answer: "${religiousNotice}" `
           : "") +

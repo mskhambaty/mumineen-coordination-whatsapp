@@ -170,6 +170,22 @@ export function hasReligiousSignal(message: string): boolean {
   return parseMajlisRef(message) != null || isOverviewQuery(message);
 }
 
+// A factual "who/what is X" lookup about a person, place, or term — e.g. "who was Abu Sufyan",
+// "what was Imam Mansoor known for", "tell me about al-Mahdiyya". The religious bot must answer these
+// ONLY from the indexed reflections — never from the model's own general knowledge — so the caller
+// routes them through answer_religious_questions (or an honest not-found), not a free answer.
+// EXCLUDES self/meta ("who are you", "what is this", "what is the time/schedule"); the caller also
+// gates this with looksLogistics so a logistics "who/what" (get_site_content_faq) isn't swallowed.
+export function looksLikeFactualLookup(message: string): boolean {
+  const t = ` ${message.trim().toLowerCase()} `;
+  return (
+    /\b(who|what)\s+(was|is|were|are)\s+(?!you\b|u\b|this\b|that\b|it\b|i\b|we\b|my\b|our\b|the\s+(?:time|schedule|timing)\b)\S/.test(t) ||
+    /\btell me about\b/.test(t) ||
+    /\b\w+\s+kon\s+(?:hata|hta|hto|che|chha|cha|hati|hai)\b/.test(t) || // Lisan "X kon hata" (who was X)
+    /\b\w+\s+kaun\s+(?:tha|the|hai|hain)\b/.test(t) // Urdu "X kaun tha"
+  );
+}
+
 // ─── Own-attendance / meal-RSVP intent (A1 routing guard) ────────────────────────────────────
 // A possessive/attendance question — even when it names a Moharram day (each day is BOTH a jaman
 // event and a majlis) — is a meal-RSVP question, NOT religious content. Used to (a) steer the model
