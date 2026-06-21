@@ -188,6 +188,18 @@ describe("answer_religious_questions tool", () => {
     expect(mocks.latestPublishedReflection).toHaveBeenCalledWith(ACTIVE_ASHARA_YEAR);
   });
 
+  it("Tazyeen routing: a decoration/ring question searches tazyeen + faq (even without the word 'tazyeen')", async () => {
+    mocks.retrieveReligiousContext.mockResolvedValue("[Tazyeen — Ashara 1448H — Source: x]\nThe signet ring…");
+    await executeTool(
+      "answer_religious_questions",
+      { query: "Whose blessed names are inscribed on the central ring?" },
+      { user: visitor, phoneE164: "+1555" },
+    );
+    expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith(
+      expect.any(String), 5, ["tazyeen", "faq"], ACTIVE_ASHARA_YEAR, 0.4, "faq",
+    );
+  });
+
   it("Fix S: a summary ask gets answer_style 'summary'", async () => {
     mocks.findMajlisForRef.mockResolvedValue([
       { title: "Reflections — Ashara 1448H, Majlis 4", content: "m4", source_url: null, theme: null, year_hijri: "1448" },

@@ -846,10 +846,14 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
 
       // 3. General religious question → YEAR-SCOPED, category-aware vector fallback. A 1448 query
       // is year-filtered to nothing (zero 1448 rows) so it can't relabel the embedded 1447 rows.
-      const decoration = /\b(tazyeen|tazeen|tazyin|decorat|sajawat|sajaawat|artwork|calligraph)\b/i.test(query);
-      // 'faq' = the curated per-majlis Q&A bucket; searched alongside the sermon sources so a member's
-      // question matches a vetted answer (the Q text ranks high against the question's wording).
-      const cats = decoration ? ["tazyeen"] : ["reflection", "al_dars", "overview", "faq"];
+      // Decoration / tazyeen intent — includes the motifs of this year's tazyeen (signet ring /
+      // khaatam / takht / masnad) so a question like "whose names are on the central ring" routes to
+      // the tazyeen block even without the literal word "tazyeen".
+      const decoration = /\b(tazyeen|tazeen|tazyin|decorat|sajawat|sajaawat|artwork|calligraph|signet|khaatam|khatam|rings?|takht|masnad)\b/i.test(query);
+      // 'faq' = the curated Q&A bucket; searched alongside the sermon sources so a member's question
+      // matches a vetted answer. For a decoration question, search tazyeen AND the Q&A bucket (the
+      // tazyeen content may live in either), never the sermon reflections.
+      const cats = decoration ? ["tazyeen", "faq"] : ["reflection", "al_dars", "overview", "faq"];
       const targetYear = yr.year ?? defaultYear;
       // F3: prefer the curated Q&A (faq) chunk — a vetted answer the weak model narrates verbatim —
       // over raw reflection prose when both match, for consistent replies.
