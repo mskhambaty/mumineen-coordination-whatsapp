@@ -291,7 +291,18 @@ captured raw into `whatsapp_interactive_responses` AND decoded into `niyaz_rsvp`
 `day_id`, then write per meal — `min(count, roster)` members attending (head→adults→kids), and any
 **overflow** beyond the roster as **guest** mumineen rows (`roster_active=false`, sentinel ITS
 `00000-…`, `full_name='Guest'`) that still count in the tallies. Re-submissions reconcile (idempotent;
-guests walk down on a lower count). See [whatsapp-webhook.md](./whatsapp-webhook.md).
+guests walk down on a lower count). **`hof_its` + `day_id` are read from the `flow_token`
+(`rsvp:<hof>:<day_id>`) first** — always present and under our control — falling back to the Flow
+body, so decoding survives a Flow that omits `registration_instance_id`. See
+[whatsapp-webhook.md](./whatsapp-webhook.md).
+
+**Single-meal days (`ashara_relay_single_rsvp`):** a dinner-only (or lunch-only) day uses a Flow that
+returns a single **`attending_count`** instead of separate lunch/dinner counts. The webhook detects
+`attending_count` and maps it onto whichever meal the day serves (`config.hasLunch`/`hasDinner` — e.g.
+Ashura dinner-only → `dinner = attending_count`, `lunch = 0`); "Not attending" records 0. Both still
+send the confirmation template, exactly like the double flow. The composer
+(`EventRsvpComposer.tsx`) defaults a single-meal day's RSVP buttons to a Flow whose `flow_action_data`
+prefills `attending_count: {{EligibleFamilyCount}}` (plus a not-attending quick-reply).
 
 **Confirmation template (sent after a response):** each niyaz day also configures a **second**
 template — the RSVP confirmation (`ashara_relay_double_rsvp_confirmation`, body vars `{{mumin_name}}`

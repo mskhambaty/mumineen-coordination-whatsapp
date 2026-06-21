@@ -22,7 +22,7 @@ vi.mock("@/lib/whatsapp/send-template", () => ({
 }));
 vi.mock("@/lib/whatsapp/templates", () => ({ resolveBindings: (...a: unknown[]) => resolveBindings(...a) }));
 
-import { parseCount, recordNiyazRsvpFromInteractive } from "@/lib/rsvp/niyaz-interactive";
+import { parseCount, parseRsvpToken, recordNiyazRsvpFromInteractive } from "@/lib/rsvp/niyaz-interactive";
 
 const DESC = { name: "ashara_relay_double_rsvp_confirmation", language: "en_US", bodyVars: ["mumin_name", "rsvp_status"], headerVar: null };
 
@@ -43,11 +43,33 @@ describe("parseCount", () => {
   });
 });
 
+describe("parseRsvpToken", () => {
+  it("extracts hof_its + day_id from an rsvp flow_token / payload", () => {
+    expect(parseRsvpToken("rsvp:30460032:10")).toEqual({ hofIts: "30460032", dayId: 10 });
+    expect(parseRsvpToken("rsvp:30460032:10:not-attending")).toEqual({ hofIts: "30460032", dayId: 10 });
+    expect(parseRsvpToken("niyaz|fam|both|2026-06-24")).toEqual({});
+    expect(parseRsvpToken(null)).toEqual({});
+  });
+});
+
 describe("recordNiyazRsvpFromInteractive", () => {
   it("resolves family + day and records the per-meal counts", async () => {
     const outcome = await recordNiyazRsvpFromInteractive({ hofIts: "40495151", dayId: 2, lunchCount: 2, dinnerCount: 3, phone: "+1555" });
     expect(outcome.status).toBe("recorded");
     expect(recordNiyazDayRsvp).toHaveBeenCalledWith("fam-1", "40495151", "2026-06-16", 2, 3, "+1555");
+  });
+
+  it("maps a single-meal attending_count onto the day's served meal (dinner-only → dinner)", async () => {
+    getEventConfigByDayId.mockResolvedValue({ eventDate: "2026-06-24", dayId: 10, hasLunch: false, hasDinner: true });
+    const outcome = await recordNiyazRsvpFromInteractive({ hofIts: "40495151", dayId: 10, attendingCount: 4, phone: "+1555" });
+    expect(outcome.status).toBe("recorded");
+    expect(recordNiyazDayRsvp).toHaveBeenCalledWith("fam-1", "40495151", "2026-06-24", 0, 4, "+1555");
+  });
+
+  it("maps a single-meal attending_count onto a lunch-only day (→ lunch)", async () => {
+    getEventConfigByDayId.mockResolvedValue({ eventDate: "2026-06-20", dayId: 6, hasLunch: true, hasDinner: false });
+    await recordNiyazRsvpFromInteractive({ hofIts: "40495151", dayId: 6, attendingCount: 5, phone: "+1555" });
+    expect(recordNiyazDayRsvp).toHaveBeenCalledWith("fam-1", "40495151", "2026-06-20", 5, 0, "+1555");
   });
 
   it("rejects a response after the RSVP cutoff (ended) without recording", async () => {

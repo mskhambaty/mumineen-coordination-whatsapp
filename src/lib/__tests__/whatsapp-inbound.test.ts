@@ -95,6 +95,12 @@ vi.mock("@/lib/rsvp/niyaz-interactive", () => ({
     const n = parseInt(String(v ?? "0"), 10);
     return Number.isFinite(n) && n > 0 ? n : 0;
   },
+  parseRsvpToken: (token: string | null | undefined) => {
+    const parts = (token ?? "").split(":");
+    if (parts[0] !== "rsvp" || parts.length < 3) return {};
+    const dayId = Number(parts[2]);
+    return { hofIts: parts[1] || undefined, dayId: Number.isFinite(dayId) ? dayId : undefined };
+  },
 }));
 
 import { webhookReceive, webhookVerify } from "@/lib/whatsapp/inbound";
@@ -204,6 +210,30 @@ describe("webhookReceive — interactive responses are captured raw (phase 1)", 
     expect(recordNiyazButtonResponse).not.toHaveBeenCalled();
     expect(insertPendingMessage).not.toHaveBeenCalled();
     expect(sendWhatsAppText).not.toHaveBeenCalled();
+  });
+
+  it("decodes a single-meal Flow (attending_count) and takes hof/day from the flow_token", async () => {
+    extractIncomingMessages.mockReturnValue([
+      {
+        phoneE164: "+13125559999",
+        whatsappMessageId: "wamid.single",
+        profileName: "Tester",
+        messageType: "interactive",
+        buttonPayload: null,
+        // Single-meal Flow returns one attending_count and omits registration_instance_id; the day +
+        // family must come from the flow_token (rsvp:<hof>:<day_id>).
+        flowResponse: { flowToken: "rsvp:40495151:10", responseJson: { flow_token: "rsvp:40495151:10", hof_its: 40495151, attending_count: "4" } },
+        body: "",
+        businessPhoneNumberId: "PN_BROADCAST",
+        businessDisplayPhoneNumber: "+13120000002",
+        media: undefined,
+      },
+    ]);
+
+    const res = await webhookReceive(postReq("PN_BROADCAST"));
+    expect(await res.json()).toMatchObject({ processed: 1 });
+    expect(recordNiyazRsvpFromInteractive).toHaveBeenCalledWith({ hofIts: "40495151", dayId: 10, attendingCount: 4, phone: "+13125559999" });
+    expect(insertPendingMessage).not.toHaveBeenCalled();
   });
 
   it("stores an 'rsvp:…:not-attending' quick-reply as a raw button response", async () => {

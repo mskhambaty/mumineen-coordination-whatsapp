@@ -19,7 +19,7 @@ import { insertPendingMessage, runCoalescedInbound } from "@/lib/whatsapp/coales
 import { extractIncomingMessages, type IncomingWhatsAppMessage } from "@/lib/whatsapp/parser";
 import { applyBroadcastStatuses, extractStatusUpdates, markBroadcastReplied } from "@/lib/whatsapp/broadcast-status";
 import { recordInteractiveResponse } from "@/lib/whatsapp/interactive-responses";
-import { parseCount, recordNiyazRsvpFromInteractive } from "@/lib/rsvp/niyaz-interactive";
+import { parseCount, parseRsvpToken, recordNiyazRsvpFromInteractive } from "@/lib/rsvp/niyaz-interactive";
 import { resolveFamilyForPhone } from "@/lib/rsvp/family";
 import { recordFamilyHeadCount, recordNiyazButtonResponse, recordUnregisteredRsvp, recordUnregisteredHeadCount, scopeToEntries, type ClampNotice, type NiyazLevel, type NiyazScope } from "@/lib/rsvp/meal-rsvp";
 import { consumePrompt, createPrompt, findOpenPrompt } from "@/lib/rsvp/niyaz-prompt";
@@ -153,12 +153,20 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage, account:
     try {
       const rj = message.flowResponse.responseJson as Record<string, unknown> | null;
       if (rj && typeof rj === "object") {
+        // Family + day come from the flow_token (rsvp:<hof>:<day>) — always present and under our
+        // control — falling back to the Flow body. The single-meal Flow returns one attending_count;
+        // the double Flow returns separate lunch/dinner counts.
+        const tok = parseRsvpToken(message.flowResponse.flowToken);
+        const hofIts = String(rj.hof_its ?? tok.hofIts ?? "");
+        const dayId = Number(rj.registration_instance_id ?? tok.dayId);
+        const isSingle = rj.attending_count !== undefined && rj.attending_count !== null;
         const outcome = await recordNiyazRsvpFromInteractive({
-          hofIts: String(rj.hof_its ?? ""),
-          dayId: Number(rj.registration_instance_id),
-          lunchCount: parseCount(rj.lunch_attending_count),
-          dinnerCount: parseCount(rj.dinner_attending_count),
+          hofIts,
+          dayId,
           phone: message.phoneE164,
+          ...(isSingle
+            ? { attendingCount: parseCount(rj.attending_count) }
+            : { lunchCount: parseCount(rj.lunch_attending_count), dinnerCount: parseCount(rj.dinner_attending_count) }),
         });
         if (outcome.status === "ended" && outcome.endedMessage) await sendNiyazRsvpEnded(message, outcome.endedMessage, account);
       }
