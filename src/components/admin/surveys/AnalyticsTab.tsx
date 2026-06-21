@@ -104,6 +104,13 @@ export function AnalyticsTab() {
 
   useEffect(() => { void load(EMPTY); }, [load]);
 
+  // Auto-classify comments whenever a new result set loads, so the Good/Fair/Negative buckets fill
+  // in on their own (free-text comments carry no score and can only be sorted by the AI pass).
+  useEffect(() => {
+    if (data?.comments.length) void runAi();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
   async function openDrill(score: number) {
     setDrill({ score, rows: [], loading: true });
     const res = await apiFetch("/api/admin/surveys/analytics", { method: "POST", body: JSON.stringify({ ...buildBody(filters), drillScore: score }) });
@@ -381,7 +388,7 @@ export function AnalyticsTab() {
               { key: "negative", label: "Negative", cls: "text-rose-600 dark:text-rose-400" },
               { key: "fair", label: "Fair", cls: "text-amber-600 dark:text-amber-400" },
               { key: "good", label: "Good", cls: "text-emerald-600 dark:text-emerald-400" },
-              { key: "unclassified", label: "Unclassified (run AI to sort)", cls: "text-gray-500 dark:text-gray-400" },
+              { key: "unclassified", label: aiBusy ? "Classifying…" : "Unclassified", cls: "text-gray-500 dark:text-gray-400" },
             ];
             return (
               <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
@@ -407,8 +414,12 @@ export function AnalyticsTab() {
                     </div>
                   ))}
                 </div>
-                {groups.unclassified.length > 0 && !ai && (
-                  <p className="mt-2 text-[10px] text-gray-400 dark:text-gray-500">Free-text comments have no 1–5 score — click “Analyze with AI” above to sort them into Good / Fair / Negative.</p>
+                {groups.unclassified.length > 0 && (
+                  <p className="mt-2 text-[10px] text-gray-400 dark:text-gray-500">
+                    {aiBusy
+                      ? "Classifying free-text comments into Good / Fair / Negative…"
+                      : "Free-text comments (no 1–5 score). Use “Analyze with AI” above to sort them into Good / Fair / Negative."}
+                  </p>
                 )}
               </div>
             );

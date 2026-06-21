@@ -136,8 +136,11 @@ distribution, sentiment **by section / area / question**, and **by-attribute bre
 mehman, gender, age band, rahat vs general, jamaat) so you can see *who* feels *what*.
 
 **Comments** are grouped **Good / Fair / Negative**, each line showing *who said it* (name + ITS —
-admin-only). Scored comments bucket by their 1–5 sentiment (≥4 good, 3 fair, ≤2 negative); free-text
-answers carry no score, so they sit under *Unclassified* until the AI pass sorts them.
+admin-only). Scored comments bucket by their 1–5 sentiment (≥4 good, 3 fair, ≤2 negative). Free-text
+answers carry no score — note the only auto-scored comments are the negative "why?" reason boxes, so
+without the AI pass the buckets skew all-negative. The dashboard therefore **auto-runs the AI
+classification when a result set loads**, sorting the free-text comments into the three buckets (they
+sit under *Unclassified* only while that pass is in flight).
 
 **AI comment analysis** — `POST /api/admin/surveys/analytics/ai` sends the filtered free-text +
 negative-reason comments (text only, no PII) to the LLM (`getAIClient` / `AI_MODEL`) and returns
