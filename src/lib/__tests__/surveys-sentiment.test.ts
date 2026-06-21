@@ -12,6 +12,18 @@ describe("answerSentiment", () => {
     expect(answerSentiment(QUAL, "Poor")).toBe(1);
   });
 
+  it("returns null for an informational (scored=false) question, even with option scores", () => {
+    // "Where were you sitting during waaz?" — a location/cross-tab dimension, not a rating. Its
+    // options carry scores (to rank seat quality) but the answer must NOT count as sentiment.
+    const SEATING = {
+      type: "choice" as const,
+      scored: false,
+      options: [{ label: "Main Mardo Masjid", score: 5 }, { label: "Madrasa (Atfaal)", score: 1 }],
+    };
+    expect(answerSentiment(SEATING, "Madrasa (Atfaal)")).toBeNull();
+    expect(answerSentiment(SEATING, "Main Mardo Masjid")).toBeNull();
+  });
+
   it("returns null for Other / unknown / blank choice answers", () => {
     expect(answerSentiment(QUAL, "Other: foo")).toBeNull();
     expect(answerSentiment(QUAL, "Nonexistent")).toBeNull();

@@ -19,6 +19,7 @@ type Question = {
   collect_comment?: boolean;
   comment_threshold?: number | null;
   required?: boolean;
+  scored?: boolean;
 };
 type Section = { id: string; title: string; area: string; is_general: boolean; questions: Question[] };
 type Group = { id: string; name: string; description: string | null; area_focus: string | null };
@@ -331,6 +332,7 @@ function EditableQuestion({ q, onChanged, onMoveUp, onMoveDown }: { q: Question;
   const [collectComment, setCollectComment] = useState(q.collect_comment ?? true);
   const [threshold, setThreshold] = useState(q.comment_threshold != null ? String(q.comment_threshold) : "");
   const [required, setRequired] = useState(q.required ?? false);
+  const [scored, setScored] = useState(q.scored ?? true);
   const [optionsText, setOptionsText] = useState((q.options ?? []).map((o) => o.label).join("\n"));
   const [negText, setNegText] = useState((q.negative_values ?? []).join(", "));
   const [saving, setSaving] = useState(false);
@@ -339,14 +341,14 @@ function EditableQuestion({ q, onChanged, onMoveUp, onMoveDown }: { q: Question;
   function reset() {
     setText(q.text); setType(q.type); setIsGeneral(q.is_general); setPolarity(q.polarity ?? "positive");
     setCollectComment(q.collect_comment ?? true); setThreshold(q.comment_threshold != null ? String(q.comment_threshold) : "");
-    setRequired(q.required ?? false);
+    setRequired(q.required ?? false); setScored(q.scored ?? true);
     setOptionsText((q.options ?? []).map((o) => o.label).join("\n")); setNegText((q.negative_values ?? []).join(", "));
     setErr(null);
   }
 
   async function save() {
     setErr(null);
-    const patch: Record<string, unknown> = { text: text.trim(), type, is_general: isGeneral, polarity, collect_comment: collectComment, required };
+    const patch: Record<string, unknown> = { text: text.trim(), type, is_general: isGeneral, polarity, collect_comment: collectComment, required, scored };
     if (type === "choice") {
       if (optionsText.trim()) {
         const parsed = parseChoiceOptions(optionsText, negText);
@@ -389,6 +391,7 @@ function EditableQuestion({ q, onChanged, onMoveUp, onMoveDown }: { q: Question;
           )}
           <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300"><input type="checkbox" checked={isGeneral} onChange={(e) => setIsGeneral(e.target.checked)} className="accent-blue-600" /> general</label>
           <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300" title="Respondents must answer this question before submitting."><input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} className="accent-blue-600" /> required</label>
+          <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300" title="Uncheck for informational / cross-tab questions (e.g. 'where did you sit') — answers carry no good/fair/negative sentiment."><input type="checkbox" checked={scored} onChange={(e) => setScored(e.target.checked)} className="accent-blue-600" /> scored</label>
         </div>
         {type === "choice" && (
           <div className="grid gap-2 sm:grid-cols-2">
@@ -424,7 +427,7 @@ function EditableQuestion({ q, onChanged, onMoveUp, onMoveDown }: { q: Question;
 
   return (
     <li className="group flex items-start justify-between gap-3">
-      <span className="leading-snug"><span className="text-gray-400">•</span> {q.text}{q.required ? <span className="text-red-500" title="Required">*</span> : null} <span className="text-[10px] uppercase text-gray-400">({q.type})</span>{q.collect_comment === false ? <span className="text-[10px] text-gray-400"> · no comment</span> : (q.comment_threshold != null ? <span className="text-[10px] text-gray-400"> · comment ≤ {q.comment_threshold}</span> : null)}</span>
+      <span className="leading-snug"><span className="text-gray-400">•</span> {q.text}{q.required ? <span className="text-red-500" title="Required">*</span> : null} <span className="text-[10px] uppercase text-gray-400">({q.type})</span>{q.scored === false ? <span className="text-[10px] text-gray-400" title="Informational / cross-tab — no sentiment"> · not scored</span> : null}{q.collect_comment === false ? <span className="text-[10px] text-gray-400"> · no comment</span> : (q.comment_threshold != null ? <span className="text-[10px] text-gray-400"> · comment ≤ {q.comment_threshold}</span> : null)}</span>
       <span className="flex flex-shrink-0 items-center gap-2 opacity-0 focus-within:opacity-100 group-hover:opacity-100">
         <button onClick={onMoveUp} disabled={!onMoveUp} title="Move up" className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30 dark:hover:text-gray-200">↑</button>
         <button onClick={onMoveDown} disabled={!onMoveDown} title="Move down" className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30 dark:hover:text-gray-200">↓</button>

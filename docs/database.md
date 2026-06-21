@@ -631,7 +631,7 @@ FKs to `mumineen`/`families` use `on delete set null` to preserve responses:
 | Table | Role |
 |-------|------|
 | `survey_sections` | Section databank (slug `key`, feedback `area`, `is_general`). |
-| `survey_questions` | Question databank per section (`type`, `options` best-first, `negative_values`, `polarity`, `is_general`). |
+| `survey_questions` | Question databank per section (`type`, `options` best-first, `negative_values`, `polarity`, `is_general`, `scored` — false = informational/cross-tab, no sentiment). |
 | `survey_groups` | Named target audiences stored as an audience-filter `RuleGroup` (`rules` jsonb). |
 | `survey_forms` | A composed run (target + sample_size + status draft/sampled/sent/closed). Target is EITHER `group_id` (a saved group) OR `rules` (an inline audience-filter RuleGroup / custom filter). |
 | `survey_form_questions` | The form's composed questions, with a `snapshot` jsonb for stability. |

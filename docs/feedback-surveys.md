@@ -63,6 +63,12 @@ pool (≈ Local 748 / Mehman 490 ÷ 7 daily forms ≈ 107 / 70).
 from averages, never counted as negative or as a "problem" (no comment box / routing). Section
 sentiment = mean of its scored answers.
 
+A question can also be marked **`scored: false`** (databank column + snapshot) — `answerSentiment`
+returns `null` regardless of the answer. Use it for **informational / cross-tab dimensions** that
+aren't satisfaction ratings, e.g. *"Where were you sitting during waaz?"* (its options carry seat-quality
+scores for grouping, but the answer must never count as good/fair/negative). Toggle it via the **scored**
+checkbox in the question editor.
+
 The **"why?" comment box** is per-question configurable: `collect_comment` toggles it on/off, and
 `comment_threshold` (scale questions) sets the rating ≤ which an answer opens it (default scale10 ≤ 6,
 scale5 ≤ 3); choice/yes-no use `negative_values`. `isProblemAnswer(type, answer, negative_values, { threshold, collectComment })`

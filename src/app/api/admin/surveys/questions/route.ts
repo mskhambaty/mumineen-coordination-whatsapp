@@ -20,6 +20,7 @@ const bodySchema = z.object({
   collect_comment: z.boolean().optional(),
   comment_threshold: z.number().int().min(1).max(10).nullable().optional(),
   required: z.boolean().optional(),
+  scored: z.boolean().optional(), // false → informational/cross-tab question, no 1-5 sentiment
 });
 
 export async function POST(req: NextRequest) {
@@ -56,9 +57,10 @@ export async function POST(req: NextRequest) {
       collect_comment: b.collect_comment ?? true,
       comment_threshold: b.comment_threshold ?? null,
       required: b.required ?? false,
+      scored: b.scored ?? true,
       sort_order: sortOrder,
     })
-    .select("id, section_id, text, type, options, negative_values, polarity, is_general, collect_comment, comment_threshold, required, sort_order, active")
+    .select("id, section_id, text, type, options, negative_values, polarity, is_general, collect_comment, comment_threshold, required, scored, sort_order, active")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ question: data }, { status: 201 });

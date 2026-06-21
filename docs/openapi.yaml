@@ -2538,7 +2538,8 @@ paths:
       summary: Add a question to a section (databank grows during the event)
       description: >-
         Admin/leadership only. Body { section_id, text, type, options?, negative_values?, polarity?,
-        is_general?, collect_comment?, comment_threshold?, required? }. `collect_comment` toggles the
+        is_general?, collect_comment?, comment_threshold?, required?, scored? }. `scored:false` marks
+        an informational/cross-tab question (no 1–5 sentiment). `collect_comment` toggles the
         "why?" box; `comment_threshold` (scale questions) is the rating ≤ which an answer opens it;
         `required` makes the question mandatory on the public form (client + server enforced).
       responses:
@@ -2565,7 +2566,7 @@ paths:
       summary: Edit a databank question
       description: >-
         Admin/leadership only. Updates any of { text, type, options, negative_values, polarity,
-        is_general, collect_comment, comment_threshold, required }. Edits affect FUTURE forms only —
+        is_general, collect_comment, comment_threshold, required, scored }. Edits affect FUTURE forms only —
         existing forms snapshot the question, so already-sent surveys are unchanged.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }

@@ -15,6 +15,7 @@ export type QuestionSnapshot = {
   comment_threshold?: number | null;
   collect_comment?: boolean;
   required?: boolean;
+  scored?: boolean;
   section_title?: string | null;
 };
 
