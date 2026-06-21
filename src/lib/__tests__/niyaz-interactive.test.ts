@@ -115,6 +115,34 @@ describe("recordNiyazRsvpFromInteractive", () => {
     );
   });
 
+  it("logs (PII-free) when the confirmation template send is rejected by Meta", async () => {
+    getEventConfigByDayId.mockResolvedValue({
+      eventDate: "2026-06-24",
+      dayId: 10,
+      hasDinner: true,
+      hasLunch: false,
+      confirmationTemplateCode: "ashara_relay_double_rsvp_confirmation",
+      confirmationVariableBindings: { mumin_name: { kind: "field", field: "full_name" }, rsvp_status: { kind: "field", field: "rsvp_status" } },
+      confirmationButtons: [],
+    });
+    // Meta rejects the send → sendTemplateNotification returns failed (it never throws).
+    sendTemplateNotification.mockResolvedValue({ status: "failed", error: "flow_action_data invalid" } as never);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const outcome = await recordNiyazRsvpFromInteractive({ hofIts: "40495151", dayId: 10, attendingCount: 2, phone: "+15551234567" });
+      // The RSVP is still recorded (confirmation is best-effort).
+      expect(outcome.status).toBe("recorded");
+      expect(recordNiyazDayRsvp).toHaveBeenCalled();
+      // The previously-silent failure is now surfaced — and carries no phone/message body.
+      const logged = errSpy.mock.calls.find((c) => String(c[0]).includes("Niyaz confirmation send failed"));
+      expect(logged).toBeTruthy();
+      expect(JSON.stringify(logged?.[1] ?? {})).not.toContain("+15551234567");
+    } finally {
+      errSpy.mockRestore();
+      sendTemplateNotification.mockResolvedValue({ status: "sent" } as never);
+    }
+  });
+
   it("confirmation send failure does not block the record (still recorded)", async () => {
     getEventConfigByDayId.mockResolvedValue({ eventDate: "2026-06-16", dayId: 2, confirmationTemplateCode: "x" });
     resolveApprovedTemplateForAnyAccount.mockRejectedValue(new Error("template missing"));

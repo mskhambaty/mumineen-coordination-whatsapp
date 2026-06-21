@@ -316,6 +316,15 @@ current lunch/dinner counts. Fires for both attending and not-attending response
 blocks the record). Both templates are configured per day in the composer's two
 `TemplateBindingEditor` sections; Send saves config first so the confirmation is ready.
 
+> **Confirmation buttons must match the confirmation Flow.** A confirmation Flow button's
+> `flow_action_data` keys have to be exactly the fields the confirmation template's Flow declares —
+> an **extra/unknown key makes Meta reject the whole confirmation send** (this is what silently broke
+> the single-meal Ashura day: its confirmation buttons carried a stray `attending_count` that the
+> double confirmation Flow doesn't accept). For a single-meal day reusing the double confirmation,
+> keep the double shape (`hof_its` + `lunch_attending_count` + `dinner_attending_count` +
+> `registration_instance_id`). `sendNiyazConfirmation` now **logs a PII-free error** when the send is
+> rejected or skipped (it previously swallowed it via `sendTemplateNotification`'s `failed` result).
+
 **Niyaz inbox:** conversations on the niyaz number are attributed via
 `conversation_sessions.phone_number_id` (and `messages.phone_number_id`) and kept **out of the main
 inbox**; view them via the **Niyaz inbox** button on `/admin/niyaz` (→ `/admin/conversations?scope=niyaz`).

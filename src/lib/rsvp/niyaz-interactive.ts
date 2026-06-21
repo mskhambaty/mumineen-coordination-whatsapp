@@ -107,7 +107,7 @@ export async function sendNiyazConfirmation(opts: {
     return;
   }
 
-  await sendTemplateNotification({
+  const result = await sendTemplateNotification({
     phoneE164: opts.phone,
     templateName: descriptor.name,
     bodyParams: inputs.bodyParams ?? [],
@@ -116,6 +116,13 @@ export async function sendNiyazConfirmation(opts: {
     account,
     source: "niyaz_rsvp_confirmation",
   });
+  // sendTemplateNotification swallows Meta errors (returns "failed" instead of throwing), so the
+  // best-effort try/catch around this call never sees them. Surface it (PII-free) — a silent failure
+  // here is how a misconfigured confirmation (e.g. a flow_action_data key the Flow doesn't accept)
+  // went unnoticed.
+  if (result.status === "failed") {
+    console.error("Niyaz confirmation send failed", { dayId: config.dayId, template: descriptor.name, error: result.error });
+  }
 }
 
 // Parse the integer count fields a WhatsApp Flow returns (they arrive as strings like "2").
