@@ -34,10 +34,14 @@ Return ONLY valid JSON with this exact shape:
   "improvements": [                          // concrete, actionable, ranked by impact, max 8
     { "area": string, "suggestion": string, "severity": "low"|"medium"|"high" }
   ],
-  "positives": [string]                      // what attendees appreciated, max 6
+  "positives": [string],                     // what attendees appreciated, max 6
+  "per_comment": [ "g" | "f" | "n", ... ]    // one label PER input comment, in the SAME order:
+                                             // "g"=good/positive, "f"=fair/neutral/mixed, "n"=negative.
+                                             // The array length MUST equal the number of comments given.
 }
 Base everything strictly on the supplied comments — do not invent specifics. "example" must be a
-short quote drawn from the comments.`;
+short quote drawn from the comments. For "per_comment", classify each comment: praise → "g", a
+problem/complaint/rude-treatment → "n", neutral/"none"/"no issues"/suggestion-only → "f".`;
 
 export async function POST(req: NextRequest) {
   const guard = await requirePortalCaller(req, isAdminOrLeadership);
@@ -50,11 +54,13 @@ export async function POST(req: NextRequest) {
   // Bound the prompt: cap and lightly format. Truncate over-long single comments.
   const lines = comments.slice(0, 600).map((c, i) => `${i + 1}. ${c.area ? `[${c.area}] ` : ""}${c.text.slice(0, 400)}`);
   const truncatedNote = comments.length > 600 ? ` (showing first 600 of ${comments.length})` : "";
+  // The summary fits in MAX_SUMMARY_TOKENS; the per-comment label array needs ~3 tokens each on top.
+  const maxTokens = MAX_SUMMARY_TOKENS + lines.length * 3;
 
   let raw: string;
   try {
     const completion = await getAIClient().chat.completions.create({
-      ...chatParams(AI_MODEL, { maxTokens: MAX_SUMMARY_TOKENS, temperature: SUMMARY_TEMPERATURE }),
+      ...chatParams(AI_MODEL, { maxTokens, temperature: SUMMARY_TEMPERATURE }),
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: SYSTEM },

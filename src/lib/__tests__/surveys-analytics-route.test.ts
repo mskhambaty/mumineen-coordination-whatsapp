@@ -75,4 +75,24 @@ describe("surveys analytics route — date range", () => {
     expect(json.overview.responded).toBe(3); // A, B, D
     expect(json.overview.scored_answers).toBe(3);
   });
+
+  it("buckets comments good/fair/negative and attaches person details", async () => {
+    answerRows = [
+      { recipient_id: "rA", form_id: FORM, mumin_id: "A", section_id: null, question_id: "qcold", area: "mawaid", answer_text: "Poor", reason_text: "food was cold and late", sentiment_1_5: 1, event_date: "2026-06-19", created_at: "2026-06-19T10:00:00Z" },
+      { recipient_id: "rB", form_id: FORM, mumin_id: "B", section_id: null, question_id: "qfair", area: null, answer_text: "Fair", reason_text: "could be better", sentiment_1_5: 3, event_date: "2026-06-19", created_at: "2026-06-19T10:00:00Z" },
+      { recipient_id: "rC", form_id: FORM, mumin_id: "C", section_id: null, question_id: "qgood", area: null, answer_text: "Good", reason_text: "very well organized", sentiment_1_5: 5, event_date: "2026-06-19", created_at: "2026-06-19T10:00:00Z" },
+      // free-text answer (no score) → bucket null; UI classifies via AI, but person details are attached now.
+      { recipient_id: "rA", form_id: FORM, mumin_id: "A", section_id: null, question_id: "qtext", area: null, answer_text: "the volunteers were quite rude to us", reason_text: null, sentiment_1_5: null, event_date: "2026-06-19", created_at: "2026-06-19T10:00:00Z" },
+    ];
+    const res = await post({ dateFrom: "2026-06-19", dateTo: "2026-06-19" });
+    const json = await res.json();
+    const byText = Object.fromEntries(json.comments.map((c: { text: string }) => [c.text, c]));
+    expect(byText["food was cold and late"].bucket).toBe("negative");
+    expect(byText["could be better"].bucket).toBe("fair");
+    expect(byText["very well organized"].bucket).toBe("good");
+    expect(byText["the volunteers were quite rude to us"].bucket).toBeNull();
+    // Person details attached (admin-only view).
+    expect(byText["food was cold and late"].name).toBe("A");
+    expect(byText["food was cold and late"].its).toBe("A");
+  });
 });

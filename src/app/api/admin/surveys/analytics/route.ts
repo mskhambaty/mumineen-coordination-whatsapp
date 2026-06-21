@@ -216,16 +216,26 @@ export async function POST(req: NextRequest) {
     breakdown: qBreakdown.get(qid) ?? {},
   })).sort((a, b) => (a.sentiment ?? 0) - (b.sentiment ?? 0));
 
-  // Free-text + negative-reason comments (text answers and reason boxes), with context.
+  // Free-text + negative-reason comments (text answers and reason boxes), with context + who said it.
+  // bucket: good (sentiment ≥4), fair (=3), negative (≤2); null when the comment carries no score
+  // (free-text answers) — the UI classifies those via the on-demand AI pass.
+  const bucketFor = (s: number | null): "good" | "fair" | "negative" | null =>
+    s == null ? null : s >= 4 ? "good" : s === 3 ? "fair" : "negative";
   const comments = fAnswers
     .filter((a) => (a.reason_text && a.reason_text.trim()) || (a.answer_text && a.answer_text.trim().length > 12 && (a.sentiment_1_5 == null)))
-    .map((a) => ({
-      text: (a.reason_text || a.answer_text || "").trim(),
-      area: a.area,
-      section: a.section_id ? sectionTitle.get(a.section_id) ?? null : null,
-      question: a.question_id ? qText.get(a.question_id) ?? null : null,
-      sentiment: a.sentiment_1_5,
-    }))
+    .map((a) => {
+      const m = a.mumin_id ? attr.get(a.mumin_id) : undefined;
+      return {
+        text: (a.reason_text || a.answer_text || "").trim(),
+        area: a.area,
+        section: a.section_id ? sectionTitle.get(a.section_id) ?? null : null,
+        question: a.question_id ? qText.get(a.question_id) ?? null : null,
+        sentiment: a.sentiment_1_5,
+        bucket: bucketFor(a.sentiment_1_5),
+        name: m?.name ?? null,
+        its: m?.its ?? null,
+      };
+    })
     .filter((c) => c.text.length > 0);
 
   // Filter-option universe (so the UI dropdowns only show relevant values).

@@ -12,7 +12,8 @@ const AREAS = ["general", "mawaid", "flow", "parking_transport", "audio_video", 
 
 type Row = { key: string; sentiment: number | null; responses: number; people: number };
 type QRow = { question_id: string; text: string; section: string | null; sentiment: number | null; responses: number; breakdown: Record<string, number> };
-type Comment = { text: string; area: string | null; section: string | null; question: string | null; sentiment: number | null };
+type Bucket = "good" | "fair" | "negative";
+type Comment = { text: string; area: string | null; section: string | null; question: string | null; sentiment: number | null; bucket: Bucket | null; name: string | null; its: string | null };
 type Data = {
   forms: { id: string; title: string; status: string; tags: string[]; event_date: string | null; sent_at: string | null }[];
   options: { jamaats: string[]; categories: string[]; sections: { id: string; title: string }[] };
@@ -28,7 +29,7 @@ type Data = {
 
 type AiTheme = { theme: string; sentiment: string; mentions: number; example: string };
 type AiImprovement = { area: string; suggestion: string; severity: string };
-type Ai = { overall_sentiment: string; sentiment_score_1_5: number; summary: string; themes: AiTheme[]; improvements: AiImprovement[]; positives: string[] };
+type Ai = { overall_sentiment: string; sentiment_score_1_5: number; summary: string; themes: AiTheme[]; improvements: AiImprovement[]; positives: string[]; per_comment?: string[] };
 
 type Filters = {
   formIds: string[]; areas: string[]; sectionIds: string[]; includeTest: boolean;
@@ -368,20 +369,50 @@ export function AnalyticsTab() {
             );
           })()}
 
-          {/* Raw comments */}
-          {data.comments.length > 0 && (
-            <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
-              <p className="mb-1 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">Comments ({data.comments.length})</p>
-              <ul className="max-h-80 space-y-1 overflow-auto">
-                {data.comments.map((c, i) => (
-                  <li key={i} className="border-t border-gray-100 py-1 text-xs dark:border-gray-800">
-                    <span className="text-gray-700 dark:text-gray-300">{c.text}</span>
-                    <span className="ml-1 text-[10px] uppercase text-gray-400">{[c.area, c.section].filter(Boolean).join(" · ")}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {/* Comments, grouped Good / Fair / Negative. Scored comments bucket by their 1–5 sentiment;
+              free-text (unscored) comments are classified by the on-demand AI pass. */}
+          {data.comments.length > 0 && (() => {
+            const aiMap: Record<string, Bucket> = { g: "good", f: "fair", n: "negative" };
+            const effBucket = (c: Comment, i: number): Bucket | null =>
+              c.bucket ?? (ai?.per_comment?.[i] ? aiMap[ai.per_comment[i]] ?? null : null);
+            const groups: Record<"negative" | "fair" | "good" | "unclassified", Comment[]> = { negative: [], fair: [], good: [], unclassified: [] };
+            data.comments.forEach((c, i) => groups[effBucket(c, i) ?? "unclassified"].push(c));
+            const sections: { key: keyof typeof groups; label: string; cls: string }[] = [
+              { key: "negative", label: "Negative", cls: "text-rose-600 dark:text-rose-400" },
+              { key: "fair", label: "Fair", cls: "text-amber-600 dark:text-amber-400" },
+              { key: "good", label: "Good", cls: "text-emerald-600 dark:text-emerald-400" },
+              { key: "unclassified", label: "Unclassified (run AI to sort)", cls: "text-gray-500 dark:text-gray-400" },
+            ];
+            return (
+              <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+                <p className="mb-2 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
+                  Comments ({data.comments.length}) — Negative {groups.negative.length} · Fair {groups.fair.length} · Good {groups.good.length}{groups.unclassified.length ? ` · Unclassified ${groups.unclassified.length}` : ""}
+                </p>
+                <div className="max-h-96 space-y-3 overflow-auto">
+                  {sections.filter((s) => groups[s.key].length > 0).map((s) => (
+                    <div key={s.key}>
+                      <p className={`mb-1 text-[11px] font-bold uppercase ${s.cls}`}>{s.label} ({groups[s.key].length})</p>
+                      <ul className="space-y-1">
+                        {groups[s.key].map((c, i) => (
+                          <li key={i} className="border-t border-gray-100 py-1 text-xs dark:border-gray-800">
+                            <span className="text-gray-700 dark:text-gray-300">{c.text}</span>
+                            <span className="mt-0.5 block text-[10px] text-gray-500 dark:text-gray-400">
+                              <span className="font-medium text-gray-600 dark:text-gray-300">{c.name ?? "—"}</span>
+                              {c.its ? ` · ITS ${c.its}` : ""}
+                              {[c.area, c.section].filter(Boolean).length ? ` · ${[c.area, c.section].filter(Boolean).join(" · ")}` : ""}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+                {groups.unclassified.length > 0 && !ai && (
+                  <p className="mt-2 text-[10px] text-gray-400 dark:text-gray-500">Free-text comments have no 1–5 score — click “Analyze with AI” above to sort them into Good / Fair / Negative.</p>
+                )}
+              </div>
+            );
+          })()}
         </>
       )}
     </div>

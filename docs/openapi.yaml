@@ -2821,7 +2821,9 @@ paths:
       description: >-
         Admin/leadership only. Body { comments: [{ text, area? }], scope? }. Sends only the comment
         TEXT (no PII) to the LLM (via getAIClient / AI_MODEL) and returns structured analysis:
-        overall_sentiment, sentiment_score_1_5, summary, themes, ranked improvements, positives.
+        overall_sentiment, sentiment_score_1_5, summary, themes, ranked improvements, positives, and
+        per_comment (one "g"|"f"|"n" label per input comment, in order — lets the UI sort free-text
+        comments into Good/Fair/Negative).
       responses:
         "200": { description: "{ analysis, analyzed }." }
         "400": { $ref: "#/components/responses/BadRequest" }

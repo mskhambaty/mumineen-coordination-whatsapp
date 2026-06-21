@@ -135,10 +135,15 @@ active filter. Shows overview KPIs (respondents, response rate, avg sentiment, c
 distribution, sentiment **by section / area / question**, and **by-attribute breakdowns** (local vs
 mehman, gender, age band, rahat vs general, jamaat) so you can see *who* feels *what*.
 
+**Comments** are grouped **Good / Fair / Negative**, each line showing *who said it* (name + ITS —
+admin-only). Scored comments bucket by their 1–5 sentiment (≥4 good, 3 fair, ≤2 negative); free-text
+answers carry no score, so they sit under *Unclassified* until the AI pass sorts them.
+
 **AI comment analysis** — `POST /api/admin/surveys/analytics/ai` sends the filtered free-text +
 negative-reason comments (text only, no PII) to the LLM (`getAIClient` / `AI_MODEL`) and returns
-overall sentiment, recurring **themes**, ranked **areas of improvement** (with severity), and what
-worked well. Decision-useful summary on top of the raw comments.
+overall sentiment, recurring **themes**, ranked **areas of improvement** (with severity), what worked
+well, and a **`per_comment`** label array (`g`/`f`/`n`) that sorts the free-text comments into the
+Good/Fair/Negative groups. Decision-useful summary on top of the raw comments.
 
 ## Key files
 
