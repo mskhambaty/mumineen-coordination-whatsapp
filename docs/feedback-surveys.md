@@ -68,7 +68,8 @@ pool (≈ Local 748 / Mehman 490 ÷ 7 daily forms ≈ 107 / 70).
 `ceil(v/2)`; scale5 = v; yes/no = Yes 5 / No 1, inverted for `polarity:'negative'`; text and
 **multichoice** = null. **`multichoice`** is a multi-select (checkboxes) for "check all that apply"
 questions (e.g. MUS "which services did you use"); the chosen labels are stored joined by `" | "` and
-carry no sentiment.
+carry no sentiment. The picker stays expanded until the respondent moves on (one tap isn't the final
+answer), and an **"Other"** choice prompts for free text, stored as `"Other: <text>"`.
 **"Not applicable" answers** ("Do not apply", "N/A", …, via `isNotApplicable`) score `null` — excluded
 from averages, never counted as negative or as a "problem" (no comment box / routing). Section
 sentiment = mean of its scored answers.

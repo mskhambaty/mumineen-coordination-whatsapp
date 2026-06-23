@@ -74,8 +74,9 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
     // Clear a stale reason if the new answer isn't a problem answer.
     if (!isNeg) setReasons((r) => ({ ...r, [qid]: "" }));
     // Free-text fires onChange per keystroke — never collapse/scroll it (would steal focus). Keep
-    // it expanded.
-    if (type === "text") { setExpanded((e) => ({ ...e, [qid]: true })); return; }
+    // it expanded. Multi-select stays open too: one tap is rarely the final answer, so collapsing
+    // after the first checkbox would cut the respondent off mid-selection.
+    if (type === "text" || type === "multichoice") { setExpanded((e) => ({ ...e, [qid]: true })); return; }
     // Negative answers stay expanded so the "why?" box shows (they collapse on the reason's onBlur).
     if (isNeg) { setExpanded((e) => ({ ...e, [qid]: true })); return; }
     // Non-negative: keep the selection visible for a beat, then collapse + auto-scroll — a calmer,
@@ -297,30 +298,51 @@ function QuestionInput({ question, value, onChange }: { question: Question; valu
   }
 
   if (type === "multichoice") {
-    // Multi-select: value is the chosen labels joined by " | " (preserving option order).
-    const selected = new Set(value ? value.split(" | ") : []);
+    // Multi-select: value is the chosen labels joined by " | " (preserving option order). An "Other"
+    // choice is stored as "Other: <free text>" so the specifics are captured.
+    const opts = options ?? [];
+    const tokens = value ? value.split(" | ") : [];
+    const isOtherTok = (t: string) => t === "Other" || t.startsWith("Other:");
+    const selected = new Set(tokens.map((t) => (isOtherTok(t) ? "Other" : t)));
+    const otherTok = tokens.find(isOtherTok);
+    const otherText = otherTok && otherTok.startsWith("Other:") ? otherTok.slice(6).trim() : "";
+    const build = (sel: Set<string>, otherTxt: string) =>
+      opts
+        .filter((o) => sel.has(o.label))
+        .map((o) => (o.label === "Other" ? (otherTxt.trim() ? `Other: ${otherTxt.trim()}` : "Other") : o.label))
+        .join(" | ");
     const toggle = (label: string) => {
       const next = new Set(selected);
       if (next.has(label)) next.delete(label);
       else next.add(label);
-      onChange((options ?? []).filter((o) => next.has(o.label)).map((o) => o.label).join(" | "));
+      onChange(build(next, otherText));
     };
+    const setOther = (txt: string) => { const next = new Set(selected); next.add("Other"); onChange(build(next, txt)); };
     return (
       <div className="flex flex-col gap-2">
-        {(options ?? []).map((opt) => {
+        {opts.map((opt) => {
           const on = selected.has(opt.label);
           return (
-            <button
-              key={opt.label}
-              type="button"
-              onClick={() => toggle(opt.label)}
-              className={`flex items-center gap-3 rounded-xl border px-4 py-2.5 text-left text-sm transition ${on ? "border-blue-500 bg-blue-600/15 font-medium text-white" : "border-white/10 bg-white/5 text-gray-200 hover:border-white/30"}`}
-            >
-              <span className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border ${on ? "border-blue-400 bg-blue-500" : "border-white/30"}`}>
-                {on && <span className="h-2 w-2 rounded-[1px] bg-white" />}
-              </span>
-              {opt.label}
-            </button>
+            <div key={opt.label}>
+              <button
+                type="button"
+                onClick={() => toggle(opt.label)}
+                className={`flex w-full items-center gap-3 rounded-xl border px-4 py-2.5 text-left text-sm transition ${on ? "border-blue-500 bg-blue-600/15 font-medium text-white" : "border-white/10 bg-white/5 text-gray-200 hover:border-white/30"}`}
+              >
+                <span className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border ${on ? "border-blue-400 bg-blue-500" : "border-white/30"}`}>
+                  {on && <span className="h-2 w-2 rounded-[1px] bg-white" />}
+                </span>
+                {opt.label}
+              </button>
+              {opt.label === "Other" && on && (
+                <input
+                  value={otherText}
+                  onChange={(e) => setOther(e.target.value)}
+                  placeholder="Please specify…"
+                  className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                />
+              )}
+            </div>
           );
         })}
       </div>
