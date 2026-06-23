@@ -631,11 +631,11 @@ FKs to `mumineen`/`families` use `on delete set null` to preserve responses:
 | Table | Role |
 |-------|------|
 | `survey_sections` | Section databank (slug `key`, feedback `area`, `is_general`). |
-| `survey_questions` | Question databank per section (`type`, `options` best-first, `negative_values`, `polarity`, `is_general`, `scored` — false = informational/cross-tab, no sentiment). |
+| `survey_questions` | Question databank per section (`type` incl. `multichoice` multi-select, `options` best-first, `negative_values`, `polarity`, `is_general`, `scored` — false = informational/cross-tab, no sentiment). |
 | `survey_groups` | Named target audiences stored as an audience-filter `RuleGroup` (`rules` jsonb). |
-| `survey_forms` | A composed run (target + sample_size + status draft/sampled/sent/closed). Target is EITHER `group_id` (a saved group) OR `rules` (an inline audience-filter RuleGroup / custom filter). |
+| `survey_forms` | A composed run (target + sample_size + status draft/sampled/sent/closed). Target is EITHER `group_id` (a saved group) OR `rules` (an inline audience-filter RuleGroup / custom filter). `census` = send to the whole eligible audience (no sampling). |
 | `survey_form_questions` | The form's composed questions, with a `snapshot` jsonb for stability. |
-| `survey_recipients` | The sample; each row has a unique opaque `token` (identity for the public form). |
+| `survey_recipients` | The sample; each row has a unique opaque `token` (identity for the public form). `census` rows (whole-audience blasts) are ignored by the daily sampler's history. |
 | `survey_question_exposures` | `unique (mumin_id, question_id)` — enforces once-per-event no-repeat. |
 | `survey_answers` | One row per answered question: `sentiment_1_5`, `department_ids`, `reason_text`. |
 

@@ -2613,11 +2613,12 @@ paths:
       tags: [admin]
       summary: Create a form and compose its questions
       description: >-
-        Admin/leadership only. Body { title, tags?, sample_size?, question_ids[] } plus EXACTLY ONE
-        target: `group_id` (a saved survey_group) OR `rules` (an inline audience-filter RuleGroup,
-        supporting mixed AND/OR and NOT groups for exclusions like "attending AND NOT rahat"). `tags`
-        are free-form labels to tell same-titled forms apart. Snapshots each question for
-        stability; the custom filter is validated against the field catalog before saving.
+        Admin/leadership only. Body { title, tags?, sample_size?, public_title?, census?, question_ids[] }
+        plus EXACTLY ONE target: `group_id` (a saved survey_group) OR `rules` (an inline audience-filter
+        RuleGroup, supporting mixed AND/OR and NOT groups for exclusions like "attending AND NOT rahat")
+        OR `sample_plan` (stratified). `census:true` (pair with `rules`, e.g. everyone) sends to the whole
+        eligible audience with no sampling. `tags` are free-form labels to tell same-titled forms apart.
+        Snapshots each question for stability; the custom filter is validated against the field catalog before saving.
       responses:
         "201": { description: "{ form_id, question_count }." }
         "400": { $ref: "#/components/responses/BadRequest" }

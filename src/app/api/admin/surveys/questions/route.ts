@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 const bodySchema = z.object({
   section_id: z.string().uuid(),
   text: z.string().min(3).max(500),
-  type: z.enum(["choice", "scale10", "scale5", "yesno", "text"]),
+  type: z.enum(["choice", "scale10", "scale5", "yesno", "text", "multichoice"]),
   options: z.array(z.object({ label: z.string().min(1), score: z.number().int().min(1).max(5).optional() })).optional(),
   negative_values: z.array(z.string()).optional(),
   polarity: z.enum(["positive", "negative"]).optional(),
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid body", details: parsed.error.flatten() }, { status: 400 });
   const b = parsed.data;
-  if (b.type === "choice" && (!b.options || b.options.length < 2)) {
+  if ((b.type === "choice" || b.type === "multichoice") && (!b.options || b.options.length < 2)) {
     return NextResponse.json({ error: "Choice questions need at least 2 options." }, { status: 400 });
   }
 

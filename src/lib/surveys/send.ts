@@ -95,7 +95,7 @@ export type CommitResult = {
   sendError?: string;
 };
 
-type FormRow = { id: string; group_id: string | null; rules: RuleGroup | null; sample_plan: Stratum[] | null; resend_until_responded: boolean | null; sample_size: number; status: string };
+type FormRow = { id: string; group_id: string | null; rules: RuleGroup | null; sample_plan: Stratum[] | null; resend_until_responded: boolean | null; sample_size: number; status: string; census: boolean | null };
 
 export async function commitAndSendForm(formId: string, templateCodeOverride?: string | null, freeWindowOnly = false, excludeAlreadySent = false): Promise<CommitResult | { error: string }> {
   const supabase = getSupabaseAdmin();
@@ -103,7 +103,7 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
 
   const { data: form } = await supabase
     .from("survey_forms")
-    .select("id, group_id, rules, sample_plan, resend_until_responded, sample_size, status")
+    .select("id, group_id, rules, sample_plan, resend_until_responded, sample_size, status, census")
     .eq("id", formId)
     .maybeSingle();
   if (!form) return { error: "Form not found." };
@@ -177,15 +177,20 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
 
   // Resend-until-responded forms (Atfaal/Rahat reminders) don't exhaust on send — instead they
   // exclude people who've already ANSWERED, so non-responders get re-nudged until they reply.
+  const census = f.census === true;
   const resendMode = f.resend_until_responded === true;
-  const questionIds = resendMode ? [] : coreQuestionIds; // exhaustion off in resend mode
+  // Census writes no exposures (it's a one-off blast, not part of the rotating sampler).
+  const questionIds = census || resendMode ? [] : coreQuestionIds; // exhaustion off in census/resend
   const sampleOpts = { freeWindowOnly, excludeAlreadySent, ...(resendMode ? { respondedExcludeQuestionIds: coreQuestionIds } : {}) };
 
-  // Sample fresh-first, excluding today's other samples and question-exhausted mumineen. A
-  // sample_plan samples each stratum from its pool; otherwise one pool to sample_size.
-  const sample: SampleResult = plan
-    ? await suggestSamplePlan(plan, questionIds, eventDate, { ...sampleOpts, totalCap: f.sample_size })
-    : await suggestSample(targetRules as RuleGroup, questionIds, f.sample_size, eventDate, sampleOpts);
+  // Census: send to the WHOLE eligible audience (all attending + registered + reachable, deduped by
+  // phone) with no sampling limits. Otherwise sample fresh-first: a sample_plan draws per-stratum
+  // quotas; a plain group/filter draws one pool to sample_size.
+  const sample: SampleResult = census
+    ? await suggestSample((targetRules ?? { combinator: "and", rules: [] }) as RuleGroup, [], 0, eventDate, { freeWindowOnly, census: true })
+    : plan
+      ? await suggestSamplePlan(plan, questionIds, eventDate, { ...sampleOpts, totalCap: f.sample_size })
+      : await suggestSample(targetRules as RuleGroup, questionIds, f.sample_size, eventDate, sampleOpts);
   if (sample.chosen.length === 0) {
     return { formId, funnel: sample.funnel, recipients: [], sent: false, sendError: "No eligible recipients to sample." };
   }
@@ -200,6 +205,7 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
     token: generateSurveyToken(),
     status: "sampled" as const,
     event_date: eventDate,
+    census,
   }));
   const { data: inserted, error: insErr } = await supabase
     .from("survey_recipients")

@@ -46,6 +46,13 @@ responses through a per-recipient **tokenized web form** delivered over WhatsApp
 Returns the chosen set + a funnel for the admin preview. `suggestQuestionsForSection` rotates the
 databank by preferring least-exposed questions.
 
+**Census mode** (`survey_forms.census`): a form sent to the WHOLE eligible audience — **all attending +
+registered + reachable** households (deduped by phone), with **no** sample size, one-per-day dedup,
+exhaustion, or non-responder cap. `suggestSample(..., { census: true })` returns everyone eligible and
+writes no exposures. Census recipients carry `survey_recipients.census = true` and are **invisible to
+the daily sampler's history**, so a blast never consumes the one-per-day pool (and vice versa). Used for
+one-off surveys like Mahal-us-Shifa (MUS) medical feedback that should reach everyone, not a sample.
+
 **Stratified sampling** (`suggestSamplePlan`): a form can carry a `sample_plan` — an array of strata,
 each its own audience filter + quota (e.g. `[{Local,105},{Mehman,40}]`). A form's `sample_size`, when
 set, acts as an overall **total cap** on the plan, scaling the strata down proportionally (e.g. 145 →
@@ -58,7 +65,10 @@ pool (≈ Local 748 / Mehman 490 ÷ 7 daily forms ≈ 107 / 70).
 ## Sentiment (`src/lib/surveys/sentiment.ts`, pure + unit-tested)
 
 `answerSentiment(question, answer) → 1..5 | null`. Choice = option position (best-first); scale10 =
-`ceil(v/2)`; scale5 = v; yes/no = Yes 5 / No 1, inverted for `polarity:'negative'`; text = null.
+`ceil(v/2)`; scale5 = v; yes/no = Yes 5 / No 1, inverted for `polarity:'negative'`; text and
+**multichoice** = null. **`multichoice`** is a multi-select (checkboxes) for "check all that apply"
+questions (e.g. MUS "which services did you use"); the chosen labels are stored joined by `" | "` and
+carry no sentiment.
 **"Not applicable" answers** ("Do not apply", "N/A", …, via `isNotApplicable`) score `null` — excluded
 from averages, never counted as negative or as a "problem" (no comment box / routing). Section
 sentiment = mean of its scored answers.

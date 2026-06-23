@@ -58,7 +58,7 @@ export async function suggestSample(
   formQuestionIds: string[],
   size: number,
   eventDate: string = chicagoToday(),
-  opts: { freeWindowOnly?: boolean; windowHours?: number; excludeAlreadySent?: boolean; respondedExcludeQuestionIds?: string[] } = {},
+  opts: { freeWindowOnly?: boolean; windowHours?: number; excludeAlreadySent?: boolean; respondedExcludeQuestionIds?: string[]; census?: boolean } = {},
 ): Promise<SampleResult> {
   const supabase = getSupabaseAdmin();
 
@@ -83,11 +83,11 @@ export async function suggestSample(
   // each mumin was sent, whether sampled today, and how many they've completed. MUST paginate — a
   // single PostgREST read caps at 1000 rows, and a truncated history silently breaks the
   // "already sampled today" / once-per-day guarantee once the table grows past 1000.
-  const recipientRows: { mumin_id: string | null; event_date: string | null; completed_at: string | null; is_test: boolean }[] = [];
+  const recipientRows: { mumin_id: string | null; event_date: string | null; completed_at: string | null; is_test: boolean; census: boolean }[] = [];
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase
       .from("survey_recipients")
-      .select("mumin_id, event_date, completed_at, is_test")
+      .select("mumin_id, event_date, completed_at, is_test, census")
       .range(from, from + 999);
     if (error) break;
     recipientRows.push(...((data ?? []) as typeof recipientRows));
@@ -97,7 +97,9 @@ export async function suggestSample(
   const completedCount = new Map<string, number>();
   const sampledToday = new Set<string>();
   for (const r of recipientRows) {
-    if (!r.mumin_id || r.is_test) continue;
+    // Census sends (blasts to everyone) are invisible to the per-person sampling history: they
+    // don't consume the one-per-day pool, don't count toward the non-responder cap, etc.
+    if (!r.mumin_id || r.is_test || r.census) continue;
     priorSends.set(r.mumin_id, (priorSends.get(r.mumin_id) ?? 0) + 1);
     if (r.completed_at) completedCount.set(r.mumin_id, (completedCount.get(r.mumin_id) ?? 0) + 1);
     if (r.event_date === eventDate) sampledToday.add(r.mumin_id);
@@ -158,14 +160,18 @@ export async function suggestSample(
   const eligible: SampleCandidate[] = [];
   for (const r of reachable) {
     const id = r.mumin_id;
-    if (sampledToday.has(id)) { excludedToday++; continue; }
-    if (respondedSet.has(id)) { excludedResponded++; continue; }
-    if (isExhausted(id)) { excludedExhausted++; continue; }
-    // Opt-in: drop anyone who's already been sent ANY real survey this event, so a broad form
-    // doesn't re-survey people a narrower one already reached (regardless of which questions).
-    if (opts.excludeAlreadySent && (priorSends.get(id) ?? 0) > 0) { excludedAlreadySent++; continue; }
-    // Stop bothering chronic non-responders: sent NON_RESPONDER_SEND_CAP+ times, never responded.
-    if ((priorSends.get(id) ?? 0) >= NON_RESPONDER_SEND_CAP && (completedCount.get(id) ?? 0) === 0) { excludedNonResponder++; continue; }
+    // Census mode: send to EVERY eligible person (attending + registered + reachable). Skip all the
+    // per-person sampling limits — one-per-day, exhaustion, non-responder cap, already-sent.
+    if (!opts.census) {
+      if (sampledToday.has(id)) { excludedToday++; continue; }
+      if (respondedSet.has(id)) { excludedResponded++; continue; }
+      if (isExhausted(id)) { excludedExhausted++; continue; }
+      // Opt-in: drop anyone who's already been sent ANY real survey this event, so a broad form
+      // doesn't re-survey people a narrower one already reached (regardless of which questions).
+      if (opts.excludeAlreadySent && (priorSends.get(id) ?? 0) > 0) { excludedAlreadySent++; continue; }
+      // Stop bothering chronic non-responders: sent NON_RESPONDER_SEND_CAP+ times, never responded.
+      if ((priorSends.get(id) ?? 0) >= NON_RESPONDER_SEND_CAP && (completedCount.get(id) ?? 0) === 0) { excludedNonResponder++; continue; }
+    }
     eligible.push({
       muminId: id,
       familyId: r.family_id,
@@ -189,7 +195,8 @@ export async function suggestSample(
     return (rnd.get(a.muminId) ?? 0) - (rnd.get(b.muminId) ?? 0); // random within the tier
   });
 
-  const chosen = eligible.slice(0, Math.max(0, size));
+  // Census takes the whole eligible audience; otherwise cap to the requested sample size.
+  const chosen = opts.census ? eligible : eligible.slice(0, Math.max(0, size));
   return {
     chosen,
     funnel: {

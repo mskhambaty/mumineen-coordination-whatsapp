@@ -349,7 +349,7 @@ function EditableQuestion({ q, onChanged, onMoveUp, onMoveDown }: { q: Question;
   async function save() {
     setErr(null);
     const patch: Record<string, unknown> = { text: text.trim(), type, is_general: isGeneral, polarity, collect_comment: collectComment, required, scored };
-    if (type === "choice") {
+    if (type === "choice" || type === "multichoice") {
       if (optionsText.trim()) {
         const parsed = parseChoiceOptions(optionsText, negText);
         if (!parsed) { setErr("Enter at least 2 options (one per line)."); return; }
@@ -382,7 +382,7 @@ function EditableQuestion({ q, onChanged, onMoveUp, onMoveDown }: { q: Question;
           <input value={text} onChange={(e) => setText(e.target.value)} className={`min-w-[14rem] flex-1 ${small}`} />
           <select value={type} onChange={(e) => setType(e.target.value)} className={small}>
             <option value="yesno">Yes/No</option><option value="choice">Choice</option>
-            <option value="scale10">Scale 1-10</option><option value="scale5">Scale 1-5</option><option value="text">Text</option>
+            <option value="scale10">Scale 1-10</option><option value="scale5">Scale 1-5</option><option value="text">Text</option><option value="multichoice">Multi-select</option>
           </select>
           {(type === "yesno" || isScale) && (
             <select value={polarity} onChange={(e) => setPolarity(e.target.value as "positive" | "negative")} className={small} title="How the answer scores">
@@ -393,7 +393,7 @@ function EditableQuestion({ q, onChanged, onMoveUp, onMoveDown }: { q: Question;
           <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300" title="Respondents must answer this question before submitting."><input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} className="accent-blue-600" /> required</label>
           <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300" title="Uncheck for informational / cross-tab questions (e.g. 'where did you sit') — answers carry no good/fair/negative sentiment."><input type="checkbox" checked={scored} onChange={(e) => setScored(e.target.checked)} className="accent-blue-600" /> scored</label>
         </div>
-        {type === "choice" && (
+        {(type === "choice" || type === "multichoice") && (
           <div className="grid gap-2 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-[11px] text-gray-500 dark:text-gray-400">Options — one per line, best → worst</label>
@@ -580,7 +580,7 @@ function AddQuestion({ sectionId, onAdded }: { sectionId: string; onAdded: () =>
   async function add() {
     setErr(null);
     const body: Record<string, unknown> = { section_id: sectionId, text: text.trim(), type, collect_comment: collectComment, required };
-    if (type === "choice") {
+    if (type === "choice" || type === "multichoice") {
       if (optionsText.trim()) {
         const parsed = parseChoiceOptions(optionsText, negText);
         if (!parsed) { setErr("Enter at least 2 options (one per line)."); return; }

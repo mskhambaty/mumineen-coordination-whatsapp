@@ -99,6 +99,28 @@ describe("suggestSample", () => {
     expect(res.funnel.excludedResponded).toBe(1);
   });
 
+  it("census mode sends to EVERYONE eligible, ignoring per-person limits", async () => {
+    runFilter.mockResolvedValue([row("A"), row("C"), row("D"), row("N")]);
+    recipientRows = [
+      { mumin_id: "C", event_date: TODAY, created_at: `${TODAY}T08:00:00Z`, completed_at: null, is_test: false }, // sampled today
+      // N: 5 prior sends, never responded → would be capped in normal mode
+      ...["01", "02", "03", "04", "05"].map((d) => ({ mumin_id: "N", event_date: `2026-06-${d}`, created_at: `2026-06-${d}T10:00:00Z`, completed_at: null, is_test: false })),
+    ];
+    exposureRows = [{ mumin_id: "D", question_id: "q1" }, { mumin_id: "D", question_id: "q2" }]; // D fully exhausted
+    const res = await suggestSample(RULES, ["q1", "q2"], 0, TODAY, { census: true });
+    // All four are sent despite sampled-today / exhausted / non-responder, and size=0 is ignored.
+    expect(res.chosen.map((c) => c.muminId).sort()).toEqual(["A", "C", "D", "N"]);
+  });
+
+  it("census recipients are invisible to normal daily sampling history", async () => {
+    runFilter.mockResolvedValue([row("A")]);
+    // A's only prior send today was a CENSUS blast → it must not count as "sampled today".
+    recipientRows = [{ mumin_id: "A", event_date: TODAY, created_at: `${TODAY}T08:00:00Z`, completed_at: null, is_test: false, census: true }];
+    const res = await suggestSample(RULES, [], 10, TODAY); // normal mode
+    expect(res.chosen.map((c) => c.muminId)).toEqual(["A"]);
+    expect(res.funnel.excludedToday).toBe(0);
+  });
+
   it("respects the sample size cap", async () => {
     runFilter.mockResolvedValue([row("A"), row("B"), row("C")]);
     const res = await suggestSample(RULES, [], 2, TODAY);

@@ -24,6 +24,12 @@ describe("answerSentiment", () => {
     expect(answerSentiment(SEATING, "Main Mardo Masjid")).toBeNull();
   });
 
+  it("multichoice (multi-select) carries no sentiment — informational", () => {
+    const MC = { type: "multichoice" as const, options: [{ label: "Vision Screening" }, { label: "Dental Screening" }] };
+    expect(answerSentiment(MC, "Vision Screening | Dental Screening")).toBeNull();
+    expect(answerSentiment(MC, "Vision Screening")).toBeNull();
+  });
+
   it("returns null for Other / unknown / blank choice answers", () => {
     expect(answerSentiment(QUAL, "Other: foo")).toBeNull();
     expect(answerSentiment(QUAL, "Nonexistent")).toBeNull();

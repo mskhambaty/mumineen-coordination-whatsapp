@@ -13,7 +13,7 @@ type Question = {
   area: string | null;
   snapshot: {
     text: string;
-    type: "choice" | "scale10" | "scale5" | "yesno" | "text";
+    type: "choice" | "scale10" | "scale5" | "yesno" | "text" | "multichoice";
     options?: { label: string }[] | null;
     negative_values?: string[] | null;
     comment_threshold?: number | null;
@@ -292,6 +292,37 @@ function QuestionInput({ question, value, onChange }: { question: Question; valu
             {n}
           </button>
         ))}
+      </div>
+    );
+  }
+
+  if (type === "multichoice") {
+    // Multi-select: value is the chosen labels joined by " | " (preserving option order).
+    const selected = new Set(value ? value.split(" | ") : []);
+    const toggle = (label: string) => {
+      const next = new Set(selected);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      onChange((options ?? []).filter((o) => next.has(o.label)).map((o) => o.label).join(" | "));
+    };
+    return (
+      <div className="flex flex-col gap-2">
+        {(options ?? []).map((opt) => {
+          const on = selected.has(opt.label);
+          return (
+            <button
+              key={opt.label}
+              type="button"
+              onClick={() => toggle(opt.label)}
+              className={`flex items-center gap-3 rounded-xl border px-4 py-2.5 text-left text-sm transition ${on ? "border-blue-500 bg-blue-600/15 font-medium text-white" : "border-white/10 bg-white/5 text-gray-200 hover:border-white/30"}`}
+            >
+              <span className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border ${on ? "border-blue-400 bg-blue-500" : "border-white/30"}`}>
+                {on && <span className="h-2 w-2 rounded-[1px] bg-white" />}
+              </span>
+              {opt.label}
+            </button>
+          );
+        })}
       </div>
     );
   }

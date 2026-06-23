@@ -54,10 +54,13 @@ export async function POST(req: NextRequest) {
   // Bound the prompt: cap and lightly format. Truncate over-long single comments.
   const lines = comments.slice(0, 600).map((c, i) => `${i + 1}. ${c.area ? `[${c.area}] ` : ""}${c.text.slice(0, 400)}`);
   const truncatedNote = comments.length > 600 ? ` (showing first 600 of ${comments.length})` : "";
-  // The summary fits in MAX_SUMMARY_TOKENS; the per-comment label array needs ~3 tokens each on top.
-  const maxTokens = MAX_SUMMARY_TOKENS + lines.length * 3;
+  // The rich summary fits in MAX_SUMMARY_TOKENS; the per-comment label array adds one short label per
+  // comment, which is what previously overran the budget and truncated the JSON (→ unparseable). Give
+  // it generous headroom (~8 tokens/comment), clamped so we never request an absurd amount.
+  const maxTokens = Math.min(8000, MAX_SUMMARY_TOKENS + lines.length * 8);
 
   let raw: string;
+  let truncated = false;
   try {
     const completion = await getAIClient().chat.completions.create({
       ...chatParams(AI_MODEL, { maxTokens, temperature: SUMMARY_TEMPERATURE }),
@@ -68,15 +71,23 @@ export async function POST(req: NextRequest) {
       ],
     });
     raw = completion.choices[0]?.message?.content ?? "";
+    truncated = completion.choices[0]?.finish_reason === "length";
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "AI analysis failed." }, { status: 502 });
   }
 
+  // Defensive parse: strip any accidental ``` fences, then fall back to the outer {...} slice. A
+  // length-truncated body can't be parsed; surface a clear, actionable message instead of a generic one.
+  const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   let analysis: unknown;
   try {
-    analysis = JSON.parse(raw);
+    analysis = JSON.parse(cleaned);
   } catch {
-    return NextResponse.json({ error: "AI returned an unparseable response." }, { status: 502 });
+    const s = cleaned.indexOf("{"), e = cleaned.lastIndexOf("}");
+    try { analysis = JSON.parse(cleaned.slice(s, e + 1)); }
+    catch {
+      return NextResponse.json({ error: truncated ? "Too many comments to analyze at once — narrow the filters and retry." : "AI returned an unparseable response." }, { status: 502 });
+    }
   }
   return NextResponse.json({ analysis, analyzed: Math.min(comments.length, 600) });
 }

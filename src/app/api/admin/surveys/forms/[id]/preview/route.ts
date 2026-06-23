@@ -17,9 +17,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   const supabase = getSupabaseAdmin();
 
-  const { data: form } = await supabase.from("survey_forms").select("group_id, rules, sample_plan, resend_until_responded, sample_size").eq("id", id).maybeSingle();
+  const { data: form } = await supabase.from("survey_forms").select("group_id, rules, sample_plan, resend_until_responded, sample_size, census").eq("id", id).maybeSingle();
   if (!form) return NextResponse.json({ error: "Form not found." }, { status: 404 });
-  const f = form as { group_id: string | null; rules: RuleGroup | null; sample_plan: Stratum[] | null; resend_until_responded: boolean | null; sample_size: number };
+  const f = form as { group_id: string | null; rules: RuleGroup | null; sample_plan: Stratum[] | null; resend_until_responded: boolean | null; sample_size: number; census: boolean | null };
 
   // Target: a stratified sample_plan OR a saved group OR an ad-hoc custom filter.
   let targetRules: RuleGroup | null = f.rules;
@@ -48,9 +48,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const freeWindowOnly = body.freeWindowOnly === true;
   const excludeAlreadySent = body.excludeAlreadySent === true;
   const sampleOpts = { freeWindowOnly, excludeAlreadySent, ...(resendMode ? { respondedExcludeQuestionIds: coreQuestionIds } : {}) };
-  const sample: SampleResult & { strata?: Array<{ label: string; requested: number; got: number; candidates: number }> } = plan
-    ? await suggestSamplePlan(plan, questionIds, chicagoToday(), { ...sampleOpts, totalCap: f.sample_size })
-    : await suggestSample(targetRules as RuleGroup, questionIds, f.sample_size, chicagoToday(), sampleOpts);
+  const census = f.census === true;
+  const sample: SampleResult & { strata?: Array<{ label: string; requested: number; got: number; candidates: number }> } = census
+    ? await suggestSample((targetRules ?? { combinator: "and", rules: [] }) as RuleGroup, [], 0, chicagoToday(), { freeWindowOnly, census: true })
+    : plan
+      ? await suggestSamplePlan(plan, questionIds, chicagoToday(), { ...sampleOpts, totalCap: f.sample_size })
+      : await suggestSample(targetRules as RuleGroup, questionIds, f.sample_size, chicagoToday(), sampleOpts);
   // Admin-gated preview: return the chosen sample (name + ITS + freshness) so the admin can search
   // it and verify a specific person was selected. No phone numbers.
   return NextResponse.json({
