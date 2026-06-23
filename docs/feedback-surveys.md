@@ -145,7 +145,8 @@ resolves *all* qualifying mumineen, then takes the top N (fresh-first). Set N hi
 
 `POST /api/admin/surveys/analytics` ([route](../src/app/api/admin/surveys/analytics/route.ts)) powers a
 fully filterable dashboard ([AnalyticsTab](../src/components/admin/surveys/AnalyticsTab.tsx)). Filter by
-**which forms/samples**, **area**, **section**, and the responder's **personal attributes** (age,
+**which forms/samples** (a searchable "add a form" dropdown + removable pills — empty = all; replaces the
+old per-day chip wall), **area**, **section**, and the responder's **personal attributes** (age,
 gender, local/mehman, rahat/accessibility, jamaat, category) — every aggregate recomputes for the
 active filter. Shows overview KPIs (respondents, response rate, avg sentiment, comments), a sentiment
 distribution, sentiment **by section / area / question**, and **by-attribute breakdowns** (local vs

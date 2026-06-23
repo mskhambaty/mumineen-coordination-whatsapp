@@ -68,6 +68,67 @@ const chip = (on: boolean) =>
   `rounded-full border px-2.5 py-1 text-xs font-medium ${on ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-300"}`;
 const inputCls = "rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100";
 
+// Forms/samples filter: a searchable "add a form" dropdown + removable pills (empty selection = all
+// forms). Replaces the wall of ~45 per-day chips. Search matches title, tags, status, and date.
+function FormPicker({ forms, selected, onToggle, onClear }: {
+  forms: Data["forms"]; selected: string[]; onToggle: (id: string) => void; onClear: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const byId = new Map(forms.map((f) => [f.id, f]));
+  const ql = q.trim().toLowerCase();
+  const matches = forms
+    .filter((f) => !selected.includes(f.id))
+    .filter((f) => !ql || `${f.title} ${f.tags.join(" ")} ${f.status} ${f.event_date ?? ""}`.toLowerCase().includes(ql))
+    .slice(0, 50);
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <p className="text-[11px] text-gray-500 dark:text-gray-400">Forms / samples {selected.length ? `(${selected.length} selected)` : "(all)"}</p>
+        {selected.length > 0 && <button onClick={onClear} className="text-[11px] text-blue-600 hover:underline dark:text-blue-400">clear</button>}
+      </div>
+      {selected.length > 0 && (
+        <div className="mb-1.5 flex flex-wrap gap-1.5">
+          {selected.map((id) => {
+            const f = byId.get(id);
+            if (!f) return null;
+            return (
+              <span key={id} className="inline-flex items-center gap-1 rounded-full bg-blue-600/15 px-2 py-0.5 text-xs text-blue-700 dark:text-blue-300">
+                {f.title}{f.event_date ? ` · ${f.event_date}` : ""}
+                <button onClick={() => onToggle(id)} className="text-blue-500 hover:text-blue-700 dark:hover:text-blue-200" aria-label={`Remove ${f.title}`}>✕</button>
+              </span>
+            );
+          })}
+        </div>
+      )}
+      <div className="relative">
+        <input
+          value={q}
+          onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder={selected.length ? "Add another form…" : "Search forms… (empty = all forms)"}
+          className={`${inputCls} w-full`}
+        />
+        {open && matches.length > 0 && (
+          <div className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
+            {matches.map((f) => (
+              <button
+                key={f.id}
+                onMouseDown={(e) => { e.preventDefault(); onToggle(f.id); setQ(""); }}
+                className="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <span className="truncate">{f.title}{f.tags.length ? <span className="text-gray-400"> · {f.tags.join(", ")}</span> : null}</span>
+                <span className="flex-shrink-0 text-[10px] text-gray-400">{f.status}{f.event_date ? ` · ${f.event_date}` : ""}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 type DrillRow = { name: string | null; its: string | null; question: string | null; answer: string | null; section: string | null; area: string | null; reason: string | null };
 
 function buildBody(fl: Filters): Record<string, unknown> {
@@ -146,16 +207,12 @@ export function AnalyticsTab() {
       {/* Filters */}
       <div className="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
         <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Filters — every chart below reflects these</p>
-        <div>
-          <p className="mb-1 text-[11px] text-gray-500 dark:text-gray-400">Forms / samples {filters.formIds.length ? `(${filters.formIds.length})` : "(all)"}</p>
-          <div className="flex flex-wrap gap-1.5">
-            {(data?.forms ?? []).map((fm) => (
-              <button key={fm.id} onClick={() => toggleArr("formIds", fm.id)} className={chip(filters.formIds.includes(fm.id))}>
-                {fm.title}{fm.tags.length ? ` · ${fm.tags.join(", ")}` : ""} · {fm.status}{fm.event_date ? ` · ${fm.event_date}` : ""}
-              </button>
-            ))}
-          </div>
-        </div>
+        <FormPicker
+          forms={data?.forms ?? []}
+          selected={filters.formIds}
+          onToggle={(id) => toggleArr("formIds", id)}
+          onClear={() => setFilters((f) => ({ ...f, formIds: [] }))}
+        />
         <div>
           <p className="mb-1 text-[11px] text-gray-500 dark:text-gray-400">Areas</p>
           <div className="flex flex-wrap gap-1.5">{AREAS.map((a) => <button key={a} onClick={() => toggleArr("areas", a)} className={chip(filters.areas.includes(a))}>{a}</button>)}</div>
