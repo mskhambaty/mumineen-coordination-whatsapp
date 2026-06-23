@@ -130,6 +130,13 @@ results) and returns a real `/feedback/s/<token>` link. Optionally pass an **ITS
 specific person (the form then greets them by name; response is attributable), and `deliver:true`
 to send that link to their WhatsApp (when `SURVEY_SEND_ENABLED`); otherwise copy/forward the link.
 
+**Manual individual send** (the "Test to people" picker → **real send** toggle): for forms with no
+roster-derived audience — e.g. the special-care seating feedback, where the ~10–15 families are known
+only to the khidmat team — search/pick people by ITS and mint **real, attributed recipients
+(`is_test=false`, counted in results)**, optionally delivering each link to their WhatsApp. Backed by
+`POST forms/{id}/test-batch` with `real:true`. Such forms can carry a deliberately no-match audience
+filter so a bulk *Commit & send* hits nobody and they are only ever sent individually.
+
 **Verify a sample:** *Preview sample* returns the chosen sample with **name + ITS + freshness** and
 the admin UI has a **search box** to confirm whether a specific person was selected.
 

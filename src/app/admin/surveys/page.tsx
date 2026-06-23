@@ -1092,6 +1092,7 @@ function ManualTestPanel({ formId, templateCode }: { formId: string; templateCod
   const [results, setResults] = useState<{ its: string; name: string | null }[] | null>(null);
   const [selected, setSelected] = useState<Record<string, string>>({}); // its -> name
   const [deliver, setDeliver] = useState(false);
+  const [real, setReal] = useState(false); // true → genuine, attributed recipients counted in results
   const [out, setOut] = useState<{ its: string; name: string | null; phone: string | null; link?: string; delivered?: boolean; error?: string }[] | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -1108,7 +1109,7 @@ function ManualTestPanel({ formId, templateCode }: { formId: string; templateCod
     const its = Object.keys(selected);
     if (its.length === 0) return;
     setBusy(true);
-    const res = await apiFetch(`/api/admin/surveys/forms/${formId}/test-batch`, { method: "POST", body: JSON.stringify({ its, deliver, template: templateCode || undefined }) });
+    const res = await apiFetch(`/api/admin/surveys/forms/${formId}/test-batch`, { method: "POST", body: JSON.stringify({ its, deliver, real, template: templateCode || undefined }) });
     const j = await res.json().catch(() => ({}));
     setOut(j.recipients ?? []);
     setBusy(false);
@@ -1119,7 +1120,9 @@ function ManualTestPanel({ formId, templateCode }: { formId: string; templateCod
 
   return (
     <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/40">
-      <p className="mb-2 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">Send test to selected people (in-team testing — no exposures, excluded from results)</p>
+      <p className="mb-2 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
+        Send to selected people {real ? "— REAL send (counts in results)" : "(test — excluded from results)"}
+      </p>
       <div className="flex gap-2">
         <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") search(); }} placeholder="Search by name or ITS…" className={`flex-1 ${small}`} />
         <button onClick={search} className="rounded bg-blue-600 px-3 py-1 text-xs text-white">Search</button>
@@ -1147,8 +1150,9 @@ function ManualTestPanel({ formId, templateCode }: { formId: string; templateCod
 
       <div className="mt-2 flex items-center gap-3">
         <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300"><input type="checkbox" checked={deliver} onChange={(e) => setDeliver(e.target.checked)} className="accent-blue-600" /> also send to their WhatsApp</label>
-        <button onClick={generate} disabled={busy || chosen.length === 0} className="rounded bg-emerald-600 px-3 py-1 text-xs text-white disabled:opacity-50">
-          {busy ? "Working…" : `Generate ${chosen.length || ""} test link${chosen.length === 1 ? "" : "s"}`}
+        <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300" title="Create genuine, attributed recipients that COUNT in analytics (not test). Use for real individual sends like the special-care seating feedback."><input type="checkbox" checked={real} onChange={(e) => setReal(e.target.checked)} className="accent-emerald-600" /> real send (counts in results)</label>
+        <button onClick={generate} disabled={busy || chosen.length === 0} className={`rounded px-3 py-1 text-xs text-white disabled:opacity-50 ${real ? "bg-rose-600" : "bg-emerald-600"}`}>
+          {busy ? "Working…" : `${real ? "Send" : "Generate"} ${chosen.length || ""} ${real ? "real" : "test"} link${chosen.length === 1 ? "" : "s"}`}
         </button>
       </div>
 

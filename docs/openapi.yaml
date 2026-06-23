@@ -2750,11 +2750,14 @@ paths:
   /api/admin/surveys/forms/{id}/test-batch:
     post:
       tags: [admin]
-      summary: Send a test to manually-selected individuals (in-team testing)
+      summary: Send to manually-selected individuals (test, or real attributed send)
       description: >-
-        Admin/leadership only. Body { its: string[], deliver? }. Creates an is_test recipient per
-        ITS (no exposures, excluded from results) and returns each one's link; deliver:true also
-        sends it to their WhatsApp. Used by the "Test to people" picker.
+        Admin/leadership only. Body { its: string[], deliver?, real? }. Creates a recipient per ITS and
+        returns each one's link; deliver:true also sends it to their WhatsApp. `real:false` (default) →
+        is_test recipient (no exposures, excluded from results) for in-team testing. `real:true` →
+        genuine, attributed recipient COUNTED in analytics — the "send manually, individually" path for
+        forms with no roster-derived audience (e.g. special-care seating feedback). Used by the
+        "Test to people" picker + its "real send" toggle.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
