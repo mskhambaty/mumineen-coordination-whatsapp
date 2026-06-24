@@ -18,6 +18,7 @@ export type QuestionSnapshot = {
   scored?: boolean;
   // Conditional display (public form only): show this question when answer to `qid` equals `equals`.
   show_if?: { qid: string; equals: string } | null;
+  checkbox?: boolean; // render a yes/no as a single checkbox (gate prompts)
   section_title?: string | null;
 };
 
