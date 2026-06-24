@@ -116,15 +116,9 @@ export async function retrieveSiteContext(query: string, topK = 10): Promise<str
 // Religious-content retrieval, backing the answer_religious_questions tool. Queries the
 // dedicated religious_content store — never the logistics site_content. `categories` (e.g.
 // reflection+al_dars+overview for sermon questions) keeps decoration (tazyeen) chunks out.
-// topK=8 (not 5): with preferCategory='faq' the curated Q&A cards are stable-promoted ahead of
-// the source reflection, so a small top-5 window let the vetted cards crowd the actual reflection
-// chunk out entirely. Real misses observed (Majlis 8): "reunite the couple Muʿawiya tore apart"
-// and "Ali AS stop in the middle of Siffin" — the answering reflection chunk existed but ranked
-// 6th+ behind other-majlis Q&A, so the model (correctly refusing to fabricate) said "not found".
-// A wider window lets the source chunk reach the model alongside the promoted Q&A.
 export async function retrieveReligiousContext(
   query: string,
-  topK = 8,
+  topK = 5,
   categories?: string[],
   year?: string | null,
   minScore?: number,
@@ -135,9 +129,4 @@ export async function retrieveReligiousContext(
 
 // Relevance floor for the free-text religious vector fallback (higher than the logistics base 0.3):
 // a weak/tangential match returns nothing rather than a forced answer from the nearest sermon.
-// 0.35 (was 0.40): a loosely-worded or misspelled paraphrase of a real question (e.g. "Maulana Ali
-// stop in the middle of siffiin", no "namaaz") scored just under 0.40 and returned nothing even
-// though the content was indexed. 0.35 recovers those while staying well above the 0.30 base; the
-// answer-grounding / subject-fidelity prompt remains the backstop against answering off a tangential
-// chunk. Prompt-affecting recall change — A/B-validate before relying on it.
-export const RELIGIOUS_FALLBACK_MIN_SCORE = 0.35;
+export const RELIGIOUS_FALLBACK_MIN_SCORE = 0.4;
