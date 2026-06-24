@@ -72,6 +72,8 @@ const bodySchema = z
     sample_size: z.number().int().min(1).max(2000).optional(),
     // Census: send to the WHOLE eligible audience (no sampling). Pair with rules (e.g. everyone).
     census: z.boolean().optional(),
+    // Second WhatsApp template body param (after the name) — e.g. "your Farzand's experience".
+    template_phrase: z.string().max(160).optional(),
     question_ids: z.array(z.string().uuid()).min(1).max(200),
   })
   .refine((b) => [b.group_id, b.rules, b.sample_plan].filter(Boolean).length === 1, "Provide exactly one target: group_id, rules, or sample_plan.");
@@ -119,6 +121,7 @@ export async function POST(req: NextRequest) {
       tags: b.tags ?? [],
       sample_size: b.sample_size ?? 40,
       census: b.census ?? false,
+      template_phrase: b.template_phrase ?? null,
       event_date: chicagoToday(),
       status: "draft",
     })

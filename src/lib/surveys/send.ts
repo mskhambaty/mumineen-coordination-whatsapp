@@ -23,7 +23,7 @@ type DispatchPerson = { phone: string; token: string; name: string | null; mumin
 // lives in) from Meta, binds EVERY body variable the template declares to the name honorific, and
 // sets the dynamic URL-button suffix to `feedback/s/<token>` (the template's base URL is the site
 // root). Works whether the body var is positional ({{1}}) or named (e.g. mumin_name).
-async function dispatchSurveyTemplate(templateCode: string, people: DispatchPerson[]): Promise<{ ok: true } | { error: string }> {
+async function dispatchSurveyTemplate(templateCode: string, people: DispatchPerson[], phrase?: string | null): Promise<{ ok: true } | { error: string }> {
   let resolved;
   try {
     resolved = await resolveApprovedTemplateForAnyAccount(templateCode);
@@ -31,12 +31,15 @@ async function dispatchSurveyTemplate(templateCode: string, people: DispatchPers
     return { error: e instanceof Error ? e.message : "Template not found." };
   }
   const { account, descriptor } = resolved;
-  const body = Object.fromEntries(descriptor.bodyVars.map((tok) => [tok, { kind: "field" as const, field: "display_name" }]));
+  // Bind the FIRST body var to the name honorific; any further body var (e.g. the new "specific"
+  // template's 2nd param) binds to the per-form phrase ("your Farzand's experience" / "your overall
+  // ashara experience"). A single-var template is unaffected.
+  const body = Object.fromEntries(descriptor.bodyVars.map((tok, i) => [tok, { kind: "field" as const, field: i === 0 ? "display_name" : "experience_label" }]));
   const recipients: Recipient[] = people.map((p) => ({
     phone: p.phone,
     familyId: p.familyId ?? null,
     muminId: p.muminId ?? null,
-    fields: { url_suffix: `feedback/s/${p.token}`, display_name: displayName(p.name) },
+    fields: { url_suffix: `feedback/s/${p.token}`, display_name: displayName(p.name), experience_label: (phrase ?? "").trim() || "your Ashara experience" },
   }));
   const result = await createBroadcast({
     templateCode,
@@ -76,12 +79,12 @@ export function resolveSurveyTemplate(explicit?: string | null): string | undefi
 // Send a single survey link to one phone via the WhatsApp template (used for "send a test to a
 // specific person"). Pass an explicit templateCode (admin dropdown) or rely on the env default.
 // Queues via the broadcast engine (the drain cron delivers). Returns delivered=true when queued.
-export async function deliverSurveyLink(phone: string, token: string, name: string | null, templateCodeOverride?: string | null): Promise<{ delivered: boolean; error?: string }> {
+export async function deliverSurveyLink(phone: string, token: string, name: string | null, templateCodeOverride?: string | null, phrase?: string | null): Promise<{ delivered: boolean; error?: string }> {
   const templateCode = resolveSurveyTemplate(templateCodeOverride);
   if (!templateCode) {
     return { delivered: false, error: "No WhatsApp template selected (pick one from the dropdown, or set SURVEY_SEND_ENABLED + SURVEY_WA_TEMPLATE). Copy the link and send it manually." };
   }
-  const r = await dispatchSurveyTemplate(templateCode, [{ phone, token, name }]);
+  const r = await dispatchSurveyTemplate(templateCode, [{ phone, token, name }], phrase);
   if ("error" in r) return { delivered: false, error: r.error };
   return { delivered: true };
 }
@@ -95,7 +98,7 @@ export type CommitResult = {
   sendError?: string;
 };
 
-type FormRow = { id: string; group_id: string | null; rules: RuleGroup | null; sample_plan: Stratum[] | null; resend_until_responded: boolean | null; sample_size: number; status: string; census: boolean | null };
+type FormRow = { id: string; group_id: string | null; rules: RuleGroup | null; sample_plan: Stratum[] | null; resend_until_responded: boolean | null; sample_size: number; status: string; census: boolean | null; template_phrase: string | null };
 
 export async function commitAndSendForm(formId: string, templateCodeOverride?: string | null, freeWindowOnly = false, excludeAlreadySent = false): Promise<CommitResult | { error: string }> {
   const supabase = getSupabaseAdmin();
@@ -103,7 +106,7 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
 
   const { data: form } = await supabase
     .from("survey_forms")
-    .select("id, group_id, rules, sample_plan, resend_until_responded, sample_size, status, census")
+    .select("id, group_id, rules, sample_plan, resend_until_responded, sample_size, status, census, template_phrase")
     .eq("id", formId)
     .maybeSingle();
   if (!form) return { error: "Form not found." };
@@ -138,7 +141,7 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
       if (!templateCode) {
         return { formId, funnel, recipients, sent: false, sendError: "These links are already committed. Pick a WhatsApp template to send them (or copy the links below)." };
       }
-      const dispatch = await dispatchSurveyTemplate(templateCode, rows.map((r) => ({ phone: r.phone_e164, token: r.token, name: nameById.get(r.mumin_id) ?? null, muminId: r.mumin_id })));
+      const dispatch = await dispatchSurveyTemplate(templateCode, rows.map((r) => ({ phone: r.phone_e164, token: r.token, name: nameById.get(r.mumin_id) ?? null, muminId: r.mumin_id })), f.template_phrase);
       if ("error" in dispatch) return { formId, funnel, recipients, sent: false, sendError: dispatch.error };
       await supabase.from("survey_recipients").update({ status: "sent", sent_at: new Date().toISOString() }).eq("form_id", formId).eq("status", "sampled");
       await supabase.from("survey_forms").update({ status: "sent", sent_at: new Date().toISOString() }).eq("id", formId);
@@ -244,6 +247,7 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
   const dispatch = await dispatchSurveyTemplate(
     templateCode,
     insertedRows.map((r) => ({ phone: r.phone_e164, token: r.token, name: nameByMumin.get(r.mumin_id) ?? null, muminId: r.mumin_id })),
+    f.template_phrase,
   );
   if ("error" in dispatch) {
     return { formId, funnel: sample.funnel, recipients, sent: false, sendError: dispatch.error };

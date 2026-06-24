@@ -94,6 +94,12 @@ choice question's **options** (labels + which are "problem" options) is done inl
 Questions can be marked **`required`** (mandatory) — the public form shows a `*`, blocks submit until
 answered, and `recordSurveyResponse` rejects a submission missing any required answer.
 
+**Template body params:** `dispatchSurveyTemplate` binds the template's **first** body variable to the
+recipient's name honorific and **any further** body var to the form's **`template_phrase`** (e.g.
+"your Farzand's experience" / "your overall ashara experience"), so a 2-param template like
+`feedback_ashara_chicago_relay_center_specific` renders "{name} … {phrase}". The URL button still
+carries `feedback/s/<token>`. Single-param templates are unaffected.
+
 ## Delivery (`src/lib/surveys/send.ts`)
 
 `commitAndSendForm(formId, templateCode?)` creates tokens + writes exposures (irreversible), then
