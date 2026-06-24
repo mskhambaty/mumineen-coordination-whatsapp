@@ -52,7 +52,7 @@ vi.mock("@/lib/knowledge/lisan-word-requests", () => ({
 vi.mock("@/lib/scraper/retrieve-site-context", () => ({
   retrieveReligiousContext: (...a: unknown[]) => m.retrieve(...a),
   retrieveSiteContext: async () => "",
-  RELIGIOUS_FALLBACK_MIN_SCORE: 0.4,
+  RELIGIOUS_FALLBACK_MIN_SCORE: 0.35,
 }));
 vi.mock("@/lib/knowledge/religious-topics", async (orig) => ({
   ...(await orig()),

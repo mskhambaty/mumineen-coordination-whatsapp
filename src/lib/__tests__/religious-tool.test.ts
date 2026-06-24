@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/scraper/retrieve-site-context", () => ({
   retrieveReligiousContext: mocks.retrieveReligiousContext,
   retrieveSiteContext: mocks.retrieveSiteContext,
-  RELIGIOUS_FALLBACK_MIN_SCORE: 0.4,
+  RELIGIOUS_FALLBACK_MIN_SCORE: 0.35,
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -96,7 +96,7 @@ describe("answer_religious_questions tool", () => {
     // (decoration/tazyeen excluded). F1: a no-cue query during the active Ashara scopes to the
     // ACTIVE year (not null/cross-year). F3: the curated 'faq' is preferred via the 6th arg.
     expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith(
-      "what is vaaz talaqi", 5, ["reflection", "al_dars", "overview", "faq"], ACTIVE_ASHARA_YEAR, 0.4, "faq",
+      "what is vaaz talaqi", 8, ["reflection", "al_dars", "overview", "faq"], ACTIVE_ASHARA_YEAR, 0.35, "faq",
     );
     expect(mocks.retrieveSiteContext).not.toHaveBeenCalled();
     expect(result).toMatchObject({ status: "ok", decision: "answer", source: "indexed_religious_content" });
@@ -110,8 +110,24 @@ describe("answer_religious_questions tool", () => {
       { user: visitor, phoneE164: "+1555" },
     );
     expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith(
-      expect.any(String), 5, expect.any(Array), "1447", 0.4, "faq",
+      expect.any(String), 8, expect.any(Array), "1447", 0.35, "faq",
     );
+  });
+
+  it("recall fix: free-text religious retrieval uses a wider window (8) and lower floor (0.35) so a paraphrased question still surfaces the source chunk", async () => {
+    // Regression for the Majlis 8 misses ("reunite the couple Muʿawiya tore apart"): the answering
+    // reflection chunk was indexed but the curated-Q&A promotion crowded it out of a top-5 window and
+    // a loose paraphrase scored under the old 0.40 floor. The vector path must now ask for 8 and 0.35.
+    mocks.retrieveReligiousContext.mockResolvedValue("[Reflections — Ashara 1448H, Majlis 8 — Source: x]\n…reunited them…");
+    const result = await executeTool(
+      "answer_religious_questions",
+      { query: "How did Imam Hasan AS reunite the very couple Muawiya had schemed to tear apart?" },
+      { user: visitor, phoneE164: "+1555" },
+    );
+    expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith(
+      expect.any(String), 8, expect.any(Array), ACTIVE_ASHARA_YEAR, 0.35, "faq",
+    );
+    expect(result).toMatchObject({ decision: "answer", source: "indexed_religious_content" });
   });
 
   it("Fix Y: no 1447 fallback when the active year has no match (not_found, never retries 1447)", async () => {
@@ -168,7 +184,7 @@ describe("answer_religious_questions tool", () => {
     );
     // Explicit 1447 → today-resolver skipped, normal year-scoped path uses 1447.
     expect(mocks.findMajlisForRef).not.toHaveBeenCalled();
-    expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith(expect.any(String), 5, expect.any(Array), "1447", 0.4, "faq");
+    expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith(expect.any(String), 8, expect.any(Array), "1447", 0.35, "faq");
   });
 
   it("Fix T: today's majlis not posted yet → notice + latest published majlis (never 1447)", async () => {
@@ -196,7 +212,7 @@ describe("answer_religious_questions tool", () => {
       { user: visitor, phoneE164: "+1555" },
     );
     expect(mocks.retrieveReligiousContext).toHaveBeenCalledWith(
-      expect.any(String), 5, ["tazyeen", "faq"], ACTIVE_ASHARA_YEAR, 0.4, "faq",
+      expect.any(String), 8, ["tazyeen", "faq"], ACTIVE_ASHARA_YEAR, 0.35, "faq",
     );
   });
 

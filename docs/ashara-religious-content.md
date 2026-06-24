@@ -116,6 +116,13 @@ answer from the wrong year):**
 - **Curated-Q&A preference (F3):** in the vector path the curated `faq` chunk is promoted ahead of
   raw reflection prose (`retrieveReligiousContext(..., preferCategory: "faq")`) so recurring
   questions get the vetted answer consistently.
+- **Paraphrase recall:** the free-text vector path retrieves the top **8** chunks (was 5) at a
+  **0.35** similarity floor (`RELIGIOUS_FALLBACK_MIN_SCORE`, was 0.40). The `faq` promotion was
+  crowding the answering reflection chunk out of a top-5 window, and a loosely-worded/misspelled
+  paraphrase scored just under the old floor — both made an *indexed* answer return "not found"
+  (observed on Majlis 8: "reunite the couple Muʿawiya tore apart", "Ali AS stop in the middle of
+  Siffin"). The wider window + lower floor recover those; the answer-grounding / subject-fidelity
+  prompt remains the backstop against answering off a tangential chunk.
 - **Follow-up gating (F2):** the vector path now returns `available_facets` (derived from the leading
   chunk's majlis+year), so the al-Dars deep-dive / tazyeen follow-up is offered only when that
   content actually exists.
