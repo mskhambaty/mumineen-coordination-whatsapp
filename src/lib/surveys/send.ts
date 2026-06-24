@@ -46,7 +46,7 @@ async function dispatchSurveyTemplate(templateCode: string, people: DispatchPers
   // static event label so the send doesn't fail with "missing binding for header variable".
   const variableBindings: VariableBindings = { urlButton: { kind: "field", field: "url_suffix" }, body };
   if (descriptor.header?.format === "TEXT" && descriptor.headerVar) {
-    variableBindings.header = { kind: "static", value: (eventTitle ?? "").trim() || "Ashara Mubaraka 1448H" };
+    variableBindings.header = { kind: "static", value: (eventTitle ?? "").trim() || "Feedback: Ashara 1448H Chicago Relay Center" };
   }
   const result = await createBroadcast({
     templateCode,
@@ -148,7 +148,7 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
       if (!templateCode) {
         return { formId, funnel, recipients, sent: false, sendError: "These links are already committed. Pick a WhatsApp template to send them (or copy the links below)." };
       }
-      const dispatch = await dispatchSurveyTemplate(templateCode, rows.map((r) => ({ phone: r.phone_e164, token: r.token, name: nameById.get(r.mumin_id) ?? null, muminId: r.mumin_id })), f.template_phrase, f.public_title);
+      const dispatch = await dispatchSurveyTemplate(templateCode, rows.map((r) => ({ phone: r.phone_e164, token: r.token, name: nameById.get(r.mumin_id) ?? null, muminId: r.mumin_id })), f.template_phrase);
       if ("error" in dispatch) return { formId, funnel, recipients, sent: false, sendError: dispatch.error };
       await supabase.from("survey_recipients").update({ status: "sent", sent_at: new Date().toISOString() }).eq("form_id", formId).eq("status", "sampled");
       await supabase.from("survey_forms").update({ status: "sent", sent_at: new Date().toISOString() }).eq("id", formId);
@@ -255,7 +255,6 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
     templateCode,
     insertedRows.map((r) => ({ phone: r.phone_e164, token: r.token, name: nameByMumin.get(r.mumin_id) ?? null, muminId: r.mumin_id })),
     f.template_phrase,
-    f.public_title,
   );
   if ("error" in dispatch) {
     return { formId, funnel: sample.funnel, recipients, sent: false, sendError: dispatch.error };

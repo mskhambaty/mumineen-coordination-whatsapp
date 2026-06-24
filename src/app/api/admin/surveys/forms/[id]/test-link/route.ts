@@ -19,7 +19,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   const supabase = getSupabaseAdmin();
 
-  const { data: form } = await supabase.from("survey_forms").select("id, group_id").eq("id", id).maybeSingle();
+  const { data: form } = await supabase.from("survey_forms").select("id, group_id, template_phrase").eq("id", id).maybeSingle();
   if (!form) return NextResponse.json({ error: "Form not found." }, { status: 404 });
 
   const { count } = await supabase.from("survey_form_questions").select("id", { count: "exact", head: true }).eq("form_id", id);
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   let delivery: { delivered: boolean; error?: string } | null = null;
   if (body.deliver === true) {
     if (!phone) delivery = { delivered: false, error: "That person has no WhatsApp number on file." };
-    else delivery = await deliverSurveyLink(phone, token, name, typeof body.template === "string" ? body.template : undefined);
+    else delivery = await deliverSurveyLink(phone, token, name, typeof body.template === "string" ? body.template : undefined, (form as { template_phrase: string | null }).template_phrase);
   }
 
   return NextResponse.json({ link: surveyLink(token), token, name, phone, delivery });

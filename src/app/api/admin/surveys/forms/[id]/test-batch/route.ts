@@ -32,10 +32,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid body", details: parsed.error.flatten() }, { status: 400 });
 
-  const { data: form } = await supabase.from("survey_forms").select("id, group_id, template_phrase, public_title").eq("id", id).maybeSingle();
+  const { data: form } = await supabase.from("survey_forms").select("id, group_id, template_phrase").eq("id", id).maybeSingle();
   if (!form) return NextResponse.json({ error: "Form not found." }, { status: 404 });
   const phrase = (form as { template_phrase: string | null }).template_phrase;
-  const eventTitle = (form as { public_title: string | null }).public_title;
   const { count } = await supabase.from("survey_form_questions").select("id", { count: "exact", head: true }).eq("form_id", id);
   if (!count) return NextResponse.json({ error: "Compose questions for this form first." }, { status: 400 });
 
@@ -63,7 +62,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     };
     if (parsed.data.deliver) {
       if (!m.whatsapp_e164) row.error = "No WhatsApp number on file.";
-      else { const d = await deliverSurveyLink(m.whatsapp_e164, token, m.full_name, parsed.data.template, phrase, eventTitle); row.delivered = d.delivered; if (d.error) row.error = d.error; }
+      else { const d = await deliverSurveyLink(m.whatsapp_e164, token, m.full_name, parsed.data.template, phrase); row.delivered = d.delivered; if (d.error) row.error = d.error; }
     }
     results.push(row);
   }
