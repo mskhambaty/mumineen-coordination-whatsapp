@@ -291,7 +291,18 @@ captured raw into `whatsapp_interactive_responses` AND decoded into `niyaz_rsvp`
 `day_id`, then write per meal — `min(count, roster)` members attending (head→adults→kids), and any
 **overflow** beyond the roster as **guest** mumineen rows (`roster_active=false`, sentinel ITS
 `00000-…`, `full_name='Guest'`) that still count in the tallies. Re-submissions reconcile (idempotent;
-guests walk down on a lower count). See [whatsapp-webhook.md](./whatsapp-webhook.md).
+guests walk down on a lower count). **`hof_its` + `day_id` are read from the `flow_token`
+(`rsvp:<hof>:<day_id>`) first** — always present and under our control — falling back to the Flow
+body, so decoding survives a Flow that omits `registration_instance_id`. See
+[whatsapp-webhook.md](./whatsapp-webhook.md).
+
+**Single-meal days (`ashara_relay_single_rsvp`):** a dinner-only (or lunch-only) day uses a Flow that
+returns a single **`attending_count`** instead of separate lunch/dinner counts. The webhook detects
+`attending_count` and maps it onto whichever meal the day serves (`config.hasLunch`/`hasDinner` — e.g.
+Ashura dinner-only → `dinner = attending_count`, `lunch = 0`); "Not attending" records 0. Both still
+send the confirmation template, exactly like the double flow. The composer
+(`EventRsvpComposer.tsx`) defaults a single-meal day's RSVP buttons to a Flow whose `flow_action_data`
+prefills `attending_count: {{EligibleFamilyCount}}` (plus a not-attending quick-reply).
 
 **Confirmation template (sent after a response):** each niyaz day also configures a **second**
 template — the RSVP confirmation (`ashara_relay_double_rsvp_confirmation`, body vars `{{mumin_name}}`
@@ -304,6 +315,15 @@ from `niyaz_rsvp`, guests included), and the change-button reopens the RSVP Flow
 current lunch/dinner counts. Fires for both attending and not-attending responses; best-effort (never
 blocks the record). Both templates are configured per day in the composer's two
 `TemplateBindingEditor` sections; Send saves config first so the confirmation is ready.
+
+> **Confirmation buttons must match the confirmation Flow.** A confirmation Flow button's
+> `flow_action_data` keys have to be exactly the fields the confirmation template's Flow declares —
+> an **extra/unknown key makes Meta reject the whole confirmation send** (this is what silently broke
+> the single-meal Ashura day: its confirmation buttons carried a stray `attending_count` that the
+> double confirmation Flow doesn't accept). For a single-meal day reusing the double confirmation,
+> keep the double shape (`hof_its` + `lunch_attending_count` + `dinner_attending_count` +
+> `registration_instance_id`). `sendNiyazConfirmation` now **logs a PII-free error** when the send is
+> rejected or skipped (it previously swallowed it via `sendTemplateNotification`'s `failed` result).
 
 **Niyaz inbox:** conversations on the niyaz number are attributed via
 `conversation_sessions.phone_number_id` (and `messages.phone_number_id`) and kept **out of the main

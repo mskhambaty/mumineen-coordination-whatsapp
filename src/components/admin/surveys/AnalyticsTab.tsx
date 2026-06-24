@@ -12,7 +12,8 @@ const AREAS = ["general", "mawaid", "flow", "parking_transport", "audio_video", 
 
 type Row = { key: string; sentiment: number | null; responses: number; people: number };
 type QRow = { question_id: string; text: string; section: string | null; sentiment: number | null; responses: number; breakdown: Record<string, number> };
-type Comment = { text: string; area: string | null; section: string | null; question: string | null; sentiment: number | null };
+type Bucket = "good" | "fair" | "negative";
+type Comment = { text: string; area: string | null; section: string | null; question: string | null; sentiment: number | null; bucket: Bucket | null; name: string | null; its: string | null };
 type Data = {
   forms: { id: string; title: string; status: string; tags: string[]; event_date: string | null; sent_at: string | null }[];
   options: { jamaats: string[]; categories: string[]; sections: { id: string; title: string }[] };
@@ -28,7 +29,7 @@ type Data = {
 
 type AiTheme = { theme: string; sentiment: string; mentions: number; example: string };
 type AiImprovement = { area: string; suggestion: string; severity: string };
-type Ai = { overall_sentiment: string; sentiment_score_1_5: number; summary: string; themes: AiTheme[]; improvements: AiImprovement[]; positives: string[] };
+type Ai = { overall_sentiment: string; sentiment_score_1_5: number; summary: string; themes: AiTheme[]; improvements: AiImprovement[]; positives: string[]; per_comment?: string[] };
 
 type Filters = {
   formIds: string[]; areas: string[]; sectionIds: string[]; includeTest: boolean;
@@ -67,6 +68,67 @@ const chip = (on: boolean) =>
   `rounded-full border px-2.5 py-1 text-xs font-medium ${on ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-300"}`;
 const inputCls = "rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100";
 
+// Forms/samples filter: a searchable "add a form" dropdown + removable pills (empty selection = all
+// forms). Replaces the wall of ~45 per-day chips. Search matches title, tags, status, and date.
+function FormPicker({ forms, selected, onToggle, onClear }: {
+  forms: Data["forms"]; selected: string[]; onToggle: (id: string) => void; onClear: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const byId = new Map(forms.map((f) => [f.id, f]));
+  const ql = q.trim().toLowerCase();
+  const matches = forms
+    .filter((f) => !selected.includes(f.id))
+    .filter((f) => !ql || `${f.title} ${f.tags.join(" ")} ${f.status} ${f.event_date ?? ""}`.toLowerCase().includes(ql))
+    .slice(0, 50);
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <p className="text-[11px] text-gray-500 dark:text-gray-400">Forms / samples {selected.length ? `(${selected.length} selected)` : "(all)"}</p>
+        {selected.length > 0 && <button onClick={onClear} className="text-[11px] text-blue-600 hover:underline dark:text-blue-400">clear</button>}
+      </div>
+      {selected.length > 0 && (
+        <div className="mb-1.5 flex flex-wrap gap-1.5">
+          {selected.map((id) => {
+            const f = byId.get(id);
+            if (!f) return null;
+            return (
+              <span key={id} className="inline-flex items-center gap-1 rounded-full bg-blue-600/15 px-2 py-0.5 text-xs text-blue-700 dark:text-blue-300">
+                {f.title}{f.event_date ? ` · ${f.event_date}` : ""}
+                <button onClick={() => onToggle(id)} className="text-blue-500 hover:text-blue-700 dark:hover:text-blue-200" aria-label={`Remove ${f.title}`}>✕</button>
+              </span>
+            );
+          })}
+        </div>
+      )}
+      <div className="relative">
+        <input
+          value={q}
+          onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder={selected.length ? "Add another form…" : "Search forms… (empty = all forms)"}
+          className={`${inputCls} w-full`}
+        />
+        {open && matches.length > 0 && (
+          <div className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
+            {matches.map((f) => (
+              <button
+                key={f.id}
+                onMouseDown={(e) => { e.preventDefault(); onToggle(f.id); setQ(""); }}
+                className="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <span className="truncate">{f.title}{f.tags.length ? <span className="text-gray-400"> · {f.tags.join(", ")}</span> : null}</span>
+                <span className="flex-shrink-0 text-[10px] text-gray-400">{f.status}{f.event_date ? ` · ${f.event_date}` : ""}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 type DrillRow = { name: string | null; its: string | null; question: string | null; answer: string | null; section: string | null; area: string | null; reason: string | null };
 
 function buildBody(fl: Filters): Record<string, unknown> {
@@ -103,6 +165,13 @@ export function AnalyticsTab() {
 
   useEffect(() => { void load(EMPTY); }, [load]);
 
+  // Auto-classify comments whenever a new result set loads, so the Good/Fair/Negative buckets fill
+  // in on their own (free-text comments carry no score and can only be sorted by the AI pass).
+  useEffect(() => {
+    if (data?.comments.length) void runAi();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
   async function openDrill(score: number) {
     setDrill({ score, rows: [], loading: true });
     const res = await apiFetch("/api/admin/surveys/analytics", { method: "POST", body: JSON.stringify({ ...buildBody(filters), drillScore: score }) });
@@ -138,16 +207,12 @@ export function AnalyticsTab() {
       {/* Filters */}
       <div className="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
         <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Filters — every chart below reflects these</p>
-        <div>
-          <p className="mb-1 text-[11px] text-gray-500 dark:text-gray-400">Forms / samples {filters.formIds.length ? `(${filters.formIds.length})` : "(all)"}</p>
-          <div className="flex flex-wrap gap-1.5">
-            {(data?.forms ?? []).map((fm) => (
-              <button key={fm.id} onClick={() => toggleArr("formIds", fm.id)} className={chip(filters.formIds.includes(fm.id))}>
-                {fm.title}{fm.tags.length ? ` · ${fm.tags.join(", ")}` : ""} · {fm.status}{fm.event_date ? ` · ${fm.event_date}` : ""}
-              </button>
-            ))}
-          </div>
-        </div>
+        <FormPicker
+          forms={data?.forms ?? []}
+          selected={filters.formIds}
+          onToggle={(id) => toggleArr("formIds", id)}
+          onClear={() => setFilters((f) => ({ ...f, formIds: [] }))}
+        />
         <div>
           <p className="mb-1 text-[11px] text-gray-500 dark:text-gray-400">Areas</p>
           <div className="flex flex-wrap gap-1.5">{AREAS.map((a) => <button key={a} onClick={() => toggleArr("areas", a)} className={chip(filters.areas.includes(a))}>{a}</button>)}</div>
@@ -368,20 +433,54 @@ export function AnalyticsTab() {
             );
           })()}
 
-          {/* Raw comments */}
-          {data.comments.length > 0 && (
-            <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
-              <p className="mb-1 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">Comments ({data.comments.length})</p>
-              <ul className="max-h-80 space-y-1 overflow-auto">
-                {data.comments.map((c, i) => (
-                  <li key={i} className="border-t border-gray-100 py-1 text-xs dark:border-gray-800">
-                    <span className="text-gray-700 dark:text-gray-300">{c.text}</span>
-                    <span className="ml-1 text-[10px] uppercase text-gray-400">{[c.area, c.section].filter(Boolean).join(" · ")}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {/* Comments, grouped Good / Fair / Negative. Scored comments bucket by their 1–5 sentiment;
+              free-text (unscored) comments are classified by the on-demand AI pass. */}
+          {data.comments.length > 0 && (() => {
+            const aiMap: Record<string, Bucket> = { g: "good", f: "fair", n: "negative" };
+            const effBucket = (c: Comment, i: number): Bucket | null =>
+              c.bucket ?? (ai?.per_comment?.[i] ? aiMap[ai.per_comment[i]] ?? null : null);
+            const groups: Record<"negative" | "fair" | "good" | "unclassified", Comment[]> = { negative: [], fair: [], good: [], unclassified: [] };
+            data.comments.forEach((c, i) => groups[effBucket(c, i) ?? "unclassified"].push(c));
+            const sections: { key: keyof typeof groups; label: string; cls: string }[] = [
+              { key: "negative", label: "Negative", cls: "text-rose-600 dark:text-rose-400" },
+              { key: "fair", label: "Fair", cls: "text-amber-600 dark:text-amber-400" },
+              { key: "good", label: "Good", cls: "text-emerald-600 dark:text-emerald-400" },
+              { key: "unclassified", label: aiBusy ? "Classifying…" : "Unclassified", cls: "text-gray-500 dark:text-gray-400" },
+            ];
+            return (
+              <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+                <p className="mb-2 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
+                  Comments ({data.comments.length}) — Negative {groups.negative.length} · Fair {groups.fair.length} · Good {groups.good.length}{groups.unclassified.length ? ` · Unclassified ${groups.unclassified.length}` : ""}
+                </p>
+                <div className="max-h-96 space-y-3 overflow-auto">
+                  {sections.filter((s) => groups[s.key].length > 0).map((s) => (
+                    <div key={s.key}>
+                      <p className={`mb-1 text-[11px] font-bold uppercase ${s.cls}`}>{s.label} ({groups[s.key].length})</p>
+                      <ul className="space-y-1">
+                        {groups[s.key].map((c, i) => (
+                          <li key={i} className="border-t border-gray-100 py-1 text-xs dark:border-gray-800">
+                            <span className="text-gray-700 dark:text-gray-300">{c.text}</span>
+                            <span className="mt-0.5 block text-[10px] text-gray-500 dark:text-gray-400">
+                              <span className="font-medium text-gray-600 dark:text-gray-300">{c.name ?? "—"}</span>
+                              {c.its ? ` · ITS ${c.its}` : ""}
+                              {[c.area, c.section].filter(Boolean).length ? ` · ${[c.area, c.section].filter(Boolean).join(" · ")}` : ""}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+                {groups.unclassified.length > 0 && (
+                  <p className="mt-2 text-[10px] text-gray-400 dark:text-gray-500">
+                    {aiBusy
+                      ? "Classifying free-text comments into Good / Fair / Negative…"
+                      : "Free-text comments (no 1–5 score). Use “Analyze with AI” above to sort them into Good / Fair / Negative."}
+                  </p>
+                )}
+              </div>
+            );
+          })()}
         </>
       )}
     </div>

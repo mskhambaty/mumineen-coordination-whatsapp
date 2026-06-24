@@ -134,6 +134,27 @@ const DEFAULT_BUTTONS = JSON.stringify(
   2,
 );
 
+// Default per-recipient button spec for a SINGLE-MEAL day (ashara_relay_single_rsvp): a Flow button
+// that collects one {{attending_count}} (prefilled with the eligible family size), plus a
+// not-attending quick-reply. The inbound decoder maps attending_count to whichever meal the day serves.
+const SINGLE_MEAL_BUTTONS = JSON.stringify(
+  [
+    {
+      type: "flow",
+      index: 0,
+      flow_token: "rsvp:{{hof_its}}:{{RegistrationInstanceId}}",
+      flow_action_data: {
+        attending_count: "{{EligibleFamilyCount}}",
+        hof_its: "{{hof_its}}",
+        registration_instance_id: "{{RegistrationInstanceId}}",
+      },
+    },
+    { type: "quick_reply", index: 1, payload: "rsvp:{{hof_its}}:{{RegistrationInstanceId}}:not-attending" },
+  ],
+  null,
+  2,
+);
+
 // Default confirmation buttons: reopen the RSVP flow PRE-FILLED with the family's current counts so
 // they can change their response; plus a not-attending quick-reply.
 const DEFAULT_CONFIRMATION_BUTTONS = JSON.stringify(
@@ -361,6 +382,9 @@ export default function EventRsvpComposer({
       setConfTemplateCode(c.confirmationTemplateCode ?? DEFAULT_CONFIRMATION_TEMPLATE);
       if (c.confirmationVariableBindings) setConfBindings(c.confirmationVariableBindings);
       if (c.confirmationButtons) setConfButtonsJson(JSON.stringify(c.confirmationButtons, null, 2));
+      // A single-meal day (exactly one of lunch/dinner) uses the single-meal Flow that collects one
+      // attending_count; default its RSVP buttons accordingly so the right payloads are sent.
+      setButtonsJson(c.hasLunch !== c.hasDinner ? SINGLE_MEAL_BUTTONS : DEFAULT_BUTTONS);
     }
   }, [date]);
 

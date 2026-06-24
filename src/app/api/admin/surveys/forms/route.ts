@@ -17,10 +17,10 @@ export async function GET(req: NextRequest) {
 
   const { data: forms } = await supabase
     .from("survey_forms")
-    .select("id, title, public_title, group_id, rules, sample_plan, tags, sample_size, event_date, status, created_at, sent_at")
+    .select("id, title, public_title, group_id, rules, sample_plan, tags, sample_size, event_date, status, created_at, sent_at, census")
     .order("created_at", { ascending: false })
     .limit(100);
-  const formRows = (forms ?? []) as { id: string; group_id: string | null; rules: unknown; sample_plan: { label: string; size: number }[] | null; tags: string[] | null }[];
+  const formRows = (forms ?? []) as { id: string; group_id: string | null; rules: unknown; sample_plan: { label: string; size: number }[] | null; tags: string[] | null; census: boolean | null }[];
 
   const { data: groups } = await supabase.from("survey_groups").select("id, name");
   // Paginate — a single read caps at 1000 rows and would undercount recipients once the table grows.
@@ -44,7 +44,9 @@ export async function GET(req: NextRequest) {
     forms: formRows.map((f) => ({
       ...f,
       tags: f.tags ?? [],
-      group_name: f.sample_plan?.length
+      group_name: f.census
+        ? "Census — everyone (attending + registered)"
+        : f.sample_plan?.length
         ? `Stratified: ${f.sample_plan.map((s) => `${s.label} ${s.size}`).join(" + ")}`
         : f.group_id ? groupName.get(f.group_id) ?? null : f.rules ? "Custom filter" : null,
       recipient_count: counts.get(f.id)?.sent ?? 0,
@@ -68,6 +70,10 @@ const bodySchema = z
     sample_plan: z.array(z.object({ label: z.string().min(1).max(40), rules: ruleGroupSchema, size: z.number().int().min(1).max(2000) })).min(1).max(10).optional(),
     tags: z.array(z.string().min(1).max(40)).max(12).optional(),
     sample_size: z.number().int().min(1).max(2000).optional(),
+    // Census: send to the WHOLE eligible audience (no sampling). Pair with rules (e.g. everyone).
+    census: z.boolean().optional(),
+    // Second WhatsApp template body param (after the name) — e.g. "your Farzand's experience".
+    template_phrase: z.string().max(160).optional(),
     question_ids: z.array(z.string().uuid()).min(1).max(200),
   })
   .refine((b) => [b.group_id, b.rules, b.sample_plan].filter(Boolean).length === 1, "Provide exactly one target: group_id, rules, or sample_plan.");
@@ -95,9 +101,9 @@ export async function POST(req: NextRequest) {
   // Load chosen questions + their sections to snapshot.
   const { data: questions } = await supabase
     .from("survey_questions")
-    .select("id, section_id, text, type, options, negative_values, polarity, comment_threshold, collect_comment, required")
+    .select("id, section_id, text, type, options, negative_values, polarity, comment_threshold, collect_comment, required, scored")
     .in("id", b.question_ids);
-  const qs = (questions ?? []) as Array<{ id: string; section_id: string; text: string; type: string; options: unknown; negative_values: unknown; polarity: string; comment_threshold: number | null; collect_comment: boolean; required: boolean }>;
+  const qs = (questions ?? []) as Array<{ id: string; section_id: string; text: string; type: string; options: unknown; negative_values: unknown; polarity: string; comment_threshold: number | null; collect_comment: boolean; required: boolean; scored: boolean }>;
   if (qs.length === 0) return NextResponse.json({ error: "No valid questions." }, { status: 400 });
 
   const sectionIds = Array.from(new Set(qs.map((q) => q.section_id)));
@@ -114,6 +120,8 @@ export async function POST(req: NextRequest) {
       sample_plan: b.sample_plan ?? null,
       tags: b.tags ?? [],
       sample_size: b.sample_size ?? 40,
+      census: b.census ?? false,
+      template_phrase: b.template_phrase ?? null,
       event_date: chicagoToday(),
       status: "draft",
     })
@@ -140,6 +148,7 @@ export async function POST(req: NextRequest) {
           comment_threshold: q.comment_threshold,
           collect_comment: q.collect_comment,
           required: q.required,
+          scored: q.scored,
           section_title: sec?.title ?? "Feedback",
         },
         sort_order: (sec?.sort_order ?? 0) * 1000 + (orderOfQ.get(q.id) ?? 0),

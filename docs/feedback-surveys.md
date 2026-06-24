@@ -46,6 +46,13 @@ responses through a per-recipient **tokenized web form** delivered over WhatsApp
 Returns the chosen set + a funnel for the admin preview. `suggestQuestionsForSection` rotates the
 databank by preferring least-exposed questions.
 
+**Census mode** (`survey_forms.census`): a form sent to the WHOLE eligible audience — **all attending +
+registered + reachable** households (deduped by phone), with **no** sample size, one-per-day dedup,
+exhaustion, or non-responder cap. `suggestSample(..., { census: true })` returns everyone eligible and
+writes no exposures. Census recipients carry `survey_recipients.census = true` and are **invisible to
+the daily sampler's history**, so a blast never consumes the one-per-day pool (and vice versa). Used for
+one-off surveys like Mahal-us-Shifa (MUS) medical feedback that should reach everyone, not a sample.
+
 **Stratified sampling** (`suggestSamplePlan`): a form can carry a `sample_plan` — an array of strata,
 each its own audience filter + quota (e.g. `[{Local,105},{Mehman,40}]`). A form's `sample_size`, when
 set, acts as an overall **total cap** on the plan, scaling the strata down proportionally (e.g. 145 →
@@ -58,10 +65,26 @@ pool (≈ Local 748 / Mehman 490 ÷ 7 daily forms ≈ 107 / 70).
 ## Sentiment (`src/lib/surveys/sentiment.ts`, pure + unit-tested)
 
 `answerSentiment(question, answer) → 1..5 | null`. Choice = option position (best-first); scale10 =
-`ceil(v/2)`; scale5 = v; yes/no = Yes 5 / No 1, inverted for `polarity:'negative'`; text = null.
+`ceil(v/2)`; scale5 = v; yes/no = Yes 5 / No 1, inverted for `polarity:'negative'`; text and
+**multichoice** = null. **`multichoice`** is a multi-select (checkboxes) for "check all that apply"
+questions (e.g. MUS "which services did you use"); the chosen labels are stored joined by `" | "` and
+carry no sentiment. The picker stays expanded until the respondent moves on (one tap isn't the final
+answer), and an **"Other"** choice prompts for free text, stored as `"Other: <text>"`.
 **"Not applicable" answers** ("Do not apply", "N/A", …, via `isNotApplicable`) score `null` — excluded
 from averages, never counted as negative or as a "problem" (no comment box / routing). Section
 sentiment = mean of its scored answers.
+
+**Conditional (gated) questions:** a composed question's snapshot can carry **`show_if: { qid, equals }`**
+— the public form shows it only when the answer to question `qid` equals `equals`. Used for checkbox
+gates: e.g. a yes/no "Did you visit Mahal Us Shifa?" with the MUS questions set to `show_if {that qid,
+"Yes"}`, so they appear only when ticked. Hidden questions don't count toward progress, required-checks,
+or the submitted payload. The gate's own yes/no IS recorded, so visit/attend rates are captured.
+
+A question can also be marked **`scored: false`** (databank column + snapshot) — `answerSentiment`
+returns `null` regardless of the answer. Use it for **informational / cross-tab dimensions** that
+aren't satisfaction ratings, e.g. *"Where were you sitting during waaz?"* (its options carry seat-quality
+scores for grouping, but the answer must never count as good/fair/negative). Toggle it via the **scored**
+checkbox in the question editor.
 
 The **"why?" comment box** is per-question configurable: `collect_comment` toggles it on/off, and
 `comment_threshold` (scale questions) sets the rating ≤ which an answer opens it (default scale10 ≤ 6,
@@ -70,6 +93,12 @@ is the single source of truth for both the form UI and the recorder's department
 choice question's **options** (labels + which are "problem" options) is done inline in the Databank.
 Questions can be marked **`required`** (mandatory) — the public form shows a `*`, blocks submit until
 answered, and `recordSurveyResponse` rejects a submission missing any required answer.
+
+**Template body params:** `dispatchSurveyTemplate` binds the template's **first** body variable to the
+recipient's name honorific and **any further** body var to the form's **`template_phrase`** (e.g.
+"your Farzand's experience" / "your overall ashara experience"), so a 2-param template like
+`feedback_ashara_chicago_relay_center_specific` renders "{name} … {phrase}". The URL button still
+carries `feedback/s/<token>`. Single-param templates are unaffected.
 
 ## Delivery (`src/lib/surveys/send.ts`)
 
@@ -114,6 +143,13 @@ results) and returns a real `/feedback/s/<token>` link. Optionally pass an **ITS
 specific person (the form then greets them by name; response is attributable), and `deliver:true`
 to send that link to their WhatsApp (when `SURVEY_SEND_ENABLED`); otherwise copy/forward the link.
 
+**Manual individual send** (the "Test to people" picker → **real send** toggle): for forms with no
+roster-derived audience — e.g. the special-care seating feedback, where the ~10–15 families are known
+only to the khidmat team — search/pick people by ITS and mint **real, attributed recipients
+(`is_test=false`, counted in results)**, optionally delivering each link to their WhatsApp. Backed by
+`POST forms/{id}/test-batch` with `real:true`. Such forms can carry a deliberately no-match audience
+filter so a bulk *Commit & send* hits nobody and they are only ever sent individually.
+
 **Verify a sample:** *Preview sample* returns the chosen sample with **name + ITS + freshness** and
 the admin UI has a **search box** to confirm whether a specific person was selected.
 
@@ -129,16 +165,25 @@ resolves *all* qualifying mumineen, then takes the top N (fresh-first). Set N hi
 
 `POST /api/admin/surveys/analytics` ([route](../src/app/api/admin/surveys/analytics/route.ts)) powers a
 fully filterable dashboard ([AnalyticsTab](../src/components/admin/surveys/AnalyticsTab.tsx)). Filter by
-**which forms/samples**, **area**, **section**, and the responder's **personal attributes** (age,
+**which forms/samples** (a searchable "add a form" dropdown + removable pills — empty = all; replaces the
+old per-day chip wall), **area**, **section**, and the responder's **personal attributes** (age,
 gender, local/mehman, rahat/accessibility, jamaat, category) — every aggregate recomputes for the
 active filter. Shows overview KPIs (respondents, response rate, avg sentiment, comments), a sentiment
 distribution, sentiment **by section / area / question**, and **by-attribute breakdowns** (local vs
 mehman, gender, age band, rahat vs general, jamaat) so you can see *who* feels *what*.
 
+**Comments** are grouped **Good / Fair / Negative**, each line showing *who said it* (name + ITS —
+admin-only). Scored comments bucket by their 1–5 sentiment (≥4 good, 3 fair, ≤2 negative). Free-text
+answers carry no score — note the only auto-scored comments are the negative "why?" reason boxes, so
+without the AI pass the buckets skew all-negative. The dashboard therefore **auto-runs the AI
+classification when a result set loads**, sorting the free-text comments into the three buckets (they
+sit under *Unclassified* only while that pass is in flight).
+
 **AI comment analysis** — `POST /api/admin/surveys/analytics/ai` sends the filtered free-text +
 negative-reason comments (text only, no PII) to the LLM (`getAIClient` / `AI_MODEL`) and returns
-overall sentiment, recurring **themes**, ranked **areas of improvement** (with severity), and what
-worked well. Decision-useful summary on top of the raw comments.
+overall sentiment, recurring **themes**, ranked **areas of improvement** (with severity), what worked
+well, and a **`per_comment`** label array (`g`/`f`/`n`) that sorts the free-text comments into the
+Good/Fair/Negative groups. Decision-useful summary on top of the raw comments.
 
 ## Key files
 

@@ -16,8 +16,11 @@ export type NiyazInteractiveOutcome = { status: "recorded" | "ended" | "ignored"
 export async function recordNiyazRsvpFromInteractive(opts: {
   hofIts: string;
   dayId: number;
-  lunchCount: number;
-  dinnerCount: number;
+  // Double-meal Flow / quick-reply: explicit per-meal counts.
+  lunchCount?: number;
+  dinnerCount?: number;
+  // Single-meal Flow (ashara_relay_single_rsvp): one count applied to the day's served meal.
+  attendingCount?: number;
   phone?: string | null;
 }): Promise<NiyazInteractiveOutcome> {
   if (!opts.hofIts || !Number.isFinite(opts.dayId)) return { status: "ignored" };
@@ -39,11 +42,16 @@ export async function recordNiyazRsvpFromInteractive(opts: {
     }
   }
 
-  await recordNiyazDayRsvp(family.familyId, family.hofIts, config.eventDate, opts.lunchCount, opts.dinnerCount, opts.phone ?? null);
+  // The single-meal Flow returns one attending_count; apply it to whichever meal(s) the day serves
+  // (dinner-only Ashura → dinner). The double path passes explicit lunch/dinner counts.
+  const lunchCount = opts.attendingCount != null ? (config.hasLunch ? opts.attendingCount : 0) : opts.lunchCount ?? 0;
+  const dinnerCount = opts.attendingCount != null ? (config.hasDinner ? opts.attendingCount : 0) : opts.dinnerCount ?? 0;
+
+  await recordNiyazDayRsvp(family.familyId, family.hofIts, config.eventDate, lunchCount, dinnerCount, opts.phone ?? null);
 
   // Confirmation back to the responder (best-effort — never blocks the record).
   try {
-    await sendNiyazConfirmation({ config, family, lunchCount: opts.lunchCount, dinnerCount: opts.dinnerCount, phone: opts.phone ?? null });
+    await sendNiyazConfirmation({ config, family, lunchCount, dinnerCount, phone: opts.phone ?? null });
   } catch (err) {
     console.error("Niyaz confirmation send failed", { dayId: opts.dayId, err });
   }
@@ -99,7 +107,7 @@ export async function sendNiyazConfirmation(opts: {
     return;
   }
 
-  await sendTemplateNotification({
+  const result = await sendTemplateNotification({
     phoneE164: opts.phone,
     templateName: descriptor.name,
     bodyParams: inputs.bodyParams ?? [],
@@ -108,10 +116,28 @@ export async function sendNiyazConfirmation(opts: {
     account,
     source: "niyaz_rsvp_confirmation",
   });
+  // sendTemplateNotification swallows Meta errors (returns "failed" instead of throwing), so the
+  // best-effort try/catch around this call never sees them. Surface it (PII-free) — a silent failure
+  // here is how a misconfigured confirmation (e.g. a flow_action_data key the Flow doesn't accept)
+  // went unnoticed.
+  if (result.status === "failed") {
+    console.error("Niyaz confirmation send failed", { dayId: config.dayId, template: descriptor.name, error: result.error });
+  }
 }
 
 // Parse the integer count fields a WhatsApp Flow returns (they arrive as strings like "2").
 export function parseCount(v: unknown): number {
   const n = parseInt(String(v ?? "0"), 10);
   return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+// The family + niyaz day encoded in an RSVP flow_token / button payload: `rsvp:<hof_its>:<day_id>`
+// (a quick-reply may append a `:<action>`). We send this on every RSVP button/Flow, and the webhook
+// stores it verbatim, so it's the reliable source for hof_its + day_id even when a Flow body omits
+// registration_instance_id (e.g. the single-meal template's Flow).
+export function parseRsvpToken(token: string | null | undefined): { hofIts?: string; dayId?: number } {
+  const parts = (token ?? "").split(":");
+  if (parts[0] !== "rsvp" || parts.length < 3) return {};
+  const dayId = Number(parts[2]);
+  return { hofIts: parts[1] || undefined, dayId: Number.isFinite(dayId) ? dayId : undefined };
 }

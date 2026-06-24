@@ -4,9 +4,12 @@
 // negatively-phrased question ("Did you experience AV disruptions?") inverts correctly.
 
 export type ScoredQuestion = {
-  type: "choice" | "scale10" | "scale5" | "yesno" | "text";
+  type: "choice" | "scale10" | "scale5" | "yesno" | "text" | "multichoice";
   options?: Array<{ label: string; score?: number }> | null;
   polarity?: "positive" | "negative" | null;
+  // When false, the question is informational / a cross-tab dimension (e.g. "where were you sitting
+  // during waaz") and carries NO sentiment — its answers are never good/fair/negative.
+  scored?: boolean;
 };
 
 function clamp1to5(n: number): number {
@@ -37,6 +40,7 @@ function scoreByPosition(index: number, count: number): number {
 // or an unrecognized value).
 export function answerSentiment(question: ScoredQuestion, answer: string | null | undefined): number | null {
   if (answer == null) return null;
+  if (question.scored === false) return null; // informational / cross-tab question — never scored.
   const a = String(answer).trim();
   if (!a) return null;
   if (isNotApplicable(a)) return null; // N/A carries no sentiment — excluded, never negative.
@@ -44,6 +48,7 @@ export function answerSentiment(question: ScoredQuestion, answer: string | null 
 
   switch (question.type) {
     case "text":
+    case "multichoice": // multi-select (e.g. "which services did you use") is informational — no sentiment.
       return null;
 
     case "scale10":

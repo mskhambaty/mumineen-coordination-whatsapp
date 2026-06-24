@@ -8,6 +8,7 @@ import type { AudienceKey, Recipient } from "@/lib/whatsapp/audience";
 export const SURVEY_AUDIENCE_KEY = "feedback_survey" as AudienceKey;
 import type { RuleGroup } from "@/lib/whatsapp/audience-filter";
 import { resolveApprovedTemplateForAnyAccount } from "@/lib/whatsapp/send-template";
+import type { VariableBindings } from "@/lib/whatsapp/templates";
 import { suggestSample, suggestSamplePlan, dedupExemptSectionIds, type SampleResult, type Stratum } from "@/lib/surveys/sampling";
 import { generateSurveyToken, chicagoToday } from "@/lib/surveys/tokens";
 
@@ -23,7 +24,7 @@ type DispatchPerson = { phone: string; token: string; name: string | null; mumin
 // lives in) from Meta, binds EVERY body variable the template declares to the name honorific, and
 // sets the dynamic URL-button suffix to `feedback/s/<token>` (the template's base URL is the site
 // root). Works whether the body var is positional ({{1}}) or named (e.g. mumin_name).
-async function dispatchSurveyTemplate(templateCode: string, people: DispatchPerson[]): Promise<{ ok: true } | { error: string }> {
+async function dispatchSurveyTemplate(templateCode: string, people: DispatchPerson[], phrase?: string | null, eventTitle?: string | null): Promise<{ ok: true } | { error: string }> {
   let resolved;
   try {
     resolved = await resolveApprovedTemplateForAnyAccount(templateCode);
@@ -31,19 +32,28 @@ async function dispatchSurveyTemplate(templateCode: string, people: DispatchPers
     return { error: e instanceof Error ? e.message : "Template not found." };
   }
   const { account, descriptor } = resolved;
-  const body = Object.fromEntries(descriptor.bodyVars.map((tok) => [tok, { kind: "field" as const, field: "display_name" }]));
+  // Bind the FIRST body var to the name honorific; any further body var (e.g. the new "specific"
+  // template's 2nd param) binds to the per-form phrase ("your Farzand's experience" / "your overall
+  // ashara experience"). A single-var template is unaffected.
+  const body = Object.fromEntries(descriptor.bodyVars.map((tok, i) => [tok, { kind: "field" as const, field: i === 0 ? "display_name" : "experience_label" }]));
   const recipients: Recipient[] = people.map((p) => ({
     phone: p.phone,
     familyId: p.familyId ?? null,
     muminId: p.muminId ?? null,
-    fields: { url_suffix: `feedback/s/${p.token}`, display_name: displayName(p.name) },
+    fields: { url_suffix: `feedback/s/${p.token}`, display_name: displayName(p.name), experience_label: (phrase ?? "").trim() || "your Ashara experience" },
   }));
+  // Some templates (e.g. the "specific" one) have a TEXT header variable (event_title) — bind it to a
+  // static event label so the send doesn't fail with "missing binding for header variable".
+  const variableBindings: VariableBindings = { urlButton: { kind: "field", field: "url_suffix" }, body };
+  if (descriptor.header?.format === "TEXT" && descriptor.headerVar) {
+    variableBindings.header = { kind: "static", value: (eventTitle ?? "").trim() || "Feedback: Ashara 1448H Chicago Relay Center" };
+  }
   const result = await createBroadcast({
     templateCode,
     account,
     recipients,
     audienceKey: SURVEY_AUDIENCE_KEY,
-    variableBindings: { urlButton: { kind: "field", field: "url_suffix" }, body },
+    variableBindings,
   });
   if ("error" in result) return { error: result.error };
   return { ok: true };
@@ -76,12 +86,12 @@ export function resolveSurveyTemplate(explicit?: string | null): string | undefi
 // Send a single survey link to one phone via the WhatsApp template (used for "send a test to a
 // specific person"). Pass an explicit templateCode (admin dropdown) or rely on the env default.
 // Queues via the broadcast engine (the drain cron delivers). Returns delivered=true when queued.
-export async function deliverSurveyLink(phone: string, token: string, name: string | null, templateCodeOverride?: string | null): Promise<{ delivered: boolean; error?: string }> {
+export async function deliverSurveyLink(phone: string, token: string, name: string | null, templateCodeOverride?: string | null, phrase?: string | null, eventTitle?: string | null): Promise<{ delivered: boolean; error?: string }> {
   const templateCode = resolveSurveyTemplate(templateCodeOverride);
   if (!templateCode) {
     return { delivered: false, error: "No WhatsApp template selected (pick one from the dropdown, or set SURVEY_SEND_ENABLED + SURVEY_WA_TEMPLATE). Copy the link and send it manually." };
   }
-  const r = await dispatchSurveyTemplate(templateCode, [{ phone, token, name }]);
+  const r = await dispatchSurveyTemplate(templateCode, [{ phone, token, name }], phrase, eventTitle);
   if ("error" in r) return { delivered: false, error: r.error };
   return { delivered: true };
 }
@@ -95,7 +105,7 @@ export type CommitResult = {
   sendError?: string;
 };
 
-type FormRow = { id: string; group_id: string | null; rules: RuleGroup | null; sample_plan: Stratum[] | null; resend_until_responded: boolean | null; sample_size: number; status: string };
+type FormRow = { id: string; group_id: string | null; rules: RuleGroup | null; sample_plan: Stratum[] | null; resend_until_responded: boolean | null; sample_size: number; status: string; census: boolean | null; template_phrase: string | null; public_title: string | null };
 
 export async function commitAndSendForm(formId: string, templateCodeOverride?: string | null, freeWindowOnly = false, excludeAlreadySent = false): Promise<CommitResult | { error: string }> {
   const supabase = getSupabaseAdmin();
@@ -103,7 +113,7 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
 
   const { data: form } = await supabase
     .from("survey_forms")
-    .select("id, group_id, rules, sample_plan, resend_until_responded, sample_size, status")
+    .select("id, group_id, rules, sample_plan, resend_until_responded, sample_size, status, census, template_phrase, public_title")
     .eq("id", formId)
     .maybeSingle();
   if (!form) return { error: "Form not found." };
@@ -138,7 +148,7 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
       if (!templateCode) {
         return { formId, funnel, recipients, sent: false, sendError: "These links are already committed. Pick a WhatsApp template to send them (or copy the links below)." };
       }
-      const dispatch = await dispatchSurveyTemplate(templateCode, rows.map((r) => ({ phone: r.phone_e164, token: r.token, name: nameById.get(r.mumin_id) ?? null, muminId: r.mumin_id })));
+      const dispatch = await dispatchSurveyTemplate(templateCode, rows.map((r) => ({ phone: r.phone_e164, token: r.token, name: nameById.get(r.mumin_id) ?? null, muminId: r.mumin_id })), f.template_phrase);
       if ("error" in dispatch) return { formId, funnel, recipients, sent: false, sendError: dispatch.error };
       await supabase.from("survey_recipients").update({ status: "sent", sent_at: new Date().toISOString() }).eq("form_id", formId).eq("status", "sampled");
       await supabase.from("survey_forms").update({ status: "sent", sent_at: new Date().toISOString() }).eq("id", formId);
@@ -177,15 +187,20 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
 
   // Resend-until-responded forms (Atfaal/Rahat reminders) don't exhaust on send — instead they
   // exclude people who've already ANSWERED, so non-responders get re-nudged until they reply.
+  const census = f.census === true;
   const resendMode = f.resend_until_responded === true;
-  const questionIds = resendMode ? [] : coreQuestionIds; // exhaustion off in resend mode
+  // Census writes no exposures (it's a one-off blast, not part of the rotating sampler).
+  const questionIds = census || resendMode ? [] : coreQuestionIds; // exhaustion off in census/resend
   const sampleOpts = { freeWindowOnly, excludeAlreadySent, ...(resendMode ? { respondedExcludeQuestionIds: coreQuestionIds } : {}) };
 
-  // Sample fresh-first, excluding today's other samples and question-exhausted mumineen. A
-  // sample_plan samples each stratum from its pool; otherwise one pool to sample_size.
-  const sample: SampleResult = plan
-    ? await suggestSamplePlan(plan, questionIds, eventDate, { ...sampleOpts, totalCap: f.sample_size })
-    : await suggestSample(targetRules as RuleGroup, questionIds, f.sample_size, eventDate, sampleOpts);
+  // Census: send to the WHOLE eligible audience (all attending + registered + reachable, deduped by
+  // phone) with no sampling limits. Otherwise sample fresh-first: a sample_plan draws per-stratum
+  // quotas; a plain group/filter draws one pool to sample_size.
+  const sample: SampleResult = census
+    ? await suggestSample((targetRules ?? { combinator: "and", rules: [] }) as RuleGroup, [], 0, eventDate, { freeWindowOnly, census: true })
+    : plan
+      ? await suggestSamplePlan(plan, questionIds, eventDate, { ...sampleOpts, totalCap: f.sample_size })
+      : await suggestSample(targetRules as RuleGroup, questionIds, f.sample_size, eventDate, sampleOpts);
   if (sample.chosen.length === 0) {
     return { formId, funnel: sample.funnel, recipients: [], sent: false, sendError: "No eligible recipients to sample." };
   }
@@ -200,6 +215,7 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
     token: generateSurveyToken(),
     status: "sampled" as const,
     event_date: eventDate,
+    census,
   }));
   const { data: inserted, error: insErr } = await supabase
     .from("survey_recipients")
@@ -238,6 +254,7 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
   const dispatch = await dispatchSurveyTemplate(
     templateCode,
     insertedRows.map((r) => ({ phone: r.phone_e164, token: r.token, name: nameByMumin.get(r.mumin_id) ?? null, muminId: r.mumin_id })),
+    f.template_phrase,
   );
   if ("error" in dispatch) {
     return { formId, funnel: sample.funnel, recipients, sent: false, sendError: dispatch.error };

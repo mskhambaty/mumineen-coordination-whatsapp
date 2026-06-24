@@ -2373,7 +2373,10 @@ paths:
         When `buttons` is supplied (ashara_relay_double_rsvp), each button's payload templates are
         resolved per recipient — {{hof_its}}, {{RegistrationInstanceId}} (the day's numeric
         niyaz_event_config.day_id), {{EligibleFamilyCount}} — replacing the legacy
-        niyaz|level|scope|date quick-reply buttons.
+        niyaz|level|scope|date quick-reply buttons. Single-meal days (ashara_relay_single_rsvp) use a
+        Flow that returns one `attending_count` (prefilled from {{EligibleFamilyCount}}); the webhook
+        maps it to whichever meal the day serves (has_lunch/has_dinner). hof_its + day_id are decoded
+        from the flow_token (rsvp:<hof>:<day_id>) so it works even if the Flow body omits them.
         For audience=csv_upload, pass `csv` (raw CSV text in the audience-export format); audience
         resolution is skipped and each row is matched back to the roster by its WhatsApp number so
         recipients carry the same computed fields (family_id, mumin_id, hof_its, eligible_family_count)
@@ -2535,7 +2538,8 @@ paths:
       summary: Add a question to a section (databank grows during the event)
       description: >-
         Admin/leadership only. Body { section_id, text, type, options?, negative_values?, polarity?,
-        is_general?, collect_comment?, comment_threshold?, required? }. `collect_comment` toggles the
+        is_general?, collect_comment?, comment_threshold?, required?, scored? }. `scored:false` marks
+        an informational/cross-tab question (no 1–5 sentiment). `collect_comment` toggles the
         "why?" box; `comment_threshold` (scale questions) is the rating ≤ which an answer opens it;
         `required` makes the question mandatory on the public form (client + server enforced).
       responses:
@@ -2562,7 +2566,7 @@ paths:
       summary: Edit a databank question
       description: >-
         Admin/leadership only. Updates any of { text, type, options, negative_values, polarity,
-        is_general, collect_comment, comment_threshold, required }. Edits affect FUTURE forms only —
+        is_general, collect_comment, comment_threshold, required, scored }. Edits affect FUTURE forms only —
         existing forms snapshot the question, so already-sent surveys are unchanged.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
@@ -2609,11 +2613,12 @@ paths:
       tags: [admin]
       summary: Create a form and compose its questions
       description: >-
-        Admin/leadership only. Body { title, tags?, sample_size?, question_ids[] } plus EXACTLY ONE
-        target: `group_id` (a saved survey_group) OR `rules` (an inline audience-filter RuleGroup,
-        supporting mixed AND/OR and NOT groups for exclusions like "attending AND NOT rahat"). `tags`
-        are free-form labels to tell same-titled forms apart. Snapshots each question for
-        stability; the custom filter is validated against the field catalog before saving.
+        Admin/leadership only. Body { title, tags?, sample_size?, public_title?, census?, template_phrase?, question_ids[] }
+        plus EXACTLY ONE target: `group_id` (a saved survey_group) OR `rules` (an inline audience-filter
+        RuleGroup, supporting mixed AND/OR and NOT groups for exclusions like "attending AND NOT rahat")
+        OR `sample_plan` (stratified). `census:true` (pair with `rules`, e.g. everyone) sends to the whole
+        eligible audience with no sampling. `tags` are free-form labels to tell same-titled forms apart.
+        Snapshots each question for stability; the custom filter is validated against the field catalog before saving.
       responses:
         "201": { description: "{ form_id, question_count }." }
         "400": { $ref: "#/components/responses/BadRequest" }
@@ -2745,11 +2750,14 @@ paths:
   /api/admin/surveys/forms/{id}/test-batch:
     post:
       tags: [admin]
-      summary: Send a test to manually-selected individuals (in-team testing)
+      summary: Send to manually-selected individuals (test, or real attributed send)
       description: >-
-        Admin/leadership only. Body { its: string[], deliver? }. Creates an is_test recipient per
-        ITS (no exposures, excluded from results) and returns each one's link; deliver:true also
-        sends it to their WhatsApp. Used by the "Test to people" picker.
+        Admin/leadership only. Body { its: string[], deliver?, real? }. Creates a recipient per ITS and
+        returns each one's link; deliver:true also sends it to their WhatsApp. `real:false` (default) →
+        is_test recipient (no exposures, excluded from results) for in-team testing. `real:true` →
+        genuine, attributed recipient COUNTED in analytics — the "send manually, individually" path for
+        forms with no roster-derived audience (e.g. special-care seating feedback). Used by the
+        "Test to people" picker + its "real send" toggle.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -2818,7 +2826,9 @@ paths:
       description: >-
         Admin/leadership only. Body { comments: [{ text, area? }], scope? }. Sends only the comment
         TEXT (no PII) to the LLM (via getAIClient / AI_MODEL) and returns structured analysis:
-        overall_sentiment, sentiment_score_1_5, summary, themes, ranked improvements, positives.
+        overall_sentiment, sentiment_score_1_5, summary, themes, ranked improvements, positives, and
+        per_comment (one "g"|"f"|"n" label per input comment, in order — lets the UI sort free-text
+        comments into Good/Fair/Negative).
       responses:
         "200": { description: "{ analysis, analyzed }." }
         "400": { $ref: "#/components/responses/BadRequest" }

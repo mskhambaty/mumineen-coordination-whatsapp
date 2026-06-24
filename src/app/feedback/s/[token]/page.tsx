@@ -13,12 +13,17 @@ type Question = {
   area: string | null;
   snapshot: {
     text: string;
-    type: "choice" | "scale10" | "scale5" | "yesno" | "text";
+    type: "choice" | "scale10" | "scale5" | "yesno" | "text" | "multichoice";
     options?: { label: string }[] | null;
     negative_values?: string[] | null;
     comment_threshold?: number | null;
     collect_comment?: boolean;
     required?: boolean;
+    // Conditional display: show this question only when answer to `qid` equals `equals`
+    // (e.g. the MUS questions appear only if the "Did you visit Mahal Us Shifa?" gate = "Yes").
+    show_if?: { qid: string; equals: string } | null;
+    // Render a yes/no as a single checkbox (checked = "Yes", off by default) — used for gate prompts.
+    checkbox?: boolean;
   };
 };
 type Section = { section_id: string | null; title: string; questions: Question[] };
@@ -55,8 +60,16 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
     () => (form?.sections ?? []).flatMap((s) => s.questions),
     [form],
   );
-  const answeredCount = allQuestions.filter((q) => (answers[q.question_id ?? ""] ?? "").trim()).length;
-  const progress = allQuestions.length ? Math.round((answeredCount / allQuestions.length) * 100) : 0;
+  // A gated question shows only when its trigger answer matches (e.g. MUS questions when the
+  // "Did you visit Mahal Us Shifa?" gate = "Yes"). Hidden questions don't count toward progress,
+  // required-checks, or the submitted payload.
+  const isVisible = (q: Question) => {
+    const cond = q.snapshot.show_if;
+    return !cond || (answers[cond.qid] ?? "") === cond.equals;
+  };
+  const visibleQuestions = allQuestions.filter(isVisible);
+  const answeredCount = visibleQuestions.filter((q) => (answers[q.question_id ?? ""] ?? "").trim()).length;
+  const progress = visibleQuestions.length ? Math.round((answeredCount / visibleQuestions.length) * 100) : 0;
 
   // Smoothly bring the question after `qid` into view (the auto-advance transition).
   function scrollToNext(qid: string) {
@@ -74,8 +87,9 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
     // Clear a stale reason if the new answer isn't a problem answer.
     if (!isNeg) setReasons((r) => ({ ...r, [qid]: "" }));
     // Free-text fires onChange per keystroke — never collapse/scroll it (would steal focus). Keep
-    // it expanded.
-    if (type === "text") { setExpanded((e) => ({ ...e, [qid]: true })); return; }
+    // it expanded. Multi-select stays open too: one tap is rarely the final answer, so collapsing
+    // after the first checkbox would cut the respondent off mid-selection.
+    if (type === "text" || type === "multichoice" || snap.checkbox) { setExpanded((e) => ({ ...e, [qid]: true })); return; }
     // Negative answers stay expanded so the "why?" box shows (they collapse on the reason's onBlur).
     if (isNeg) { setExpanded((e) => ({ ...e, [qid]: true })); return; }
     // Non-negative: keep the selection visible for a beat, then collapse + auto-scroll — a calmer,
@@ -89,7 +103,7 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
     setError(null);
     // Enforce mandatory questions before sending.
     const firstMissing = allQuestions.find((q) => {
-      if (!q.snapshot.required) return false;
+      if (!q.snapshot.required || !isVisible(q)) return false;
       const qid = q.question_id ?? q.form_question_id;
       return !(answers[qid] ?? "").trim();
     });
@@ -104,6 +118,7 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
     const payload = {
       answers: allQuestions
         .map((q) => {
+          if (!isVisible(q)) return null; // don't submit answers to gated-hidden questions
           const qid = q.question_id ?? "";
           const value = (answers[qid] ?? "").trim();
           if (!value) return null;
@@ -183,8 +198,27 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
             </div>
             <div className="divide-y divide-white/5">
               {section.questions.map((q) => {
+                if (!isVisible(q)) return null; // gated question — hidden until its trigger is met
                 const qid = q.question_id ?? q.form_question_id;
                 const value = answers[qid] ?? "";
+                // Gate prompt: a single checkbox to the LEFT of the question text (off by default).
+                if (q.snapshot.type === "yesno" && q.snapshot.checkbox) {
+                  const checked = value === "Yes";
+                  return (
+                    <div key={q.form_question_id} id={`q-${qid}`} className="scroll-mt-24 px-5 py-4">
+                      <button
+                        type="button"
+                        onClick={() => setAnswer(qid, checked ? "" : "Yes", q.snapshot)}
+                        className={`flex w-full items-center gap-3 text-left text-sm transition ${checked ? "font-medium text-white" : "text-gray-200"}`}
+                      >
+                        <span className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border ${checked ? "border-blue-400 bg-blue-500" : "border-white/40"}`}>
+                          {checked && <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="h-3 w-3 text-white"><path strokeLinecap="round" strokeLinejoin="round" d="M20 6 9 17l-5-5" /></svg>}
+                        </span>
+                        <span>{q.snapshot.text}</span>
+                      </button>
+                    </div>
+                  );
+                }
                 const negVals = q.snapshot.negative_values ?? [];
                 const isNeg = isProblemAnswer(q.snapshot.type, value, negVals, { threshold: q.snapshot.comment_threshold, collectComment: q.snapshot.collect_comment });
                 const reason = reasons[qid] ?? "";
@@ -292,6 +326,58 @@ function QuestionInput({ question, value, onChange }: { question: Question; valu
             {n}
           </button>
         ))}
+      </div>
+    );
+  }
+
+  if (type === "multichoice") {
+    // Multi-select: value is the chosen labels joined by " | " (preserving option order). An "Other"
+    // choice is stored as "Other: <free text>" so the specifics are captured.
+    const opts = options ?? [];
+    const tokens = value ? value.split(" | ") : [];
+    const isOtherTok = (t: string) => t === "Other" || t.startsWith("Other:");
+    const selected = new Set(tokens.map((t) => (isOtherTok(t) ? "Other" : t)));
+    const otherTok = tokens.find(isOtherTok);
+    const otherText = otherTok && otherTok.startsWith("Other:") ? otherTok.slice(6).trim() : "";
+    const build = (sel: Set<string>, otherTxt: string) =>
+      opts
+        .filter((o) => sel.has(o.label))
+        .map((o) => (o.label === "Other" ? (otherTxt.trim() ? `Other: ${otherTxt.trim()}` : "Other") : o.label))
+        .join(" | ");
+    const toggle = (label: string) => {
+      const next = new Set(selected);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      onChange(build(next, otherText));
+    };
+    const setOther = (txt: string) => { const next = new Set(selected); next.add("Other"); onChange(build(next, txt)); };
+    return (
+      <div className="flex flex-col gap-2">
+        {opts.map((opt) => {
+          const on = selected.has(opt.label);
+          return (
+            <div key={opt.label}>
+              <button
+                type="button"
+                onClick={() => toggle(opt.label)}
+                className={`flex w-full items-center gap-3 rounded-xl border px-4 py-2.5 text-left text-sm transition ${on ? "border-blue-500 bg-blue-600/15 font-medium text-white" : "border-white/10 bg-white/5 text-gray-200 hover:border-white/30"}`}
+              >
+                <span className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border ${on ? "border-blue-400 bg-blue-500" : "border-white/30"}`}>
+                  {on && <span className="h-2 w-2 rounded-[1px] bg-white" />}
+                </span>
+                {opt.label}
+              </button>
+              {opt.label === "Other" && on && (
+                <input
+                  value={otherText}
+                  onChange={(e) => setOther(e.target.value)}
+                  placeholder="Please specify…"
+                  className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
     );
   }
