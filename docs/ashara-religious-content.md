@@ -95,6 +95,17 @@ answer from the wrong year):**
   about a person/place/term is forced through `answer_religious_questions` (and the no-tool guard
   backstops it), so the bot answers only from the indexed reflections — never from the model's own
   knowledge. Eval: "who was Abu Sufyan" had been answered from general knowledge with no tool call.
+- **Deterministic search for religious questions (A):** an interrogative question about a religious
+  subject — "how/why/what/when/where/who … did …" carrying a content keyword (`hasReligiousSignal`)
+  **or** an Islamic honorific (AS / SAW / RA / TUS / QR, matched case-sensitively) — is also forced
+  through `answer_religious_questions` (`looksLikeReligiousQuestion`, excluding logistics/RSVP/social).
+  Before this, "how/why did …" questions matched no force rule, so the model decided per-call under
+  `tool_choice "auto"` and the **same** question answered once then returned `NOT_FOUND_REPLY` the next
+  time (it had silently skipped the search — no tool-audit row). Forcing can't fabricate (the tool
+  still answers only from indexed content); it just makes a given question behave the same way every
+  time. Eval: "How did Imam Hasan AS reunite the couple…" / "Why did Maulana Ali AS stop at Siffin?".
+  *Limitation:* a religious question with no keyword and no honorific (e.g. "how did an ironsmith hold
+  scorching iron") can't be detected lexically and stays on `"auto"`.
 - **Subject fidelity / no false premise (H2):** the answer-grounding instruction requires the reply to
   be about EXACTLY the person/term asked. If it isn't in the retrieved passages, the bot says the
   reflection doesn't mention it rather than answering about a different figure or validating an

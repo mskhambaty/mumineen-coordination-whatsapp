@@ -21,6 +21,7 @@ import {
   isClearlySocial,
   hasReligiousSignal,
   looksLikeFactualLookup,
+  looksLikeReligiousQuestion,
   looksLikeOwnRsvpIntent,
   yearLabelMismatch,
 } from "@/lib/agent/religious-guard";
@@ -599,17 +600,22 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     });
   }
 
-  // F0 + H1: force the religious tool when the message either concretely references religious content
-  // (a specific majlis / overview) OR is a factual "who/what was X" lookup about a person/term (e.g.
-  // "who was Abu Sufyan"). The latter closes the hole where the model answered such questions from its
-  // OWN general knowledge (no tool call) — the religious bot must answer only from indexed reflections.
-  // Never forced for own-RSVP, clearly-social, or logistics messages (handled by their own tools).
+  // F0 + H1 + A: force the religious tool when the message either concretely references religious
+  // content (a specific majlis / overview), is a factual "who/what was X" lookup about a person/term
+  // ("who was Abu Sufyan"), OR is any interrogative question about a religious subject ("how did Imam
+  // Hasan AS reunite the couple", "why did Maulana Ali AS stop at Siffin"). The last case removes a
+  // non-determinism bug: these "how/why did …" questions matched none of the force rules, so the model
+  // chose case-by-case under tool_choice "auto" — the SAME question answered once, then returned the
+  // religious "not found" the next time because it had silently skipped the search. Forcing the search
+  // can't fabricate (the tool still answers only from indexed content); it just makes a given question
+  // behave the same way every time. Never forced for own-RSVP, clearly-social, or logistics messages.
   const isReligiousContentRef = parseMajlisRef(input.message) != null || isOverviewQuery(input.message);
   const isFactualLookup = looksLikeFactualLookup(input.message) && !looksLogistics(input.message);
+  const isReligiousQuestion = looksLikeReligiousQuestion(input.message) && !looksLogistics(input.message);
   const forceReligiousTool =
     !looksLikeOwnRsvpIntent(input.message) &&
     !isClearlySocial(input.message) &&
-    (isReligiousContentRef || isFactualLookup);
+    (isReligiousContentRef || isFactualLookup || isReligiousQuestion);
 
   const firstResponse = await client.chat.completions.create({
     ...chatParams(AI_MODEL, { maxTokens: MAX_AGENT_TOKENS, temperature: AGENT_TEMPERATURE }),
