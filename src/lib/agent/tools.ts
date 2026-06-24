@@ -856,8 +856,10 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       const cats = decoration ? ["tazyeen", "faq"] : ["reflection", "al_dars", "overview", "faq"];
       const targetYear = yr.year ?? defaultYear;
       // F3: prefer the curated Q&A (faq) chunk — a vetted answer the weak model narrates verbatim —
-      // over raw reflection prose when both match, for consistent replies.
-      const ctx = await retrieveReligiousContext(query, 5, cats, targetYear, RELIGIOUS_FALLBACK_MIN_SCORE, "faq");
+      // over raw reflection prose when both match, for consistent replies. topK=8 (not 5): the faq
+      // promotion was crowding the source reflection chunk out of a top-5 window, so a paraphrased
+      // question whose vetted card ranked low returned "not found" even though the story was indexed.
+      const ctx = await retrieveReligiousContext(query, 8, cats, targetYear, RELIGIOUS_FALLBACK_MIN_SCORE, "faq");
       if (ctx) {
         const year = targetYear ?? yearFromContext(ctx);
         // F2: derive the leading chunk's majlis+year so the follow-up only offers the al-Dars
