@@ -644,6 +644,14 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     if (looksLikeFactualLookup(input.message) && !looksLogistics(input.message)) {
       return appendOnCallSuggestion(NOT_FOUND_REPLY, history, { force: true });
     }
+    // FABRICATED-CITATION backstop: with NO tool call there is no retrieved source, so the reply must
+    // never carry a Waaz citation. If the model invented one anyway ("Majlis 8", "Source: Reflections
+    // …", a blogs.jameasaifiyah.edu link, "al-Dars"), it fabricated the whole answer — refuse it. This
+    // catches keyword gaps the signal list misses (eval: "what happened when a man gave only Allah as
+    // his guarantor for a camel" was answered from memory with a fake "Source: …, Majlis 8" line).
+    if (/\bmajlis\s*\d+\b|source:\s*reflections|al[\s-]?dars|blogs\.jameasaifiyah\.edu|reflections\s+[—–-]\s+ashara/i.test(content)) {
+      return appendOnCallSuggestion(NOT_FOUND_REPLY, history, { force: true });
+    }
     return content;
   }
 

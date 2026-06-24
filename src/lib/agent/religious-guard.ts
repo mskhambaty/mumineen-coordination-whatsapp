@@ -162,8 +162,14 @@ export function isAffirmative(message: string): boolean {
 // NOTE: "ashara" (the event name) is intentionally NOT a religious signal — it appears in
 // almost every logistics question (e.g. "my Ashara raza got transferred"), so it was wrongly
 // routing registration/account questions to the religious-only path. Keep "aashura" (the day).
+// "allah" is matched as a whole word, so it never fires inside inshallah / mashallah / alhamdolillah
+// (no word boundary there); those bare blessings are already handled by isClearlySocial first. Core
+// figures/terms (allah, rasul, nabi, sahaba, ghulam, sadaqa) were missing, so a clearly-religious
+// question that used none of the other keywords (e.g. "what happened when a man gave only Allah as his
+// guarantor for a camel") carried NO signal — it bypassed the force-tool rule AND the no-tool refusal,
+// and the model answered from memory with a fabricated Majlis source.
 const RELIGIOUS_SIGNAL_RE =
-  /\b(waaz|wa'?az|bayan|sermon|majlis|majalis|aashura|muharram|moharram|tazyeen|reflection|iqtibas|al[\s-]?dars|duroos|lisan|imam|husain|hussain|hasan|fatema|fatima|karbala|shahadat|shahaadat|maula|aqa|dai|du'?aat|nas|mansoos|deen|namaz|namaaz|roza|matam|maatam|ziyarat|sajda|quran|qur'?an|hadith|ayat|surah|aqaid|shariat|tariqat|haqiqat)\b/i;
+  /\b(waaz|wa'?az|bayan|sermon|majlis|majalis|aashura|muharram|moharram|tazyeen|reflection|iqtibas|al[\s-]?dars|duroos|lisan|allah|rasul|rasool|nabi|sahaba|sahabi|ghulam|sadaqa|sadqa|imam|husain|hussain|hasan|fatema|fatima|karbala|shahadat|shahaadat|maula|aqa|dai|du'?aat|nas|mansoos|deen|namaz|namaaz|roza|matam|maatam|ziyarat|sajda|quran|qur'?an|hadith|ayat|surah|aqaid|shariat|tariqat|haqiqat)\b/i;
 
 export function hasReligiousSignal(message: string): boolean {
   if (RELIGIOUS_SIGNAL_RE.test(message)) return true;

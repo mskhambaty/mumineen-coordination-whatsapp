@@ -106,6 +106,15 @@ answer from the wrong year):**
   time. Eval: "How did Imam Hasan AS reunite the couple…" / "Why did Maulana Ali AS stop at Siffin?".
   *Limitation:* a religious question with no keyword and no honorific (e.g. "how did an ironsmith hold
   scorching iron") can't be detected lexically and stays on `"auto"`.
+- **Signal list + fabricated-citation backstop:** core figures/terms (`allah`, `rasul`, `nabi`,
+  `sahaba`, `ghulam`, `sadaqa`) were **missing** from `RELIGIOUS_SIGNAL_RE`, so a clearly-religious
+  question that used none of the other keywords (eval: *"what happened when a man gave only Allah as
+  his guarantor for a camel"*) carried no signal — it bypassed the force-tool rule **and** the no-tool
+  refusal, and the model answered from memory with a **fabricated `Source: … Majlis 8`** line (the real
+  story is Majlis 7). Added those terms (`allah` is whole-word, so it never fires inside
+  inshallah/mashallah). Belt-and-suspenders: the no-tool guard now also refuses any reply that carries
+  a Waaz citation (`Majlis N` / `Source: Reflections` / a blogs.jameasaifiyah.edu link / `al-Dars`) —
+  with no tool call there is no retrieved source, so such a citation is necessarily invented.
 - **Subject fidelity / no false premise (H2):** the answer-grounding instruction requires the reply to
   be about EXACTLY the person/term asked. If it isn't in the retrieved passages, the bot says the
   reflection doesn't mention it rather than answering about a different figure or validating an

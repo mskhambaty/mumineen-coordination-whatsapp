@@ -56,6 +56,7 @@ describe("looksLikeReligiousQuestion (force the search for how/why-did religious
       // The two queries that answered once then returned "not found" the next time (tool not forced):
       "How did Imam Hasan AS reunite the very couple Muʿawiya had schemed to tear apart?",
       "Why did Amirul Mumineen AS (Maulana Ali AS) stop in the middle of the Battle of Siffin?",
+      'What happened when a man gave only "Allah" as his guarantor for a camel?',
       "what did Syedna TUS say about business",
       "explain the topic of majlis 8",
       "tell me about karbala",
@@ -182,6 +183,22 @@ describe("hasReligiousSignal", () => {
   it("catches deen questions (incl. the 53rd-dai / nas cases)", () => {
     for (const m of ["Who is the 53rd dai?", "when did the nas happen", "tell me about majlis 7", "what did Maula say", "reflection on karbala"]) {
       expect(hasReligiousSignal(m), m).toBe(true);
+    }
+  });
+  it("catches core figures/terms that were missing (allah, rasul, nabi, sahaba, ghulam, sadaqa)", () => {
+    for (const m of [
+      // The exact eval miss: a fabricated camel-guarantor answer with a fake Majlis 8 source.
+      'What happened when a man gave only "Allah" as his guarantor for a camel?',
+      "what did Rasul Allah SAW say",
+      "tell me about the ghulam of Bani Riyah",
+      "what is the reward of sadaqa",
+    ]) {
+      expect(hasReligiousSignal(m), m).toBe(true);
+    }
+  });
+  it("does NOT fire on inshallah / mashallah / alhamdolillah (no word boundary before 'allah')", () => {
+    for (const m of ["inshallah I will come", "mashallah great nizam", "alhamdolillah done"]) {
+      expect(hasReligiousSignal(m), m).toBe(false);
     }
   });
   it("leaves logistics / generic messages alone", () => {
