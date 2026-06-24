@@ -201,6 +201,24 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
                 if (!isVisible(q)) return null; // gated question — hidden until its trigger is met
                 const qid = q.question_id ?? q.form_question_id;
                 const value = answers[qid] ?? "";
+                // Gate prompt: a single checkbox to the LEFT of the question text (off by default).
+                if (q.snapshot.type === "yesno" && q.snapshot.checkbox) {
+                  const checked = value === "Yes";
+                  return (
+                    <div key={q.form_question_id} id={`q-${qid}`} className="scroll-mt-24 px-5 py-4">
+                      <button
+                        type="button"
+                        onClick={() => setAnswer(qid, checked ? "" : "Yes", q.snapshot)}
+                        className={`flex w-full items-center gap-3 text-left text-sm transition ${checked ? "font-medium text-white" : "text-gray-200"}`}
+                      >
+                        <span className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border ${checked ? "border-blue-400 bg-blue-500" : "border-white/40"}`}>
+                          {checked && <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="h-3 w-3 text-white"><path strokeLinecap="round" strokeLinejoin="round" d="M20 6 9 17l-5-5" /></svg>}
+                        </span>
+                        <span>{q.snapshot.text}</span>
+                      </button>
+                    </div>
+                  );
+                }
                 const negVals = q.snapshot.negative_values ?? [];
                 const isNeg = isProblemAnswer(q.snapshot.type, value, negVals, { threshold: q.snapshot.comment_threshold, collectComment: q.snapshot.collect_comment });
                 const reason = reasons[qid] ?? "";
@@ -279,23 +297,6 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
 
 function QuestionInput({ question, value, onChange }: { question: Question; value: string; onChange: (v: string) => void }) {
   const { type, options } = question.snapshot;
-
-  // Gate prompts: a single checkbox (off by default). Checked → "Yes" (reveals the gated section).
-  if (type === "yesno" && question.snapshot.checkbox) {
-    const checked = value === "Yes";
-    return (
-      <button
-        type="button"
-        onClick={() => onChange(checked ? "" : "Yes")}
-        className={`flex w-full items-center gap-3 rounded-xl border px-4 py-2.5 text-left text-sm transition ${checked ? "border-blue-500 bg-blue-600/15 font-medium text-white" : "border-white/10 bg-white/5 text-gray-200 hover:border-white/30"}`}
-      >
-        <span className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border ${checked ? "border-blue-400 bg-blue-500" : "border-white/30"}`}>
-          {checked && <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="h-3 w-3 text-white"><path strokeLinecap="round" strokeLinejoin="round" d="M20 6 9 17l-5-5" /></svg>}
-        </span>
-        {checked ? "Yes" : "Check if yes"}
-      </button>
-    );
-  }
 
   if (type === "text") {
     return (
