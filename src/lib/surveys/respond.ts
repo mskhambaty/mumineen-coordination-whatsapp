@@ -16,6 +16,8 @@ export type QuestionSnapshot = {
   collect_comment?: boolean;
   required?: boolean;
   scored?: boolean;
+  // Conditional display (public form only): show this question when answer to `qid` equals `equals`.
+  show_if?: { qid: string; equals: string } | null;
   section_title?: string | null;
 };
 

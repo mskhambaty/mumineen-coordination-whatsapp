@@ -74,6 +74,12 @@ answer), and an **"Other"** choice prompts for free text, stored as `"Other: <te
 from averages, never counted as negative or as a "problem" (no comment box / routing). Section
 sentiment = mean of its scored answers.
 
+**Conditional (gated) questions:** a composed question's snapshot can carry **`show_if: { qid, equals }`**
+— the public form shows it only when the answer to question `qid` equals `equals`. Used for checkbox
+gates: e.g. a yes/no "Did you visit Mahal Us Shifa?" with the MUS questions set to `show_if {that qid,
+"Yes"}`, so they appear only when ticked. Hidden questions don't count toward progress, required-checks,
+or the submitted payload. The gate's own yes/no IS recorded, so visit/attend rates are captured.
+
 A question can also be marked **`scored: false`** (databank column + snapshot) — `answerSentiment`
 returns `null` regardless of the answer. Use it for **informational / cross-tab dimensions** that
 aren't satisfaction ratings, e.g. *"Where were you sitting during waaz?"* (its options carry seat-quality

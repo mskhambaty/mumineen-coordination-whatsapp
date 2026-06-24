@@ -19,6 +19,9 @@ type Question = {
     comment_threshold?: number | null;
     collect_comment?: boolean;
     required?: boolean;
+    // Conditional display: show this question only when answer to `qid` equals `equals`
+    // (e.g. the MUS questions appear only if the "Did you visit Mahal Us Shifa?" gate = "Yes").
+    show_if?: { qid: string; equals: string } | null;
   };
 };
 type Section = { section_id: string | null; title: string; questions: Question[] };
@@ -55,8 +58,16 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
     () => (form?.sections ?? []).flatMap((s) => s.questions),
     [form],
   );
-  const answeredCount = allQuestions.filter((q) => (answers[q.question_id ?? ""] ?? "").trim()).length;
-  const progress = allQuestions.length ? Math.round((answeredCount / allQuestions.length) * 100) : 0;
+  // A gated question shows only when its trigger answer matches (e.g. MUS questions when the
+  // "Did you visit Mahal Us Shifa?" gate = "Yes"). Hidden questions don't count toward progress,
+  // required-checks, or the submitted payload.
+  const isVisible = (q: Question) => {
+    const cond = q.snapshot.show_if;
+    return !cond || (answers[cond.qid] ?? "") === cond.equals;
+  };
+  const visibleQuestions = allQuestions.filter(isVisible);
+  const answeredCount = visibleQuestions.filter((q) => (answers[q.question_id ?? ""] ?? "").trim()).length;
+  const progress = visibleQuestions.length ? Math.round((answeredCount / visibleQuestions.length) * 100) : 0;
 
   // Smoothly bring the question after `qid` into view (the auto-advance transition).
   function scrollToNext(qid: string) {
@@ -90,7 +101,7 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
     setError(null);
     // Enforce mandatory questions before sending.
     const firstMissing = allQuestions.find((q) => {
-      if (!q.snapshot.required) return false;
+      if (!q.snapshot.required || !isVisible(q)) return false;
       const qid = q.question_id ?? q.form_question_id;
       return !(answers[qid] ?? "").trim();
     });
@@ -105,6 +116,7 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
     const payload = {
       answers: allQuestions
         .map((q) => {
+          if (!isVisible(q)) return null; // don't submit answers to gated-hidden questions
           const qid = q.question_id ?? "";
           const value = (answers[qid] ?? "").trim();
           if (!value) return null;
@@ -184,6 +196,7 @@ export default function SurveyFormPage({ params }: { params: Promise<{ token: st
             </div>
             <div className="divide-y divide-white/5">
               {section.questions.map((q) => {
+                if (!isVisible(q)) return null; // gated question — hidden until its trigger is met
                 const qid = q.question_id ?? q.form_question_id;
                 const value = answers[qid] ?? "";
                 const negVals = q.snapshot.negative_values ?? [];
