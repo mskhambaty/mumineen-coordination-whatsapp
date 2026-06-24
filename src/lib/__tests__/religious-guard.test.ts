@@ -12,6 +12,7 @@ import {
   isClearlySocial,
   hasReligiousSignal,
   looksLikeFactualLookup,
+  looksLikeReligiousQuestion,
   looksLikeOwnRsvpIntent,
   isAffirmative,
   isDidYouMeanFollowUp,
@@ -46,6 +47,33 @@ describe("looksLikeFactualLookup", () => {
     ]) {
       expect(looksLikeFactualLookup(q), q).toBe(false);
     }
+  });
+});
+
+describe("looksLikeReligiousQuestion (force the search for how/why-did religious questions)", () => {
+  it("matches interrogative questions about a religious subject — incl. the exact flickering cases", () => {
+    for (const q of [
+      // The two queries that answered once then returned "not found" the next time (tool not forced):
+      "How did Imam Hasan AS reunite the very couple Muʿawiya had schemed to tear apart?",
+      "Why did Amirul Mumineen AS (Maulana Ali AS) stop in the middle of the Battle of Siffin?",
+      "what did Syedna TUS say about business",
+      "explain the topic of majlis 8",
+      "tell me about karbala",
+    ]) {
+      expect(looksLikeReligiousQuestion(q), q).toBe(true);
+    }
+  });
+
+  it("requires BOTH an interrogative AND a religious subject (keyword or honorific)", () => {
+    // Honorific 'AS' is matched case-sensitively, so the English word "as" must not trigger it.
+    expect(looksLikeReligiousQuestion("how was your day as a teacher")).toBe(false); // no signal, "as" != AS
+    expect(looksLikeReligiousQuestion("Imam Husain AS")).toBe(false); // religious, but not a question
+    expect(looksLikeReligiousQuestion("how do I get my pass")).toBe(false); // interrogative, not religious
+    expect(looksLikeReligiousQuestion("where is parking")).toBe(false); // interrogative, not religious
+    // Known limitation: a religious question with NO keyword and NO honorific (e.g. "how did an
+    // ironsmith hold scorching iron") can't be detected lexically, so it stays on tool_choice "auto".
+    // Forcing on EVERY interrogative would risk hijacking mis-detected logistics/RSVP questions.
+    expect(looksLikeReligiousQuestion("How did an ironsmith come to hold scorching iron")).toBe(false);
   });
 });
 

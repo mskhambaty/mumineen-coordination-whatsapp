@@ -186,6 +186,22 @@ export function looksLikeFactualLookup(message: string): boolean {
   );
 }
 
+// An interrogative question about a religious subject — "how/why/what/when/where did Imam Hasan AS …",
+// "tell me about …", "explain …". Used to FORCE the religious tool so the search always runs (the
+// model otherwise decided case-by-case under tool_choice "auto", so the SAME question answered once
+// then returned "not found" the next time — it had simply skipped the search). `looksLikeFactualLookup`
+// only covered "who/what was X"; this also covers "how/why did X …", which is how members actually ask.
+// Religious subject is detected by either a content keyword (hasReligiousSignal) OR an Islamic honorific
+// (AS / SAW / RA / TUS / QR, matched case-sensitively so the English word "as" never triggers it) — the
+// latter recognises name-only questions like "why did Maulana Ali AS stop at Siffin" that carry no
+// keyword. The caller still excludes logistics / own-RSVP / social messages.
+const INTERROGATIVE_RE = /\b(how|why|who|whose|whats?|what'?s|when|where|which|did|does|tell me about|explain|describe)\b/i;
+const HONORIFIC_RE = /\b(AS|SAW|SA|RA|TUS|QR|AQ)\b/; // case-sensitive: Islamic honorifics (not "as")
+export function looksLikeReligiousQuestion(message: string): boolean {
+  if (!INTERROGATIVE_RE.test(message)) return false;
+  return hasReligiousSignal(message) || HONORIFIC_RE.test(message);
+}
+
 // ─── Own-attendance / meal-RSVP intent (A1 routing guard) ────────────────────────────────────
 // A possessive/attendance question — even when it names a Moharram day (each day is BOTH a jaman
 // event and a majlis) — is a meal-RSVP question, NOT religious content. Used to (a) steer the model
