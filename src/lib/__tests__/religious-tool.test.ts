@@ -239,6 +239,8 @@ describe("RELIGIOUS_GUIDANCE_RULE", () => {
     expect(RELIGIOUS_GUIDANCE_RULE).toContain("Iqtibasaat");
     expect(RELIGIOUS_GUIDANCE_RULE).toContain("verbatim");
     expect(RELIGIOUS_GUIDANCE_RULE.toLowerCase()).toContain("fatwa");
+    // No bespoke life/business coaching — answer only what the reflection says, else hand off.
+    expect(RELIGIOUS_GUIDANCE_RULE.toLowerCase()).toContain("no personal advice or coaching");
   });
 
   it("routes Tazyeen/decoration questions to the religious tool and guards Lisan word precision", () => {

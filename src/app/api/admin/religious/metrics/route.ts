@@ -45,19 +45,9 @@ export async function GET(req: NextRequest) {
 
   const supabase = getSupabaseAdmin();
 
-  let auditQuery = supabase
-    .from("tool_audit_logs")
-    .select("tool_name, arguments, result_summary, phone_e164, created_at")
-    .in("tool_name", [...RELIGIOUS_TOOL_NAMES])
-    .gte("created_at", fromIso)
-    .order("created_at", { ascending: false })
-    .limit(5000);
-  if (toIso) auditQuery = auditQuery.lte("created_at", toIso);
-
   // Ruling flags are date-scoped to the same window so pre-event TEST flags don't inflate the count
   // (e.g. "Since Ashara" excludes the ~47 testing-mode flags) — no rows are deleted.
-  const [{ data: audit, error }, openReq, rulingFlags] = await Promise.all([
-    auditQuery,
+  const [openReq, rulingFlags] = await Promise.all([
     supabase.from("lisan_word_requests").select("id", { count: "exact", head: true }).eq("status", "open"),
     supabase
       .from("religious_ruling_flags")
@@ -66,15 +56,36 @@ export async function GET(req: NextRequest) {
       .gte("created_at", fromIso),
   ]);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  const rows = (audit ?? []) as {
+  type AuditRow = {
     tool_name: string;
     arguments: { word?: unknown; query?: unknown } | null;
     result_summary: string | null;
     phone_e164: string | null;
     created_at: string;
-  }[];
+  };
+
+  // Paginate the audit read. PostgREST caps any single response at ~1000 rows regardless of the
+  // requested .limit(), so a plain query silently truncated every aggregate (total_calls froze at
+  // exactly 1000 once the window held >1000 religious calls). Page through with .range() until a
+  // short page, accumulating, so the counts reflect ALL rows in the window.
+  const PAGE_SIZE = 1000;
+  const MAX_PAGES = 25; // safety backstop: up to 25k rows in one window
+  const rows: AuditRow[] = [];
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    let auditQuery = supabase
+      .from("tool_audit_logs")
+      .select("tool_name, arguments, result_summary, phone_e164, created_at")
+      .in("tool_name", [...RELIGIOUS_TOOL_NAMES])
+      .gte("created_at", fromIso)
+      .order("created_at", { ascending: false })
+      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+    if (toIso) auditQuery = auditQuery.lte("created_at", toIso);
+    const { data, error } = await auditQuery;
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const batch = (data ?? []) as AuditRow[];
+    rows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+  }
 
   const members = new Set<string>();
   let waaz = 0;
