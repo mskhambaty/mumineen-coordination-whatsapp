@@ -129,12 +129,21 @@ export async function commitAndSendForm(formId: string, templateCodeOverride?: s
   // "Manual links only" mode. Don't re-sample (that would exclude these as "already today" and find
   // ~nobody); instead dispatch THIS existing batch as-is. Picking a template now finishes the send.
   if (f.status === "sampled") {
-    const { data: existing } = await supabase
-      .from("survey_recipients")
-      .select("id, mumin_id, phone_e164, token, is_test")
-      .eq("form_id", formId)
-      .eq("status", "sampled");
-    const rows = ((existing ?? []) as { id: string; mumin_id: string; phone_e164: string; token: string; is_test: boolean }[]).filter((r) => !r.is_test);
+    // Paginate — a single PostgREST read caps at 1000 rows. A large committed batch (e.g. a 1400-person
+    // census) would otherwise be silently truncated to the first 1000, leaving the rest never sent.
+    const existing: { id: string; mumin_id: string; phone_e164: string; token: string; is_test: boolean }[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabase
+        .from("survey_recipients")
+        .select("id, mumin_id, phone_e164, token, is_test")
+        .eq("form_id", formId)
+        .eq("status", "sampled")
+        .range(from, from + 999);
+      if (error) break;
+      existing.push(...((data ?? []) as typeof existing));
+      if (!data || data.length < 1000) break;
+    }
+    const rows = existing.filter((r) => !r.is_test);
     if (rows.length > 0) {
       const ids = Array.from(new Set(rows.map((r) => r.mumin_id)));
       const nameById = new Map<string, string | null>();
