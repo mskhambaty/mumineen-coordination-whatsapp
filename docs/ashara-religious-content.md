@@ -115,6 +115,17 @@ answer from the wrong year):**
   inshallah/mashallah). Belt-and-suspenders: the no-tool guard now also refuses any reply that carries
   a Waaz citation (`Majlis N` / `Source: Reflections` / a blogs.jameasaifiyah.edu link / `al-Dars`) —
   with no tool call there is no retrieved source, so such a citation is necessarily invented.
+- **No personal advice / coaching:** `RELIGIOUS_GUIDANCE_RULE` forbids the bot from turning a member's
+  own situation (their business, a hardship, a decision) into a personalised action plan or
+  step-by-step life/business advice — even "grounded in" a reflection. It answers only what the
+  reflection states (with Source), then points to raabta with the aamil saheb / on-call Istibsaar or
+  hands off via `move_to_escalation`. Eval: a member described their cacao/honey business and the bot
+  produced a bespoke "here's how Majlis 7 helps you… 1. Re-center on niyyat…" plan. (Prompt change —
+  A/B-validate.) The no-tool fabricated-citation backstop catches the no-search variants.
+- **Dashboard metrics pagination:** the religious metrics route (`/api/admin/religious/metrics`) now
+  pages the `tool_audit_logs` read with `.range()` instead of a single `.limit()`. PostgREST caps any
+  one response at ~1000 rows, so the dashboard's TOOL CALLS / Waaz QS / Word Meanings / Mumineen counts
+  silently froze at exactly 1000 once a window exceeded it; pagination restores accurate totals.
 - **Subject fidelity / no false premise (H2):** the answer-grounding instruction requires the reply to
   be about EXACTLY the person/term asked. If it isn't in the retrieved passages, the bot says the
   reflection doesn't mention it rather than answering about a different figure or validating an
