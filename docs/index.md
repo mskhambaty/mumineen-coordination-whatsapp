@@ -148,7 +148,7 @@ src/app/api/admin/templates/drain/route.ts  — Manual "Send pending" — bounde
 src/app/api/admin/templates/broadcasts/[id]/failures/route.ts — Per-recipient broadcast failure list (JSON/CSV, admin/leadership)
 src/app/api/admin/templates/broadcasts/[id]/recipients/route.ts — Full broadcast recipient list, every status (JSON/CSV, admin/leadership)
 src/lib/digest/run.ts                    — Nightly department digest: aggregate→AI→store→distribute
-src/app/api/cron/department-digest/route.ts — Nightly department digest cron (03:00 UTC (10pm Chicago, CDT))
+src/app/api/cron/department-digest/route.ts — Department digest runner endpoint (manual/admin trigger; cron schedule currently paused)
 src/app/api/cron/broadcast-drain/route.ts   — Template broadcast drain cron (every minute)
 src/app/api/cron/escalation-grouping/route.ts — Trigger B cron (hourly): cluster ungrouped escalations → promote shared issues (clusterUngroupedEscalations)
 src/app/webinars/page.tsx                — Public webinars page: ITS gate + video card grid + modal player
