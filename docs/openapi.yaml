@@ -3303,7 +3303,7 @@ paths:
   /api/cron/department-digest:
     get:
       tags: [cron]
-      summary: Nightly department digest (03:00 UTC (10pm Chicago, CDT))
+      summary: Department digest runner (manual/admin trigger)
       description: Aggregate→AI briefing→store→distribute (email + free in-window WhatsApp). Auth via CRON_SECRET bearer or admin key. Optional ?date= override.
       responses:
         "200": { description: Run result. }

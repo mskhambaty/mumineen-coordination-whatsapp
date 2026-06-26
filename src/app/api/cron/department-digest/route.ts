@@ -8,10 +8,8 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-// Nightly department digest. Scheduled at 03:00 UTC (see vercel.json) = 10pm America/Chicago during
-// the event (CDT, UTC-5) — Vercel crons are UTC-only and do not follow DST, so this is fixed to the
-// event window; outside CDT it would land at 9pm Chicago. Committees get the recap with evening lead
-// time to adjust. Aggregates the day's feedback/issues/escalations + next-day
+// Department digest runner endpoint (manual/admin trigger by default; cron can be re-enabled in
+// vercel.json when needed). Aggregates the day's feedback/issues/escalations + next-day
 // meal totals, generates per-department + all-up AI briefings, stores them, and distributes by
 // email + free in-window WhatsApp. Auth: CRON_SECRET bearer or the admin key (manual run).
 // Runs at most ONCE per Chicago day (skips if that day's summaries already exist) so a schedule

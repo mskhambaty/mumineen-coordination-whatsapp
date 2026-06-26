@@ -45,8 +45,8 @@ Task list routes accept `priority=low|medium|high|all`. By default archived task
 
 ### Ticket Visibility in Nightly Digest
 
-Open ticket counts and top titles are included in the nightly department digest
-(`/api/cron/department-digest`, 10pm Chicago). Each department's AI briefing
+Open ticket counts and top titles are included in the department digest
+(`/api/cron/department-digest`, manual trigger while nightly cron is paused). Each department's AI briefing
 mentions its open tickets, and the all-up summary shows the total across departments.
 See [meal-rsvp-feedback-digest.md](./meal-rsvp-feedback-digest.md) §3 for details.
 
