@@ -1,16 +1,19 @@
 import { NextResponse } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ requirePortalCaller: vi.fn(), getLeaderboard: vi.fn(), createQuizRecipient: vi.fn() }));
+const mocks = vi.hoisted(() => ({ requirePortalCaller: vi.fn(), getLeaderboard: vi.fn(), createQuizRecipient: vi.fn(), getQuizShare: vi.fn(), setQuizOpen: vi.fn() }));
 
 vi.mock("@/lib/api/portal-auth", () => ({ requirePortalCaller: (...a: unknown[]) => mocks.requirePortalCaller(...a) }));
 vi.mock("@/lib/quiz/service", () => ({
   getLeaderboard: (...a: unknown[]) => mocks.getLeaderboard(...a),
   createQuizRecipient: (...a: unknown[]) => mocks.createQuizRecipient(...a),
+  getQuizShare: (...a: unknown[]) => mocks.getQuizShare(...a),
+  setQuizOpen: (...a: unknown[]) => mocks.setQuizOpen(...a),
 }));
 
 import { GET } from "@/app/api/admin/quiz/results/route";
 import { POST as testLinkPOST } from "@/app/api/admin/quiz/test-link/route";
+import { GET as shareGET, POST as sharePOST } from "@/app/api/admin/quiz/share/route";
 
 const req = (body?: unknown) =>
   ({ json: async () => body ?? {} }) as unknown as Parameters<typeof GET>[0];
@@ -52,5 +55,30 @@ describe("POST /api/admin/quiz/test-link", () => {
     const res = await testLinkPOST(req());
     expect(res.status).toBe(403);
     expect(mocks.createQuizRecipient).not.toHaveBeenCalled();
+  });
+});
+
+describe("admin quiz share route", () => {
+  it("returns the shared link for an authorized caller", async () => {
+    mocks.getQuizShare.mockResolvedValue({ share_token: "ashara-1448h-quiz", is_open: true, link: "https://x/quiz/ashara-1448h-quiz" });
+    const res = await shareGET(req());
+    expect(res.status).toBe(200);
+    expect((await res.json()).link).toContain("/quiz/");
+  });
+
+  it("toggles open state for an authorized caller", async () => {
+    mocks.setQuizOpen.mockResolvedValue(undefined);
+    mocks.getQuizShare.mockResolvedValue({ share_token: "ashara-1448h-quiz", is_open: false, link: "https://x/quiz/ashara-1448h-quiz" });
+    const res = await sharePOST(req({ is_open: false }));
+    expect(res.status).toBe(200);
+    expect(mocks.setQuizOpen).toHaveBeenCalledWith(false);
+    expect((await res.json()).is_open).toBe(false);
+  });
+
+  it("denies an unauthorized caller (no toggle)", async () => {
+    mocks.requirePortalCaller.mockResolvedValue(NextResponse.json({ error: "Forbidden" }, { status: 403 }));
+    const res = await sharePOST(req({ is_open: false }));
+    expect(res.status).toBe(403);
+    expect(mocks.setQuizOpen).not.toHaveBeenCalled();
   });
 });
