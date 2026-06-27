@@ -116,12 +116,15 @@ function SlideToStart({ onComplete, disabled }: { onComplete: () => void; disabl
   const trackRef = useRef<HTMLDivElement>(null);
   const xRef = useRef(0);
   const [x, setX] = useState(0);
+  const [progress, setProgress] = useState(0);
   const [dragging, setDragging] = useState(false);
   const KNOB = 48;
   const maxX = () => Math.max(0, (trackRef.current?.clientWidth ?? 0) - KNOB - 8);
   const set = (v: number) => {
     xRef.current = v;
     setX(v);
+    const mx = maxX();
+    setProgress(mx > 0 ? v / mx : 0);
   };
   const onDown = (e: ReactPointerEvent<HTMLSpanElement>) => {
     if (disabled) return;
@@ -145,8 +148,6 @@ function SlideToStart({ onComplete, disabled }: { onComplete: () => void; disabl
       set(0);
     }
   };
-  const m = maxX();
-  const progress = m > 0 ? x / m : 0;
   return (
     <div
       ref={trackRef}
@@ -229,6 +230,32 @@ export default function QuizPage({ params }: { params: Promise<{ token: string }
   const isLd = (q: QQ) => lang === "ld" && q.ld != null;
   const pack = (q: QQ): QLang => (isLd(q) ? q.ld! : q.en);
 
+  async function submit() {
+    if (preview) {
+      const s = questions.filter((qq) => chosen[qq.id] === qq.correct_index).length;
+      setResult({ score: s, total: questions.length });
+      return;
+    }
+    setSubmitting(true);
+    const answers = questions.map((q) => ({ question_id: q.id, chosen_index: chosen[q.id] ?? null }));
+    const requiresIdentity = data?.status === "ok" && data.requires_identity === true;
+    const timeTaken = startedAt ? Math.round((Date.now() - startedAt) / 1000) : 0;
+    const body = requiresIdentity
+      ? { its_number: its.trim(), name: name.trim(), duration_seconds: duration, time_taken_seconds: timeTaken, answers }
+      : { answers };
+    try {
+      const r = await fetch(`/api/quiz/${token}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (d.score !== undefined) setResult({ score: d.score, total: d.total });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   function goNext() {
     haptic(15);
     if (i === questions.length - 1) submit();
@@ -257,32 +284,6 @@ export default function QuizPage({ params }: { params: Promise<{ token: string }
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, result, remaining, i, chosen, data]);
-
-  async function submit() {
-    if (preview) {
-      const s = questions.filter((qq) => chosen[qq.id] === qq.correct_index).length;
-      setResult({ score: s, total: questions.length });
-      return;
-    }
-    setSubmitting(true);
-    const answers = questions.map((q) => ({ question_id: q.id, chosen_index: chosen[q.id] ?? null }));
-    const requiresIdentity = data?.status === "ok" && data.requires_identity === true;
-    const timeTaken = startedAt ? Math.round((Date.now() - startedAt) / 1000) : 0;
-    const body = requiresIdentity
-      ? { its_number: its.trim(), name: name.trim(), duration_seconds: duration, time_taken_seconds: timeTaken, answers }
-      : { answers };
-    try {
-      const r = await fetch(`/api/quiz/${token}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const d = await r.json();
-      if (d.score !== undefined) setResult({ score: d.score, total: d.total });
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
   // Sliding English ⇄ Lisan pill. `onEmerald` styles it for the emerald header/hero.
   const langPill = (
