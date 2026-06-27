@@ -69,7 +69,7 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
       question:
         "Of the six traits shared by a tailor and a cook, 'cutting away the excess' (scissors and knife) taught believers to —",
       options: [
-        "Cut away what is harmful — wastage of food, and whatever compromises the faith (as Syedna Abdeali Saifuddin RA refused interest)",
+        "Cut away what is harmful — wastage of food, and whatever compromises the faith",
         "Gauge each person's temperament before dealing with them",
         "Offer warmth or a cold shoulder according to the season",
         "Mend a torn relationship so skilfully the tear cannot be seen",
