@@ -78,7 +78,6 @@ const Icon = ({ d, size = 16, sw = 2 }: { d: string; size?: number; sw?: number 
 );
 const I_CHECK = "M20 6 9 17l-5-5";
 const I_X = "M18 6 6 18|M6 6l12 12";
-const I_STAR = "M12 3l2.6 5.6 6.1.8-4.5 4.2 1.2 6.1L12 17l-5.4 2.9 1.2-6.1L3.3 9.4l6.1-.8z";
 const I_ID = "M3 5h18v14H3z|M7 10h.01|M7 14h4|M13 9h5|M13 13h5";
 const I_USER = "M5 20a7 7 0 0 1 14 0|M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z";
 
@@ -89,13 +88,6 @@ function tier(pct: number): string {
   if (pct >= 40) return "Good effort!";
   return "Keep going!";
 }
-function tierSub(pct: number): string {
-  if (pct >= 87) return "A masterful run, aali qadr.";
-  if (pct >= 67) return "Well done — strong knowledge.";
-  if (pct >= 40) return "A solid start — keep learning.";
-  return "Every majlis teaches more.";
-}
-
 // Logo in a white rounded badge (the artwork is full-colour on white).
 const LogoBadge = ({ box = 38, img = 32 }: { box?: number; img?: number }) => (
   <span style={{ width: box, height: box, borderRadius: 10, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flex: "none" }}>
@@ -338,26 +330,12 @@ export default function QuizPage({ params }: { params: Promise<{ token: string }
       <div style={{ minHeight: "100vh", background: C.cream, fontFamily: BODY }}>
         {FontStyle}
         <div style={{ maxWidth: 480, margin: "0 auto" }}>
-          <div style={{ display: "flex", justifyContent: "center", padding: "16px 0 2px" }}>
-            <LogoBadge box={40} img={34} />
-          </div>
-          <div style={{ textAlign: "center", padding: "10px 22px 0" }}>
-            <div style={{ position: "relative", width: 92, height: 92, margin: "0 auto 14px" }}>
-              <div style={{ width: 92, height: 92, borderRadius: "50%", background: C.gold, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", animation: "quizpop .55s cubic-bezier(.3,1.4,.5,1) both" }}>
-                <Icon d={I_STAR} size={46} sw={1.5} />
-              </div>
-              <span style={{ position: "absolute", top: -2, right: 4, color: C.gold }}>
-                <Icon d={I_STAR} size={14} />
-              </span>
-              <span style={{ position: "absolute", bottom: 0, left: -2, color: C.goldSoft }}>
-                <Icon d={I_STAR} size={10} />
-              </span>
+          <div style={{ textAlign: "center", padding: "24px 22px 0" }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 16, animation: "quizpop .55s cubic-bezier(.3,1.4,.5,1) both" }}>
+              <LogoBadge box={116} img={100} />
             </div>
             <h1 style={{ margin: "0 0 4px", fontFamily: DISPLAY, fontWeight: 700, fontSize: 28, color: C.ink, animation: "quizrise .5s ease .08s both" }}>{tier(pct)}</h1>
-            <p style={{ margin: 0, fontSize: 14, color: C.mut, lineHeight: 1.5, animation: "quizrise .5s ease .16s both" }}>
-              {firstName ? `${firstName} — ` : ""}
-              {tierSub(pct)}
-            </p>
+            {firstName && <p style={{ margin: 0, fontSize: 14, color: C.mut, lineHeight: 1.5, animation: "quizrise .5s ease .16s both" }}>{firstName}</p>}
           </div>
 
           <div style={{ padding: 18 }}>
@@ -546,11 +524,11 @@ export default function QuizPage({ params }: { params: Promise<{ token: string }
   const initial = ((data.first_name || name) ?? "").trim().charAt(0).toUpperCase() || "?";
 
   return (
-    <div style={{ minHeight: "100vh", background: C.cream, fontFamily: BODY }}>
+    <div style={{ height: "100dvh", background: C.cream, fontFamily: BODY, display: "flex", flexDirection: "column" }}>
       {FontStyle}
-      <div style={{ maxWidth: 480, margin: "0 auto" }}>
-        {/* Header — logo (left), title, identity avatar (right). All chrome English. */}
-        <div style={{ background: C.emerald, padding: "16px 18px 18px", borderRadius: "0 0 28px 28px" }}>
+      <div style={{ maxWidth: 480, width: "100%", margin: "0 auto", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+        {/* Header (stays put) — logo, title, identity avatar, language, progress + timer */}
+        <div style={{ flex: "none", background: C.emerald, padding: "16px 18px 18px", borderRadius: "0 0 28px 28px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14 }}>
             <LogoBadge />
             <p style={{ flex: 1, margin: 0, textAlign: "center", fontFamily: DISPLAY, fontWeight: 600, fontSize: 15, color: "#fff", lineHeight: 1.2 }}>{data.title_en}</p>
@@ -577,10 +555,10 @@ export default function QuizPage({ params }: { params: Promise<{ token: string }
           </div>
         </div>
 
-        {/* Body */}
-        <div style={{ padding: "18px 16px 24px" }}>
+        {/* Body — the only scrolling region; header above + action tray below stay visible */}
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "18px 16px 18px" }}>
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 20, padding: "16px 17px", marginBottom: 14 }}>
-            <p style={{ margin: 0, fontFamily: ld ? undefined : DISPLAY, fontWeight: 600, fontSize: ld ? 28 : 18, lineHeight: ld ? 2.0 : 1.4, color: C.ink, textAlign: ld ? "justify" : calign }} dir={cdir} className={cls}>
+            <p style={{ margin: 0, fontFamily: ld ? undefined : DISPLAY, fontWeight: 600, fontSize: ld ? 23 : 18, lineHeight: ld ? 1.7 : 1.4, color: C.ink, textAlign: ld ? "justify" : calign }} dir={cdir} className={cls}>
               {p.question}
             </p>
           </div>
@@ -627,7 +605,7 @@ export default function QuizPage({ params }: { params: Promise<{ token: string }
                   disabled={answered}
                   onClick={() => setChosen((c) => ({ ...c, [q.id]: canonical }))}
                   dir={cdir}
-                  style={{ display: "flex", flexDirection: ld ? "row-reverse" : "row", alignItems: "center", gap: 13, textAlign: calign, width: "100%", cursor: answered ? "default" : "pointer", background: bg, border: `1.5px solid ${bd}`, borderRadius: 16, padding: ld ? "15px 16px" : "13px 15px", fontFamily: ld ? undefined : BODY, fontWeight: 500, fontSize: ld ? 21 : 15, lineHeight: ld ? 1.75 : 1.3, color: clr }}
+                  style={{ display: "flex", flexDirection: ld ? "row-reverse" : "row", alignItems: "center", gap: 13, textAlign: calign, width: "100%", cursor: answered ? "default" : "pointer", background: bg, border: `1.5px solid ${bd}`, borderRadius: 16, padding: ld ? "13px 15px" : "13px 15px", fontFamily: ld ? undefined : BODY, fontWeight: 500, fontSize: ld ? 19 : 15, lineHeight: ld ? 1.55 : 1.3, color: clr }}
                   className={cls}
                 >
                   <span style={{ flex: "none", width: 28, height: 28, borderRadius: 9, border: `1.5px solid ${coinBd}`, background: coinBg, color: coinClr, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: DISPLAY, fontWeight: 700, fontSize: 13 }}>
@@ -648,9 +626,12 @@ export default function QuizPage({ params }: { params: Promise<{ token: string }
             </div>
           )}
 
-          {/* Clue (revealed by the bulb) — always English: the majlis + a hint */}
+        </div>
+
+        {/* Footer (stays put) — the clue reveal + the action tray remain visible while the body scrolls */}
+        <div style={{ flex: "none", background: C.cream, padding: "10px 16px 16px", boxShadow: "0 -6px 16px rgba(36,31,22,0.06)" }}>
           {clueOpen && (
-            <div style={{ background: C.clue, border: `1px solid ${C.goldSoft}`, borderRadius: 14, padding: "11px 14px", marginBottom: 14 }}>
+            <div style={{ background: C.clue, border: `1px solid ${C.goldSoft}`, borderRadius: 14, padding: "11px 14px", marginBottom: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 7, color: C.gold, marginBottom: 4 }}>
                 <Bulb size={15} />
                 <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>Clue</span>
@@ -659,8 +640,6 @@ export default function QuizPage({ params }: { params: Promise<{ token: string }
               <p style={{ margin: "3px 0 0", fontSize: 13, color: C.mut, lineHeight: 1.6 }}>{q.en.hint}</p>
             </div>
           )}
-
-          {/* Action — clue bulb + Continue seated on a solid dark "tray" (frames both, as in the reference) */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#0b1310", borderRadius: 34, padding: "6px 6px 8px", boxShadow: "0 8px 20px rgba(0,0,0,0.22)" }}>
             <button
               onClick={() => setClueOpen((o) => !o)}
