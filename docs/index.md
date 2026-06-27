@@ -36,7 +36,7 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 | [lost-found.md](./lost-found.md) | Lost/found reporting tools, auto-escalation, reporter identity, and portal page |
 | [webinars.md](./webinars.md) | Public `/webinars` page: ITS gate, video card grid, modal player, admin add/manage |
 | [feedback-surveys.md](./feedback-surveys.md) | Targeted feedback surveys: section/question databank, group sampling (fresh-first, once-per-event), tokenized web form, 1-5 section sentiment |
-| [quiz.md](./quiz.md) | Bilingual (English / Lisan ud Dawat) Ashara knowledge quiz: questions in code, tokenized web quiz, server-side grading, admin-only leaderboard |
+| [quiz.md](./quiz.md) | Bilingual (English / Lisan ud Dawat) Ashara knowledge quiz: questions in code, shared link + self-entered ITS identity, per-question timer, server-side grading, admin-only leaderboard (score then fastest) |
 | [openapi.yaml](./openapi.yaml) | API-first contract for all `src/app/api/**` routes |
 
 ## Key File Locations
@@ -104,9 +104,10 @@ src/app/api/admin/lost-found/route.ts    — Portal-member lost/found report lis
 src/app/api/admin/lost-found/[id]/route.ts — Edit (PUT) / Delete (DELETE) a lost/found item
 src/app/api/admin/lost-found/[id]/resolve/route.ts — Mark item resolved with history tracking
 src/lib/surveys/{sentiment,sampling,send,respond,tokens}.ts — Targeted feedback surveys: scoring, fresh-first sampling, commit/send, tokenized collection
-src/lib/quiz/{questions,grading,service}.ts — Ashara knowledge quiz: bilingual questions (source of truth in code), pure grading, token load/record/leaderboard
-src/app/quiz/[token]/page.tsx + src/app/api/quiz/[token]/route.ts — public tokenized quiz page + GET/POST API
-src/app/admin/quiz/page.tsx + src/app/api/admin/quiz/{results,test-link}/route.ts — admin-only leaderboard + test-link
+src/lib/quiz/{questions,grading,service}.ts — Ashara knowledge quiz: bilingual questions+hints (source of truth in code), pure grading, shared-link/recipient load, self-identified (ITS) + recipient record, leaderboard, share open/close
+src/app/quiz/[token]/page.tsx + src/app/api/quiz/[token]/route.ts — public quiz page (shared link → ITS+name, or test-link token) + GET/POST API
+src/app/admin/quiz/page.tsx + src/app/api/admin/quiz/{results,test-link,share}/route.ts — admin-only leaderboard (score+time+ITS), test-link, shared link + open/close
+supabase/migrations/20260625000000_quiz.sql + 20260626000000_quiz_identity.sql — quiz_recipients/quiz_answers + identity (its_number, timing, quizzes share link)
 src/app/feedback/s/[token]/page.tsx       — Public tokenized feedback-survey form
 src/app/api/feedback-survey/[token]/route.ts — GET form + POST submit (token-scoped, no login)
 src/app/admin/surveys/page.tsx + src/app/api/admin/surveys/** — Survey console (compose/sample/send/results)

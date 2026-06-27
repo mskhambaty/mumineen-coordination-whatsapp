@@ -2490,22 +2490,26 @@ paths:
   /api/quiz/{token}:
     get:
       tags: [quiz]
-      summary: Load the Ashara knowledge quiz for a recipient token (public)
+      summary: Load the Ashara knowledge quiz (public)
       description: >-
-        Token-scoped, no auth. Returns the bilingual quiz (English + Lisan ud Dawat, `ld` null until
-        translated) and the taker's FIRST NAME. Marks the recipient 'opened'. A completed recipient
-        gets their saved score instead of the quiz. 404 for an unknown token.
+        Public, no auth. `{token}` is EITHER the quiz's shared share_token (the link everyone gets)
+        OR a per-recipient test-link token. Returns the bilingual quiz (English + Lisan ud Dawat).
+        For the shared link the response sets `requires_identity: true` (the page then collects ITS +
+        name) and the quiz must be open. A completed test-link recipient gets their saved score. 404
+        for an unknown/closed token.
       parameters:
         - { name: token, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { description: "{ status: ok, title_en, title_ld, first_name, questions: [{ id, majlis, majlis_ld, correct_index, en, ld }] } | { status: completed, first_name, score, total }." }
-        "404": { description: "Unknown token (status=not_found)." }
+        "200": { description: "{ status: ok, title_en, title_ld, first_name, questions: [...], requires_identity? } | { status: completed, first_name, score, total }." }
+        "404": { description: "Unknown/closed token (status=not_found)." }
     post:
       tags: [quiz]
       summary: Submit + grade a quiz attempt (public)
       description: >-
-        Token-scoped, no auth. Grades each pick against the question's correctIndex server-side and
-        stores the attempt. Idempotent — a re-submit returns the saved score.
+        Public, no auth. Two body shapes: (1) shared-link self-identified — includes its_number
+        (8 digits) + name + timing; one attempt per (quiz, ITS), idempotent. (2) test-link — answers
+        only. Grading is server-side against correctIndex; the stored score is authoritative. ITS is
+        PII — stored, never logged.
       parameters:
         - { name: token, in: path, required: true, schema: { type: string } }
       requestBody:
@@ -2513,22 +2517,22 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [answers]
-              properties:
-                answers:
-                  type: array
-                  minItems: 1
-                  maxItems: 100
-                  items:
-                    type: object
-                    required: [question_id, chosen_index]
-                    properties:
-                      question_id: { type: string }
-                      chosen_index: { type: integer, nullable: true, minimum: 0, maximum: 9 }
+              oneOf:
+                - type: object
+                  required: [its_number, name, duration_seconds, time_taken_seconds, answers]
+                  properties:
+                    its_number: { type: string, pattern: '^\d{8}$' }
+                    name: { type: string, minLength: 1, maxLength: 80 }
+                    duration_seconds: { type: integer, minimum: 0, maximum: 36000 }
+                    time_taken_seconds: { type: integer, minimum: 0, maximum: 86400 }
+                    answers: { $ref: "#/components/schemas/QuizAnswers" }
+                - type: object
+                  required: [answers]
+                  properties:
+                    answers: { $ref: "#/components/schemas/QuizAnswers" }
       responses:
         "200": { description: "{ status: completed, score, total, answers: [{ question_id, chosen_index, correct_index, is_correct }] }." }
-        "400": { description: "Invalid body or invalid/expired token." }
+        "400": { description: "Invalid body, bad ITS, closed quiz, or invalid token." }
         "404": { description: "Malformed token." }
 
   /api/admin/quiz/results:
@@ -2537,9 +2541,31 @@ paths:
       summary: Quiz leaderboard + summary (admin-only)
       description: >-
         Religious-monitor/admin only (requirePortalCaller · canMonitorReligiousChats). Completed,
-        non-test recipients ranked by score. Participants never see this.
+        non-test attempts ranked by score, then fastest time, then earliest finish. ITS is included
+        for admin display only. Participants never see this.
       responses:
-        "200": { description: "{ rows: [{ name, score, total, completed_at }], summary: { sent, completed, avg_score, total } }." }
+        "200": { description: "{ rows: [{ name, its_number, score, total, time_taken_seconds, completed_at }], summary: { sent, completed, avg_score, total } }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/quiz/share:
+    get:
+      tags: [admin]
+      summary: Shared quiz link + open state (admin-only)
+      description: Religious-monitor/admin only. Returns the shared public link and whether the quiz is open.
+      responses:
+        "200": { description: "{ status: ok, share_token, is_open, link }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [admin]
+      summary: Open or close the quiz (admin-only)
+      description: Religious-monitor/admin only. Sets is_open; closing makes the shared link stop accepting attempts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [is_open], properties: { is_open: { type: boolean } } }
+      responses:
+        "200": { description: "{ status: ok, share_token, is_open, link }." }
         "403": { $ref: "#/components/responses/Forbidden" }
 
   /api/admin/quiz/test-link:
@@ -3385,6 +3411,16 @@ components:
       required: [error]
       properties:
         error: { type: string }
+    QuizAnswers:
+      type: array
+      minItems: 1
+      maxItems: 100
+      items:
+        type: object
+        required: [question_id, chosen_index]
+        properties:
+          question_id: { type: string }
+          chosen_index: { type: integer, nullable: true, minimum: 0, maximum: 9 }
     TaskStatus:
       type: string
       enum: [open, in_progress, blocked, complete]

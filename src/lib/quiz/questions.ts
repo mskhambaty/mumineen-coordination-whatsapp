@@ -1,12 +1,18 @@
 // Bilingual source of truth for the Ashara 1448H knowledge quiz (15 questions).
 //
-// QUESTIONS LIVE HERE, not in the DB — translations are "fed in" by filling each question's `ld`
-// (Lisan ud Dawat) block from the translator's spreadsheet. English is authoritative; `ld` is null
-// until translated, and the UI simply falls back to English when a question's `ld` is missing.
+// QUESTIONS LIVE HERE, not in the DB. English (`en`) is authoritative. Each question's `ld`
+// (Lisan ud Dawat) block holds the translator's text for the QUESTION and OPTIONS (imported from
+// `ashara quiz with lisan ud dawah.xlsx`), typed in the Kanz al-Marjaan input scheme — it renders
+// correctly only in that font (the `.lisan` class on the page). The translator did NOT translate
+// the explanations, so `ld.explanation` is left empty and the page always shows the English
+// `en.explanation` (the "lesson" stays English, like the clue/hint). The UI also falls back to
+// English for the whole question whenever a `ld` block is null.
 //
-// Each question's options are authored with the CORRECT one first (correctIndex 0); the public page
-// shuffles option order per session for display, so the answer is never visually "always first".
-// Grading is done server-side against correctIndex (see grading.ts) — the stored score is authoritative.
+// Each `QuizLang` carries a `hint`; the on-page "clue" always shows the English `en.hint`.
+//
+// Options are authored with the CORRECT one first (correctIndex 0); the public page shuffles option
+// order per session so the answer is never visually "always first". Grading is server-side against
+// correctIndex (see grading.ts) — the stored score is authoritative.
 
 export const QUIZ_KEY = "ashara-1448h";
 export const QUIZ_TITLE_EN = "Ashara Mubaraka 1448H — Knowledge Quiz";
@@ -16,6 +22,7 @@ export type QuizLang = {
   question: string;
   options: [string, string, string, string];
   explanation: string;
+  hint: string;
 };
 
 export type QuizQuestion = {
@@ -24,7 +31,7 @@ export type QuizQuestion = {
   majlisLd: string;
   correctIndex: number; // index into the AUTHORED options order (en.options / ld.options)
   en: QuizLang;
-  ld: QuizLang | null; // fed in from the translation sheet; null = use English
+  ld: QuizLang | null; // AI placeholder translation; replace with the translator's final text
 };
 
 export const QUIZ_QUESTIONS: QuizQuestion[] = [
@@ -44,8 +51,14 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
       ],
       explanation:
         "True generosity guards the other person's dignity — like sweat-proof clothing that spares others discomfort.",
+      hint: "Think about the guest's feelings, not the food.",
     },
-    ld: null,
+    ld: {
+      question: "جيوارسس مولانا علي ع م انسس مولاتنا فاطمة ع م يه ايك بهوكا مهمان نسس جمن جمارٌو، ته وقت مولانا علي ع م يه ديوا ما روشني نه كيدي، انسس ايم ديكهاوو كيدو كه اْثث جمن تناول كرسس ؛ ، اْثث يه اْ مثل سوطط كام عمل كيدو ؟",
+      options: ["تاكه مهمان شرمايا بغير جمن جمي سكسس", "تاكه تهورٌو جمن زياده وقت لكك باقي رهسس", "ثثوتاني فقيري ححهثثاوانسس", "ديوا نو تيل بححاوانسس"],
+      explanation: "",
+      hint: "Think about the guest's feelings, not the food.",
+    },
   },
   {
     id: "q2",
@@ -63,8 +76,14 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
       ],
       explanation:
         "Cutting away the excess means removing wastage and whatever harms the faith — Syedna Abdeali Saifuddin RA cut off an interest-based loan at once.",
+      hint: "What do scissors and a knife both do?",
     },
-    ld: null,
+    ld: {
+      question: "جمن تيار كرنار انسس جمن ثثكاؤنار ني جه 6 خوبيو ذكر تهئي، اهما سي اْ خوبي - قينححي ححلاوو انسس ححهري ححلاوو - سوطط درس سكهاوسس ؛؟",
+      options: ["جه نقصان كرتو هوئي اهنسس كاثثي ناكهوو ، انسس جه دين ما نقصان كرسس اهنسس كاثثي ديوو", "كوئي نا ساتهسس رشته راكهوا ثثهلسس اهنا اخلاق نسس ثثركهوو", "موسم مطابق (ككرمي انسس ضضهندٌي) ، رغبة انسس اعراض كروو", "رشته نسس خوبي سي درست كروو، تاكه جه ثثهاضضي ككيو تهو يه نه ديكهائي"],
+      explanation: "",
+      hint: "What do scissors and a knife both do?",
+    },
   },
   {
     id: "q3",
@@ -82,8 +101,14 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
       ],
       explanation:
         "The skilful 'repair' of a grieving heart — reframing loss as a trust returned to its Owner.",
+      hint: "A trust (amanat) is only ever on loan.",
     },
-    ld: null,
+    ld: {
+      question: "جيوارسس ابو طلحة نا فرزند ككزري ككيا، تيوارسس اهنا بئيرو يه اهنسس يه وات ني خبر نه كيدي، اهنسس جمن جمارٌو، ته بعد بيسرسس دن اهنسس سؤال كيدو: \" تميطط وه لوككو نو سوطط كهو ححهو ، جه سككلا نسس كوئي ححيز امانة اْثثوا ما اْوي، انسس جيوارسس يه ححيز يه سككلا سي ثثاححهي ليوا ما اْوي تيوارسس يه سككلا رووا لاككي ككيا\" ابو طلحة نا بئيرو سوطط سكهاوسس ؛؟",
+      options: ["فرزند خدا تع ني امانة تها، جه نسس خدا تع يه هوسس لئي ليدي ؛- تو اثثنسس روو نه جوئيسس", "بئيرو نسس هر غم ني خبر مرد نسس نه اْثثوي جوئيسس", "صبر يعني حزن نسس نه ظاهر كروو", "امانه جيوارسس ثثاححهي طلب كروا ما اْوسس، تيوارسس} ثثاححهي اداء كري ديوي دوئيسس"],
+      explanation: "",
+      hint: "A trust (amanat) is only ever on loan.",
+    },
   },
   {
     id: "q4",
@@ -101,8 +126,14 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
       ],
       explanation:
         "The 'impossible' becomes possible when the mighty cast aside hubris and submit with humility.",
+      hint: "It's about pride, not wealth itself.",
     },
-    ld: null,
+    ld: {
+      question: "سيدي حسن فير الشهيد قس يه بادشاه نسس فرمايو كه اْثث نا ساته جككه بدلسس، يم سمجهاوانسس كه \" ايك اونضضهـ سوئي نا ناكه ما سي داخل تهئي سكسس ؛\". اْ عمل ني اصل معنى سوطط ؛؟",
+      options: ["مهوضضا شخص خدا واسطسس تواضع كرسس- تكبر موكسس", "دنيا ني عزة اْخرة ما كام نهيطط لاككس", "دولة مند نو حساب فقير كرتا زياده سخت تهاسسس", "نجاة واسطسس سككلو خرححي ديوو"],
+      explanation: "",
+      hint: "It's about pride, not wealth itself.",
+    },
   },
   {
     id: "q5",
@@ -114,8 +145,14 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
       options: ["Speed", "User-friendliness", "Discernment", "Lifelong learning"],
       explanation:
         "Light travels ~300 million m/s — symbolising high-speed performance, and accepting the Awliya's directives swiftly.",
+      hint: "Noon = noor = light. What is light famous for?",
     },
-    ld: null,
+    ld: {
+      question: "سفينة نا لفظ ما \"ن\" سي كئي خوبي ني ذكر تهئي ؟",
+      options: ["تيزي ، شتابي", "user-friendliness", "ثثركهوو", "زندككي نا دراز لكك علم طلب كروو"],
+      explanation: "",
+      hint: "Noon = noor = light. What is light famous for?",
+    },
   },
   {
     id: "q6",
@@ -132,8 +169,14 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
       ],
       explanation:
         "From a bayaan of Syedna Ja'far bin Mansur al-Yemen RA — each hadd carries a lesson for life and for raising children.",
+      hint: "Count the boundaries of the building itself, inside and out.",
     },
-    ld: null,
+    ld: {
+      question: "مسجد نا سات حدود ني ذكر تهئي ، يه كيا كيا ؛ ؟",
+      options: ["زمين، 4 ديوار، ححهت، انسس هواء", "اساس، ححار تهمبا، ككنبد انسس محراب", "محراب، منبر، ححار ديوار انسس ككنبد", "زمين، ساحة، بسس ديوار، ححهت، انسس منارة"],
+      explanation: "",
+      hint: "Count the boundaries of the building itself, inside and out.",
+    },
   },
   {
     id: "q7",
@@ -145,13 +188,19 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
       options: ["Tawakkul (trust in Allah)", "Wealth", "Strength", "Knowledge alone"],
       explanation:
         "Jibraeel AS brought the Hajar-e-Aswad while Ismail AS searched — Allah needs no toil of creation; tawakkul is the foundation.",
+      hint: "What must come before any effort — even Ismail AS's?",
     },
-    ld: null,
+    ld: {
+      question: "مولى طع يه هر تدبير(plan) نو اساس سوطط بتايو؟",
+      options: ["توكل", "دولة", "طاقة", "علم"],
+      explanation: "",
+      hint: "What must come before any effort — even Ismail AS's?",
+    },
   },
   {
     id: "q8",
     majlis: "Majlis 4 · Lawyers & doctors",
-    majlisLd: "مجلس ٤ · وکيل انے ڈاکٹر",
+    majlisLd: "مجلس ٤ · ؤکيل انے ڈاکٹر",
     correctIndex: 0,
     en: {
       question:
@@ -164,13 +213,19 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
       ],
       explanation:
         "The 'sehr-e-halal' of the Awliya — inverting a firmly-held but mistaken belief through reason.",
+      hint: "How could a pest actually keep food affordable?",
     },
-    ld: null,
+    ld: {
+      question: "امام جعفر الصادق ع م يه فرمايو كه خدا تع يه شر نسس ثثيدا كيدو نتهي- ككيهوطط نا اندر جه كيراؤ ثثري جائي ؛ يه بهي كئي طرح خير ؛ ؟",
+      options: ["كيراؤ نا خوف نا سبب سي بادشاهو حكرة نهيطط كري سكتا، جه نا سبب جمن سـستو رهسس ؛", "كيراؤ صبر نو امتحان لسس ؛", "كيرٌاو ثثرنداؤ واسطسس جمن ؛", "موت ني ياد دلاوسس ؛"],
+      explanation: "",
+      hint: "How could a pest actually keep food affordable?",
+    },
   },
   {
     id: "q9",
     majlis: "Majlis 4 · Lawyers & doctors",
-    majlisLd: "مجلس ٤ · وکيل انے ڈاکٹر",
+    majlisLd: "مجلس ٤ · ؤکيل انے ڈاکٹر",
     correctIndex: 0,
     en: {
       question:
@@ -183,8 +238,14 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
       ],
       explanation:
         "Logic, discernment and firmness in one reply — the Imam's own being is the strongest proof.",
+      hint: "The Imam pointed to himself, not to a chain of names.",
     },
-    ld: null,
+    ld: {
+      question: "ابو حنيفة نسس شك تهو كه امام ع م نا نزديك جه عصا ؛ يه رسول الله صلع ني ؛ كه نهيطط ، امام ع م يه سوطط جواب اْثثو؟",
+      options: ["تنسس اْ وات ما تو شك نتهي نسس كه اْ ككوشت ثثوشت رسول الله نو ؛ !", "اْثث يه رسول الله صلع لكك اسانيد نسس جورٌي", "اْثث يه فرمايو كه ايمان راكهنار نسس دليل ني ضرورة نتهي", "اْثث يه ابو حنيفة نسس فرمايو كه يه حجة كري نسس بتاوسس كه كئي طرح اْثث غلط ؛"],
+      explanation: "",
+      hint: "The Imam pointed to himself, not to a chain of names.",
+    },
   },
   {
     id: "q10",
@@ -200,8 +261,14 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
         "Repeating it daily",
       ],
       explanation: "al-hasanat (good) is the love of Wali Allah AS; al-sayyiaat (evil) is enmity toward him.",
+      hint: "It's not how you say it, but with what intention.",
     },
-    ld: null,
+    ld: {
+      question: "كلمة الشهادة ثثرٌهوا سي جان انسس ملكة ني حفاظة تهئي جائي ؛ ، مككر كلمة الشهادة نسس سوطط شاكلة سي ثثرٌهسس تو جنة ما داخل تهئي جائي ؟",
+      options: ["اخلاص سي ثثرٌهوا سي", "بلند اْواز سي ثثرٌهوا سي", "عربي ما تلاوة كروا سي", "روز ثثرٌهوا سي"],
+      explanation: "",
+      hint: "It's not how you say it, but with what intention.",
+    },
   },
   {
     id: "q11",
@@ -218,8 +285,14 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
       ],
       explanation:
         "Correct with humility — 'lower your wing to the believers' (15:88) — elevate, do not embarrass.",
+      hint: "They let the shaikh judge 'their' wudhu.",
     },
-    ld: null,
+    ld: {
+      question: "امام حسن انسس حسين ع م يه كئي طرح شيخ نسس وضوء سكهاوي",
+      options: ["اهنسس judge بنايا تاكه ثثوتاني غلطي نسس ديكهسس", "اهنا ساتهسس وضوء كيدي تاكه يه ديكهي نسس سيكهسس", "سككلا حاضرين نسس وضوء سكهاوي", "رسول الله نسس عرض كيدي كه اْثث سكهاوسس"],
+      explanation: "",
+      hint: "They let the shaikh judge 'their' wudhu.",
+    },
   },
   {
     id: "q12",
@@ -236,8 +309,14 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
       ],
       explanation:
         "'Allah has purchased the believers' lives and wealth, that theirs shall be jannat' (9:111) — the most profitable trade.",
+      hint: "A transaction where Allah Himself is the buyer.",
     },
-    ld: null,
+    ld: {
+      question: "ساتمي مجلس قران ني كئي تصور سي شروع تهئي",
+      options: ["خدا يه مؤمنين سي يه سككلا نا جانو انسس مال نسس كهريدي ؛، انسس يه سككلا نسس جنة اْثثي ؛", "يوسف نبي نو قصة", "انشقاق القمر", "اْدم ني ثثيدائش"],
+      explanation: "",
+      hint: "A transaction where Allah Himself is the buyer.",
+    },
   },
   {
     id: "q13",
@@ -254,8 +333,14 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
         "To give away all earnings",
       ],
       explanation: "Effort plus trust: the birds still fly out — but it is Allah who fills them.",
+      hint: "The birds still fly out each morning — they don't sit idle.",
     },
-    ld: null,
+    ld: {
+      question: "جو اككر لوككو خدا ثثر توكل كرسس كه خدا تع يه سككلا نسس ثثرنده ني مثل رزق اْثثسس، ثثرنده فجر ما بهوكو نكلسس؛ انسس سانجسس ثثيت بهريلو هوئي ؛ ، يه سوطط سكهاوسس ؛؟",
+      options: ["خدا ثثر توكل كروو ، حلال سي ويثثار كروو، ايم يقين راكهوو كه رزق اْثثنار تو خدا ؛", "ويثثار كروا ني ضرورة نتهي", "محنة بغير رزق ملي جائي ؛", "تمام كمائي لضضاوي دسس"],
+      explanation: "",
+      hint: "The birds still fly out each morning — they don't sit idle.",
+    },
   },
   {
     id: "q14",
@@ -273,8 +358,14 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
       ],
       explanation:
         "The contrite man later paid in full; the dai, easy in dealing, kept only what was owed — sahl al-bay'.",
+      hint: "The guarantor named in the deal always keeps His word.",
     },
-    ld: null,
+    ld: {
+      question: "داعي ابي سفيان رض سي وه مرد يه خدا تع نسس كفيل راكهتا هوا اونضض خريدو، انسس رقم نه اداء كيدي ، ته بعد سوطط بنو؟",
+      options: ["اونضض ثثاححهو اْثثنا ثثاسسس اْوي ككيو، انسس اهنا اوثثر تمر ؛.", "مرد نسس سزا تهئي", "داعي يه قرض معاف كري ديدو", "اونضض ثثاححهو ملو} نهيطط"],
+      explanation: "",
+      hint: "The guarantor named in the deal always keeps His word.",
+    },
   },
   {
     id: "q15",
@@ -287,8 +378,14 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
       options: ["Five", "Three", "Nine", "Seven"],
       explanation:
         "From Imam Ahmed al-Mastur's AS Rasa'il Ikhwan al-Safa: Nabawiyya, Mulukiyya, 'Aamma, Khaassa, Zaatiyya.",
+      hint: "Count the distinct kinds in the Rasa'il — fewer than ten.",
     },
-    ld: null,
+    ld: {
+      question: "سياسة كتنا قسم ني ؛ ؟",
+      options: ["ثثانحح", "تين", "نو 9", "سات"],
+      explanation: "",
+      hint: "Count the distinct kinds in the Rasa'il — fewer than ten.",
+    },
   },
 ];
 
