@@ -54,6 +54,12 @@ function shuffle(n: number): number[] {
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
 
+// Light haptic feedback. Works on Android browsers; iOS Safari/Chrome ignore navigator.vibrate
+// (no web haptics API on iPhone), so it simply no-ops there.
+const haptic = (p: number | number[]) => {
+  if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate(p);
+};
+
 const Bulb = ({ size = 20 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
     <path d="M9 18h6" />
@@ -133,6 +139,7 @@ function SlideToStart({ onComplete, disabled }: { onComplete: () => void; disabl
     e.currentTarget.releasePointerCapture?.(e.pointerId);
     if (xRef.current >= maxX() - 6) {
       set(maxX());
+      haptic(40);
       onComplete();
     } else {
       set(0);
@@ -223,6 +230,7 @@ export default function QuizPage({ params }: { params: Promise<{ token: string }
   const pack = (q: QQ): QLang => (isLd(q) ? q.ld! : q.en);
 
   function goNext() {
+    haptic(15);
     if (i === questions.length - 1) submit();
     else {
       setI((x) => x + 1);
@@ -527,8 +535,10 @@ export default function QuizPage({ params }: { params: Promise<{ token: string }
     <div style={{ height: "100dvh", background: C.cream, fontFamily: BODY, display: "flex", flexDirection: "column" }}>
       {FontStyle}
       <div style={{ maxWidth: 480, width: "100%", margin: "0 auto", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-        {/* Header (stays put) — logo, title, identity avatar, language, progress + timer */}
-        <div style={{ flex: "none", background: C.emerald, padding: "16px 18px 18px", borderRadius: "0 0 28px 28px" }}>
+        {/* Scroll region — header + question scroll together; only the footer stays pinned */}
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
+        {/* Header — logo, title, identity avatar, language, progress + timer (scrolls with content) */}
+        <div style={{ background: C.emerald, padding: "16px 18px 18px", borderRadius: "0 0 28px 28px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14 }}>
             <LogoBadge />
             <p style={{ flex: 1, margin: 0, textAlign: "center", fontFamily: DISPLAY, fontWeight: 600, fontSize: 15, color: "#fff", lineHeight: 1.2 }}>{data.title_en}</p>
@@ -555,8 +565,8 @@ export default function QuizPage({ params }: { params: Promise<{ token: string }
           </div>
         </div>
 
-        {/* Body — the only scrolling region; header above + action tray below stay visible */}
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "18px 16px 18px" }}>
+        {/* Body content (inside the scroll region) */}
+        <div style={{ padding: "18px 16px 24px" }}>
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 20, padding: "16px 17px", marginBottom: 14 }}>
             <p style={{ margin: 0, fontFamily: ld ? undefined : DISPLAY, fontWeight: 600, fontSize: ld ? 23 : 18, lineHeight: ld ? 1.7 : 1.4, color: C.ink, textAlign: ld ? "justify" : calign }} dir={cdir} className={cls}>
               {p.question}
@@ -603,7 +613,10 @@ export default function QuizPage({ params }: { params: Promise<{ token: string }
                 <button
                   key={canonical}
                   disabled={answered}
-                  onClick={() => setChosen((c) => ({ ...c, [q.id]: canonical }))}
+                  onClick={() => {
+                    haptic(10);
+                    setChosen((c) => ({ ...c, [q.id]: canonical }));
+                  }}
                   dir={cdir}
                   style={{ display: "flex", flexDirection: ld ? "row-reverse" : "row", alignItems: "center", gap: 13, textAlign: calign, width: "100%", cursor: answered ? "default" : "pointer", background: bg, border: `1.5px solid ${bd}`, borderRadius: 16, padding: ld ? "13px 15px" : "13px 15px", fontFamily: ld ? undefined : BODY, fontWeight: 500, fontSize: ld ? 19 : 15, lineHeight: ld ? 1.55 : 1.3, color: clr }}
                   className={cls}
@@ -627,8 +640,9 @@ export default function QuizPage({ params }: { params: Promise<{ token: string }
           )}
 
         </div>
+        </div>
 
-        {/* Footer (stays put) — the clue reveal + the action tray remain visible while the body scrolls */}
+        {/* Footer (stays pinned) — the clue reveal + the action tray remain visible while the header + body scroll */}
         <div style={{ flex: "none", background: C.cream, padding: "10px 16px 16px", boxShadow: "0 -6px 16px rgba(36,31,22,0.06)" }}>
           {clueOpen && (
             <div style={{ background: C.clue, border: `1px solid ${C.goldSoft}`, borderRadius: 14, padding: "11px 14px", marginBottom: 10 }}>
@@ -642,7 +656,10 @@ export default function QuizPage({ params }: { params: Promise<{ token: string }
           )}
           <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#0b1310", borderRadius: 34, padding: "6px 6px 8px", boxShadow: "0 8px 20px rgba(0,0,0,0.22)" }}>
             <button
-              onClick={() => setClueOpen((o) => !o)}
+              onClick={() => {
+                haptic(8);
+                setClueOpen((o) => !o);
+              }}
               aria-label={clueOpen ? "Hide clue" : "Show clue"}
               aria-pressed={clueOpen}
               style={{ flex: "none", width: 50, height: 50, borderRadius: "50%", border: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: clueOpen ? C.gold : C.card, color: clueOpen ? "#fff" : "#b8892e" }}

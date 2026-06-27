@@ -15,7 +15,7 @@
 // correctIndex (see grading.ts) — the stored score is authoritative.
 
 export const QUIZ_KEY = "ashara-1448h";
-export const QUIZ_TITLE_EN = "Ashara Mubaraka 1448H — Knowledge Quiz";
+export const QUIZ_TITLE_EN = "Ashara Mubarakah 1448H Quiz";
 export const QUIZ_TITLE_LD = "عشرہ مبارکہ ١٤٤٨ھ — علم کوئز";
 
 export type QuizLang = {
@@ -46,7 +46,7 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
       options: [
         "So the guest could eat his fill without embarrassment",
         "To make the little food last longer",
-        "To hide their poverty",
+        "So it doesn't feel too hot",
         "To save lamp oil",
       ],
       explanation:
@@ -55,7 +55,7 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
     },
     ld: {
       question: "جيوارسس مولانا علي ع م انسس مولاتنا فاطمة ع م يه ايك بهوكا مهمان نسس جمن جمارٌو، ته وقت مولانا علي ع م يه ديوا ما روشني نه كيدي، انسس ايم ديكهاوو كيدو كه اْثث جمن تناول كرسس ؛ ، اْثث يه اْ مثل سوطط كام عمل كيدو ؟",
-      options: ["تاكه مهمان شرمايا بغير جمن جمي سكسس", "تاكه تهورٌو جمن زياده وقت لكك باقي رهسس", "ثثوتاني فقيري ححهثثاوانسس", "ديوا نو تيل بححاوانسس"],
+      options: ["تاكه مهمان شرمايا بغير جمن جمي سكسس", "تاكه تهورٌو جمن زياده وقت لكك باقي رهسس", "تاكه ككرمي نه لاككسس", "ديوا نو تيل بححاوانسس"],
       explanation: "",
       hint: "Think about the guest's feelings, not the food.",
     },
