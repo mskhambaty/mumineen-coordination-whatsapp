@@ -16,6 +16,17 @@ npx supabase db push
 Migration files live in `supabase/migrations/`.  
 Always create a new timestamped file; never edit an already-applied migration.
 
+**Baseline:** the migration history was squashed to a single prod-schema baseline
+(`20260627173738_baseline.sql`) on 2026-06-27 (see issue #90). Everything before that is
+preserved in git history but no longer replays individually. A fresh database
+(`supabase db reset`, or a brand-new Supabase project) is built from the baseline plus any
+migrations added after it.
+
+**Adding a migration — use the CLI flow** so the file name always matches the remote
+ledger version: write the file, then `npx supabase db push`. Avoid the MCP
+`apply_migration` path unless you immediately rename the committed file to the
+MCP-assigned ledger version — skipping that rename is exactly what forced the #90 squash.
+
 ## Tables
 
 ### `whatsapp_users`
@@ -763,6 +774,8 @@ Source: `supabase/migrations/20260606120000_accommodations_module.sql`
 ## Migration Conventions
 
 - One logical change per migration file.
-- File name: `YYYYMMDDHHMMSS_short_description.sql`
+- File name: `YYYYMMDDHHMMSS_short_description.sql` — the version **must** match the applied
+  remote ledger entry. Prefer `supabase db push` (auto-matches); if you use MCP
+  `apply_migration`, rename the file to the assigned version immediately.
 - Use `create table if not exists` and `create index if not exists` for idempotency where possible.
 - Never drop or alter columns in a way that loses data without a data migration plan.
