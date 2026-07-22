@@ -14,6 +14,12 @@ export const num = (v: unknown) => {
   const n = typeof v === "number" ? v : Number(str(v));
   return Number.isFinite(n) ? n : null;
 };
+// Non-negative whole number (for count fields). Floors fractional input, clamps negatives and
+// non-numeric values to null so a count column never goes below zero.
+export const nonNegInt = (v: unknown) => {
+  const n = num(v);
+  return n === null || n < 0 ? null : Math.floor(n);
+};
 export const ts = (v: unknown) => {
   const s = str(v);
   if (!s) return null;

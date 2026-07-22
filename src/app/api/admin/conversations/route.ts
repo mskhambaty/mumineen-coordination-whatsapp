@@ -5,6 +5,7 @@ import { countUnreadInbound, groupRowsByPhoneChronologically } from "@/lib/admin
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { RELIGIOUS_TOOL_NAMES } from "@/lib/admin/religious-transcript";
+import { getAccounts, getBroadcastAccount, getPrimaryAccount } from "@/lib/whatsapp/accounts";
 
 type MessageRow = {
   id: string;
@@ -15,6 +16,8 @@ type MessageRow = {
   whatsapp_message_id: string | null;
   created_at: string;
   raw_payload: unknown;
+  // Which WABA number this message went to/from (NULL = primary). Maps to an account via `accounts`.
+  phone_number_id: string | null;
 };
 
 type ToolAuditRow = {
@@ -64,6 +67,33 @@ type SessionRow = {
   issue?: { id: string; issue_number: number; title: string } | Array<{ id: string; issue_number: number; title: string }> | null;
 };
 
+// Public account directory for the inbox: maps each message's phone_number_id to a human label so
+// the UI can show which WABA number a message went to/from. Cheap (2-3 env-backed entries, built
+// once per request); falls back to [] if accounts aren't configured (e.g. in tests). NULL
+// phone_number_id on a message means the primary account.
+function resolveAccountsForResponse(): Array<{
+  phoneNumberId: string;
+  label: string;
+  displayNumber: string | null;
+  isPrimary: boolean;
+}> {
+  try {
+    const primaryId = getPrimaryAccount().phoneNumberId;
+    return getAccounts().map((a) => ({
+      phoneNumberId: a.phoneNumberId,
+      label: a.label,
+      displayNumber: a.displayNumber ?? null,
+      isPrimary: a.phoneNumberId === primaryId,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// Non-template message sources that are still system broadcasts, not real conversation (mirrors the
+// client isBroadcastMessage). Template/interactive/button are filtered separately.
+const SYSTEM_BROADCAST_SOURCES = new Set(["niyaz_rsvp_ended", "issue_close_broadcast"]);
+
 export async function GET(req: NextRequest) {
   const auth = await requirePortalCaller(req, canAccessInbox);
   if (auth instanceof NextResponse) return auth;
@@ -71,6 +101,20 @@ export async function GET(req: NextRequest) {
   const supabase = getSupabaseAdmin();
   const selectedPhone = req.nextUrl.searchParams.get("phone");
   const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") ?? 75) || 75, 200);
+
+  // Inbox split by the number a conversation is on. `niyaz` = only the broadcast/niyaz RSVP number;
+  // `main` (default) = everything else (NULL primary + any other number). When no broadcast account
+  // is configured, `main` is unfiltered and `niyaz` is empty.
+  const scope = req.nextUrl.searchParams.get("scope") === "niyaz" ? "niyaz" : "main";
+  const broadcastPhoneNumberId = getBroadcastAccount()?.phoneNumberId ?? null;
+  // PostgREST scope filter for a conversation_sessions query (string passed to .or()/.eq()).
+  // niyaz: only the broadcast number; main: NULL or any non-broadcast number. Empty when no broadcast
+  // account is configured and scope=niyaz (matches nothing).
+  const scopeOr =
+    broadcastPhoneNumberId && scope === "main"
+      ? `phone_number_id.is.null,phone_number_id.neq.${broadcastPhoneNumberId}`
+      : null;
+  const scopeEq = scope === "niyaz" ? broadcastPhoneNumberId ?? "__none__" : null;
 
   const sessionColumns = "id, phone_e164, user_id, current_intent, state, last_message_at, created_at, handling_mode, handling_mode_at, escalation_status, escalation_reason, escalation_priority, escalation_category, escalated_at, escalation_stage, escalation_assigned_to, escalation_assigned_at, escalation_sla_deadline, linked_issue_id, quality_score, quality_reason, quality_analyzed_at, user:whatsapp_users!conversation_sessions_user_id_fkey(id, display_name, phone_e164, email, role, global_role), assigned_user:whatsapp_users!conversation_sessions_escalation_assigned_to_fkey(id, display_name, phone_e164, email, role, global_role), issue:issues!conversation_sessions_linked_issue_id_fkey(id, issue_number, title)";
 
@@ -82,22 +126,57 @@ export async function GET(req: NextRequest) {
 
   if (selectedPhone) {
     sessionsQuery = sessionsQuery.eq("phone_e164", selectedPhone);
+  } else {
+    if (scopeOr) sessionsQuery = sessionsQuery.or(scopeOr);
+    if (scopeEq) sessionsQuery = sessionsQuery.eq("phone_number_id", scopeEq);
   }
 
   // Fetch recent sessions + ALL pending escalations in parallel so the
   // Escalations tab always shows every open ticket, not just those within
   // the recent-conversations window.
-  const escalationsQuery = selectedPhone
+  //
+  // Escalations are cross-cutting: in the default `main` inbox they surface regardless of which
+  // number they arrived on — people reply to broadcast blasts and the AI escalates those too, and
+  // a breaching ticket must not be hidden just because it's on the broadcast number. So we do NOT
+  // apply the `main` scope exclusion (scopeOr) here. The `niyaz` scope still narrows to its own
+  // number (scopeEq) so that view stays focused.
+  let escalationsQuery = selectedPhone
     ? null
     : supabase
         .from("conversation_sessions")
         .select(sessionColumns)
         .eq("escalation_status", "pending")
         .order("last_message_at", { ascending: false });
+  if (escalationsQuery && scopeEq) {
+    escalationsQuery = escalationsQuery.eq("phone_number_id", scopeEq);
+  }
 
-  const [recentResult, escalationResult] = await Promise.all([
+  // Resolved escalations belong to the Escalations tab too (the team browses them, and an
+  // issue's "View" link must reach them). Load them only when asked (?includeResolved=1),
+  // bounded to the most-recent `resolvedLimit` for the "load more" paging.
+  const includeResolved = req.nextUrl.searchParams.get("includeResolved") === "1";
+  const resolvedLimit = Math.min(
+    Number(req.nextUrl.searchParams.get("resolvedLimit") ?? 50) || 50,
+    500,
+  );
+  let resolvedQuery =
+    selectedPhone || !includeResolved
+      ? null
+      : supabase
+          .from("conversation_sessions")
+          .select(sessionColumns)
+          .eq("escalation_status", "resolved")
+          .order("last_message_at", { ascending: false })
+          .range(0, resolvedLimit - 1);
+  // Same cross-scope rule as pending escalations above: don't apply the `main` exclusion.
+  if (resolvedQuery && scopeEq) {
+    resolvedQuery = resolvedQuery.eq("phone_number_id", scopeEq);
+  }
+
+  const [recentResult, escalationResult, resolvedResult] = await Promise.all([
     sessionsQuery,
     escalationsQuery ?? Promise.resolve({ data: [] as SessionRow[], error: null }),
+    resolvedQuery ?? Promise.resolve({ data: [] as SessionRow[], error: null }),
   ]);
 
   if (recentResult.error) {
@@ -106,12 +185,48 @@ export async function GET(req: NextRequest) {
   if (escalationResult.error) {
     return NextResponse.json({ error: escalationResult.error.message }, { status: 500 });
   }
+  if (resolvedResult.error) {
+    return NextResponse.json({ error: resolvedResult.error.message }, { status: 500 });
+  }
 
-  // Merge & deduplicate: pending escalations that fall outside the recent
-  // window still appear so the sidebar and KPI strip agree.
+  // Always include resolved escalations linked to an issue (regardless of window or the
+  // includeResolved toggle) so every issue's "View" target is present. Linkage lives in the
+  // junction table — the denormalized linked_issue_id is unreliable.
+  let issueLinkedResolved: SessionRow[] = [];
+  if (!selectedPhone) {
+    const { data: linkRows } = await supabase
+      .from("issue_escalation_links")
+      .select("conversation_session_id");
+    const linkedIds = [
+      ...new Set(((linkRows ?? []) as { conversation_session_id: string }[]).map((r) => r.conversation_session_id)),
+    ];
+    if (linkedIds.length > 0) {
+      const { data: linkedSessions } = await supabase
+        .from("conversation_sessions")
+        .select(sessionColumns)
+        .in("id", linkedIds)
+        .eq("escalation_status", "resolved");
+      issueLinkedResolved = (linkedSessions ?? []) as SessionRow[];
+    }
+  }
+
+  // Merge & deduplicate: escalations outside the recent window still appear so the
+  // sidebar and KPI strip agree.
   const seenIds = new Set(((recentResult.data ?? []) as SessionRow[]).map((s) => s.id));
-  const extra = ((escalationResult.data ?? []) as SessionRow[]).filter((s) => !seenIds.has(s.id));
+  const supplemental = [
+    ...((escalationResult.data ?? []) as SessionRow[]),
+    ...((resolvedResult.data ?? []) as SessionRow[]),
+    ...issueLinkedResolved,
+  ];
+  const extra: SessionRow[] = [];
+  for (const s of supplemental) {
+    if (!seenIds.has(s.id)) {
+      seenIds.add(s.id);
+      extra.push(s);
+    }
+  }
   const sessions = [...(recentResult.data ?? []) as SessionRow[], ...extra];
+  const resolvedHasMore = ((resolvedResult.data ?? []) as SessionRow[]).length >= resolvedLimit;
 
   // `?religious=1`: also load EVERY conversation that used a religious/Lisan tool — even if it
   // falls outside the recent window — so the "Religious / Lisan tool used" filter shows all of
@@ -141,16 +256,58 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Surface recently-active REAL conversations regardless of which number they're on or the
+  // recent-by-last_message_at window. The recent query is scoped to `main` (excludes the broadcast
+  // number) and ordered by last_message_at, which broadcasts bump — so a genuine conversation the
+  // agent had ON the broadcast number (e.g. RSVP questions → "meaning of tawakul") never loads.
+  // Pull the phones with the most-recent conversational messages (not templates, not RSVP/feedback
+  // responses) and load their sessions; the content filter / KPIs then classify them.
+  if (!selectedPhone && scope === "main") {
+    const { data: convoMsgRows } = await supabase
+      .from("messages")
+      .select("phone_e164, src:raw_payload->>source")
+      .is("raw_payload->>template", null)
+      .not("message_type", "in", "(interactive,button)")
+      .order("created_at", { ascending: false })
+      .limit(2000);
+    // Drop system broadcast texts (e.g. the "Shukran for your reply. RSVP…" niyaz_rsvp_ended note)
+    // — they have no template key but are not real conversation, matching the client classifier.
+    const convoPhones = [
+      ...new Set(
+        ((convoMsgRows ?? []) as { phone_e164: string; src: string | null }[])
+          .filter((r) => !SYSTEM_BROADCAST_SOURCES.has(r.src ?? ""))
+          .map((r) => r.phone_e164),
+      ),
+    ];
+    const havePhones = new Set(((sessions ?? []) as SessionRow[]).map((s) => s.phone_e164));
+    const missing = convoPhones.filter((p) => !havePhones.has(p));
+    if (missing.length) {
+      const { data: convoSessions } = await supabase
+        .from("conversation_sessions")
+        .select(sessionColumns)
+        .in("phone_e164", missing)
+        .order("last_message_at", { ascending: false })
+        .limit(500);
+      const have = new Set(((sessions ?? []) as SessionRow[]).map((s) => s.id));
+      for (const s of (convoSessions ?? []) as SessionRow[]) {
+        if (!have.has(s.id)) {
+          sessions.push(s);
+          have.add(s.id);
+        }
+      }
+    }
+  }
+
   const phoneNumbers = ((sessions ?? []) as SessionRow[]).map((session) => session.phone_e164);
   if (phoneNumbers.length === 0) {
-    return NextResponse.json({ conversations: [] });
+    return NextResponse.json({ conversations: [], resolved_has_more: resolvedHasMore, accounts: resolveAccountsForResponse() });
   }
 
   const [{ data: messages, error: messagesError }, { data: toolCalls, error: toolError }] =
     await Promise.all([
       supabase
         .from("messages")
-        .select("id, phone_e164, direction, body, message_type, whatsapp_message_id, created_at, raw_payload")
+        .select("id, phone_e164, direction, body, message_type, whatsapp_message_id, created_at, raw_payload, phone_number_id")
         .in("phone_e164", phoneNumbers)
         .order("created_at", { ascending: false })
         .limit(selectedPhone ? 300 : 1000),
@@ -172,16 +329,49 @@ export async function GET(req: NextRequest) {
   const messagesByPhone = groupRowsByPhoneChronologically((messages ?? []) as MessageRow[]);
   const toolsByPhone = groupRowsByPhoneChronologically((toolCalls ?? []) as ToolAuditRow[]);
 
-  // Reliable "religious/Lisan tool used" flag — independent of the truncated tool_calls window
-  // above (which caps total rows). One narrow query over the loaded phones.
-  const { data: religiousRows } = await supabase
+  // Per-phone agent-tool usage, independent of the truncated tool_calls window above. Powers:
+  //  • the "religious/Lisan tool used" flag, and
+  //  • RSVP-topic classification — a thread whose agent activity is RSVP-only (used an RSVP tool and
+  //    no other substantive tool) is treated as Survey/broadcast, not a real conversation, even though
+  //    it has conversational text (the person's RSVP query + the agent's reply). A thread that used a
+  //    non-RSVP tool (e.g. get_lisan_word_meaning for "meaning of tawakul") stays a real conversation.
+  const RSVP_TOOL_NAMES = ["get_family_meal_rsvps", "set_family_meal_rsvps"];
+  const religiousToolNames = RELIGIOUS_TOOL_NAMES as unknown as string[];
+  const { data: toolRows } = await supabase
     .from("tool_audit_logs")
-    .select("phone_e164")
+    .select("phone_e164, tool_name")
     .in("phone_e164", phoneNumbers)
-    .in("tool_name", RELIGIOUS_TOOL_NAMES as unknown as string[]);
-  const religiousPhones = new Set(
-    ((religiousRows ?? []) as { phone_e164: string }[]).map((r) => r.phone_e164),
-  );
+    .limit(10000);
+  const religiousPhones = new Set<string>();
+  const usedRsvpTool = new Set<string>();
+  const usedNonRsvpTool = new Set<string>();
+  for (const r of (toolRows ?? []) as { phone_e164: string; tool_name: string }[]) {
+    if (religiousToolNames.includes(r.tool_name)) religiousPhones.add(r.phone_e164);
+    if (RSVP_TOOL_NAMES.includes(r.tool_name)) usedRsvpTool.add(r.phone_e164);
+    else usedNonRsvpTool.add(r.phone_e164);
+  }
+
+  // Latest CONVERSATIONAL message per loaded phone — skipping template sends (RSVP/feedback/digests/
+  // notifications) and RSVP/feedback button/flow responses. Powers (a) the "Broadcast-only" filter
+  // (a phone with none is broadcast-only) and (b) the list preview/timestamp/sort, so a thread shows
+  // its last REAL message — not a later broadcast that bumped it. Scoped to the loaded phones and
+  // ordered newest-first, so the first row seen per phone is its latest conversational message.
+  const { data: convoRows } = await supabase
+    .from("messages")
+    .select("phone_e164, body, created_at, src:raw_payload->>source")
+    .in("phone_e164", phoneNumbers)
+    .is("raw_payload->>template", null)
+    .not("message_type", "in", "(interactive,button)")
+    .order("created_at", { ascending: false })
+    .limit(5000);
+  const lastConvoByPhone = new Map<string, { body: string | null; created_at: string }>();
+  for (const r of (convoRows ?? []) as { phone_e164: string; body: string | null; created_at: string; src: string | null }[]) {
+    // Drop system broadcast texts (niyaz_rsvp_ended "Shukran…", issue_close_broadcast) — no template
+    // key but not real conversation. This is what makes has_conversational_message / the preview match
+    // the client's in-thread classifier (so an RSVP-button-only thread isn't counted as a conversation).
+    if (SYSTEM_BROADCAST_SOURCES.has(r.src ?? "")) continue;
+    if (!lastConvoByPhone.has(r.phone_e164)) lastConvoByPhone.set(r.phone_e164, { body: r.body, created_at: r.created_at });
+  }
 
   const conversations = ((sessions ?? []) as SessionRow[]).map((session) => {
     const user = Array.isArray(session.user) ? session.user[0] : session.user;
@@ -223,8 +413,16 @@ export async function GET(req: NextRequest) {
       messages: sessionMessages,
       tool_calls: toolsByPhone.get(session.phone_e164) ?? [],
       used_religious_tool: religiousPhones.has(session.phone_e164),
+      // False = "Broadcast-only" — the thread has no real message (RSVP/feedback broadcasts only).
+      has_conversational_message: lastConvoByPhone.has(session.phone_e164),
+      // RSVP-only agent activity (used an RSVP tool, no other substantive tool) → treated as Survey,
+      // not a real conversation, even if it has conversational text.
+      is_rsvp_only: usedRsvpTool.has(session.phone_e164) && !usedNonRsvpTool.has(session.phone_e164),
+      // Latest real (non-broadcast) message — drives list preview/timestamp/sort so a thread reflects
+      // its last conversation, not a later broadcast. Null for broadcast-only threads.
+      conversational_last_message: lastConvoByPhone.get(session.phone_e164) ?? null,
     };
   });
 
-  return NextResponse.json({ conversations });
+  return NextResponse.json({ conversations, resolved_has_more: resolvedHasMore, accounts: resolveAccountsForResponse() });
 }

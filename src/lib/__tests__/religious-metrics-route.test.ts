@@ -10,13 +10,15 @@ import { GET } from "@/app/api/admin/religious/metrics/route";
 
 type AuditRow = { tool_name: string; arguments: unknown; result_summary: string; phone_e164: string; created_at: string };
 
-// Supabase stub: the audit query (.in().not?...gte().order().limit()) resolves to `audit`; the two
-// head-count queries (.eq()) resolve to { count }.
+// Supabase stub: the audit query (.in()…gte().order().range()) is paginated — .range(from,to) returns
+// that slice of `audit`, so the route loops until a short page (mirrors PostgREST's ~1000-row cap).
+// The two head-count queries (.eq()) resolve to { count }.
 function supabaseWith(audit: AuditRow[]) {
   const auditChain: Record<string, unknown> = {};
   ["select", "in", "gte", "lte", "order"].forEach((m) => (auditChain[m] = () => auditChain));
-  auditChain.limit = () => Promise.resolve({ data: audit, error: null });
-  const countChain = { select: () => ({ eq: () => Promise.resolve({ count: 0 }) }) };
+  auditChain.range = (from: number, to: number) => Promise.resolve({ data: audit.slice(from, to + 1), error: null });
+  // Head-count chains: word-requests is .select().eq(); ruling-flags is .select().eq().gte().
+  const countChain = { select: () => ({ eq: () => ({ gte: () => Promise.resolve({ count: 0 }), then: (r: (v: unknown) => void) => r({ count: 0 }) }) }) };
   return {
     from: (table: string) => (table === "tool_audit_logs" ? auditChain : countChain),
   };
@@ -49,6 +51,27 @@ describe("GET /api/admin/religious/metrics — recent_gaps", () => {
     expect(body.summary.waaz_questions).toBe(4);
     expect(body.summary.lisan_lookups).toBe(1);
     expect(body.summary.lisan_by_status.not_found).toBe(1);
+  });
+
+  it("paginates past the 1000-row PostgREST cap so counts aren't truncated", async () => {
+    // Regression: total_calls used to freeze at exactly 1000 (a plain .limit() read is capped at ~1000
+    // rows server-side). Build 1500 rows (900 waaz + 600 lisan) and assert the full counts come back.
+    const many: AuditRow[] = [];
+    for (let i = 0; i < 900; i += 1) {
+      many.push({ tool_name: "answer_religious_questions", arguments: { query: `q${i}` }, result_summary: '{"decision":"answer"}', phone_e164: `+${i % 200}`, created_at: "2026-06-14T10:00:00Z" });
+    }
+    for (let i = 0; i < 600; i += 1) {
+      many.push({ tool_name: "get_lisan_word_meaning", arguments: { word: `w${i}` }, result_summary: '{"status":"ok"}', phone_e164: `+${i % 200}`, created_at: "2026-06-14T09:00:00Z" });
+    }
+    mocks.getSupabaseAdmin.mockReturnValue(supabaseWith(many));
+
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.summary.total_calls).toBe(1500); // NOT capped at 1000
+    expect(body.summary.waaz_questions).toBe(900);
+    expect(body.summary.lisan_lookups).toBe(600);
+    expect(body.summary.unique_members).toBe(200);
   });
 
   it("denies an unauthorized caller", async () => {

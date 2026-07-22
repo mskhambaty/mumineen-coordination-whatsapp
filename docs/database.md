@@ -16,6 +16,17 @@ npx supabase db push
 Migration files live in `supabase/migrations/`.  
 Always create a new timestamped file; never edit an already-applied migration.
 
+**Baseline:** the migration history was squashed to a single prod-schema baseline
+(`20260627173738_baseline.sql`) on 2026-06-27 (see issue #90). Everything before that is
+preserved in git history but no longer replays individually. A fresh database
+(`supabase db reset`, or a brand-new Supabase project) is built from the baseline plus any
+migrations added after it.
+
+**Adding a migration — use the CLI flow** so the file name always matches the remote
+ledger version: write the file, then `npx supabase db push`. Avoid the MCP
+`apply_migration` path unless you immediately rename the committed file to the
+MCP-assigned ledger version — skipping that rename is exactly what forced the #90 squash.
+
 ## Tables
 
 ### `whatsapp_users`
@@ -521,6 +532,58 @@ One row per Niyaz meal occasion. See [meal-rsvp-feedback-digest.md](./meal-rsvp-
 
 Unique `(event_date, meal)`. Ashara 1448H = 19 events (Pehli Raat Jun 14 dinner; 1st Moharram Jun 15 dinner only; 2nd–9th Moharram Jun 16–23 lunch+dinner; 10th Moharram Jun 24 dinner only).
 
+### Number attribution on messages / conversation_sessions
+
+`messages.phone_number_id` and `conversation_sessions.phone_number_id` (migration
+`…_conversation_phone_number_id`) record which of our WhatsApp numbers a message/conversation is on
+(NULL = primary). The session value is "latest message wins". Powers the inbox split: the main inbox
+(`/admin/conversations`) excludes the niyaz/broadcast number; `?scope=niyaz` shows only it.
+
+### Guest overflow rows in `mumineen`
+
+When a family RSVPs more attendees than its roster, the double-RSVP decode creates **guest** rows in
+`mumineen` (`roster_active=false`, `family_id` set, `hof_its` copied, sentinel `its` `00000-<uuid>`,
+`full_name='Guest'`, `age` null). They are **excluded** from every member-list/audience query (all
+filter `roster_active=true`) but **counted** in the niyaz tallies (the tallies views don't filter
+`roster_active`; null age counts as an adult), so overflow counts for food planning. Their
+`niyaz_rsvp` rows carry `source='whatsapp'` and the family_id.
+
+### `niyaz_event_config` (day-level RSVP config)
+
+Day-level config keyed by `event_date` (a "niyaz event" = one day). Holds the template-facing,
+admin-editable fields the RSVP broadcast needs; the per-meal `rsvp_registration_instance` rows stay
+the RSVP/tally source of truth. Source: `src/lib/rsvp/event-config.ts`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `event_date` | date | PK |
+| `day_id` | bigint identity | Stable numeric per-day id (1..N by date). Passed as `registration_instance_id` into the day-level Flow/button payloads. |
+| `rsvp_event_title` | text | `{{rsvp_event_title}}` / `{{event_title}}` |
+| `lunch_menu` / `dinner_menu` | text | `{{lunch_menu}}` / `{{dinner_menu}}` |
+| `rsvp_end_time` | text | Legacy free-text label (display fallback) |
+| `rsvp_end_at` | timestamptz | RSVP cutoff; interactive responses after this are rejected with a "registration has ended" reply. `{{rsvp_end_time}}` renders this (Chicago time). |
+| `has_lunch` / `has_dinner` | boolean | Which meals this event offers |
+| `template_code` | text | RSVP template to send (e.g. `ashara_relay_double_rsvp`) |
+| `confirmation_template_code` | text | Confirmation template sent back after a response (e.g. `ashara_relay_double_rsvp_confirmation`) |
+| `confirmation_variable_bindings` | jsonb | Flat `{token → {kind:static\|field, …}}` map for the confirmation template |
+| `confirmation_buttons` | jsonb | Per-recipient button spec (flow/quick-reply) for the confirmation template |
+
+### `whatsapp_interactive_responses` (raw inbound interactive capture)
+
+Raw capture of inbound Flow completions (`nfm_reply`) and button taps for the double-RSVP flow.
+Phase 1 only stores them; decoding into `niyaz_rsvp` is phase 2. Source:
+`src/lib/whatsapp/interactive-responses.ts`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `phone_e164` | text | Sender |
+| `wa_message_id` | text | Inbound message id (nullable) |
+| `response_type` | text | `flow` \| `button` |
+| `flow_token` | text | Self-describing token sent at broadcast time (nullable) |
+| `payload` | jsonb | The Flow's `response_json` or the quick-reply payload |
+| `received_at` | timestamptz | |
+
 ### `niyaz_rsvp`
 
 Per-mumin attendance for each Niyaz event, pre-seeded from arrival dates and overridden by the bot/admin.
@@ -532,7 +595,7 @@ Per-mumin attendance for each Niyaz event, pre-seeded from arrival dates and ove
 | `mumin_id` | uuid | FK → `mumineen.id` (on delete cascade) |
 | `family_id` | uuid | FK → `families.id` (on delete set null) — denormalized for grouping |
 | `attending` | boolean | |
-| `source` | text | `default` \| `registration` \| `whatsapp` \| `admin` |
+| `source` | text | `default` \| `registration` \| `whatsapp` \| `admin` \| `roster` (on the roster, family not registered) |
 | `responded_by_phone` | text | Nullable |
 | `recorded_by` | text | Nullable (admin id) |
 | `created_at` / `updated_at` | timestamptz | `updated_at` trigger-managed |
@@ -544,23 +607,100 @@ Unique `(registration_instance_id, mumin_id)`. RLS enabled (service-role access 
 Function **`seed_family_niyaz_rsvp(p_family_id uuid)`** (re)defaults one family's rows from current
 arrival dates without clobbering `whatsapp`/`admin` overrides; called on registration submit/edit.
 
-### `whatsapp_template_settings`
+**This table is the single source of truth for attendance counts.** Every input path writes here:
+button taps, the registration seed, admin edits, and free-text head counts (the head count is
+allocated across the family's members — head → adults → kids — clamped to roster size). Counts come
+only from `niyaz_rsvp`; nothing is summed on top of it.
 
-Admin annotations on the Meta message templates for the Send Templates console. Meta owns the
-templates; this table only decorates them. Keyed by Meta template name.
+### `niyaz_family_headcount`
+
+Audit record of the **raw** free-text head-count reply a family texted (one number per `(event,
+family)`). It is **not** a second source of truth — the attendance it represents is materialized into
+`niyaz_rsvp` by `recordFamilyHeadCount`, so this table is display-only and is never added into the
+event tallies (doing so would double-count the family).
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `template_name` | text | PK (Meta template name) |
+| `id` | uuid | PK |
+| `registration_instance_id` | uuid | FK → `rsvp_registration_instance.id` (on delete cascade) |
+| `family_id` | uuid | FK → `families.id` (on delete cascade) |
+| `head_count` | integer | The literal number the family replied (`>= 0`) |
+| `source` | text | `whatsapp` \| `admin` |
+| `responded_by_phone` | text | Nullable |
+| `created_at` / `updated_at` | timestamptz | `updated_at` trigger-managed |
+
+Unique `(registration_instance_id, family_id)`. RLS enabled (service-role access only). The numeric
+reply is tied back to a date via the **`niyaz_rsvp_prompts`** table (a prompt is logged when the
+head-count template is sent; the next numeric reply consumes the most recent open prompt).
+
+### Targeted feedback surveys (`survey_*`)
+
+A second, active feedback system (separate from the mined `feedback_entries`). See
+[feedback-surveys.md](./feedback-surveys.md). Eight tables, all RLS-enabled (service-role only),
+FKs to `mumineen`/`families` use `on delete set null` to preserve responses:
+
+| Table | Role |
+|-------|------|
+| `survey_sections` | Section databank (slug `key`, feedback `area`, `is_general`). |
+| `survey_questions` | Question databank per section (`type` incl. `multichoice` multi-select, `options` best-first, `negative_values`, `polarity`, `is_general`, `scored` — false = informational/cross-tab, no sentiment). |
+| `survey_groups` | Named target audiences stored as an audience-filter `RuleGroup` (`rules` jsonb). |
+| `survey_forms` | A composed run (target + sample_size + status draft/sampled/sent/closed). Target is EITHER `group_id` (a saved group) OR `rules` (an inline audience-filter RuleGroup / custom filter). `census` = send to the whole eligible audience (no sampling). |
+| `survey_form_questions` | The form's composed questions, with a `snapshot` jsonb for stability. |
+| `survey_recipients` | The sample; each row has a unique opaque `token` (identity for the public form). `census` rows (whole-audience blasts) are ignored by the daily sampler's history. |
+| `survey_question_exposures` | `unique (mumin_id, question_id)` — enforces once-per-event no-repeat. |
+| `survey_answers` | One row per answered question: `sentiment_1_5`, `department_ids`, `reason_text`. |
+
+### `whatsapp_template_settings`
+
+Admin annotations on the Meta message templates for the Send Templates console. Meta owns the
+templates; this table only decorates them. Keyed by **(WABA, template name)** so two WhatsApp
+accounts can hold a same-named template without their annotations colliding.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `template_name` | text | Meta template name |
+| `waba_id` | text | Nullable — the WhatsApp Business Account that owns the template. NULL = the primary/legacy account (rows created before multi-account support) |
 | `friendly_name` | text | Nullable — display label in the console pickers |
 | `is_active` | boolean | Default `true`; `false` hides the template from the console's Template dropdowns |
 | `created_at` / `updated_at` | timestamptz | `updated_at` trigger-managed |
 
-RLS enabled (service-role access only). Read/written only through `GET /api/admin/templates`
-(merge) and `PUT /api/admin/templates/settings`. Migration
-`20260611041719_whatsapp_template_settings.sql`.
+Uniqueness is `(coalesce(waba_id,''), template_name)`. RLS enabled (service-role access only).
+Read/written only through `GET /api/admin/templates` (merge) and `PUT /api/admin/templates/settings`.
+Migrations: `20260611041719_whatsapp_template_settings.sql` (create);
+`20260615073210_whatsapp_template_settings_add_waba_id.sql` (phase 1 — add `waba_id`, safe to apply
+ahead of the multi-account deploy); `20260615073334_whatsapp_template_settings_waba_unique.sql`
+(phase 2 — drop the `template_name` PK and add the `(waba_id, template_name)` unique index; apply
+**with** the multi-account code, since dropping the PK breaks the pre-deploy code's
+`ON CONFLICT (template_name)` upsert).
+
+### `whatsapp_undeliverable`
+
+Phone-keyed suppression list for numbers Meta reports as undeliverable (not on WhatsApp / can't
+receive). The delivery-status webhook records each such failure (Meta error code `131026`); once a
+number crosses `UNDELIVERABLE_FAIL_THRESHOLD` (2) failures it is marked `suppressed`, and the
+audience layer drops it from every future broadcast so we stop re-sending and re-paying. Storing the
+phone here is correct (RLS-protected, server-only); it never escapes to logs or the client.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `phone_e164` | text | PK (normalized `+digits`) |
+| `fail_count` | int | Distinct undeliverable failures; reset to 0 on un-flag |
+| `first_failed_at` / `last_failed_at` | timestamptz | First/most-recent failure |
+| `last_error_code` | int | Last Meta error code (e.g. `131026`) |
+| `suppressed` | boolean | `true` once `fail_count >= threshold`; skipped on all sends |
+| `suppressed_at` | timestamptz | When suppression turned on |
+| `cleared_at` / `cleared_by` | timestamptz / uuid | Set when an admin un-flags the number |
+
+RLS enabled (service-role access only). Written by the delivery-status webhook via the
+`record_whatsapp_undeliverable` RPC; read by the audience layer (`suppressedPhones`) and managed
+through `GET`/`DELETE /api/admin/whatsapp/undeliverable`. Migration
+`20260614063542_whatsapp_undeliverable.sql`.
 
 ## Supabase RPC Function
+
+`record_whatsapp_undeliverable(p_phone, p_error_code, p_threshold)` — atomic upsert that increments a
+number's undeliverable failure count and (re)computes `suppressed` (sticky once it crosses the
+threshold). Source: `supabase/migrations/20260614063542_whatsapp_undeliverable.sql`
 
 `match_site_content(query_embedding, match_threshold, match_count)` — vector similarity search.  
 Source: `supabase/migrations/20260529134501_match_site_content.sql`
@@ -634,6 +774,8 @@ Source: `supabase/migrations/20260606120000_accommodations_module.sql`
 ## Migration Conventions
 
 - One logical change per migration file.
-- File name: `YYYYMMDDHHMMSS_short_description.sql`
+- File name: `YYYYMMDDHHMMSS_short_description.sql` — the version **must** match the applied
+  remote ledger entry. Prefer `supabase db push` (auto-matches); if you use MCP
+  `apply_migration`, rename the file to the assigned version immediately.
 - Use `create table if not exists` and `create index if not exists` for idempotency where possible.
 - Never drop or alter columns in a way that loses data without a data migration plan.

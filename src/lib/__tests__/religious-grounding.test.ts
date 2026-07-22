@@ -23,6 +23,10 @@ const m = vi.hoisted(() => ({
   findMajlis: vi.fn(),
   overview: vi.fn(),
   themes: vi.fn(),
+  recordToolAudit: vi.fn(),
+  recordMissingLisanWord: vi.fn(),
+  lookupLisanWord: vi.fn(),
+  lookupEnglishMeaning: vi.fn(),
 }));
 
 vi.mock("@/lib/ai/model", async (orig) => ({ ...(await orig()), getAIClient: () => fakeClient }));
@@ -31,10 +35,19 @@ vi.mock("@/lib/mumineen/sender-profile", () => ({ getSenderProfile: async () => 
 vi.mock("@/lib/api/auth", () => ({ resolveCallerFromPhone: async () => undefined }));
 vi.mock("@/lib/supabase/server", () => ({
   getRecentMessages: async () => m.history,
-  recordToolAudit: async () => {},
+  recordToolAudit: async (...a: unknown[]) => m.recordToolAudit(...a),
   getSupabaseAdmin: () => ({
     from: () => ({ select: () => ({ order: async () => ({ data: [] }) }), insert: async () => ({ error: null }) }),
   }),
+}));
+// Lisan lookups are stubbed so the deterministic pre-routes fire without a DB; ARABIC_RE etc. stay real.
+vi.mock("@/lib/knowledge/lisan-words", async (orig) => ({
+  ...(await (orig() as Promise<object>)),
+  lookupLisanWord: (...a: unknown[]) => m.lookupLisanWord(...a),
+  lookupEnglishMeaning: (...a: unknown[]) => m.lookupEnglishMeaning(...a),
+}));
+vi.mock("@/lib/knowledge/lisan-word-requests", () => ({
+  recordMissingLisanWord: async (...a: unknown[]) => m.recordMissingLisanWord(...a),
 }));
 vi.mock("@/lib/scraper/retrieve-site-context", () => ({
   retrieveReligiousContext: (...a: unknown[]) => m.retrieve(...a),
@@ -64,6 +77,10 @@ beforeEach(() => {
   m.findMajlis.mockImplementation(async (ref: { year?: string | null }) => (ref.year === "1447" ? [ROW_1447_M3] : []));
   m.overview.mockImplementation(async (year: string) => (year === "1447" ? OVERVIEW_1447 : null));
   m.themes.mockResolvedValue([]);
+  m.recordToolAudit.mockResolvedValue(undefined);
+  m.recordMissingLisanWord.mockResolvedValue(undefined);
+  m.lookupLisanWord.mockResolvedValue({ status: "not_found" });
+  m.lookupEnglishMeaning.mockResolvedValue({ status: "not_found" });
 });
 
 describe("runAgent — religious grounding guard", () => {
@@ -71,15 +88,27 @@ describe("runAgent — religious grounding guard", () => {
     m.history = [{ direction: "inbound", body: "Who is the 53rd dai?" }];
     createQueue = [content("The 53rd Dai is Syedna Mufaddal Saifuddin TUS.")]; // model tries to free-answer
     const reply = await run("Who is the 53rd dai?");
-    expect(reply).toBe(NOT_FOUND_REPLY);
+    expect(reply).toContain(NOT_FOUND_REPLY);
+    expect(reply).toContain("istibsaar/oncall"); // can't-answer → suggest the on-call Istibsaar
     expect(reply).not.toContain("Source:");
   });
 
-  it("T3: 'theme of Majlis 3 this year' → OFFER_LAST (no 1448 content)", async () => {
+  it("H1: a factual person lookup with NO religious keyword ('who was Abu Sufyan') is NOT answered from general knowledge", async () => {
+    m.history = [{ direction: "inbound", body: "Who was Abu sufyan" }];
+    // Model tries to free-answer from general knowledge, with no tool call.
+    createQueue = [content("Abu Sufyan is a historical figure from early Islamic history, a leader of the Quraysh.")];
+    const reply = await run("Who was Abu sufyan");
+    expect(reply).toContain(NOT_FOUND_REPLY);
+    expect(reply).not.toMatch(/Quraysh|historical figure|early Islamic history/); // general knowledge must not leak
+  });
+
+  it("T3: 'theme of Majlis 3 this year' → NOT_FOUND, never auto-offers 1447 (Fix Y)", async () => {
     m.history = [{ direction: "inbound", body: "What was the theme of Majlis 3 this year?" }];
     createQueue = [toolCall("What was the theme of Majlis 3 this year?")];
     const reply = await run("What was the theme of Majlis 3 this year?");
-    expect(reply).toBe(THIS_YEAR_OFFER_LAST);
+    expect(reply).toContain(NOT_FOUND_REPLY);
+    expect(reply).not.toBe(THIS_YEAR_OFFER_LAST);
+    expect(reply).not.toContain("1447"); // never surfaces last year unless explicitly asked
     expect(reply).not.toContain("Source:");
   });
 
@@ -112,7 +141,8 @@ describe("runAgent — religious grounding guard", () => {
     m.retrieve.mockResolvedValue(""); // nothing indexed for this query, any year
     createQueue = [toolCall("What did Maula say about sabr?")];
     const reply = await run("What did Maula say about sabr?");
-    expect(reply).toBe(NOT_FOUND_REPLY);
+    expect(reply).toContain(NOT_FOUND_REPLY);
+    expect(reply).toContain("istibsaar/oncall");
   });
 
   it("T11: overall theme of 1447 → answered from the indexed 1447 overview, labeled 1447H", async () => {
@@ -128,12 +158,13 @@ describe("runAgent — religious grounding guard", () => {
     expect(reply).not.toBe(NOT_FOUND_REPLY);
   });
 
-  it("T12: 'majlis themes for 1448' → OFFER_LAST and lists NO placeholder themes", async () => {
+  it("T12: 'majlis themes for 1448' (none indexed) → NOT_FOUND, no 1447 fallback (Fix Y)", async () => {
     m.history = [{ direction: "inbound", body: "List the majlis themes for 1448" }];
     m.themes.mockResolvedValue([]); // status='indexed' filter → zero 1448 themes
     createQueue = [toolCall("List the majlis themes for 1448")];
     const reply = await run("List the majlis themes for 1448");
-    expect(reply).toBe(THIS_YEAR_OFFER_LAST);
+    expect(reply).toContain(NOT_FOUND_REPLY);
+    expect(reply).not.toBe(THIS_YEAR_OFFER_LAST);
     expect(reply).not.toMatch(/Saturn|Jupiter|Majlis \d/); // no placeholder theme content leaked
   });
 
@@ -143,5 +174,34 @@ describe("runAgent — religious grounding guard", () => {
     const reply = await run("Salaam un Jameel");
     expect(reply).toContain("Salaam");
     expect(reply).not.toBe(NOT_FOUND_REPLY);
+  });
+});
+
+// The deterministic Lisan pre-routes answer BEFORE the model's tool layer, so they must log the
+// lookup themselves — otherwise the chat is invisible to the monitor surfaces + undercounts metrics.
+describe("runAgent — deterministic Lisan pre-routes are logged", () => {
+  it("a bare-word lookup logs a get_lisan_word_meaning tool call (no model call)", async () => {
+    m.lookupLisanWord.mockResolvedValue({ status: "ok", matches: [{ transliteration: "Aflaak", lisan: "افلاك", meaning: "Celestial spheres", example: null }] });
+    const reply = await run("aflaak");
+    expect(reply).toContain("Aflaak");
+    expect(m.recordToolAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ toolName: "get_lisan_word_meaning", phoneE164: "+1555" }),
+    );
+    expect(create).not.toHaveBeenCalled(); // pre-route short-circuits before the model
+  });
+
+  it("a reverse 'lisan word for X' lookup logs with direction to_lisan", async () => {
+    m.lookupEnglishMeaning.mockResolvedValue({ status: "ok", matches: [{ transliteration: "Jafakash", lisan: "جفاكش", meaning: "hardworking", example: null }] });
+    const reply = await run("what is the lisan word for hardworking");
+    expect(reply).toContain("Jafakash");
+    expect(m.recordToolAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ toolName: "get_lisan_word_meaning", arguments: expect.objectContaining({ direction: "to_lisan" }) }),
+    );
+  });
+
+  it("an explicit miss queues the missing word for the team", async () => {
+    m.lookupLisanWord.mockResolvedValue({ status: "not_found" });
+    await run("what is the meaning of zzqq");
+    expect(m.recordMissingLisanWord).toHaveBeenCalledWith("zzqq", "+1555");
   });
 });

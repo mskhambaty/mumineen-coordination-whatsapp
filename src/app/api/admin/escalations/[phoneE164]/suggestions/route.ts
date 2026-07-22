@@ -3,7 +3,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { canAccessInbox } from "@/lib/admin/access";
 import { getAIClient, AI_MODEL, SUMMARY_TEMPERATURE, MAX_SUMMARY_TOKENS, chatParams } from "@/lib/ai/model";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
-import { type MatchingIssue, matchIssuesToEscalation } from "@/lib/escalation/issue-match";
+import {
+  type MatchingIssue,
+  matchIssuesToEscalation,
+  meetsConfidence,
+  SUGGESTION_CONFIDENCE_THRESHOLD,
+} from "@/lib/escalation/issue-match";
 import { getCached, setCached } from "@/lib/escalation/suggestions-cache";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -74,7 +79,9 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
   ]);
 
   const result: SuggestionsResponse = {
-    matching_issues: matchingIssues,
+    // Only surface confident same-problem matches; the matcher over-matches on topical adjacency,
+    // so weak matches would just be noise the triager has to dismiss.
+    matching_issues: matchingIssues.filter((m) => meetsConfidence(m.confidence, SUGGESTION_CONFIDENCE_THRESHOLD)),
     resolution_history: resolutionHistory,
   };
   setCached(phone, result);

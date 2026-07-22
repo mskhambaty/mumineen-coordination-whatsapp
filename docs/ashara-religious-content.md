@@ -37,10 +37,25 @@ answers and accurate follow-up menus.
 The **Ashara Daily Content** dashboard (External → Ashara Daily Content) is the single surface
 for entering content. Grid = majlis (rows) × category (columns).
 
-- **Seed a day:** "Seed all 6" creates the 6 category slots for a majlis with metadata + a
-  "start here" istibsaar source link. English → `placeholder`, Lisan → `pending_translation`.
-  The daily cron `/api/cron/seed-majlis-day` (gated by `ASHARA_START_DATE` / `ASHARA_YEAR`) does
-  this automatically each Ashara day; `seedMajlisDay()` is the shared logic.
+- **This year's scope = Reflections + Q&A (per majlis) + one Tazyeen block (whole Ashara).** The
+  per-majlis grid has just two columns — Reflections and Q&A (`ASHARA_CATEGORIES` /
+  `DEFAULT_ASHARA_CATEGORIES` in `ashara-config.ts`). **Tazyeen** is a single year-level block
+  (`TAZYEEN_CATEGORY`, `majlis_number` null) edited from a button above the grid, like the
+  Overall-theme block — one Tazyeen article for all of 1448. **Al-Dars, Jumla, Kalema, Unwaan are not
+  used this year** (removed from the dashboard; historical 1447 rows stay in the DB and remain
+  answerable by the agent, just not shown in the grid).
+- **Seed a day:** "Seed" creates the per-majlis slots (Reflections + Q&A). The daily cron
+  `/api/cron/seed-majlis-day` (gated by `ASHARA_START_DATE` / `ASHARA_YEAR`) does this automatically
+  each Ashara day; `seedMajlisDay()` is the shared logic (driven by `DEFAULT_ASHARA_CATEGORIES`).
+- **Q&A cell (`category='faq'`):** a curated bucket of likely member questions + grounded answers,
+  pasted in per majlis (generated separately, e.g. by Opus). Indexed like any other cell, and the
+  agent searches it alongside the sermon sources — so recurring and "list all N" questions ("the six
+  qualities of a cook") get a vetted answer instead of being re-synthesized from raw reflection prose.
+  A **year-agnostic service FAQ** — a `faq` block with `year_hijri` null (no majlis) — answers
+  program/meta questions ("how do I receive daily reflections?", "why isn't the full waaz provided?").
+  `retrieveReligiousContext` keeps a null-year `faq` row even under strict year scoping (other
+  null-year rows are dropped when a concrete year is required), so it answers regardless of any year
+  cue in the query.
 - **Fill a cell:** click → `ContentBucketEditor`. English: paste the article. Lisan: read the
   original via the **↗ source** link and paste the **English translation**. Saving re-indexes it
   (`status → indexed`) and auto-generates the theme.
@@ -64,6 +79,88 @@ from the model's general knowledge. **Short follow-ups** ("Tazyeen", "Al dars", 
 number) inherit the majlis+year (or the offered option) from the previous turn — the agent
 re-calls the tool with the full reference rather than answering from memory.
 
+**Deterministic routing + year scoping (so the bot doesn't falsely say "I couldn't find it" or
+answer from the wrong year):**
+- **Forced tool-call (F0):** when a message concretely references religious content — a specific
+  majlis (`parseMajlisRef`, e.g. "majlis 1 1448", "give point for majlis 1", "first waaz") or an
+  overview ask (`isOverviewQuery`) — `runAgent` forces `tool_choice` to `answer_religious_questions`
+  instead of `"auto"`. Terse phrasings previously left the model not calling the tool, and the
+  no-tool guard then returned a false `NOT_FOUND_REPLY` for content that is indexed. (Not forced for
+  own-RSVP or clearly-social messages.)
+- **Active-year default (F1):** an UNqualified query (no year/today/this cue) no longer searches
+  across years (which let 1447 content answer current questions). `answer_religious_questions`
+  defaults the year to the **active** Ashara once it has started (`resolveAsharaYear().activeStarted`),
+  else the last completed one.
+- **No general-knowledge answers (H1):** a factual "who/what was X" lookup (`looksLikeFactualLookup`)
+  about a person/place/term is forced through `answer_religious_questions` (and the no-tool guard
+  backstops it), so the bot answers only from the indexed reflections — never from the model's own
+  knowledge. Eval: "who was Abu Sufyan" had been answered from general knowledge with no tool call.
+- **Deterministic search for religious questions (A):** an interrogative question about a religious
+  subject — "how/why/what/when/where/who … did …" carrying a content keyword (`hasReligiousSignal`)
+  **or** an Islamic honorific (AS / SAW / RA / TUS / QR, matched case-sensitively) — is also forced
+  through `answer_religious_questions` (`looksLikeReligiousQuestion`, excluding logistics/RSVP/social).
+  Before this, "how/why did …" questions matched no force rule, so the model decided per-call under
+  `tool_choice "auto"` and the **same** question answered once then returned `NOT_FOUND_REPLY` the next
+  time (it had silently skipped the search — no tool-audit row). Forcing can't fabricate (the tool
+  still answers only from indexed content); it just makes a given question behave the same way every
+  time. Eval: "How did Imam Hasan AS reunite the couple…" / "Why did Maulana Ali AS stop at Siffin?".
+  *Limitation:* a religious question with no keyword and no honorific (e.g. "how did an ironsmith hold
+  scorching iron") can't be detected lexically and stays on `"auto"`.
+- **Signal list + fabricated-citation backstop:** core figures/terms (`allah`, `rasul`, `nabi`,
+  `sahaba`, `ghulam`, `sadaqa`) were **missing** from `RELIGIOUS_SIGNAL_RE`, so a clearly-religious
+  question that used none of the other keywords (eval: *"what happened when a man gave only Allah as
+  his guarantor for a camel"*) carried no signal — it bypassed the force-tool rule **and** the no-tool
+  refusal, and the model answered from memory with a **fabricated `Source: … Majlis 8`** line (the real
+  story is Majlis 7). Added those terms (`allah` is whole-word, so it never fires inside
+  inshallah/mashallah). Belt-and-suspenders: the no-tool guard now also refuses any reply that carries
+  a Waaz citation (`Majlis N` / `Source: Reflections` / a blogs.jameasaifiyah.edu link / `al-Dars`) —
+  with no tool call there is no retrieved source, so such a citation is necessarily invented.
+- **No personal advice / coaching:** `RELIGIOUS_GUIDANCE_RULE` forbids the bot from turning a member's
+  own situation (their business, a hardship, a decision) into a personalised action plan or
+  step-by-step life/business advice — even "grounded in" a reflection. It answers only what the
+  reflection states (with Source), then points to raabta with the aamil saheb / on-call Istibsaar or
+  hands off via `move_to_escalation`. Eval: a member described their cacao/honey business and the bot
+  produced a bespoke "here's how Majlis 7 helps you… 1. Re-center on niyyat…" plan. (Prompt change —
+  A/B-validate.) The no-tool fabricated-citation backstop catches the no-search variants.
+- **Dashboard metrics pagination:** the religious metrics route (`/api/admin/religious/metrics`) now
+  pages the `tool_audit_logs` read with `.range()` instead of a single `.limit()`. PostgREST caps any
+  one response at ~1000 rows, so the dashboard's TOOL CALLS / Waaz QS / Word Meanings / Mumineen counts
+  silently froze at exactly 1000 once a window exceeded it; pagination restores accurate totals.
+- **Subject fidelity / no false premise (H2):** the answer-grounding instruction requires the reply to
+  be about EXACTLY the person/term asked. If it isn't in the retrieved passages, the bot says the
+  reflection doesn't mention it rather than answering about a different figure or validating an
+  invented premise. Eval: "Imam Mansoor" was answered about Imam Husain; "Saani and Aashir" (not in
+  the waaz) were validated as if real.
+- **No 1447 unless explicit (Fix Y):** 1447 is served ONLY when the user explicitly asks ("1447",
+  "last year"). The old auto-`offer_last` fallback was removed — an unmatched active-year query
+  returns a clean not-found (or, for "today", the not-posted notice below), never a 1447 offer.
+- **"Today / aaj / tonight" → the current majlis (Fix T):** resolved deterministically via
+  `majlisRowForToday` to today's `ASHARA_ROWS` entry and answered from that exact block (not a vector
+  guess that returned a random earlier majlis). "yesterday" → majlis − 1. If today's majlis isn't
+  posted yet, the reply LEADS with a notice ("Today's waaz (Majlis N) isn't posted yet…") and then the
+  most recent **published** majlis (same year), via `latestPublishedReflection`.
+- **Summaries (Fix S):** a summary/recap/"main points" ask (`isSummaryQuery`) uses a dedicated
+  `summary` answer_style — *bold theme* + 5–7 key points, ~700–1000 chars minimum (never a 2-line
+  blurb). "summary of [today | majlis N]" answers from THAT majlis; `isOverviewQuery` is reserved for
+  genuinely year-level asks ("all majlis themes", "overview of the whole Ashara") and no longer fires
+  on a bare "summary".
+- **Curated-Q&A preference (F3):** in the vector path the curated `faq` chunk is promoted ahead of
+  raw reflection prose (`retrieveReligiousContext(..., preferCategory: "faq")`) so recurring
+  questions get the vetted answer consistently.
+- **Follow-up gating (F2):** the vector path now returns `available_facets` (derived from the leading
+  chunk's majlis+year), so the al-Dars deep-dive / tazyeen follow-up is offered only when that
+  content actually exists.
+
+**Two-way lookup.** The dictionary works in both directions. *Forward* (default) takes a Lisan
+word → English meaning. *Reverse* (`direction: "to_lisan"` on the tool, or an explicit "what is
+the Lisan word for X" / "what is X in lisan ud dawat" phrase caught deterministically by
+`maybeReverseWordQuery` in `religious-guard.ts`) takes an English term → the Lisan word, via
+`lookupEnglishMeaning` (`lisan-words.ts`): exact gloss-word match on the `meaning_terms` array →
+fuzzy `word_similarity` over `meaning` (`match_lisan_by_meaning` RPC). A reverse miss is a clean
+"not in the dictionary" — never a forward fuzzy guess, and it is **not** queued as a missing word
+(the query is an English word, not a Lisan one). `meaning_terms` is computed by `prepareLisanRow`
+on every add/import (migration `20260615220000_lisan_meaning_reverse.sql`).
+
 **Maintaining the dictionary (DB is the source of truth).** On `/admin/knowledge` the Lisan
 uploader supports three operations against `lisan_words` (all `canManageKnowledge`): **Upload &
 Replace** (`POST` CSV, full delete+insert — for a bulk reload), **Add a word** (`PUT` JSON, the
@@ -78,23 +175,40 @@ survives until the next full CSV re-upload, so export before replacing if the ma
 trivial reply and not a "did you mean"), the agent fire-and-forget calls `recordMissingLisanWord`
 ([src/lib/knowledge/lisan-word-requests.ts](../src/lib/knowledge/lisan-word-requests.ts)), which
 queues the word in `lisan_word_requests` (one open row per `normalized_word`, repeat asks bump
-`times_seen`) and — only on the **first** sighting — emails the single `LISAN_ALERT_EMAIL`
-recipient (Postmark `sendRawEmail`) with the word + asker so they can add it and reply. Adding the
-word via `addLisanWord` calls `markWordRequestAdded`, which flips the matching open row to `added`
-so it leaves the queue automatically. If `LISAN_ALERT_EMAIL` is unset the word is still queued, just
-no email. Never throws into the agent.
+`times_seen`) and — only on the **first** sighting — emails the **whole religious-monitor team**
+(`getReligiousMonitorEmails` + the optional `LISAN_ALERT_EMAIL`, deduped, one Postmark `sendRawEmail`
+per recipient) with the word + asker so any of them can add it. Adding the word via `addLisanWord`
+calls `markWordRequestAdded`, which flips the matching open row to `added` and — when it actually
+**closed** a waiting request — emails the same team again ("‘<word>’ added by <name>") so nobody
+double-works it (a proactive add of a never-requested word sends nothing; bulk CSV import doesn't
+notify). If there are no monitors and no `LISAN_ALERT_EMAIL`, the word is still queued, just no email.
+Never throws into the agent or the admin add flow.
 
 **Waaz Talaqqi hub (`/admin/religious`, nav label "Waaz Talaqqi").** A single **tabbed** page
 (`src/app/admin/religious/page.tsx` shell + `src/components/admin/religious/*` tabs) — a KPI band over
-underline tabs (each shows a one-line description), **access-gated per tab**: **Overview · Chats · Flags** for monitors; **Dictionary**
+underline tabs (each shows a one-line description), **access-gated per tab**: **Overview · Inbox · Flags** for monitors; **Dictionary**
 (+ Content, see below) for managers/admins; **Team** for admins. A date-range selector drives the
 metrics. The **Overview** is action-oriented: **Today's uploads** (managers — today's majlis cell
 status for the active year, from the topics list), **Content gaps** (recent Waaz questions the bot
 couldn't answer — `metrics.recent_gaps`, i.e. `answer_religious_questions` with `decision`
 not_found/offer_last), **Needs attention** (missing words / ruling flags), and top words + Lisan
-miss-rate. The **Chats** tab is an inbox with the same **AI ⇄ Manual** switch as the general Inbox —
-`PUT /api/admin/religious/mode` (monitor-gated; the Inbox's own mode route is `canAccessInbox`). The
-reply box is enabled only in **Manual + inside the 24h window**; flipping to Manual takes the member
+miss-rate. The **Inbox** tab (`ReligiousInbox`) is a religious-scoped clone of the inbox conversation
+surface — only chats that used a religious/Lisan tool (server-scoped endpoint, no logistics PII). It
+shows chats **active in the last N hours by religious tool-CALL recency** (a `windowHours` dropdown:
+24 / **48 (default)** / 168) — *not* by message activity, so a chat whose religious tool-call aged
+past the window no longer clutters the Inbox even if it got a logistics/template message today; a
+Manual-mode chat with a recent handoff (within the window) is kept. **Each thread is filtered to the
+real exchange** — broadcast/automated messages (RSVP/feedback templates, button/flow responses, and
+system broadcast texts like the "Shukran for your reply. RSVP for…" note) are stripped server-side
+(same classifier as the main inbox), so a member who also got RSVP blasts doesn't see them interleaved
+with the religious/Lisan chat. (The 24h reply window is still computed from the latest inbound of *any*
+kind, since WhatsApp's window opens on any inbound.) The general Conversations inbox
+keeps its all-time "Religious / Lisan" filter as the archive for older religious chats. It
+**stays live by polling `/api/admin/religious/conversations` every 5s + on tab focus** (the endpoint is
+`force-dynamic`; religious monitors can't use the inbox's `canAccessInbox`-gated SSE stream). Mobile is
+WhatsApp-style master/detail (list → tap → thread + ← back). Same **AI ⇄ Manual** switch as the general
+Inbox — `PUT /api/admin/religious/mode` (monitor-gated; the Inbox's own mode route is `canAccessInbox`).
+The reply box is enabled only in **Manual + inside the 24h window**; flipping to Manual takes the member
 off the AI for everything (same shared `handling_mode` as the Inbox). The **Content** tab holds the
 Ashara **majlis × category grid** (`AsharaContent` — the daily-content ingest for the active year,
 e.g. 1448, with the overview block + translation queue + theme generation); `/admin/ashara` now
@@ -102,6 +216,13 @@ e.g. 1448, with the overview block + translation queue + theme generation); `/ad
 — free-form religious doc upload + indexed docs + the standalone Waaz FAQ-by-Topic blocks — and the
 Lisan dictionary is on the **Dictionary** tab. `/admin/knowledge` is now **logistics-only** (its "Waaz
 Talaqi" tab was removed); all religious content lives under Waaz Talaqqi.
+
+The **Dictionary** tab also has a **browser** (`LisanDictionaryBrowser`) over the indexed words:
+search by word and/or meaning (`GET /api/admin/lisan-words?list=1&q=&field=word|meaning|all`,
+paginated), **copy** buttons per word/meaning (paste a correct spelling into the Inbox), and inline
+**Edit** (`PATCH ?id`) / **Delete** (`DELETE ?id`). Adding a word that already exists (same `norm`)
+now **warns before overwriting**: the `PUT` returns `409 { status: "exists", existing }` unless
+`confirm:true` is sent, so the admin sees the existing meaning and chooses Replace vs Keep.
 
 **Religious dashboard + monitors (`/admin/religious`).** A dedicated team can oversee religious
 chats on their own page, fully separate from the logistics/event admin. A **religious monitor** is a
@@ -114,16 +235,28 @@ to the inbox — see [access-control.md](./access-control.md)). The dashboard sh
 **reply box**. Replying (`POST /api/admin/religious/reply`) sends free-form text **only inside
 WhatsApp's 24-hour window** (else 422) and is **state-preserving** — it updates only
 `last_message_at`, never the member's conversation intent/state or `handling_mode`, so an
-in-progress logistics flow is never disturbed. Admins manage the monitor list from the same page.
+in-progress logistics flow is never disturbed. The whole team also gets the **Dictionary** and
+**Content** tabs (managing the Lisan dictionary + per-majlis topics is part of their job) — the
+underlying `lisan-words` / `religious-topics` / `ashara/seed` routes accept
+`canManageReligiousContent` (= existing portal/knowledge managers **plus** a religious monitor).
+The **Team** tab (adding/removing monitors) stays admin/leadership-only, since it controls access.
 
 **Year resolution (1447 ↔ 1448).** Before retrieving, the tool calls `resolveAsharaYear(query, today)` (`ashara-config.ts`) to anchor on the *event*, not the Hijri calendar: explicit `1447/1448` → that year; "last year" → `LAST_COMPLETED_ASHARA_YEAR` (1447, the indexed one); "this year / today / this Ashara / upcoming" → `ACTIVE_ASHARA_YEAR` (1448, not yet posted); no cue → most-recent-available. If the resolved year has no content, the tool returns `not_available` **with** `available_year` + last year's content, and the agent says "1448H isn't posted yet — here's last year (1447H): …" — it never relabels one year's content as another's. Every answer states the concrete year.
 
-**Category-disciplined retrieval.** The tool checks a **specific majlis** first, then **overview** intent (`isOverviewQuery` → the curated `overview` block + per-majlis theme list), then a **category-aware vector fallback**: a decoration question searches `tazyeen`; everything else searches the sermon sources (`reflection`+`al_dars`+`overview`) so the decoration article can never answer a sermon-content question. `retrieveReligiousContext(query, topK, categories)` post-filters by the denormalized `category` on `religious_content`.
+**Category-disciplined retrieval.** The tool checks a **specific majlis** first, then **overview** intent (`isOverviewQuery` → the curated `overview` block + per-majlis theme list), then a **category-aware vector fallback**: a decoration question searches `tazyeen`; everything else searches the sermon sources + the curated Q&A bucket (`reflection`+`al_dars`+`overview`+`faq`) so the decoration article can never answer a sermon-content question, while a member's question can match a vetted Q&A answer. `retrieveReligiousContext(query, topK, categories)` post-filters by the denormalized `category` on `religious_content`.
 
 **Can't answer from the reflections → hand off to the team (no improvised ruling).** Decision tree, enforced by `RELIGIOUS_GUIDANCE_RULE`:
 1. A real, on-topic match in the reflections → answer + cite the source (above).
 2. A genuine Waaz/deen/Iqtibasaat question with **no usable match**, OR a **personal fiqh/fatwa** ("should I fast on 10th Muharram"), OR sectarian/theological debate → the agent calls `move_to_escalation` with category **`religious_followup`** (priority `normal`). It must NOT give a ruling, an Aamil-Saheb redirect, or any `Source:` citation. The system then returns a **fixed reply** (`RELIGIOUS_FOLLOWUP_REPLY` in `run-agent.ts`): *"I answer only from the published Ashara reflections, and I couldn't find this there. I've shared your question with our team — if it relates to the Waaz Mubarak, someone will get back to you, Inshallah."* (subtly scopes follow-up to the Waaz Mubarak).
 3. Logistics (hotels, registration, ITS) → `get_site_content_faq`; content-free closings → `[[NO_REPLY]]`. Never escalate those.
+
+**On-call Istibsaar suggestion.** `appendOnCallSuggestion` (`religious-guard.ts`) deterministically adds
+one line — *"…ask your question on the on-call Istibsaar — sign in with your ITS: `ISTIBSAAR_ONCALL_URL`"* —
+to a religious reply when the bot **can't answer** (`NOT_FOUND_REPLY`, the no-tool religious refusal, and
+the `religious_followup` hand-off, `force:true`) or after the member has had **≥3 inbound messages** on a
+normal religious **answer**. **Not** added to a personal-ruling refusal (Aamil Saheb only) or the
+offer-last reply. Deduped with no new state: skipped if a recent outbound in the loaded history already
+carries the URL. Wired at the religious return points in `run-agent.ts`.
 
 This reuses the existing escalation queue (`POST /api/escalations` → `conversation_sessions.escalation_status='pending'` → on-call email/WhatsApp → `/admin/conversations` *Escalations* tab). `religious_followup` is **exempt from the 3-inbound-message gate** (deen questions are often the first message). Because a successful escalation returns its deterministic acknowledgment and skips the second model completion, the irrelevant-citation bug (a fatwa decline getting reflection `Source:` lines stapled on) cannot occur on this path.
 
@@ -171,9 +304,17 @@ This reuses the existing escalation queue (`POST /api/escalations` → `conversa
   "thanks" still yields the no-reply token.
 - **Formatting:** WhatsApp markup (single-asterisk bold, underscore italics for transliterations,
   bullet/numbered lists), reverent tone, honorifics (SA/AS/TUS/RA), no emojis.
-- **Citations:** every answer ends with a plain `Source: <title> — <url>` line, enforced
-  server-side by `collectSources` / `ensureSourcesCited`. blogs.jameasaifiyah.edu reflection /
-  tazyeen links are a permitted exception to the "official site only" URL rule.
+- **Citations:** an answer ends with **at most ONE** `Source:` line, enforced server-side by
+  `collectSources` / `finalizeSources` (`run-agent.ts`) — never a stack of links. The line is
+  derived from the trustworthy tool-result provenance (any `Source:` the model wrote is stripped
+  first). A single-majlis answer keeps its precise per-majlis link; an answer spanning
+  `SOURCE_COLLAPSE_THRESHOLD` (2) or more **distinct majalis** (grouped by majlis number, so
+  reflection + al-Dars of the same majlis count as one) collapses to a **single year-archive
+  link** from `resolveArchiveUrl(year)` (the year's overview-block `source_url` if pinned, else the
+  derived `reflection-category/<year>h/` index, else the Ashara landing page). Hand-off / non-answer
+  replies (`looksLikeHandoff`, `not_found`, `offer_last`) get **no** `Source:` line.
+  blogs.jameasaifiyah.edu reflection / tazyeen links are a permitted exception to the "official
+  site only" URL rule.
 
 Prompt changes here must be validated on the Ollama A/B page before shipping
 (see [ollama-ab-testing.md](./ollama-ab-testing.md) and AGENTS.md §6).

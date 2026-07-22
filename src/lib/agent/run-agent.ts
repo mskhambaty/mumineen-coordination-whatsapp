@@ -3,24 +3,33 @@ import OpenAI from "openai";
 import { executeTool, toolDefinitionsFor } from "@/lib/agent/tools";
 import { SYSTEM_PROMPT, loadAgentSystemPrompt, loadRuleOverrides } from "@/lib/agent/prompts";
 import { AGENT_TEMPERATURE, AI_MODEL, AI_MODEL_HIGH, chatParams, getAIClient, MAX_AGENT_TOKENS, MAX_FINAL_TOKENS } from "@/lib/ai/model";
-import { isPersonalRuling, flagRulingQuestion, RULING_REFUSAL_REPLY } from "@/lib/agent/ruling-guard";
-import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
+import { isPersonalRuling, flagRulingQuestion, looksLogistics, RULING_REFUSAL_REPLY } from "@/lib/agent/ruling-guard";
+import { lookupEnglishMeaning, lookupLisanWord } from "@/lib/knowledge/lisan-words";
+import { isOverviewQuery, parseMajlisRef, resolveArchiveUrl } from "@/lib/knowledge/religious-topics";
+import { SOURCE_COLLAPSE_THRESHOLD } from "@/lib/knowledge/ashara-config";
 import {
   NOT_FOUND_REPLY,
   THIS_YEAR_OFFER_LAST,
+  appendOnCallSuggestion,
+  maybeReverseWordQuery,
   maybeSingleWordQuery,
   renderLisanReply,
+  renderReverseLisanReply,
   isDidYouMeanFollowUp,
   pickDidYouMeanCandidate,
   isAffirmative,
   isClearlySocial,
   hasReligiousSignal,
+  looksLikeFactualLookup,
+  looksLikeReligiousQuestion,
+  looksLikeOwnRsvpIntent,
   yearLabelMismatch,
 } from "@/lib/agent/religious-guard";
 import { resolveCallerFromPhone, type CallerContext } from "@/lib/api/auth";
 import type { AppUser } from "@/lib/permissions";
 import { formatSenderProfileForPrompt, getSenderProfile, type SenderProfile } from "@/lib/mumineen/sender-profile";
-import { getRecentMessages, getSupabaseAdmin } from "@/lib/supabase/server";
+import { getRecentMessages, getSupabaseAdmin, recordToolAudit } from "@/lib/supabase/server";
+import { recordMissingLisanWord } from "@/lib/knowledge/lisan-word-requests";
 
 export { SYSTEM_PROMPT };
 
@@ -30,6 +39,11 @@ const MAX_HISTORY_CHARS = 2000;
 // Sentinel the agent emits when no reply should be sent (e.g. a content-free
 // "thanks" after the chat has wound down). The webhook stays silent on this.
 export const NO_REPLY_TOKEN = "[[NO_REPLY]]";
+
+// A1 routing-guard safety net: shown when an own-attendance/RSVP question was mis-routed to the
+// religious tool. Never claim "I only answer from published reflections" to an RSVP question.
+export const OWN_RSVP_REDIRECT =
+  "It looks like you're asking about your own meal RSVP. Tell me which day or event and I'll check it for you.";
 
 // Always-on escalation guidance, appended to whatever system prompt is loaded so
 // it can't be edited away. The hard turn-gate lives server-side in /api/escalations.
@@ -62,14 +76,16 @@ const GREETING_RULE = `\n\n## Greeting Style — Greet Exactly Once
 // follow below. Keeps the model from answering from general knowledge or picking the wrong store.
 const TOOL_ROUTING_RULE = `\n\n## Tool Routing — Pick the Right Tool
 Before answering, route the question to the correct tool. Never answer event specifics, religious content, or word meanings from general knowledge.
-- get_site_content_faq → ANY event/logistics question: schedule, venue/directions, parking, hotels/accommodation/utaro, registration/ITS/raza, WiFi, bathrooms, medical/help desk, mawaid/food, dress code, what to bring, lost & found. ALWAYS call it before saying you don't know.
-- answer_religious_questions → anything about the Waaz/Vaaz, a specific majlis, the reflection, al-Dars, Iqtibasaat, or a majlis's Tazyeen/decoration.
+- get_site_content_faq → ANY event/logistics question: schedule, venue/directions, parking, hotels/accommodation/utaro, registration/ITS/raza, WiFi, bathrooms, medical/help desk, mawaid/food, dress code, what to bring, lost & found. This ALSO includes the LOGISTICS of the Waaz Talaqqi / Istibsaar reflection program — which room/hall each group meets in, what time it is, and who to contact (e.g. "where do professionals go for waaz talaqqi", "which room is the English reflections", "where do youngsters/farzando/kids go", "what time is istibsaar"). ALWAYS call it before saying you don't know.
+- answer_religious_questions → the CONTENT of the Waaz/Vaaz itself, a specific majlis, the reflection, al-Dars, Iqtibasaat, or a majlis's Tazyeen/decoration (what was said/explained). NOT the room/time/logistics of the waaz-talaqqi program — those are get_site_content_faq.
 - get_lisan_word_meaning → the meaning of ONE Lisan ud Dawat word or short phrase ("what does X mean", "X ni maana", or a bare word).
 - report_lost_item / report_found_item → a person is reporting an item they lost or found. Capture useful identifying details and location, then call the matching tool. Lost reports automatically escalate to Lost and Found; do NOT separately call move_to_escalation. Tell found-item reporters to drop the item at any help desk in the masjid complex, and tell lost-item reporters pickup is there.
-- move_to_escalation → a real active emergency, a frustrated user, an EXPLICIT and specific request for a person, an actionable operational/facility problem to report (broken shuttle, AC not working, restroom issues, cleanliness, equipment failures, missing supplies), or a Waaz/deen question the reflections can't answer (category 'religious_followup'). This tool ALSO auto-creates an issue (visible in the Issues tab) and a workspace task, and notifies the department's issue contacts. Always provide a clear title and description, and pick the best department from the Available Departments list.
-  - REPORT vs QUESTION: a statement that something is broken, missing, or not working ("the AC is off and it's hot in here", "water bottles everywhere on second floor") is a problem REPORT — use move_to_escalation so it creates an issue and the responsible department can act on it. Reciting the general FAQ process back at them does not fix the thing that is broken.
+- move_to_escalation → a real active emergency, a frustrated user, an EXPLICIT and specific request for a person, an actionable operational/facility problem to report (broken shuttle, AC not working, restroom issues, cleanliness, equipment failures, missing supplies), or a Waaz/deen question the reflections can't answer (category 'religious_followup'). This hands the conversation to the on-call team. Always provide a clear title and description, and pick the best department from the Available Departments list.
+  - ISSUE vs not: escalating a single person's request, question, or hand-off does NOT create a tracked issue — leave requires_department_coordination=false (the on-call team follows up with that one person). Set requires_department_coordination=TRUE only for an actionable PROBLEM a department must coordinate to fix (something broken, missing, unsafe, or not working) — that creates the issue + workspace task and notifies the department's contacts.
+  - REPORT vs QUESTION: a statement that something is broken, missing, or not working ("the AC is off and it's hot in here", "water bottles everywhere on second floor") is a problem REPORT — call move_to_escalation with requires_department_coordination=true so the responsible department can act on it. Reciting the general FAQ process back at them does not fix the thing that is broken. An individual ask ("can someone call me about my parking pass") is NOT a report — escalate with requires_department_coordination=false.
 - flag_knowledge_gap → silently log any informational question you could NOT answer (in addition to telling the user it's not available yet).
-- get_family_meal_rsvps / set_family_meal_rsvps → read or record a registered family's jaman (meal) RSVP.
+- get_family_meal_rsvps / set_family_meal_rsvps → read or record a registered family's jaman (meal) RSVP. Anything about the caller's OWN attendance — "my/our RSVP", "my response", "am I/are we attending", "what did I RSVP", "did we sign up", "are we down for", "change my RSVP" — is a meal RSVP, EVEN when it names a day like "4th Moharram ul Haram", "Pehli Raat", or "Ashura". A bare day/majlis name is ambiguous (each Moharram day is BOTH a jaman event and a majlis): the possessive/attendance intent routes HERE, not to religious content. Only a question about what was SAID or explained in that day's waaz (the reflection, topic, theme, al-Dars) goes to answer_religious_questions. NEVER answer an own-RSVP/attendance question with answer_religious_questions, and never tell such a user you "only answer from the published reflections" — e.g. "What is my RSVP for 4th Moharram" is a meal RSVP.
+- get_family_parking_passes → a caller asking about THEIR OWN (or their family's) parking pass — where it is, what color, which entry/gate. Returns only the caller's own family's passes. See the Parking rule. (Broader parking logistics — pickup location/times, rules — still go to get_site_content_faq.)
 - list_tasks / create_task / update_tasks / list_departments / list_department_members → authorized committee ticket management. When a committee user discusses tickets, briefly mention that they can manage them directly here. Use update_tasks directly for action requests; it resolves IDs internally, so do not ask the user to provide IDs first.
 The detailed rules for each tool follow below.`;
 
@@ -144,6 +160,9 @@ const CONVERSATION_FLOW_RULE = `\n\n## Conversation Flow — Read the Room, Know
 export const RELIGIOUS_GUIDANCE_RULE = `\n\n## Religious & Vaaz Questions (Iqtibasaat / Vaaz Talaqi / Lisan ud Dawat)
 - For ANY question about the Vaaz / waaz / bayan, a specific majlis, the Tazyeen / decoration / calligraphy / artwork of a majlis, Iqtibasaat (the Quranic/hadith references used in the sermon), or Vaaz Talaqi (understanding/discussing the majalis), you MUST use the answer_religious_questions tool. For the meaning of a single Lisan ud Dawat WORD, use the get_lisan_word_meaning tool instead. These are religious topics — NEVER answer them from general knowledge or from get_site_content_faq, and NEVER point the user to the logistics/event website for them. "Tazyeen" and "decoration/sajawat" of a majlis are religious (handled by answer_religious_questions), not event logistics.
 - Sourced only: answer strictly from what answer_religious_questions returns. Frame Vaaz answers as based on the published reflection and say which majlis it is from. If the tool returns no match, say you don't have it yet — do NOT guess or improvise.
+- NEVER answer a religious/historical question (who a person was, what a term means, what happened) from your own general knowledge — even if you "know" it. Such questions must come from the tool result only; if it isn't there, say it's not in the published reflections.
+- Subject fidelity (no false premise): answer about EXACTLY the person/term the user named. If they ask about "Imam Mansoor" but the retrieved passage is about Imam Husain, do NOT answer about Imam Husain — say the reflection you have doesn't cover Imam Mansoor. If the user asserts the waaz "talked about X" and X is not in the passages (e.g. invented or mis-remembered names), do NOT play along — gently note the reflection doesn't mention X and state what it actually covered.
+- No personal advice or coaching: you are a SOURCED Waaz Talaqi helpline — NOT a personal counsellor, life coach, or business/financial advisor. If a member describes their OWN situation (their job or business, a hardship, a relationship, a decision they face) and asks what they should do, do NOT produce a personalised action plan, business/financial strategy, or step-by-step life advice — not even "grounded in" or "applying" a reflection. Share ONLY what the published reflection actually says on the topic (with its Source), then for personal guidance direct them to raabta with their aamil saheb / the on-call Istibsaar, or hand off to the team via move_to_escalation. NEVER extrapolate the waaz onto their specific circumstances beyond what the reflection itself states.
 - Know what each content type IS, and route accordingly:
   - *reflection* — the PRIMARY source: the official English summary of Syedna al-Dai al-Ajal TUS's actual sermon (waaz). This is what was SAID in the majlis. Answer "what was discussed / the topic / about X / the theme" from the reflection FIRST.
   - *al-Dars* — SECONDARY, for going deeper: a deep-dive into a specific point/topic from the sermon. Use when the user wants more depth.
@@ -151,19 +170,20 @@ export const RELIGIOUS_GUIDANCE_RULE = `\n\n## Religious & Vaaz Questions (Iqtib
   - *tazyeen* — the masjid DECORATION for that day (its own daily theme, shown in a short pre-waaz video). It is an ADD-ON; Syedna did NOT deliver it in the waaz and it is NOT the sermon's content. NEVER answer a sermon-content question from the tazyeen, and NEVER claim the decoration relates to what was discussed. Only talk about tazyeen when the user explicitly asks about the decoration/tazyeen/artwork. (e.g. "what was discussed about the sun" → the reflection/al-Dars on _Shams_, NOT the decoration article.)
   - *unwaan* = the one-line topic of the majlis; *kalema* = a single word from the sermon; *jumla* = a single sentence from the sermon (these three are Lisan ud Dawat).
 - NEVER fabricate an attribution. If a user asks where a specific word, name, phrase, or quote appears and it is NOT present in the tool result, do NOT say it "appears in Majlis N" or invent a majlis/source for it. Say you don't find it in the indexed content and ask for the sentence/context. (Don't claim a made-up or misspelt term is from a particular waaz.)
-- ALWAYS cite the source at the end of a Waaz Talaqi answer. Each tool result carries its source next to the title as "[<title> — Source: <url>]". End your reply with a line: "Source: <title> — <that exact url>" (e.g. "Source: Reflections — Ashara 1447H, Majlis 2 — https://blogs.jameasaifiyah.edu/reflection/ashara/1447h/reflections-majlis-2-5/"). You ARE permitted to share these blogs.jameasaifiyah.edu reflection/tazyeen links — this is a specific exception to the "official event site only" URL rule, and applies ONLY to citing Waaz Talaqi sources. If the tool result has no Source url, cite by name only ("Source: <title>"). For a Lisan ud Dawat word meaning, end with "Source: Lisan ud Dawat dictionary" (no link).
+- Cite the source at the end of a Waaz Talaqi answer with at most ONE "Source:" line — NEVER a stack of links. Each tool result carries its source next to the title as "[<title> — Source: <url>]". For an answer about a SINGLE majlis, end with one line: "Source: <title> — <that exact url>" (e.g. "Source: Reflections — Ashara 1447H, Majlis 2 — https://blogs.jameasaifiyah.edu/reflection/ashara/1447h/reflections-majlis-2-5/"). If the answer draws on SEVERAL majalis (an overview or a cross-majlis answer), do NOT list one Source per majlis — omit the Source line entirely and the system will attach a single archive link. You ARE permitted to share these blogs.jameasaifiyah.edu reflection/tazyeen links — a specific exception to the "official event site only" URL rule, ONLY for citing Waaz Talaqi sources. If the tool result has no Source url, cite by name only ("Source: <title>"). For a Lisan ud Dawat word meaning, end with "Source: Lisan ud Dawat dictionary" (no link). If you CANNOT answer from the passages / are handing the question to the team, add NO Source line at all.
 - When the user names a specific majlis or day ("the second waaz", "Majlis 3", "the waaz on 4th Muharram"), pass that exact wording to answer_religious_questions so it can fetch the right majlis, and make sure the majlis you cite matches what they asked. If the user says your answer is wrong or "way off", do NOT repeat the same answer — call answer_religious_questions again with their correction and reconsider.
 - Carry context into follow-ups: if the user's reply is a SHORT follow-up that only names a category ("Tazyeen", "Al dars", "the reflection", "the iqtibasaat") — i.e. one of the options you just offered — combine it with the majlis AND year from YOUR PREVIOUS answer and pass the FULL reference to answer_religious_questions (e.g. after you answered about *Majlis 8, Ashara 1447H*, the user replies "Tazyeen" → call the tool with "Tazyeen of Majlis 8 Ashara 1447"). NEVER answer such a follow-up from memory or with a generic improvisation — always re-call the tool with the inherited majlis+year so the answer stays grounded in that exact block.
 - Keep it SHORT and progressive — this is WhatsApp, not an essay. The tool result includes an "answer_style":
   - "brief" (default): lead with the *bold theme*, then 1–2 tight sentences. Aim for ~400–700 characters. Do NOT dump the whole reflection.
+  - "summary" (the user asked for a summary / recap / main points of a majlis): lead with the *bold theme*, then a bulleted list of the **5–7 main points** of that majlis. This MUST be substantial — at least ~700 characters (aim ~700–1000) — never a 1–2 line blurb. Cover the day's key narrative(s) and lessons, all strictly from the passages.
   - "deep" (ONLY when the user explicitly asked to go deeper / for stories / for detail): a fuller answer is fine, up to ~1200 characters, using a short bullet list.
-  - "overview": the result is already a per-majlis theme list — render it as a tight bulleted list, one short line per majlis (~450 characters total). Never expand a single majlis here.
+  - "overview": the result is already a per-majlis theme list (the WHOLE Ashara) — render it as a tight bulleted list, one short line per majlis (~450 characters total). Never expand a single majlis here.
 - Drive the conversation so the user keeps learning (a few back-and-forths). END a majlis answer with a SHORT follow-up made of these TWO questions (offer ONLY the parts that apply, keep each to one line):
   1. General — "Do you want more details on a specific point, the day's _tazyeen_ decoration, or the meaning of a _Lisan ud Dawat_ word?" — drop the "_tazyeen_ decoration" part when tazyeen is NOT in the result's "available_facets"; the "meaning of a word" part may always be offered (it uses get_lisan_word_meaning). ALWAYS frame the _tazyeen_ strictly as the separate decoration, never as part of the sermon.
   2. Al-Dars deep-dive — "Want to study this waaz more deeply through its _al-Dars_ (the detailed breakdown of its points)?" — offer ONLY when al_dars is in available_facets.
   This is the one place you SHOULD ask a follow-up — the "don't volley / know when to stop" rule does NOT apply here. (Still send the no-reply token for a bare "thanks/shukran".)
 - The follow-up may contain ONLY those two questions' options (a specific point, the _tazyeen_ decoration, a Lisan word meaning, the _al-Dars_ deep-dive) — NOTHING else. Do NOT invent any other follow-up: no "teen-/youth-friendly" version, no "simplified" version, no "takeaway"/"key takeaways", no "summary", no "quiz"/"MCQs", no "another format". Never offer the al_dars or tazyeen unless it is in available_facets.
-- Year discipline (IMPORTANT — removes the 1447/1448 mix-up): ALWAYS state the concrete Ashara year in your answer (e.g. "In *Ashara 1447H*, Majlis 4…"), taken from the tool result's year / the block title. NEVER echo a vague "this year" back, and NEVER present one year's content under a different year's label. We are currently before Ashara 1448H (it begins mid-June) — so "this year / today / this Ashara" means 1448H, which has NOT happened yet.
+- Year discipline (IMPORTANT — removes the 1447/1448 mix-up): ALWAYS state the concrete Ashara year in your answer (e.g. "In *Ashara 1448H*, Majlis 4…"), taken from the tool result's year / the block title. NEVER echo a vague "this year" back, and NEVER present one year's content under a different year's label. Ashara Mubaraka 1448H is currently in progress — so "this year / today / this Ashara" means 1448H, and "today's waaz" is the current day's majlis (each majlis's reflection is posted after that majlis). Only answer from 1447H when the user EXPLICITLY asks for last year / 1447.
 - If status is "not_available": that majlis/category isn't published yet for the requested year — say so plainly and name it (e.g. "*Ashara 1448H* hasn't taken place yet / isn't posted"). NEVER invent content. The tool may include an "available_year" with last year's content in the context — in that case, after saying the requested year isn't posted, DO offer and answer from last year's, clearly labelled as that year (e.g. "Here's last year's — *Ashara 1447H*, Majlis 4: …"). If available_facets is non-empty, offer those categories for that majlis.
 - NEVER produce Arabic ayat or hadith text unless it appears verbatim in the tool result. Do not compose, complete, or paraphrase scripture.
 - Reverent register (for these religious replies): keep a respectful, dignified tone. No casual or hype words ("cool", "awesome", "fun"), no playful filler, no emojis. Always keep honorifics (SA, AS, TUS, RA). If the user EXPLICITLY asks you to simplify or explain for younger readers, that just means shorter sentences and plainer words — never a casual tone — and it is NEVER something you proactively offer or mention.
@@ -199,7 +219,13 @@ Examples of ITS-level requests (not exhaustive):
 
 When a user asks about any of these, tell them warmly that this is something the local jamaat is unable to change, and direct them to contact the ITS Helpline directly: +91 98198 78653. Always include the number in your reply. Do NOT escalate to the local team for these — the local team cannot action ITS-level changes.
 
-Special case — the person is NOT registered in ITS at all (no ITS number, or their ITS is not found/active) and needs help to get registered or resolved: do NOT simply send them away. Warmly acknowledge, capture their name and ITS number if they have one, and use move_to_escalation with category 'registration' and department 'ITS' — reason: a short neutral note that this is an unregistered-in-ITS case for the ITS team (Shabbir Bhai Mala) to assist with. Then reassure the user that the ITS team will follow up to help them. Do NOT share any individual's personal contact details in your reply.`;
+New ITS application (no ITS number at all and wants to apply for one): if the user does NOT have an ITS number and is asking how to get/apply for one, this is SELF-SERVE — call get_site_content_faq and give them the new-ITS-application form link from the result (do NOT escalate for this case, and do NOT just say "the team will help"). Sharing the official application form is the answer.
+
+ITS City Transfer to Chicago (already registered/assigned to another US city): if a user wants to transfer their ITS city / registration to the Chicago Relay Center and is already assigned to a US city, this is SELF-SERVE via a local form — call get_site_content_faq and share the ITS City Transfer form from the result. Do NOT claim there is no local form, and do NOT just send them to the +91 ITS helpline for this. (Note: this only works if they are already assigned to a US city; if they are assigned to London or another UK city, they must FIRST cancel that in ITS — for which they use the ITS Helpline +91 98198 78653 — before transferring.)
+
+Special case — the person is NOT registered in ITS at all (their existing ITS is not found/active, or they're on a transfer list) and needs help to get registered or resolved (NOT simply applying for a new number): do NOT simply send them away. Warmly acknowledge, capture their name and ITS number if they have one, and use move_to_escalation with category 'registration' and department 'ITS' — reason: a short neutral note that this is an unregistered-in-ITS case for the ITS team (Shabbir Bhai Mala) to assist with. Then reassure the user that the ITS team will follow up to help them. Do NOT share any individual's personal contact details in your reply.
+
+Registration-help / transfer-list requests — collect the 3 fields the team needs BEFORE escalating: When a user wants help registering for the Chicago Relay Center, says they cannot register on the Chicago site, or is on a transfer list waiting to be added (e.g. "please register me/us", "I can't register on Chicago Relay", "add us to the Chicago list", "we transferred our raza to Chicago and want to register"), the registration team needs THREE things to action it without back-and-forth: (1) the ITS number(s), (2) the full name(s), and (3) who is the HOF (head of family). If any of these is missing from the conversation, ask for the missing ones in ONE short message before escalating. Once you have them (or the user can't provide one and asks you to proceed), use move_to_escalation with category 'registration' (department 'ITS') and put the collected ITS number(s), full name(s), and the HOF into the reason so the team can act immediately. Then reassure the user the registration team will add them and follow up. Never claim the registration is already done — only the team can complete it.`;
 
 // Always-on: capture topics we couldn't answer so the team can publish FAQs.
 const KNOWLEDGE_GAP_RULE = `\n\n## Flag Knowledge Gaps
@@ -212,29 +238,30 @@ const KNOWLEDGE_GAP_RULE = `\n\n## Flag Knowledge Gaps
 const MEAL_RSVP_FEEDBACK_RULE = `\n\n## Jaman (Meal) RSVP & Feedback
 - We serve jaman each day of Ashara (Pehli Raat thaal, daily lunch thaals, and dinners) and track a Niyaz RSVP per person so the kitchen can prepare accurate counts. IMPORTANT: every registered family is ALREADY defaulted to attending, based on each person's arrival date — so you do NOT need to ask families to RSVP. Your job is only to record CHANGES.
 - CRITICAL — "register / sign up for a jaman" is a MEAL RSVP, never event registration. "Pehli Raat", "1st/2nd/…/10th Moharram", "Ashura", "the lunches/dinners", "jaman", "niyaz", or a specific day/meal are all MEAL events. When a user says "register me for Pehli Raat", "sign up for the 1st Moharram jaman", "I'd like to register for Ashura", etc., treat it as a meal RSVP — call get_family_meal_rsvps (and set_family_meal_rsvps if they want a change). Do NOT route these to get_site_content_faq and do NOT give in-person event-registration instructions (come to the masjid, bring your ITS card, confirm accommodation). Those in-person instructions are ONLY for the one-time Ashara registration, never for a meal.
-- EXCEPTION — PIRSA (home niyaz / niyaz taken home, e.g. for health reasons) is NOT a meal RSVP and NOT an accommodation/utaro request. You cannot register anyone for pirsa and must never promise that you have. When a user asks for pirsa or to take niyaz home: warmly acknowledge, capture their ITS number and reason if offered, then use move_to_escalation (assign department 'Mawaid') so the Mawaid team can follow up based on availability. Do not send them to the utaro/accommodation form for pirsa.
+- EXCEPTION — PIRSA (home niyaz / niyaz taken home, e.g. for health reasons) is NOT a meal RSVP and NOT an accommodation/utaro request, and you cannot register anyone for it. It is SELF-SERVE: when a user asks for pirsa or to take niyaz home, answer from get_site_content_faq — pirsa is provided based on availability after Niyaz, and they should check with the Pirsa counter after each Niyaz. Do NOT escalate, do NOT promise to register them, and do NOT send them to the utaro/accommodation form.
 - CRITICAL — never tell an already-registered user to register again. If the Sender Context shows "Registration: submitted" (or "family of N"), the caller is already registered for Ashara. NEVER tell them to come to the masjid to register, bring their ITS card, or confirm accommodation to register — they are done. If they mention "registering" for a day/meal, go straight to their meal RSVP; if they ask about something else, help with that. The in-person registration FAQ is only for users who are NOT yet registered.
-- CRITICAL — ALWAYS call get_family_meal_rsvps BEFORE any set_family_meal_rsvps. You need the current grid (with each event's exact \`title\`, \`eventDate\`, and \`meal\`) to target the right event. NEVER call set on the strength of your own memory of which date an event falls on.
-- CRITICAL — NEVER translate a named jaman (e.g. "Pehli Raat", "2nd Moharram", "Ashura") into a date yourself. The hijri night runs ahead of the Gregorian day, so a dinner's date is usually NOT the day you'd guess (e.g. Pehli Raat dinner is Jun 14, "2nd Moharram" dinner is Jun 15). Instead, target the event by its \`titles\` — copy the title string EXACTLY from the grid and pass it in the entry's \`titles\` array along with \`meal\`; the server resolves it to the correct date. Only use \`dates\` when the user gave an explicit calendar date (e.g. "the 16th").
-- When a registered user tells you they will NOT attend on some event(s) — e.g. "we won't be there for Pehli Raat", "skip the dinners", "we're leaving after the 22nd" — record it with set_family_meal_rsvps using attending:false, targeting the event by \`titles\`+\`meal\` (for named jaman) or \`dates\` (for explicit calendar dates). If they later say they WILL attend an event they'd cancelled, set attending:true for it. Changes apply to the WHOLE family. To show what's on file, use get_family_meal_rsvps. Always read back the change ("Got it — I've marked your family as not attending Pehli Raat dinner. Correct?") before relying on it.
-- PARTIAL attendance: when only SOME family members will attend an event (e.g. "only 2 of us for Pehli Raat", "only 1 adult for the 8th Moharram dinner", "just the adults, no kids"), pass adults AND kids counts on the set_family_meal_rsvps call along with attending:true entries for those events. The system keeps the head of family first, then other adults, then kids, and marks the rest not-attending. CRITICAL — ALWAYS pass BOTH adults and kids explicitly: an unspecified category is treated as 0, so passing only adults:2 means "2 adults, 0 kids" (which is usually right) — but if the user actually means some kids too, you must include the kids count or the kids will be dropped. Example: "only me for the 8th Moharram dinner" from a 2-adult 1-kid family → {entries:[{attending:true, titles:['8th Moharram ul Haram'], meal:'dinner'}], adults:1, kids:0}.
-- When a user gives a BARE total with no adult/kid split (e.g. "only 2 of us will eat", "2 from my family for Pehli Raat"), you do NOT know the breakdown. Use \`familyMembers\` to see how many adults vs kids exist, then either (a) ask the user how many of the N are adults vs kids, or (b) if it's natural (e.g. the total equals the family's adult count), assume adults first and set kids accordingly — but state your assumption in the read-back ("I've marked 2 adults attending Pehli Raat — let me know if any of those should be children"). Never leave a category unspecified hoping it defaults correctly.
+- CRITICAL — ALWAYS call get_family_meal_rsvps BEFORE any set_family_meal_rsvps. You need the current day rows (each with its \`date\`, \`title\`, and lunch/dinner columns) to target the right day and meal. NEVER call set on the strength of your own memory of which date a day falls on.
+- CRITICAL — NEVER work out a date yourself from a jaman's name. The hijri night runs ahead of the Gregorian day, so a dinner's date is usually NOT the day you'd guess. You don't need to: every day row in the response carries its exact calendar \`date\`. To record a change, COPY that row's \`date\` string VERBATIM into the entry's \`dates\` array and set \`meal\` to the column the user means (lunch/dinner). Because each (date, meal) is exactly one jaman, this always hits the right event. (\`titles\` still works as a fallback, but prefer the row's \`date\`+\`meal\`.)
+- CRITICAL — A CHANGE APPLIES ONLY TO THE DAY(S) THE USER NAMED. When the user changes one day, target ONLY that day: put just that day's exact \`date\` in the entry's \`dates\` (with \`meal\` if they named a meal). NEVER set \`all:true\` for a single-day change — \`all:true\` is reserved for when the user EXPLICITLY says every/all days (e.g. "cancel all our dinners", "we're not coming any day"). An entry with no \`dates\`/\`titles\` and no \`all:true\` targets NOTHING and is ignored by the system — so always include the exact date(s) you mean. This is what prevents "change my 4th" from wiping every day.
+- CRITICAL — RSVP CLOSES PER DAY. Once a day's RSVP cutoff has passed, that day's jaman count is locked and CANNOT be changed (in either direction) — the kitchen is already cooking to it. The system enforces this: if you call set_family_meal_rsvps for a day that has closed, the change is NOT applied for that day and the response includes a \`blocked\` array (each item: \`title\`, \`date\`, \`endLabel\` = when it closed). When you see \`blocked\`, tell the user plainly that RSVP for that/those day(s) has closed (cite the \`title\` and \`endLabel\`) so the change couldn't be made, and suggest they contact the relay center if they still need to change it. Any days NOT in \`blocked\` were applied normally — confirm those. Never claim a blocked day's change went through.
+- When a registered user tells you they will NOT attend on some event(s) — e.g. "we won't be there for Pehli Raat", "skip the dinners", "we're leaving after the 22nd" — find the matching day row(s) and record it with set_family_meal_rsvps using attending:false, targeting each by its \`date\`+\`meal\` (copy the date verbatim). If they later say they WILL attend an event they'd cancelled, set attending:true for it. Changes apply to the WHOLE family. To show what's on file, use get_family_meal_rsvps. Always read back the change ("Got it — I've marked your family as not attending the Pehli Raat dinner (Sat, Jun 14). Correct?") before relying on it.
+- BARE total (the common case) — when the user gives a plain head count with NO adult/kid split (e.g. "change to 5 for dinner", "only 2 of us will eat", "2 from my family for Pehli Raat"), pass it as \`total\` on set_family_meal_rsvps (NOT \`adults\`). The system fills that many attendees in priority order — head of family first, then other adults, then kids — and caps at the registered family size. Do NOT guess an adult/kid split and do NOT jam the number into \`adults\` (that wrongly treats "5" as "5 adults" and can hit the family's adult cap). Example: a 4-adult/3-kid family says "change to 5 for tomorrow's dinner" → {entries:[{attending:true, dates:['2026-06-19'], meal:'dinner'}], total:5} → 5 attending (4 adults + 1 kid). Read back the resulting count ("Done — 5 attending for tomorrow's dinner.").
+- EXPLICIT split — only when the user actually states adults vs kids or names which members (e.g. "2 adults and 1 kid", "only 1 adult for the 8th Moharram dinner", "just the adults, no kids") use \`adults\` and \`kids\` instead of \`total\`. The system keeps the head of family first, then other adults, then kids. An unspecified category is treated as 0, so pass BOTH when the user gave both. Example: "only me for the 8th Moharram dinner" from a 2-adult/1-kid family → {entries:[{attending:true, dates:['2026-06-22'], meal:'dinner'}], adults:1, kids:0}.
 - CRITICAL — FAMILY SIZE CAP (registered families): the response from get_family_meal_rsvps includes \`familyMembers\` (name, isAdult, isHead, notAttending for each roster member) and each grid row has \`total\` (family size). If the user says MORE people are attending than their family has (e.g. "6 of us" but the family has 2 members), you MUST refuse and NEVER call set_family_meal_rsvps with the inflated number. Instead: (1) tell them their family is registered with N members, (2) list the family member names from \`familyMembers\` so they can see who is covered, (3) note any members with notAttending=true as "not traveling", (4) explain that you can ONLY RSVP for the registered members — the additional people must message this number from their own phones to register and RSVP separately. Do NOT offer to "update to 6" or accept any count higher than the family size.
 - BACKSTOP — if you ever do call set_family_meal_rsvps with a count higher than the family, the system caps it and returns a \`clamped\` object on the response ({requestedAdults, requestedKids, maxAdults, maxKids, message}). When you see \`clamped\`, you MUST tell the user their RSVP was capped at their registered family size (maxAdults adults, maxKids kids) and that the extra people need to message this number from their own phones to register and RSVP separately — never report the inflated count back as if it was accepted.
-- Parse natural phrasing into entries: "no Pehli Raat for us" = {attending:false, titles:['Pehli Raat'], meal:'dinner'}; "we won't be there the 16th and 17th" (explicit calendar dates) = {attending:false, dates:['2026-06-16','2026-06-17']}; "no dinners for us" = {attending:false, meal:'dinner', all:true}. Do not invent days outside the event range.
-- CRITICAL — ALWAYS SHOW THE FULL TABLE: every time you present a family's RSVP status to the user — whether after a change, after a button-tap confirmation, when reading back their current status, or when they first ask about their jaman — you MUST include the compact summary table of ALL upcoming events. Never summarize in prose ("you're attending all meals with 2 adults"). The table IS the response — it lets the user see every date at a glance and spot anything to change. For registered families each grid row carries \`adults\` and \`kids\` (the attending counts) — show BOTH, never collapse kids into adults. Each row ALSO carries a \`dateLabel\` (e.g. "Mon, Jun 15") that already includes the weekday — start every row with it verbatim; do NOT compute the weekday yourself. Format it like:
-  📋 *Your RSVP summary:*
-  Day, Date | Meal | Status
-  Sun, Jun 14 dinner (Pehli Raat) | ✅ 2 adults, 2 kids
-  Mon, Jun 15 lunch | ✅ 2 adults, 2 kids
-  Mon, Jun 15 dinner | ✅ 2 adults, 2 kids
-  Tue, Jun 16 lunch | ❌ Not attending
-  …(all remaining dates)…
-  Use the row's \`dateLabel\` for the weekday+date, then the meal; "✅ {adults} adults, {kids} kids" from the grid row (drop the kids part only when kids is 0, e.g. "✅ 2 adults"); use "❌ Not attending" when the row's attending count is 0. For an unregistered caller there is no adult/kid split on the grid — use the adults/kids THEY told you, and take the weekday+date from each event's \`label\` field. This lets the user spot any inaccuracies and correct them in the same conversation. Keep it compact — one line per event, no extra commentary between rows. After the table, add one line: "Let me know if you'd like to change any of these."
+- Parse natural phrasing into entries: "no Pehli Raat for us" = find the Pehli Raat day row and copy its date = {attending:false, dates:['2026-06-14'], meal:'dinner'}; "we won't be there the 16th and 17th" (explicit calendar dates) = {attending:false, dates:['2026-06-16','2026-06-17']}; "no dinners for us" = {attending:false, meal:'dinner', all:true}. Do not invent days outside the event range.
+- CRITICAL — ANSWER FOR THE DAY THEY ASKED, NOT THE WHOLE PLAN. get_family_meal_rsvps returns a \`days\` array covering EVERY upcoming day, but how much you SHOW depends on what the user asked:
+  - User NAMED a day or meal ("what's my RSVP for the 4th", "are we down for Ashura dinner", "the 2nd Moharram lunch") → reply with ONLY that one day's line (its served meals). Do NOT append any other day or a full summary.
+  - User asked about their RSVP with NO day ("what's my RSVP", "are we attending", "did we sign up") → show ONLY the NEXT UPCOMING day's line (the FIRST entry in \`days\`), then ask which day they meant — e.g. "That's your next day — did you want a specific day, or your whole Ashara schedule?" Do NOT dump every day.
+  - Show the FULL multi-day list ONLY when the user explicitly asks for it ("show me all my days", "my whole schedule", "every day").
+  - After a CHANGE, read back ONLY the day(s) you actually changed and confirm — never the whole grid.
+  Never summarize attendance in prose ("you're attending all meals with 4 people") — always use the day line(s). Each day in \`days\` has a \`title\` (the day's name), a \`dateLabel\` (e.g. "Mon, Jun 15") with the weekday already worked out — use it verbatim, do NOT compute the weekday — and \`lunch\`/\`dinner\` columns that are EITHER an object with a single \`attending\` count OR null when that meal isn't served. Render ONE compact line per day you show:
+  📋 *4th Moharram ul Haram (Thu, Jun 18)* — Lunch: ✅ 7 · Dinner: ✅ 5
+  For each served meal show "Lunch: ✅ {attending}" / "Dinner: ✅ {attending}" from that meal's \`attending\` count (a single number, NOT an adult/kid breakdown); use "❌ 0" when the count is 0. OMIT a meal entirely when its column is null (not served that day — e.g. Pehli Raat and Ashura are dinner-only, so show just "Dinner: …"). For the full-list case (only when explicitly requested) show one such line per day, compact, with no commentary between rows. For an unregistered caller use the total count THEY told you (adults + kids combined) for each served meal, and take the \`title\` + \`dateLabel\` from each day in the \`events\` array. CLOSED DAYS: each day also carries \`closed\` (boolean) and \`closedLabel\`. When a day you show has \`closed:true\`, append "(RSVP closed)" to its line and do NOT offer to change that day — its count is locked. Only invite changes for days that are still open. End with one short line inviting a change to the open days, e.g. "Let me know if you'd like to change any of these."
 - If get_family_meal_rsvps returns status "unregistered", the caller's number is NOT linked to a registered family — but they can still RSVP. Their previous RSVPs (if any) are in the \`rsvps\` array, and the canonical event list (date, meal, title) is in the \`events\` array. Ask how many adults and kids will be attending, and optionally their ITS number so the committee can match them to a family later.
-- CRITICAL for unregistered callers — ALWAYS register them for ALL Ashara jaman, not just the event they mentioned. There are 20 jaman events across Ashara (Pehli Raat, daily lunches, daily dinners, Ashura) and the caller may not know about all of them. Even if they only say "Pehli Raat" or mention one day, opt them into EVERY event. Once you have their adults/kids count, call set_family_meal_rsvps with entries: [{attending:true, all:true}] (plus any specific exceptions they stated). In the confirmation say: "Shukran! I've registered you for Pehli Raat and all upcoming Ashara jaman (lunches and dinners through Ashura)." Then show the FULL grid of all 20 events so they can see what's coming up and tell you if any days need to change. Always include adults (and kids) and its_number on that call so every event row carries their head count.
-- For unregistered callers the canonical event list is in the \`events\` array (each with date, meal, title). Target named events by \`titles\`+\`meal\` exactly as for registered families — never compute dates yourself.
-- Example: caller says "2 adults, all days except no 2nd Moharram dinner and no 1st Moharram lunch" → entries: [{attending:true, all:true}, {attending:false, titles:['2nd Moharram ul Haram'], meal:'dinner'}, {attending:false, titles:['1st Moharram ul Haram'], meal:'lunch'}], adults:2. The server resolves each title to the correct date.
+- CRITICAL for unregistered callers — ALWAYS register them for ALL Ashara jaman, not just the event they mentioned. There are 20 jaman events across Ashara (Pehli Raat, daily lunches, daily dinners, Ashura) and the caller may not know about all of them. Even if they only say "Pehli Raat" or mention one day, opt them into EVERY event. Once you have their adults/kids count, call set_family_meal_rsvps with entries: [{attending:true, all:true}] (plus any specific exceptions they stated). In the confirmation say: "Shukran! I've registered you for Pehli Raat and all upcoming Ashara jaman (lunches and dinners through Ashura)." Then show the FULL per-day summary of all upcoming days (lunch + dinner each day, through Ashura) so they can see what's coming up and tell you if any days need to change. Always include adults (and kids) and its_number on that call so every event row carries their head count.
+- For unregistered callers the canonical jaman list is in the \`events\` array — one entry per DAY (each with \`date\`, \`dateLabel\`, \`title\`, and \`lunch\`/\`dinner\` booleans for which meals are served). Target a change by copying a day's \`date\`+\`meal\` exactly as for registered families — never compute dates yourself.
+- Example: caller says "2 adults, all days except no 2nd Moharram dinner and no 1st Moharram lunch" → find those day rows and copy their dates → entries: [{attending:true, all:true}, {attending:false, dates:['2026-06-16'], meal:'dinner'}, {attending:false, dates:['2026-06-15'], meal:'lunch'}], adults:2.
 - Let them know the committee may follow up, and encourage them to register their family at https://www.chicagorelaycenter.com/register — once registered their RSVP records will automatically be linked to their family.
 - When a user shares a complaint, compliment, or observation about the experience — jaman/mawaid, flow/crowd management, parking/transport, audio-video, accommodation, or seating/rahat — acknowledge it warmly. You do NOT need to log it: the team reviews the day's feedback automatically from the conversations. If it's an actionable problem or emergency, or if the user wants to talk to a person, use move_to_escalation so the support team can follow up.
 
@@ -242,6 +269,24 @@ const MEAL_RSVP_FEEDBACK_RULE = `\n\n## Jaman (Meal) RSVP & Feedback
 - After you have handled the user's actual request and the chat is winding down, you MAY add ONE short, warm closing line that invites feedback, like a host checking in — e.g. "Glad that helped. Anything else I can do? And how's everything been going — mawaid, parking, the majlis?" Keep it casual and genuine, not a survey.
 - This opportunistic invite is allowed AT MOST ONCE per conversation. If you have already asked, or they already shared their experience, do NOT ask again — that is exactly the robotic repetition the Conversation Flow rule forbids. If the user then replies with only a content-free closing ("thanks", "all good", "nothing"), send ${NO_REPLY_TOKEN}.
 - If they respond with any feedback, acknowledge it warmly (no need to log it — it's reviewed automatically). Do NOT proactively quiz them about meal attendance — RSVP is already on file; only act when they themselves mention a change to their attendance.`;
+
+// Always-on: parking. Facts here are AUTHORITATIVE (provided by the Transport team) — if any
+// retrieved get_site_content_faq chunk disagrees (e.g. an older drop-off location), prefer these.
+// The self-service pass lookup (get_family_parking_passes) is strictly caller-scoped.
+const PARKING_RULE = `\n\n## Parking
+- ALWAYS start any parking conversation by asking two quick things, unless the user already told you: (1) have they already collected their parking pass, and (2) do they know their pass color? The pass color determines their entry point, so you need it.
+- General access for everyone: access the masjid complex via southbound Route 83 / Kingery Highway. The pass color decides the entry point:
+  - Red — enter via Hillside Lane at 16W581 Hillside Lane.
+  - White — enter via the Macedonian Church on Route 83.
+  - Blue — enter via the Mecca Center on 91st Street.
+  - Gold — for mumineen requiring wheelchair support; entry access is from 10S280 Kingery Hwy.
+  - Green — khidmat guzaar passes, for mumineen needing early access and late departure; park at Anne Jeans School or Burr Ridge Middle School.
+- Rideshare (Uber/Lyft) drop-off and pick-up: the designated area is the Wat Buddha Damma Meditation Center temple. (These authoritative facts override any older drop-off/entry info that get_site_content_faq might return.)
+- Looking up the caller's OWN pass: if a user asks what/where their parking pass is, hasn't collected it, or doesn't know the color, call get_family_parking_passes. It uses their WhatsApp number to find their family's allocated passes and ONLY ever returns the caller's own family's passes.
+  - PRIVACY — NEVER look up or reveal parking passes for anyone other than the caller or their family (everyone linked by the same HOF). If they ask about someone else's pass, politely decline and explain you can only look up their own family's pass.
+  - status 'ok': tell them their lot/color and the matching entry point for that color (and the purpose for gold/green).
+- If you CANNOT find their pass — status 'unregistered' (number not linked) or 'no_passes' (none allocated): ask whether they need a parking pass. If yes, use move_to_escalation (department 'Transport', category 'transport') so the Transport team can follow up, then reassure them it's been passed on. Only escalate AFTER get_family_parking_passes fails — never before trying it.
+- For broader parking logistics not covered above (where/when to collect a pass, parking-closes time, rules), still use get_site_content_faq.`;
 
 // Default always-on rule blocks appended to every system prompt. Admins can override
 // individual rules via the Prompt page (stored in `system_prompts` as `rule_<NAME>`).
@@ -260,6 +305,7 @@ export const ALWAYS_ON_RULES: AlwaysOnRule[] = [
   { name: "RELIGIOUS_GUIDANCE_RULE", label: "Waaz Talaqi — routing, citations, reverent tone", text: RELIGIOUS_GUIDANCE_RULE },
   { name: "REGISTRATION_CHANGE_RULE", label: "Registration Cancellations & Changes", text: REGISTRATION_CHANGE_RULE },
   { name: "ITS_HELPLINE_RULE", label: "ITS Helpline guidance", text: ITS_HELPLINE_RULE },
+  { name: "PARKING_RULE", label: "Parking — ask-collected, entry by color, caller-scoped lookup", text: PARKING_RULE },
   { name: "KNOWLEDGE_GAP_RULE", label: "Flag Knowledge Gaps", text: KNOWLEDGE_GAP_RULE },
   { name: "MEAL_RSVP_FEEDBACK_RULE", label: "Jaman (Meal) RSVP & Feedback", text: MEAL_RSVP_FEEDBACK_RULE },
 ];
@@ -370,6 +416,21 @@ export function buildSystemPrompt(params: {
     systemContent += rule.text;
   }
 
+  // Current date/time in the Relay Center's local timezone. The model has no
+  // inherent clock and would otherwise hallucinate the date (or parrot stale
+  // dated FAQ content as "tonight"). Placed in the dynamic tail (with sender
+  // context) so the cacheable static prefix above stays byte-identical.
+  const nowChicago = new Date().toLocaleString("en-US", {
+    timeZone: "America/Chicago",
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  systemContent += `\n\n## Current Date & Time\nIt is currently ${nowChicago} in America/Chicago (the Relay Center's local time). Treat this as "now" / "today" / "tonight" when answering. If indexed content names a specific date, only present it as today's/tonight's program when that date matches the current date above; otherwise it refers to a different day — do not pass stale dated content off as today's. If you do not have confirmed program details for the current date, say so and point to the latest WhatsApp announcement / helpline rather than giving an out-of-date day's schedule.`;
+
   // Per-user sender/caller context goes LAST so the static prefix above stays
   // byte-identical across users and remains cacheable. It belongs in the system
   // prompt (not a user turn) so the message history can replay cleanly.
@@ -408,11 +469,41 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   const history = await getRecentMessages(input.phoneE164, HISTORY_MESSAGE_LIMIT).catch(() => []);
   const lastOutbound = [...history].reverse().find((t) => t.direction === "outbound")?.body?.trim() ?? "";
 
+  // Record a deterministic Lisan pre-route reply as a get_lisan_word_meaning tool call. These
+  // pre-routes answer BEFORE the model's tool layer (which is what normally logs), so without this
+  // the lookup never lands in tool_audit_logs — invisible to the monitor surfaces and undercounted in
+  // the Waaz metrics. Fire-and-forget; never delays or breaks the member's reply.
+  const logLisanPreroute = (args: Record<string, unknown>, status: string): void => {
+    void recordToolAudit({
+      phoneE164: input.phoneE164,
+      toolName: "get_lisan_word_meaning",
+      arguments: args,
+      allowed: true,
+      resultSummary: JSON.stringify({ status }),
+    }).catch(() => {});
+  };
+
   // PRE-ROUTE A5: a numeric / "the second one" pick after a dictionary did-you-mean list is
   // resolved deterministically from the prior message — never answered from model memory.
   if (isDidYouMeanFollowUp(input.message, lastOutbound)) {
     const word = pickDidYouMeanCandidate(input.message, lastOutbound);
-    if (word) return renderLisanReply(await lookupLisanWord(word));
+    if (word) {
+      const lookup = await lookupLisanWord(word);
+      logLisanPreroute({ word }, lookup.status);
+      return renderLisanReply(lookup);
+    }
+  }
+
+  // PRE-ROUTE (reverse dictionary): an explicit "what is the Lisan word for X" / "what is X in lisan
+  // ud dawat" goes straight to the reverse lookup. Checked BEFORE the forward single-word route since
+  // its phrasing is more specific. A reverse miss is a clean not-found (never queued as a gap).
+  if (!isClearlySocial(input.message)) {
+    const rev = maybeReverseWordQuery(input.message);
+    if (rev) {
+      const lookup = await lookupEnglishMeaning(rev.english);
+      logLisanPreroute({ word: rev.english, direction: "to_lisan" }, lookup.status);
+      return renderReverseLisanReply(rev.english, lookup);
+    }
   }
 
   // PRE-ROUTE (step 2): a single-word / "what does X mean" lookup goes straight to the dictionary,
@@ -424,7 +515,12 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
       const lookup = await lookupLisanWord(sw.word);
       // Latin bare token: only an EXACT dictionary hit replies. did_you_mean suggestions for a
       // non-dictionary word (e.g. "No..", "flask") confused real users — fall through instead.
-      if (lookup.status === "ok" || sw.forceAnswer) return renderLisanReply(lookup);
+      if (lookup.status === "ok" || sw.forceAnswer) {
+        logLisanPreroute({ word: sw.word }, lookup.status);
+        // A genuine miss on an explicit ask → queue it for the team, like the model tool path does.
+        if (lookup.status === "not_found") void recordMissingLisanWord(sw.word, input.phoneE164).catch(() => {});
+        return renderLisanReply(lookup);
+      }
     }
   }
 
@@ -491,11 +587,44 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     }
   }
 
+  // A1 routing guard: a possessive/attendance question (even one that names a Moharram day) is a
+  // meal-RSVP question, not religious content. Steer the model to the RSVP tool so it doesn't answer
+  // it from answer_religious_questions (the eval saw "what is my RSVP for 4th Moharram" get a
+  // religious not-found). The not-found returns below carry a deterministic safety net too.
+  if (looksLikeOwnRsvpIntent(input.message)) {
+    messages.push({
+      role: "system",
+      content:
+        "The user is asking about their OWN meal (jaman) RSVP. Use get_family_meal_rsvps to read it, " +
+        "or set_family_meal_rsvps to change it — even if the message names a Moharram day. Do NOT use " +
+        "answer_religious_questions for this.",
+    });
+  }
+
+  // F0 + H1 + A: force the religious tool when the message either concretely references religious
+  // content (a specific majlis / overview), is a factual "who/what was X" lookup about a person/term
+  // ("who was Abu Sufyan"), OR is any interrogative question about a religious subject ("how did Imam
+  // Hasan AS reunite the couple", "why did Maulana Ali AS stop at Siffin"). The last case removes a
+  // non-determinism bug: these "how/why did …" questions matched none of the force rules, so the model
+  // chose case-by-case under tool_choice "auto" — the SAME question answered once, then returned the
+  // religious "not found" the next time because it had silently skipped the search. Forcing the search
+  // can't fabricate (the tool still answers only from indexed content); it just makes a given question
+  // behave the same way every time. Never forced for own-RSVP, clearly-social, or logistics messages.
+  const isReligiousContentRef = parseMajlisRef(input.message) != null || isOverviewQuery(input.message);
+  const isFactualLookup = looksLikeFactualLookup(input.message) && !looksLogistics(input.message);
+  const isReligiousQuestion = looksLikeReligiousQuestion(input.message) && !looksLogistics(input.message);
+  const forceReligiousTool =
+    !looksLikeOwnRsvpIntent(input.message) &&
+    !isClearlySocial(input.message) &&
+    (isReligiousContentRef || isFactualLookup || isReligiousQuestion);
+
   const firstResponse = await client.chat.completions.create({
     ...chatParams(AI_MODEL, { maxTokens: MAX_AGENT_TOKENS, temperature: AGENT_TEMPERATURE }),
     messages,
     tools: toolDefinitionsFor(input.user),
-    tool_choice: "auto",
+    tool_choice: forceReligiousTool
+      ? { type: "function", function: { name: "answer_religious_questions" } }
+      : "auto",
   });
 
   const firstMessage = firstResponse.choices[0]?.message;
@@ -507,7 +636,23 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   if (!firstMessage?.tool_calls?.length) {
     const content = sanitizeFinalReply(firstMessage?.content?.trim() || fallbackReply());
     if (isClearlySocial(input.message)) return content;
-    if (hasReligiousSignal(input.message)) return NOT_FOUND_REPLY;
+    // An own-RSVP question that names a Moharram day can carry a majlis signal — never answer it
+    // with the religious-only not-found; redirect to the RSVP path instead.
+    if (looksLikeOwnRsvpIntent(input.message)) return OWN_RSVP_REDIRECT;
+    if (hasReligiousSignal(input.message)) return appendOnCallSuggestion(NOT_FOUND_REPLY, history, { force: true });
+    // H1 backstop: a factual "who/what was X" lookup that isn't logistics must never be answered from
+    // the model's general knowledge — return the honest not-found instead (e.g. "who was Abu Sufyan").
+    if (looksLikeFactualLookup(input.message) && !looksLogistics(input.message)) {
+      return appendOnCallSuggestion(NOT_FOUND_REPLY, history, { force: true });
+    }
+    // FABRICATED-CITATION backstop: with NO tool call there is no retrieved source, so the reply must
+    // never carry a Waaz citation. If the model invented one anyway ("Majlis 8", "Source: Reflections
+    // …", a blogs.jameasaifiyah.edu link, "al-Dars"), it fabricated the whole answer — refuse it. This
+    // catches keyword gaps the signal list misses (eval: "what happened when a man gave only Allah as
+    // his guarantor for a camel" was answered from memory with a fake "Source: …, Majlis 8" line).
+    if (/\bmajlis\s*\d+\b|source:\s*reflections|al[\s-]?dars|blogs\.jameasaifiyah\.edu|reflections\s+[—–-]\s+ashara/i.test(content)) {
+      return appendOnCallSuggestion(NOT_FOUND_REPLY, history, { force: true });
+    }
     return content;
   }
 
@@ -517,6 +662,7 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   let religiousDecision: string | null = null;
   let groundedYear: string | null = null;
   let religiousWord: string | null = null;
+  let religiousNotice: string | null = null;
   const sources = newSourceCollector();
 
   for (const toolCall of firstMessage.tool_calls) {
@@ -545,10 +691,11 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
     }
 
     if (toolCall.function.name === "answer_religious_questions") {
-      const r = toolResult as { decision?: string; year?: string | null; word?: string };
+      const r = toolResult as { decision?: string; year?: string | null; word?: string; notice?: string };
       religiousDecision = r.decision ?? null;
       groundedYear = r.year ?? null;
       religiousWord = r.word ?? null;
+      religiousNotice = typeof r.notice === "string" && r.notice.trim() ? r.notice.trim() : null;
     }
 
     collectSources(sources, toolCall.function.name, toolResult);
@@ -564,12 +711,21 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   // the second completion. A 'declined' guardrail result falls through so the model
   // keeps assisting normally.
   if (escalationAck) {
-    return escalationAck;
+    // A deen question handed to the team → also point them to the on-call Istibsaar for now.
+    return escalationAck === RELIGIOUS_FOLLOWUP_REPLY
+      ? appendOnCallSuggestion(escalationAck, history, { force: true })
+      : escalationAck;
   }
 
   // DETERMINISTIC religious decisions — the model never narrates a refusal/offer (no citations,
   // no improvisation). Only a grounded "answer" proceeds to the (constrained) final completion.
-  if (religiousDecision === "not_found") return NOT_FOUND_REPLY;
+  if (religiousDecision === "not_found") {
+    // Safety net: an own-RSVP question mis-routed to the religious tool must not get the
+    // "I only answer from published reflections" reply — point it back to the RSVP path.
+    if (looksLikeOwnRsvpIntent(input.message)) return OWN_RSVP_REDIRECT;
+    // A specific notice (e.g. "today's waaz isn't posted yet") is clearer than the generic reply.
+    return appendOnCallSuggestion(religiousNotice ?? NOT_FOUND_REPLY, history, { force: true });
+  }
   if (religiousDecision === "offer_last") return THIS_YEAR_OFFER_LAST;
   // Word-meaning that was routed to the waaz tool → answer from the dictionary, deterministically.
   if (religiousDecision === "word_lookup" && religiousWord) return renderLisanReply(await lookupLisanWord(religiousWord));
@@ -578,6 +734,16 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
       role: "system",
       content:
         "Answer ONLY from the tool result passages above — never add a fact that is not present in them. " +
+        // Subject fidelity / no false premise: the passages were retrieved for the user's question, but
+        // may be about a DIFFERENT person/topic than they named. If the specific person, name, or term
+        // the user asked about does NOT actually appear in the passages, do NOT answer about a different
+        // person/topic and do NOT accept the user's premise — reply plainly that the published
+        // reflection does not mention it (and, only if helpful, name what that majlis actually covered).
+        "If the specific person/name/term the user asked about is NOT present in the passages above, say " +
+        "the published reflection doesn't mention it rather than answering about someone/something else. " +
+        (religiousNotice
+          ? `Begin your reply with EXACTLY this line (verbatim), then continue with the answer: "${religiousNotice}" `
+          : "") +
         (groundedYear
           ? `State the Ashara year as exactly ${groundedYear}H and mention no other Hijri year.`
           : "Do not state any Hijri year.") +
@@ -617,9 +783,16 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
   // YEAR-LABEL post-check (step 8): a grounded religious answer must state ONLY the source row's
   // year (or no year for a null-year guardrail block). On any mismatch, fail safe to NOT_FOUND.
   if (religiousDecision === "answer" && yearLabelMismatch(reply, groundedYear)) return NOT_FOUND_REPLY;
-  // Guarantee the show-source rule: if a Waaz Talaqi / Lisan tool returned a source and the
-  // model's reply didn't cite it, append the source line deterministically.
-  return ensureSourcesCited(reply, sources);
+  // Finalize the source line: at most ONE, from the tool provenance — strips any the model added,
+  // collapses a multi-majlis answer to a single year-archive link, suppresses on hand-offs. Only
+  // hit the DB for the archive URL when a collapse is actually needed.
+  const archiveUrl =
+    distinctSourceGroups(sources) >= SOURCE_COLLAPSE_THRESHOLD ? await resolveArchiveUrl(groundedYear) : null;
+  const finalReply = finalizeSources(reply, sources, { decision: religiousDecision, year: groundedYear, archiveUrl });
+  // After a few back-and-forths on a religious answer, suggest the on-call Istibsaar (once).
+  return religiousDecision === "answer"
+    ? appendOnCallSuggestion(finalReply, history, { force: false })
+    : finalReply;
 }
 
 // Derive the topic a THIS_YEAR_OFFER_LAST offer was about: the inbound message immediately before
@@ -692,22 +865,72 @@ export function collectSources(into: SourceCollector, toolName: string, toolResu
   }
 }
 
-// Append any missing source lines to the reply. Skips when the reply is empty/no-reply, or
-// when the model already included the link / dictionary mention.
-export function ensureSourcesCited(reply: string, sources: SourceCollector): string {
+// A reply that, despite running on the "answer" path, is actually a hand-off / "can't help from
+// the reflections" message the model improvised. Sources must NEVER be stapled onto these (a
+// "I'll pass it to the team" line with 3 reflection links looks broken — seen in production).
+const HANDOFF_RE =
+  /\b(pass(ed|ing)?[^.]*\bto\b[^.]*\bteam\b|religious follow[\s-]?up|shared (your|this) (question|with)|could ?n[o']?t (find|locate)|do ?n[o']?t (have|find|see)\b|not able to answer|ask your aamil saheb)\b/i;
+export function looksLikeHandoff(reply: string): boolean {
+  return HANDOFF_RE.test(reply);
+}
+
+// Group key for a religious source: collapse by MAJLIS (not by URL), so a single-majlis answer
+// that cites two facets (e.g. reflection + al-Dars of Majlis 6) still counts as ONE article and
+// keeps its precise link, while an answer spanning different majalis collapses to the archive.
+function majlisGroupKey(title: string): string {
+  const m = title.match(/Majlis\s+(\d+)/i);
+  if (m) return `m${m[1]}`;
+  if (/lailat/i.test(title)) return "lailat";
+  if (/overview/i.test(title)) return "overview";
+  return title.toLowerCase().trim();
+}
+
+// How many DISTINCT majlis/articles a religious answer drew on (drives the collapse decision).
+export function distinctSourceGroups(sources: SourceCollector): number {
+  return new Set(sources.religious.map((s) => majlisGroupKey(s.title))).size;
+}
+
+// Remove any model-emitted "Source:" lines so we never double-cite, then trim trailing blanks.
+function stripSourceLines(reply: string): string {
+  return reply.replace(/^[ \t]*Source:.*$/gim, "").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+// Produce the FINAL reply with at most ONE source line, derived from the trustworthy tool-result
+// provenance (never the model's free text). Pure/synchronous: the archive URL (resolved by the
+// caller only when a collapse is needed) is passed in so this stays unit-testable.
+//   - non-answer / hand-off-shaped reply → no source at all (just strip any the model added)
+//   - 1 distinct majlis → the precise per-majlis link (unchanged behavior)
+//   - >= SOURCE_COLLAPSE_THRESHOLD distinct majalis → one year-archive link (falls back to the
+//     single best per-majlis link if no archive URL/year is available — never a stack)
+export function finalizeSources(
+  reply: string,
+  sources: SourceCollector,
+  opts: { decision: string | null; year: string | null; archiveUrl: string | null },
+): string {
   const trimmed = reply.trim();
   if (!trimmed || /\bno[_\s]?reply\b/i.test(trimmed.replace(/[^a-z_\s]/gi, ""))) return reply;
 
-  const lines: string[] = [];
-  if (sources.religious.length > 0) {
-    for (const s of sources.religious) {
-      if (!trimmed.includes(s.url)) lines.push(`Source: ${s.title} — ${s.url}`);
-    }
-  } else if (sources.lisanDictionary && !/lisan ud dawat dictionary/i.test(trimmed)) {
-    lines.push("Source: Lisan ud Dawat dictionary");
+  // Never cite on a terminal non-answer decision (these usually return earlier, so this is
+  // defensive) or on a model-improvised hand-off / "can't find it" reply — just strip any
+  // source line the model added. A null decision (e.g. a direct dictionary lookup) DOES cite.
+  if (opts.decision === "not_found" || opts.decision === "offer_last" || looksLikeHandoff(trimmed)) {
+    return stripSourceLines(trimmed);
   }
 
-  return lines.length ? `${trimmed}\n\n${lines.join("\n")}` : reply;
+  const body = stripSourceLines(trimmed);
+  let line: string | null = null;
+  if (sources.religious.length > 0) {
+    if (distinctSourceGroups(sources) >= SOURCE_COLLAPSE_THRESHOLD && opts.archiveUrl && opts.year) {
+      line = `Source: Ashara ${opts.year}H reflections — ${opts.archiveUrl}`;
+    } else {
+      const s = sources.religious[0]; // single best / first ranked
+      line = s.url ? `Source: ${s.title} — ${s.url}` : `Source: ${s.title}`;
+    }
+  } else if (sources.lisanDictionary) {
+    line = "Source: Lisan ud Dawat dictionary";
+  }
+
+  return line ? `${body}\n\n${line}` : body;
 }
 
 function parseToolArguments(rawArguments: string): Record<string, unknown> {

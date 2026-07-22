@@ -55,6 +55,33 @@ describe("retrieveReligiousContext", () => {
     mocks.rpc.mockResolvedValue({ data: [], error: null });
     expect(await retrieveReligiousContext("x")).toBe("");
   });
+
+  it("keeps a year-agnostic service FAQ under year scoping, but drops other null-year rows", async () => {
+    mocks.rpc.mockResolvedValue({
+      data: [
+        { page_title: "Service FAQ — Receiving reflections", content: "Ask on the helpline.", category: "faq", year_hijri: null },
+        { page_title: "Null-year reflection", content: "stale", category: "reflection", year_hijri: null },
+        { page_title: "Reflections — 1448 Majlis 1", content: "current", category: "reflection", year_hijri: "1448" },
+      ],
+      error: null,
+    });
+    const out = await retrieveReligiousContext("how do I receive reflections", 5, ["reflection", "faq"], "1448");
+    expect(out).toContain("Service FAQ — Receiving reflections"); // year-null faq survives year scoping
+    expect(out).toContain("Reflections — 1448 Majlis 1"); // correct-year row survives
+    expect(out).not.toContain("Null-year reflection"); // year-null non-faq is dropped
+  });
+
+  it("F3: preferCategory promotes the curated faq chunk ahead of reflection prose", async () => {
+    mocks.rpc.mockResolvedValue({
+      data: [
+        { page_title: "Reflections — 1448 Majlis 2", content: "raw reflection prose", category: "reflection", year_hijri: "1448" },
+        { page_title: "Q&A — 1448 Majlis 2", content: "vetted answer", category: "faq", year_hijri: "1448" },
+      ],
+      error: null,
+    });
+    const out = await retrieveReligiousContext("five qualities of IT", 5, ["reflection", "faq"], "1448", 0.4, "faq");
+    expect(out.indexOf("Q&A — 1448 Majlis 2")).toBeLessThan(out.indexOf("Reflections — 1448 Majlis 2"));
+  });
 });
 
 describe("indexReligiousTopic", () => {

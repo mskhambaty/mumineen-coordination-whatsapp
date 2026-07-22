@@ -12,14 +12,19 @@ export async function GET(req: NextRequest) {
   const auth = await requirePortalCaller(req, isAdminOrLeadership);
   if (auth instanceof NextResponse) return auth;
 
-  const { data, error } = await getSupabaseAdmin()
+  // Optional filter, e.g. ?audience_key=niyaz_rsvp to scope to the Niyaz RSVP sends.
+  const audienceKey = req.nextUrl.searchParams.get("audience_key");
+
+  let query = getSupabaseAdmin()
     .from("template_broadcasts")
     .select(
-      "id, template_code, audience_key, status, total_recipients, count_free, count_paid, count_sent, count_failed, est_cost_usd, started_at, finished_at",
+      "id, message_kind, template_code, audience_key, status, total_recipients, count_free, count_paid, count_sent, count_failed, est_cost_usd, started_at, finished_at",
     )
     .order("started_at", { ascending: false })
     .limit(50);
+  if (audienceKey) query = query.eq("audience_key", audienceKey);
 
+  const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ broadcasts: data ?? [] });
 }

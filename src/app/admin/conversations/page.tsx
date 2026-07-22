@@ -20,6 +20,16 @@ type Message = {
   whatsapp_message_id: string | null;
   created_at: string;
   raw_payload: unknown;
+  // Which WABA number this message went to/from (NULL = primary account).
+  phone_number_id?: string | null;
+};
+
+// WABA account directory returned by the conversations API; maps phone_number_id → human label.
+type InboxAccount = {
+  phoneNumberId: string;
+  label: string;
+  displayNumber: string | null;
+  isPrimary: boolean;
 };
 
 type ToolCall = {
@@ -104,6 +114,15 @@ type Conversation = {
   messages: Message[];
   tool_calls: ToolCall[];
   used_religious_tool?: boolean;
+  // False = "Broadcast-only" (thread has no real message — RSVP/feedback broadcasts only). Drives the
+  // Conversations/Broadcast-only filter so a real conversation isn't hidden after a broadcast reaches it.
+  has_conversational_message?: boolean;
+  // True = the thread's agent activity is RSVP-only (used an RSVP tool, no other substantive tool) —
+  // an RSVP status exchange, bucketed as Survey/broadcast rather than a real conversation.
+  is_rsvp_only?: boolean;
+  // Latest non-broadcast message — used for the list preview/timestamp/sort so a thread reflects its
+  // last real conversation, not a later broadcast that bumped it. Null for broadcast-only threads.
+  conversational_last_message?: { body: string | null; created_at: string } | null;
   quality_score: "good" | "poor" | null;
   quality_reason: string | null;
   quality_analyzed_at: string | null;
@@ -145,6 +164,9 @@ type IssueEscalation = {
   session_id: string;
   phone_e164: string;
   display_name: string | null;
+  link_status: "open" | "resolved";
+  link_resolved_at: string | null;
+  escalation_status: string;
   escalation_stage: string;
   escalation_priority: string;
   escalation_category: string;
@@ -166,7 +188,7 @@ type EscalationFilters = {
   assignee: string;   // "all" | "mine" | "unassigned" | user_id
   priority: string;   // "all" | "urgent" | "normal"
   category: string;   // "all" | category string
-  stage: string;      // "active" | "pending" | "picked_up"
+  stage: string;      // "active" | "pending" | "picked_up" | "resolved" | "all"
 };
 
 type SupportMember = {
@@ -193,14 +215,91 @@ function loadSavedFilters(): EscalationFilters {
   }
 }
 
+// A list reload (scope/window-bounded) must not evict the conversation the user is actively
+// viewing. An issue's linked escalation can live on a phone number the current inbox scope
+// excludes (e.g. the broadcast number); it's loaded by-phone into `prev`, so pin it onto the
+// fresh list when the reload drops it.
+function pinSelected(items: Conversation[], prev: Conversation[], sel: string | null): Conversation[] {
+  if (sel && !items.some((c) => c.phone_e164 === sel)) {
+    const keep = prev.find((c) => c.phone_e164 === sel);
+    if (keep) return [...items, keep];
+  }
+  return items;
+}
+
+// A background list reload carries only the recent-capped messages per thread. Don't let it clobber
+// the full thread the user has open (loaded via loadConversationThread, e.g. while scrolling history
+// on mobile) — keep the open conversation's already-loaded messages and only APPEND genuinely-new
+// ones from the refresh. Without this, a silent refresh mid-scroll snaps the thread to recent-only.
+function preserveSelectedThread(merged: Conversation[], prev: Conversation[], sel: string | null): Conversation[] {
+  if (!sel) return merged;
+  const prevSel = prev.find((c) => c.phone_e164 === sel);
+  if (!prevSel || !prevSel.messages?.length) return merged;
+  const seen = new Set(prevSel.messages.map((m) => m.id));
+  return merged.map((c) => {
+    if (c.phone_e164 !== sel) return c;
+    const fresh = (c.messages ?? []).filter((m) => !seen.has(m.id));
+    return {
+      ...c,
+      messages: [...prevSel.messages, ...fresh],
+      tool_calls: prevSel.tool_calls?.length ? prevSel.tool_calls : c.tool_calls,
+    };
+  });
+}
+
+// List row should reflect a thread's last REAL conversation, not a later broadcast that bumped it.
+// Falls back to the raw last message (e.g. broadcast-only threads have no conversational message).
+function convListTime(c: Conversation): string {
+  return c.conversational_last_message?.created_at ?? c.last_message_at;
+}
+function convListPreview(c: Conversation): string {
+  return c.conversational_last_message?.body || c.last_message?.body || "No message body";
+}
+
+// A message is "broadcast/automated" (noise) — vs a real conversational message — when it's a
+// template send (RSVP/feedback/digest/notification), an RSVP/feedback button or flow response, or a
+// system broadcast text. Mirrors the server-side classifier behind has_conversational_message.
+function isBroadcastMessage(m: Message): boolean {
+  const rp = (m.raw_payload ?? null) as { template?: unknown; source?: unknown } | null;
+  if (rp && typeof rp === "object") {
+    if (rp.template) return true;
+    if (rp.source === "niyaz_rsvp_ended" || rp.source === "issue_close_broadcast") return true;
+  }
+  if ((m.body ?? "").startsWith("[template:")) return true;
+  if (m.message_type === "interactive" || m.message_type === "button") return true;
+  return false;
+}
+
 export default function ConversationsPage() {
   const router = useRouter();
+  // Inbox scope: ?scope=niyaz shows only the niyaz RSVP number's conversations; default 'main'
+  // excludes them. Read from the URL at fetch time (client only) so the page needs no Suspense
+  // boundary / search-params hook.
+  const convListUrl = (religious: boolean) => {
+    const isNiyaz = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("scope") === "niyaz";
+    const p = new URLSearchParams();
+    if (religious) p.set("religious", "1");
+    if (isNiyaz) p.set("scope", "niyaz");
+    if (escalationFilters.stage === "resolved" || escalationFilters.stage === "all") {
+      p.set("includeResolved", "1");
+      p.set("resolvedLimit", String(resolvedLimit));
+    }
+    const qs = p.toString();
+    return `/api/admin/conversations${qs ? `?${qs}` : ""}`;
+  };
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  // WABA account directory (for showing which number a message went to/from).
+  const [accounts, setAccounts] = useState<InboxAccount[]>([]);
   // Initialize selection/tab from the URL so escalation email deep links land
   // directly on the right thread (?phone=...&tab=escalations).
   const [selectedPhone, setSelectedPhone] = useState<string | null>(
     () => (typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("phone")),
   );
+  // Always-current mirror of selectedPhone. An async loadConversations() captures selectedPhone in
+  // its closure; if it started before a navigation (e.g. while viewing an issue) it could resolve
+  // after and auto-select the first row, clobbering an explicit "View" selection. Guard on the ref.
+  const selectedPhoneRef = useRef<string | null>(selectedPhone);
+  selectedPhoneRef.current = selectedPhone;
   const [loading, setLoading] = useState(true);
   const [savingMode, setSavingMode] = useState(false);
   const [savingEscalation, setSavingEscalation] = useState(false);
@@ -214,6 +313,9 @@ export default function ConversationsPage() {
   // Issues tab state
   const [issues, setIssues] = useState<Issue[]>([]);
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  // Issues tab status filter. "active" = open + in_progress; resolved issues (incl. ones auto-closed
+  // when all their links resolved) are hidden unless "Resolved"/"All" is selected.
+  const [issueStatusFilter, setIssueStatusFilter] = useState<"active" | "open" | "in_progress" | "resolved" | "all">("active");
   const [issueDetail, setIssueDetail] = useState<{ issue: IssueDetail; escalations: IssueEscalation[]; activities: ActivityEntry[] } | null>(null);
   const [issueDetailLoading, setIssueDetailLoading] = useState(false);
   const [showCreateIssue, setShowCreateIssue] = useState(false);
@@ -226,6 +328,11 @@ export default function ConversationsPage() {
   const [search, setSearch] = useState("");
   const [qualityFilter, setQualityFilter] = useState<"all" | "poor">("all");
   const [religiousOnly, setReligiousOnly] = useState(false);
+  // Conversations-tab content focus: Conversations (default — hide threads that are only broadcast
+  // RSVP/feedback with no real message), Broadcast-only, or All. Based on has_conversational_message.
+  const [messageScope, setMessageScope] = useState<"conversations" | "broadcast" | "all">("conversations");
+  // In the open thread, hide broadcast/RSVP/system messages so the monitor sees only the real exchange.
+  const [hideBroadcastMessages, setHideBroadcastMessages] = useState(true);
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -248,16 +355,35 @@ export default function ConversationsPage() {
   const [escalationFilters, setEscalationFilters] = useState<EscalationFilters>(loadSavedFilters);
   const [supportMembers, setSupportMembers] = useState<SupportMember[]>([]);
   const [claimingPhone, setClaimingPhone] = useState<string | null>(null);
+  // Resolved-escalation paging for the Escalations tab (loaded only when "Resolved"/"All" stage is selected).
+  const [resolvedLimit, setResolvedLimit] = useState(50);
+  const [resolvedHasMore, setResolvedHasMore] = useState(false);
   const currentUserId = useMemo(() => readAdminUser()?.id ?? null, []);
+  // The Escalations tab loads resolved escalations only when the stage filter asks for them.
+  const showResolved = escalationFilters.stage === "resolved" || escalationFilters.stage === "all";
 
   const escalatedCount = useMemo(
     () => conversations.filter((conversation) => conversation.escalation_status === "pending").length,
     [conversations],
   );
 
-  // Conversations tab KPI stats (non-escalated threads only).
+  // Non-primary WABA numbers = "Survey" (niyaz feedback/RSVP broadcasts).
+  const surveyPnids = useMemo(() => new Set(accounts.filter((a) => !a.isPrimary).map((a) => a.phoneNumberId)), [accounts]);
+  // "Broadcast/Survey" = no real message (RSVP/feedback broadcasts only) OR an RSVP-only thread (the
+  // person fumbled an RSVP and the agent answered — real text, but RSVP-topic by its tool usage).
+  // Both server-computed over ALL data, so a real conversation stays under "Conversations" even after
+  // a broadcast reaches it, while RSVP status exchanges bucket as Survey. Undefined → conversational.
+  const isBroadcastOnlyConversation = (c: Conversation): boolean =>
+    c.has_conversational_message === false || c.is_rsvp_only === true;
+
+  // Conversations tab KPI stats (non-escalated threads only, respecting the Helpline/Survey focus).
   const conversationStats = useMemo(() => {
-    const nonEsc = conversations.filter((c) => c.escalation_status !== "pending");
+    const nonEsc = conversations.filter(
+      (c) =>
+        c.escalation_status !== "pending" &&
+        c.escalation_status !== "resolved" &&
+        (messageScope === "all" || (messageScope === "broadcast" ? isBroadcastOnlyConversation(c) : !isBroadcastOnlyConversation(c))),
+    );
     return {
       total: nonEsc.length,
       unread: nonEsc.filter((c) => c.unread_inbound_count > 0).length,
@@ -265,7 +391,8 @@ export default function ConversationsPage() {
       ai: nonEsc.filter((c) => c.handling_mode === "ai").length,
       poor: nonEsc.filter((c) => c.quality_score === "poor").length,
     };
-  }, [conversations]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations, messageScope]);
 
   // Issues tab KPI stats.
   const issueStats = useMemo(() => ({
@@ -294,15 +421,20 @@ export default function ConversationsPage() {
   // everything else stays in Conversations. Issues tab doesn't show conversations.
   const visibleConversations = useMemo(() => {
     if (tab === "issues") return [];
-    const inEscalations = (c: Conversation) => c.escalation_status === "pending";
+    // Escalation lifecycle = pending (open work) or resolved (history). `none` = normal thread.
+    const inEscalations = (c: Conversation) =>
+      c.escalation_status === "pending" || c.escalation_status === "resolved";
     const list = conversations.filter((c) => (tab === "escalations" ? inEscalations(c) : !inEscalations(c)));
     if (tab === "escalations") {
       // Apply escalation filters
       let filtered = list;
 
-      // Stage filter
+      // Stage filter. Resolved-ness keys off the canonical escalation_status; pending/picked_up
+      // are work sub-states (escalation_stage). "active" hides resolved; "all" shows everything.
       if (escalationFilters.stage === "active") {
-        filtered = filtered.filter((c) => c.escalation_stage !== "resolved");
+        filtered = filtered.filter((c) => c.escalation_status !== "resolved");
+      } else if (escalationFilters.stage === "resolved") {
+        filtered = filtered.filter((c) => c.escalation_status === "resolved");
       } else if (escalationFilters.stage !== "all") {
         filtered = filtered.filter((c) => c.escalation_stage === escalationFilters.stage);
       }
@@ -327,6 +459,10 @@ export default function ConversationsPage() {
       }
 
       return [...filtered].sort((a, b) => {
+        // Resolved escalations sink to the bottom — open work stays on top.
+        const aResolved = a.escalation_status === "resolved";
+        const bResolved = b.escalation_status === "resolved";
+        if (aResolved !== bResolved) return aResolved ? 1 : -1;
         // Primary: priority (urgent first)
         if (a.escalation_priority !== b.escalation_priority) {
           return a.escalation_priority === "urgent" ? -1 : 1;
@@ -338,8 +474,17 @@ export default function ConversationsPage() {
         return b.last_message_at.localeCompare(a.last_message_at);
       });
     }
+    // Conversations tab: focus on real Conversations (hide broadcast-only threads) or Broadcast-only,
+    // and order by the last REAL message so broadcasts don't reshuffle the list to the top.
+    if (tab === "conversations") {
+      const filtered = messageScope === "all"
+        ? list
+        : list.filter((c) => (messageScope === "broadcast" ? isBroadcastOnlyConversation(c) : !isBroadcastOnlyConversation(c)));
+      return [...filtered].sort((a, b) => convListTime(b).localeCompare(convListTime(a)));
+    }
     return list;
-  }, [conversations, tab, escalationFilters, currentUserId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations, tab, escalationFilters, currentUserId, messageScope]);
 
   // Keyword search over the loaded chats: matches name, phone, and any message body.
   const searchedConversations = useMemo(() => {
@@ -384,10 +529,45 @@ export default function ConversationsPage() {
     }
   }
 
-  const selected = useMemo(
-    () => visibleConversations.find((conversation) => conversation.phone_e164 === selectedPhone) ?? searchedConversations[0] ?? visibleConversations[0] ?? null,
-    [visibleConversations, searchedConversations, selectedPhone],
-  );
+  const selected = useMemo(() => {
+    // An explicit selection (row click or an issue's "View" link) resolves to THAT thread from the
+    // full loaded set — or to nothing while it's still loading. Never fall back to a different
+    // conversation here: doing so makes the detail pane snap to the first queue item mid-navigation
+    // (the target is fetched async via loadConversationThread and appears a tick later).
+    if (selectedPhone) {
+      return conversations.find((c) => c.phone_e164 === selectedPhone) ?? null;
+    }
+    return searchedConversations[0] ?? visibleConversations[0] ?? null;
+  }, [conversations, visibleConversations, searchedConversations, selectedPhone]);
+
+  // WABA-number attribution for the open thread. A message's phone_number_id (NULL = primary) maps
+  // to an account; we badge each message only when the thread spans more than one number, and show a
+  // single "via <number>" line otherwise (for any single number, including the primary).
+  const accountByPnid = useMemo(() => {
+    const m = new Map<string, InboxAccount>();
+    for (const a of accounts) m.set(a.phoneNumberId, a);
+    return m;
+  }, [accounts]);
+  const primaryAccount = useMemo(() => accounts.find((a) => a.isPrimary) ?? null, [accounts]);
+  const messageAccountLabel = (pnid: string | null | undefined): string => {
+    const a = pnid ? accountByPnid.get(pnid) : primaryAccount;
+    if (a) return a.label;
+    return pnid ? "Other" : primaryAccount?.label ?? "Primary";
+  };
+  const threadAccounts = useMemo(() => {
+    if (!selected) return [] as Array<{ key: string; account: InboxAccount | null }>;
+    const seen = new Map<string, InboxAccount | null>();
+    for (const m of selected.messages) {
+      const account = m.phone_number_id ? accountByPnid.get(m.phone_number_id) ?? null : primaryAccount;
+      const key = account?.phoneNumberId ?? m.phone_number_id ?? "primary";
+      if (!seen.has(key)) seen.set(key, account);
+    }
+    return [...seen.entries()].map(([key, account]) => ({ key, account }));
+  }, [selected, accountByPnid, primaryAccount]);
+  const threadSpansNumbers = threadAccounts.length > 1;
+  // Single-number thread: show a "via <number>" line for whichever number it's on — including the
+  // primary. Null only when the number can't be resolved to a configured account.
+  const singleViaAccount = !threadSpansNumbers ? threadAccounts[0]?.account ?? null : null;
   const latestMessageId = selected?.messages[selected.messages.length - 1]?.id ?? null;
   const unreadInboundCount = selected?.unread_inbound_count ?? 0;
   const unreadMessageStartIndex = selected
@@ -500,11 +680,18 @@ export default function ConversationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedIssueId]);
 
-  // Refresh issues when switching to the Issues tab.
+  // Refresh issues when switching to the Issues tab or changing the status filter.
   useEffect(() => {
     if (tab === "issues" && hasInboxAccess) void fetchIssues();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
+  }, [tab, issueStatusFilter]);
+
+  // Resolved escalations aren't loaded by default — refetch with them included when the team
+  // selects the "Resolved"/"All" stage filter, or asks for an older page via "Load more".
+  useEffect(() => {
+    if (tab === "escalations" && showResolved) void loadConversations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showResolved, resolvedLimit, tab]);
 
   // Live updates via Server-Sent Events; the session cookie rides along automatically.
   useEffect(() => {
@@ -534,14 +721,18 @@ export default function ConversationsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch(religious ? "/api/admin/conversations?religious=1" : "/api/admin/conversations");
+      const res = await apiFetch(convListUrl(religious));
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data.error ?? "Failed to load conversations");
       }
       const items = (data.conversations ?? []) as Conversation[];
-      setConversations(items);
-      if (!selectedPhone && items[0]) setSelectedPhone(items[0].phone_e164);
+      setConversations((prev) => preserveSelectedThread(pinSelected(items, prev, selectedPhoneRef.current), prev, selectedPhoneRef.current));
+      setResolvedHasMore(Boolean(data.resolved_has_more));
+      if (Array.isArray(data.accounts)) setAccounts(data.accounts as InboxAccount[]);
+      // Use the ref, not the closed-over value, so a late-resolving load can't overwrite a
+      // selection the user made after this fetch started.
+      if (!selectedPhoneRef.current && items[0]) setSelectedPhone(items[0].phone_e164);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load conversations");
     } finally {
@@ -553,10 +744,13 @@ export default function ConversationsPage() {
   // loading spinner, surface errors, or change the selected conversation.
   async function refreshConversationsSilently() {
     try {
-      const res = await apiFetch(religiousOnly ? "/api/admin/conversations?religious=1" : "/api/admin/conversations");
+      const res = await apiFetch(convListUrl(religiousOnly));
       if (!res.ok) return;
       const data = await res.json().catch(() => ({}));
-      setConversations((data.conversations ?? []) as Conversation[]);
+      const items = (data.conversations ?? []) as Conversation[];
+      setConversations((prev) => preserveSelectedThread(pinSelected(items, prev, selectedPhoneRef.current), prev, selectedPhoneRef.current));
+      setResolvedHasMore(Boolean(data.resolved_has_more));
+      if (Array.isArray(data.accounts)) setAccounts(data.accounts as InboxAccount[]);
     } catch {
       // Ignore transient polling failures.
     }
@@ -573,13 +767,16 @@ export default function ConversationsPage() {
       const data = await res.json().catch(() => ({}));
       const full = ((data.conversations ?? []) as Conversation[])[0];
       if (!full) return;
-      setConversations((prev) =>
-        prev.map((c) =>
+      setConversations((prev) => {
+        // Off-window threads (e.g. a resolved escalation reached via an issue's "View" link) aren't
+        // in the list yet — insert them, don't silently drop them. Otherwise merge in the full thread.
+        if (!prev.some((c) => c.phone_e164 === phone)) return [...prev, full];
+        return prev.map((c) =>
           c.phone_e164 === phone
             ? { ...c, messages: full.messages, tool_calls: full.tool_calls, used_religious_tool: full.used_religious_tool ?? c.used_religious_tool }
             : c,
-        ),
-      );
+        );
+      });
     } catch {
       // Ignore transient failures; the list-level data still renders.
     }
@@ -596,7 +793,7 @@ export default function ConversationsPage() {
 
   async function fetchIssues() {
     try {
-      const res = await apiFetch("/api/admin/issues?status=open");
+      const res = await apiFetch(`/api/admin/issues?status=${issueStatusFilter}`);
       if (!res.ok) return;
       const data = await res.json().catch(() => ({}));
       setIssues((data.issues ?? []) as Issue[]);
@@ -1013,6 +1210,21 @@ export default function ConversationsPage() {
                       </button>
                     </div>
                   )}
+                  {surveyPnids.size > 0 && (
+                    <div className="mt-2 flex items-center gap-2 border-t pt-2 text-xs text-gray-600 dark:border-gray-800 dark:text-gray-400">
+                      <span className="font-medium">Show</span>
+                      <select
+                        value={messageScope}
+                        onChange={(e) => setMessageScope(e.target.value as typeof messageScope)}
+                        className={`flex-1 rounded-md border px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 ${messageScope !== "conversations" ? "ring-1 ring-blue-400 dark:ring-blue-600" : ""}`}
+                        title="Conversations hides threads that are only broadcast (RSVP/feedback) with no real message"
+                      >
+                        <option value="conversations">Conversations</option>
+                        <option value="broadcast">Broadcast-only</option>
+                        <option value="all">All</option>
+                      </select>
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -1063,6 +1275,8 @@ export default function ConversationsPage() {
                     <option value="active">All Active</option>
                     <option value="pending">Pending</option>
                     <option value="picked_up">Picked Up</option>
+                    <option value="resolved">Resolved</option>
+                    <option value="all">All (incl. resolved)</option>
                   </select>
                 </div>
                 {(escalationFilters.assignee !== "all" || escalationFilters.priority !== "all" || escalationFilters.category !== "all" || escalationFilters.stage !== "active") && (
@@ -1089,10 +1303,23 @@ export default function ConversationsPage() {
                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>
                       New Issue
                     </button>
+                    <select
+                      value={issueStatusFilter}
+                      onChange={(e) => setIssueStatusFilter(e.target.value as typeof issueStatusFilter)}
+                      className={`mt-2 w-full rounded-md border px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 ${issueStatusFilter !== "active" ? "ring-1 ring-purple-400 dark:ring-purple-600" : ""}`}
+                    >
+                      <option value="active">Active (open + in progress)</option>
+                      <option value="open">Open</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="resolved">Resolved</option>
+                      <option value="all">All</option>
+                    </select>
                   </div>
                   {/* Issues list */}
                   {issues.length === 0 ? (
-                    <p className="p-4 text-sm text-gray-500 dark:text-gray-400">No open issues.</p>
+                    <p className="p-4 text-sm text-gray-500 dark:text-gray-400">
+                      {issueStatusFilter === "resolved" ? "No resolved issues." : issueStatusFilter === "active" ? "No active issues." : "No issues."}
+                    </p>
                   ) : (
                     issues.map((issue) => (
                       <button
@@ -1151,7 +1378,8 @@ export default function ConversationsPage() {
                     ) : "No conversations yet."}
                 </div>
               ) : (
-                searchedConversations.map((conversation) => (
+                <>
+                {searchedConversations.map((conversation) => (
                   <button
                     key={conversation.id}
                     onClick={() => setSelectedPhone(conversation.phone_e164)}
@@ -1168,7 +1396,12 @@ export default function ConversationsPage() {
                           {conversation.escalation_priority === "urgent" ? "URGENT" : "ESCALATED"}
                         </span>
                       )}
-                      {tab === "escalations" && conversation.escalation_stage && conversation.escalation_stage !== "none" && (
+                      {tab === "escalations" && conversation.escalation_status === "resolved" ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3"><path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" /></svg>
+                          Resolved
+                        </span>
+                      ) : tab === "escalations" && conversation.escalation_stage && conversation.escalation_stage !== "none" && (
                         <span className={`rounded-full px-2 py-0.5 text-xs ${conversation.escalation_stage === "pending" ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" : conversation.escalation_stage === "picked_up" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"}`}>
                           {conversation.escalation_stage === "pending" ? "Pending" : conversation.escalation_stage === "picked_up" ? "Picked Up" : conversation.escalation_stage.replace(/_/g, " ")}
                         </span>
@@ -1186,13 +1419,13 @@ export default function ConversationsPage() {
                     {conversation.escalation_status === "pending" && conversation.escalation_category && (
                       <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">#{conversation.escalation_category}</p>
                     )}
-                    <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">{conversation.last_message?.body || "No message body"}</p>
+                    <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">{tab === "conversations" ? convListPreview(conversation) : (conversation.last_message?.body || "No message body")}</p>
                     <div className="mt-2 flex items-center justify-between text-xs text-gray-400 dark:text-gray-500">
                       <div className="flex items-center gap-2">
                         {tab === "escalations" && conversation.escalation_sla_deadline ? (
                           <SLACountdown deadline={conversation.escalation_sla_deadline} />
                         ) : (
-                          <span>{formatDate(conversation.last_message_at)}</span>
+                          <span>{formatDate(tab === "conversations" ? convListTime(conversation) : conversation.last_message_at)}</span>
                         )}
                         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600 dark:bg-gray-700 dark:text-gray-300">{conversation.messages.length} msg{conversation.messages.length !== 1 ? "s" : ""}</span>
                       </div>
@@ -1212,7 +1445,17 @@ export default function ConversationsPage() {
                       ) : null}
                     </div>
                   </button>
-                ))
+                ))}
+                {tab === "escalations" && showResolved && resolvedHasMore && (
+                  <button
+                    type="button"
+                    onClick={() => setResolvedLimit((n) => n + 50)}
+                    className="block w-full border-b px-4 py-3 text-center text-xs font-medium text-amber-600 hover:bg-amber-50 dark:border-gray-800 dark:text-amber-400 dark:hover:bg-amber-900/20"
+                  >
+                    Load more resolved
+                  </button>
+                )}
+                </>
               )}
             </div>
           </aside>
@@ -1238,7 +1481,13 @@ export default function ConversationsPage() {
                 ) : (
                   <IssueDetailPanel
                     detail={issueDetail}
-                    onNavigateToEscalation={(phone) => { setTab("escalations"); setSelectedPhone(phone); }}
+                    onNavigateToEscalation={(phone) => {
+                      // Clear filters (and show all stages) so the target appears in the rail
+                      // regardless of its assignee/priority/stage — and never snaps to another row.
+                      setEscalationFilters({ ...DEFAULT_ESCALATION_FILTERS, stage: "all" });
+                      setTab("escalations");
+                      setSelectedPhone(phone);
+                    }}
                     onRefresh={() => { void fetchIssueDetail(selectedIssueId); void fetchIssues(); }}
                   />
                 )}
@@ -1292,7 +1541,7 @@ export default function ConversationsPage() {
                           disabled={savingEscalation}
                           className="whitespace-nowrap rounded-md border border-amber-500 px-3 py-1.5 text-sm font-medium text-amber-600 hover:bg-amber-50 disabled:opacity-50 dark:text-amber-400 dark:hover:bg-amber-900/20"
                         >
-                          {savingEscalation ? "Saving…" : "Escalate"}
+                          {savingEscalation ? "Saving…" : selected.escalation_status === "resolved" ? "Re-escalate" : "Escalate"}
                         </button>
                       )}
                       <div className="flex items-center gap-1.5">
@@ -1380,7 +1629,35 @@ export default function ConversationsPage() {
             </div>
 
             <div ref={messagePaneRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-gray-50 p-5 dark:bg-gray-950/40">
+              {singleViaAccount && (
+                <div className="flex justify-center">
+                  <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                    via {singleViaAccount.label}{singleViaAccount.displayNumber ? ` · ${singleViaAccount.displayNumber}` : ""}
+                  </span>
+                </div>
+              )}
+              {(() => {
+                const broadcastCount = selected?.messages.filter(isBroadcastMessage).length ?? 0;
+                if (broadcastCount === 0) return null;
+                return (
+                  <div className="flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => setHideBroadcastMessages((v) => !v)}
+                      className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                      title="Broadcast = RSVP/feedback templates and their button/flow responses"
+                    >
+                      {hideBroadcastMessages
+                        ? `Show ${broadcastCount} broadcast / RSVP message${broadcastCount === 1 ? "" : "s"}`
+                        : "Hide broadcast / RSVP messages"}
+                    </button>
+                  </div>
+                );
+              })()}
               {selected?.messages.map((message, index) => {
+                // Hide broadcast/RSVP/system messages from the thread when focused (return null to
+                // keep the original index, which the unread-highlight logic below relies on).
+                if (hideBroadcastMessages && isBroadcastMessage(message)) return null;
                 const isNewInbound =
                   unreadInboundCount > 0 &&
                   message.direction === "inbound" &&
@@ -1398,6 +1675,11 @@ export default function ConversationsPage() {
                       <MessageContent message={message} />
                       <div className={`mt-2 flex items-center gap-2 text-xs ${message.direction === "outbound" ? "text-blue-100" : isNewInbound ? "text-green-700 dark:text-green-300" : "text-gray-400 dark:text-gray-500"}`}>
                         <span>{formatDate(message.created_at)}</span>
+                        {threadSpansNumbers && (
+                          <span className="rounded-full bg-black/10 px-2 py-0.5 font-medium dark:bg-white/15" title="WABA number this message used">
+                            {message.direction === "inbound" ? "to " : "from "}{messageAccountLabel(message.phone_number_id)}
+                          </span>
+                        )}
                         {isNewInbound && <span className="rounded-full bg-green-100 px-2 py-0.5 font-medium text-green-700 dark:bg-green-900 dark:text-green-200">New</span>}
                       </div>
                     </div>
@@ -2199,21 +2481,37 @@ function IssueDetailPanel({
           <p className="text-sm text-gray-500 dark:text-gray-400">No escalations linked to this issue yet.</p>
         ) : (
           <div className="space-y-1">
-            {escalations.map((esc) => (
+            {[...escalations]
+              .sort((a, b) => {
+                // Resolved links (this conversation's episode in THIS issue) sink to the bottom.
+                const ar = a.link_status === "resolved";
+                const br = b.link_status === "resolved";
+                return ar === br ? 0 : ar ? 1 : -1;
+              })
+              .map((esc) => {
+              const resolved = esc.link_status === "resolved";
+              return (
               <div
                 key={esc.link_id}
-                className={`flex items-center gap-3 rounded-md border px-3 py-2 ${esc.breaching ? "border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950/20" : "border-gray-200 dark:border-gray-700"}`}
+                className={`flex items-center gap-3 rounded-md border px-3 py-2 ${resolved ? "border-gray-200 bg-gray-50/60 dark:border-gray-800 dark:bg-gray-900/40" : esc.breaching ? "border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950/20" : "border-gray-200 dark:border-gray-700"}`}
               >
-                <div className={`w-1 self-stretch rounded-full ${esc.breaching ? "bg-red-500" : esc.escalation_stage === "picked_up" ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-600"}`} />
+                <div className={`w-1 self-stretch rounded-full ${resolved ? "bg-green-500" : esc.breaching ? "bg-red-500" : esc.escalation_stage === "picked_up" ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-600"}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="font-medium text-sm">{esc.display_name || esc.phone_e164}</span>
-                    {esc.breaching && <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-900/40 dark:text-red-300">SLA BREACH</span>}
+                    <span className={`font-medium text-sm ${resolved ? "text-gray-500 dark:text-gray-400" : ""}`}>{esc.display_name || esc.phone_e164}</span>
+                    {resolved ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-2.5 w-2.5"><path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" /></svg>
+                        Resolved
+                      </span>
+                    ) : esc.breaching ? (
+                      <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-900/40 dark:text-red-300">SLA BREACH</span>
+                    ) : null}
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{esc.escalation_reason || esc.escalation_category || "—"}</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {esc.escalation_sla_deadline && <SLACountdown deadline={esc.escalation_sla_deadline} />}
+                  {!resolved && esc.escalation_sla_deadline && <SLACountdown deadline={esc.escalation_sla_deadline} />}
                   <button
                     type="button"
                     onClick={() => onNavigateToEscalation(esc.phone_e164)}
@@ -2223,7 +2521,8 @@ function IssueDetailPanel({
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

@@ -35,8 +35,8 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
   const { data: resolved, error: resolveError } = await supabase
     .from("conversation_sessions")
     .update({
+      // escalation_status is derived from escalation_stage by a DB trigger — set stage only.
       escalation_stage: "resolved",
-      escalation_status: "resolved",
     })
     .eq("linked_task_id", taskId)
     .neq("escalation_stage", "resolved")

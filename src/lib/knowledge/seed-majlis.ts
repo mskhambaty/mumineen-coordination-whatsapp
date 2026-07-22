@@ -1,12 +1,12 @@
-// Daily seed: ensure the 6 per-category content slots exist for a given majlis, so the
-// admin dashboard (and the agent) have the day's structure ready. English slots are
-// created as 'placeholder' (awaiting fetch/transcription); Lisan slots as
-// 'pending_translation' (awaiting the human English translation). Idempotent.
+// Daily seed: ensure the DEFAULT per-category content slots (this year: Reflections + Q&A) exist
+// for a given majlis, so the admin dashboard (and the agent) have the day's structure ready. English
+// slots are created as 'placeholder' (awaiting fetch/transcription); Lisan slots as
+// 'pending_translation'. Other category blocks (Tazyeen, Al-Dars, Jumla, Kalema, Unwaan) are added
+// on demand from the grid, not auto-seeded. Idempotent.
 
 import {
-  ASHARA_CATEGORIES,
+  DEFAULT_ASHARA_CATEGORIES,
   defaultStatus,
-  istibsaarSearchUrl,
   majlisLabel,
   topicTitle,
 } from "@/lib/knowledge/ashara-config";
@@ -22,7 +22,7 @@ export async function seedMajlisDay(
   const created: string[] = [];
   const existing: string[] = [];
 
-  for (const cat of ASHARA_CATEGORIES) {
+  for (const cat of DEFAULT_ASHARA_CATEGORIES) {
     const found = topics.find(
       (t) =>
         t.year_hijri === year &&
@@ -40,8 +40,8 @@ export async function seedMajlisDay(
       category: cat.key,
       language: cat.language,
       status: defaultStatus(cat.language),
-      sourceUrl: istibsaarSearchUrl(target.majlisNumber, target.isAshura, year),
-      sourceLabel: `Istibsaar — ${cat.label}, ${majlisLabel(target.majlisNumber, target.isAshura)} (${year}H)`,
+      // No auto source link — the istibsaar search URL wasn't a real article; editors set a real
+      // source per block via the cell editor when they have one.
     });
     created.push(cat.key);
   }

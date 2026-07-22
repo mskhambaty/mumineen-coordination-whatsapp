@@ -43,6 +43,7 @@ describe("rulingKeywordHit (deterministic fast-path)", () => {
       "namaz farz che",
       "is it permissible for me to travel",
       "should women do matam",
+      "what is the ruling on missing namaz?", // explicit verdict-seeking → still fires
     ]) {
       expect(rulingKeywordHit(q), q).toBe(true);
     }
@@ -57,6 +58,12 @@ describe("rulingKeywordHit (deterministic fast-path)", () => {
       "what was the theme of Majlis 4",
       "can I attend the waaz tomorrow",
       "tell me about Ashura",
+      // Reported bug: an INDEXED Q&A whose concept ("sehr-e-halal") merely contains "halal" must
+      // NOT be refused as a personal fatwa — it should pass through and answer from the Q&A.
+      "What is sehr-e-halal, and how did Imam Sadiq AS show it with khair and sharr?",
+      "what is sehr e halal",
+      "why is namaz wajib", // definitional/content question about a topic word → not a personal ruling
+      "explain khair and sharr from the waaz",
     ]) {
       expect(rulingKeywordHit(q), q).toBe(false);
     }
@@ -77,6 +84,11 @@ describe("looksLogistics (FAQ-derived allow-list)", () => {
       "is there a host family for accommodation",
       "what is the dress code",
       "where is the nearest bathroom",
+      // RSVP / meal — members ask about their niyaz RSVP; never a fatwa.
+      "what is my RSVP",
+      "can you tell me what did I RSVP for 2nd Moharram",
+      "update my RSVP",
+      "do I need to RSVP for the meal",
     ]) {
       expect(looksLogistics(q), q).toBe(true);
     }
@@ -150,6 +162,21 @@ describe("isPersonalRuling", () => {
     const res = await isPersonalRuling("am I supposed to eat dragon fruit during these days");
     expect(res).toEqual({ ruling: true, via: "classifier" });
     expect(mocks.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets an indexed Waaz Q&A about 'sehr-e-halal' pass through (no refusal, no model call)", async () => {
+    const res = await isPersonalRuling(
+      "What is sehr-e-halal, and how did Imam Sadiq AS show it with khair and sharr?",
+    );
+    expect(res).toEqual({ ruling: false, via: "none" });
+    expect(mocks.create).not.toHaveBeenCalled(); // not keyword, not logistics, not ruling-shaped
+  });
+
+  it("rescues an RSVP question via logistics WITHOUT calling the classifier", async () => {
+    // "do I need to" trips the permission pre-filter; the rsvp logistics term must short-circuit first.
+    const res = await isPersonalRuling("do I need to RSVP for the meal");
+    expect(res).toEqual({ ruling: false, via: "logistics" });
+    expect(mocks.create).not.toHaveBeenCalled();
   });
 });
 

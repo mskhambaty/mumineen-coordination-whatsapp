@@ -74,6 +74,7 @@ const dropdownGroups: DropdownGroup[] = [
       { href: "/admin/tasks", label: "Tasks", access: "portal" },
       { href: "/admin/milestones", label: "Milestones", access: "portal" },
       { href: "/admin/department-digest", label: "Daily Digest", access: "portal" },
+      { href: "/admin/surveys", label: "Feedback Surveys", access: "admin" },
       { href: "/admin/upload", label: "Upload Transcripts", access: "portal" },
     ],
   },

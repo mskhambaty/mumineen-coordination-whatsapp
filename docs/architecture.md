@@ -86,6 +86,7 @@ head-count responses override the per-mumin defaults.
 |---------|---------|------|
 | Meta WhatsApp Cloud API | Receive messages, send replies | `WHATSAPP_ACCESS_TOKEN` |
 | Meta Graph API (signature) | Verify webhook authenticity | `META_APP_SECRET` (optional) |
+| Meta WhatsApp Cloud API (2nd number) | Optional broadcast number — its own Meta App + WABA; shares the single `/api/whatsapp/webhook` URL (routed by `metadata.phone_number_id`) | `*_BROADCAST` env vars |
 | OpenAI | Chat completions + embeddings | `OPENAI_API_KEY` |
 | Supabase | Database (users, messages, sessions, audit, site content) | `SUPABASE_SERVICE_ROLE_KEY` |
 | Vercel | Hosting, env vars, cron | — |

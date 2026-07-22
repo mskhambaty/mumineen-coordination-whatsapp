@@ -12,14 +12,16 @@ responses come in.
 
 - **Events** live in `rsvp_registration_instance` (`title`, `event_date`, `hijri_date`, `meal`
   `lunch`|`dinner`, `serving_type` `thaal`|`packet`, `description`, unique `(event_date, meal)`).
-  Ashara 1448H = **20 events**: **Pehli Raat (Jun 14, dinner thaal)**, **1st Moharram lunch +
-  2nd Moharram dinner (Jun 15)**, **2nd–9th lunch + 3rd–10th dinner (Jun 16–23)**, **Ashura (Jun 24,
-  dinner thaal)**. Hijri night-first ordering: lunch = Nth Day, dinner = (N+1)th Night on each
-  Gregorian day. (Corrected in `20260610110000_fix_moharram_dates_and_titles` and
-  `20260610140000_fix_moharram_dinner_titles`.)
+  Ashara 1448H = **19 events** on the **Gregorian-day convention** — each calendar date carries one
+  Moharram number shared by its lunch and dinner: **Pehli Raat (Jun 14, dinner thaal)**, **1st Moharram
+  (Jun 15, dinner only)**, **2nd–9th Moharram lunch + dinner (Jun 16–23)**, **Ashura / 10th Moharram
+  (Jun 24, dinner thaal)**. Both meal titles on a date match `niyaz_event_config.rsvp_event_title`.
+  (Titles realigned from the earlier hijri night-shift labelling in
+  `20260617120000_niyaz_gregorian_day_titles`, which also dropped the spurious Jun 15 lunch.)
 - **`niyaz_rsvp`** (`20260608131000_*`): one row per `(registration_instance_id, mumin_id)` with
   `attending boolean`, `family_id`, and `source` (`default`|`registration`|`whatsapp`|`admin`). RLS
-  on, service-role access only. `rsvp_responses` is retired (left empty) for the meal flow.
+  on, service-role access only. (The legacy `rsvp_responses` table was dropped in
+  `20260614120000_drop_rsvp_responses` — it had been left empty after `niyaz_rsvp` replaced it.)
 - **Default rule** (America/Chicago calendar date): `not_attending` ⇒ No; no `arrival_at` ⇒ Yes
   (present all of Ashara, e.g. locals); else Yes when `event_date ≥ arrival date`. Seeded by the
   backfill (`20260609140000_*`, all registered active mumineen × the 20 events) and by the
@@ -54,23 +56,51 @@ were wrongly treated as "unregistered" when messaging the bot. A one-time backfi
 roster member with a usable number, and the runtime fallback covers any future gap.
 
 Code: `src/lib/rsvp/family.ts` (phone → roster family), `src/lib/rsvp/meal-rsvp.ts`
-(`getFamilyNiyazGrid` — per event, family attending split into **adults/kids** via
-`mumineen.is_adult` (null = adult) so the agent reads back "2 adults, 2 kids" not "4 adults";
+(`getFamilyNiyazGrid` — per **meal-event** family attending count plus an adults/kids split via
+`mumineen.is_adult` (null = adult); still used for the partial-attendance allocation and as the input
+to the per-day view. `getFamilyNiyazDays` — the **per-DAY** view the bot reads back: groups the grid by
+Gregorian `event_date` into one row per day, each carrying a single `attending` count for `lunch` and
+for `dinner` (or null when that meal isn't served), plus a day `title`. `groupEventsByDay` is the pure,
+testable grouping helper; the day `title` comes from `niyaz_event_config.rsvp_event_title` (via
+`getEventConfigTitles` in `event-config.ts`) so it matches the admin **Niyaz days** view (fallback: config
+title → lunch instance title → dinner instance title → date); since the Gregorian-day retitling
+(`20260617120000_*`) the per-meal instance titles also agree with the config, so the fallback is now
+mainly defensive;
 `getFamilyMembers` — roster-active member list with name/isAdult/isHead/notAttending for the agent
 to list when the user's count exceeds the family size;
 `setFamilyNiyazRsvp` whole-family cascade, `getEventTallies(mode)`,
 `recordUnregisteredRsvp`, `getUnregisteredRsvps`, `recordUnregisteredHeadCount`,
 `mergeUnregisteredRsvps`, `getMealAttendanceTotals`). API: `GET/POST /api/rsvp/meals` (self-scoped via `x-whatsapp-from`,
-Zod-validated; POST entries are `{attending, titles?, dates?, meal?, all?}` with optional `adults`, `kids`,
-`its_number`. **Event targeting:** the agent selects named jaman by `titles` (exact title copied from
-the grid, e.g. "Pehli Raat") + `meal` rather than translating a name into a date — `decideEvents`
-resolves title→date server-side, eliminating hijri night-shift date-guessing (a dinner's date isn't
-the Gregorian day you'd guess; a shared title like "2nd Moharram ul Haram" is disambiguated by meal).
-`dates` is reserved for explicit calendar dates. For registered families, `adults`/`kids` enable **partial attendance**: only that many
-members are marked attending (head of family kept first, then other adults, then kids), and the rest
-are marked not-attending for those events; for unregistered callers they record the head count.
+Zod-validated; returns a today→Ashura `days` array `[{date, dateLabel, title, lunch, dinner}]` (lunch/dinner
+each `{attending,total}` or null); POST entries are `{attending, titles?, dates?, meal?, all?}` with optional `adults`, `kids`,
+`its_number`. **Event targeting:** because the summary is day-based, the agent now targets a change by the
+day row's `date` + `meal` — copying the server-provided `date` **verbatim** (never computing it). Since
+`(event_date, meal)` is unique, this hits exactly one jaman, so the displayed day title is presentation-only
+and never a write selector — eliminating any hijri night-shift mis-target. `titles`+`meal` remains accepted
+server-side as a legacy fallback (`decideEvents` resolves title→date). **Global-cascade guard:** `decideEvents`
+applies an entry globally **only** when `all:true` is set explicitly; an entry with no `dates`/`titles` and no
+`all:true` (a bare `{attending}` or `meal`-only entry) matches **nothing** and is skipped — so a mis-scoped
+single-day change can never silently overwrite the whole Ashara. A genuine "every day" change must pass `all:true`.
+All internal callers (`scopeToEntries`, `recordFamilyHeadCount`, `recordNiyazDayRsvp`) already pass explicit
+`dates`, so only the agent path is affected. **Per-day RSVP cutoff:** every write
+funnels through `applyNiyazRsvp` / `recordUnregisteredRsvp`, which drop any decision whose **day** has a passed
+`niyaz_event_config.rsvp_end_at` (`getClosedEventDates` + the pure `partitionDecisionsByCutoff`) — so once a day
+closes, its count is locked and can't be changed in either direction. The cutoff applies to **every source**
+— no bypass, including an admin acting as their own registrant. Blocked days are returned as a `blocked`
+array (`{date, title, endAt}`, plus `endLabel` from the API) so the agent tells the user RSVP for that day has
+closed. The **GET** also tags each day with `closed`/`closedAt`/`closedLabel` so the agent can mark closed days
+and not offer to change them on read-back. This mirrors the Flow/button cutoff guard in `niyaz-interactive.ts`
+(which gates upstream by `day_id`). For registered families, **partial attendance** marks only some
+members attending (head of family kept first, then other adults, then kids), the rest not-attending:
+a **bare head count** uses `total` (e.g. "change to 5" → 5 attending, filled head→adults→kids), while
+an **explicit split** uses `adults`/`kids`. `total` is what the agent should send for a plain count —
+sending it as `adults` wrongly reads "5" as "5 adults" and can hit the family's adult cap. All counts
+are capped at the registered family size; for unregistered callers they record the head count.
 Changes go to `unregistered_rsvps` for unlinked phones). Agent tools: `get_family_meal_rsvps`, `set_family_meal_rsvps`
-(public; the agent mainly records *changes* — guidance in `MEAL_RSVP_FEEDBACK_RULE`). That rule
+(public; the agent mainly records *changes* — guidance in `MEAL_RSVP_FEEDBACK_RULE`). **Read-back is
+day-scoped, not the full plan:** when the caller names a day/meal the agent answers only that day's line; with
+no day named it shows only the next upcoming day and asks which day they meant; the full multi-day list is shown
+only on explicit request ("all my days"), and after a change only the changed day(s) are read back. That rule
 also routes intent: "register / sign up for Pehli Raat / a Moharram day / Ashura / a jaman" is a
 **meal RSVP**, not in-person event registration — the agent must not answer it from the registration
 FAQ, and must never tell an already-registered caller (Sender Context: `Registration: submitted`) to
@@ -78,15 +108,60 @@ come to the masjid to register again. Admin:
 `/admin/niyaz` shows the events sorted by date with **Max/Min tabs** (max = arrival-date defaults,
 min = confirmed only — an inline legend on the page spells out each definition + the thaal formula),
 registered + unregistered count columns, backed by
-`GET /api/admin/niyaz/instances?mode=max|min` (reads the tallies view / function). Clicking an event
-opens the **per-mumin responses** view: searchable by name / ITS / phone, with columns for Name,
-RSVP, **Source** (a labelled badge — `default`=Seeded from arrival, `registration`, `whatsapp`,
-`admin` — so staff can tell a real confirmation from a seeded default) and **Responded by** (the
-WhatsApp phone or admin that set it). ITS is searchable but no longer shown as its own column. Below
-the registered rows, an **Unregistered guests** table lists `unregistered_rsvps` for that event
-(phone, RSVP, adults, kids, ITS) so a guest who RSVP'd before registering is still visible. Both
-tables come from `GET /api/admin/niyaz/instances/{id}/responses` (which now returns `responses` +
-`unregistered`).
+`GET /api/admin/niyaz/instances?mode=max|min` (reads the tallies view / function). Each meal row
+(and the event-detail headline cards) also shows two **manually-entered** operational thaal numbers
+alongside the computed Thaals estimate (`ceil(yes/8)`): **Thaal wardi count** (thaals *ordered*) and
+**Actual count** (thaals *actually served*). They live on `rsvp_registration_instance`
+(`thaal_wardi_count` / `actual_count`, nullable, per meal), are edited in the **Edit event** modal
+(`POST`/`PATCH /api/admin/niyaz/instances[/{id}]`, normalized via `nonNegInt`), and are never derived
+from RSVPs. Clicking an event opens the **responses** section, which has two tabbed views (toggle in
+the section header):
+
+- **By Individual** (`GET /api/admin/niyaz/instances/{id}/individuals`, lazy-loaded): one row per
+  **eligible-to-RSVP member** — the per-person parallel of By Family. Comes from the
+  `niyaz_event_individual_grid` DB aggregate, whose eligible population is **identical to
+  `niyaz_event_breakdown`** (roster-active, attending, active family, local OR submitted-mehman),
+  left-joined to `niyaz_rsvp` so members who never replied still appear as **No response**. (The
+  earlier version listed only `niyaz_rsvp` rows, so non-responders — who have no row — were invisible:
+  "No response" returned ~4 instead of the real count. The "No response" count now ties out exactly to
+  the Breakdown panel's "Not responded" total.) Columns: Name, **RSVP** (Yes / No / No response,
+  derived from `responded`+`attending`), **Source** (a labelled badge — `default`=Seeded from arrival,
+  `registration`, `whatsapp`, `admin` — `—` when the member has no row) and **Responded by** (the
+  WhatsApp phone or admin that set it). Searchable by name / ITS / HOF-ITS / phone, with
+  **Type / Age / RSVP** chip filters (RSVP includes **No response**). An **Export CSV** button
+  downloads the *currently filtered* rows (Name, ITS, Local/Mehman, WhatsApp number — resolved like
+  `sender-profile.ts`: own `whatsapp_e164` else primary `mumin_phone_links`) so staff can filter to
+  "No response" and export the exact follow-up list. Below it, an **Unregistered guests** table lists
+  `unregistered_rsvps` (phone, RSVP, adults, kids, ITS). **Paged server-side** (`fetchAllRows`, stable
+  order by `mumin_id`) so search/filters cover the whole event past the 1000-row cap.
+- **By Family** (`GET /api/admin/niyaz/instances/{id}/families`, lazy-loaded): one row per roster-active
+  family — HOF name (+ITS), **RSVP** (Yes = attending · No = replied not attending · No response = no
+  reply yet; derived in the page from `responded`+`attending`+`guests`), Attending count, Guests, and when / by whom. Comes from
+  the `niyaz_event_family_grid` DB aggregate (responded = any whatsapp/admin row; attending = real
+  members; guests = sentinel-ITS placeholders; when/by from the latest confirmed row — derived from
+  niyaz_rsvp, since `niyaz_family_headcount` is often empty). **Paged server-side** (`fetchAllRows`) so
+  all ~1k families are returned past the 1000-row cap. Searchable by HOF name / ITS with a Responded
+  filter. The default tab is By Family.
+
+At the **bottom** of the event-detail page, an **"Attending {meal}, not {other meal}"** card lists
+the mumineen who said **yes to this meal but no to the day's other meal** (lunch page →
+yes-lunch/no-dinner; dinner page → yes-dinner/no-lunch) — useful for per-meal kitchen planning. It
+shows the count (+ adults/kids), the member list (Name · ITS · Type · WhatsApp, windowed via
+`ShowMore`), and an **Export CSV** (same Name/ITS/Local-Mehman/WhatsApp columns as By Individual).
+Backed by the `niyaz_event_cross_meal(p_instance_id, p_confirmed_only)` RPC (self-join of `niyaz_rsvp`
+across the day's two meal instances, found by `(event_date, meal)`), returned as `crossMeal` on the
+`/responses` payload. It respects the **Min/Max** view (`p_confirmed_only = mode === "min"`, the same
+whatsapp/admin-confirmed rule as `niyaz_event_tallies_min`) and is **`null` / hidden** when the day
+has no sibling meal (e.g. dinner-only days).
+
+Between the Breakdown table and the responses section the page renders a **Responses over time** card
+(twin daily/cumulative bar charts) showing when RSVPs arrived. It's computed client-side from the
+already-loaded `responses` (counted on `updated_at`, excluding `source: "default"` seed rows) plus all
+`unregistered` rows (counted on `created_at`) via the pure `buildDailyTimeline()` helper
+(`src/lib/charts/timeline.ts`), and drawn with the shared `VBars` component
+(`src/components/admin/charts/VBars.tsx`, also used by the Registration analytics "Registrations Over
+Time" panel). No API change — it's a presentation-only transform of data the `/responses` endpoint
+already returns, and it's mode-independent (it counts when a response arrived, not head counts).
 
 ### 1a. Daily button RSVP (individual + family)
 
@@ -94,7 +169,11 @@ RSVP is collected day-by-day via WhatsApp templates with **quick-reply buttons**
 only / Dinner only / Not attending). An admin opens an event on `/admin/niyaz` and **sends** the
 template from a composer: pick an **audience** (Specific ITS (test) / All mumineen / All HOF / All
 adults), an optional **"only those who haven't responded"** filter, a **level** (Individual = records
-the responder; Family = records the whole family), and an approved **template**. The send goes through
+the responder; Family = records the whole family), and an approved **template**. For **All Adults**
+and **All HOF** (and their "not responded" variants), the registration filter is conditional on
+local-vs-mehman: **local** members are included regardless of their family's registration status,
+while **mehman** members are included only when their family registration is `submitted` (both must
+be attending). All mumineen and the manual "All adults with HOF ITS" audience are unaffected. The send goes through
 the broadcast queue (`POST /api/admin/niyaz/instances/[id]/broadcast` →
 `resolveNiyazAudience` + `buildNiyazSend` → `createBroadcast` with explicit `recipients` +
 `quickReplyButtons`); a `GET` on the same route previews the recipient count.
@@ -115,11 +194,140 @@ The composer also supports a **head-count** mode (free-text family RSVP): pick "
 response type and a button-less template (variables `person_name`, `registration_message`,
 `family_members`, `example_response`). The send writes a **`niyaz_rsvp_prompts`** row per recipient
 (phone → family + date) instead of button payloads. When the family **replies with a number**, the
-webhook (`handleNiyazHeadCount`) matches the latest open prompt for that phone, records the count in
-**`niyaz_family_headcount`** (per event/family, applied to that day's events) via `recordFamilyHeadCount`,
-consumes the prompt, and confirms. The event-detail panel shows these family head counts
-(`getFamilyHeadCounts`) alongside the per-mumin button responses. (`niyaz_rsvp_prompts` +
-`niyaz_family_headcount`: `supabase/migrations/20260609120000_*`.)
+webhook (`handleNiyazHeadCount`) matches the latest open prompt for that phone and calls
+`recordFamilyHeadCount`, consumes the prompt, and confirms.
+
+`recordFamilyHeadCount` **materializes the number into `niyaz_rsvp`** — the single source of truth —
+by allocating that many attending members across the family (head → adults → kids, clamped to roster
+size; the clamp is surfaced in the reply so extras are nudged to register). It also upserts the raw
+number into **`niyaz_family_headcount`** purely as an audit record of what the family literally said;
+that table is display-only (`getFamilyHeadCounts`) and is **never summed into the event tallies** —
+the attendance it represents is already counted in `niyaz_rsvp`, so adding it would double-count.
+(`niyaz_rsvp_prompts` + `niyaz_family_headcount`: `supabase/migrations/20260609120000_*`.)
+
+### 1b. Double-RSVP via WhatsApp Flow (`ashara_relay_double_rsvp`)
+
+**Niyaz days vs Niyaz events.** The admin UI separates configuration from responses:
+- **Niyaz days** (`/admin/niyaz/days`) — the day-level config in `niyaz_event_config` (keyed by
+  `event_date`), **prefilled 1st–10th Moharram** (`20260615190000_seed_niyaz_days`): `rsvp_event_title`,
+  `lunch_menu`, `dinner_menu`, `rsvp_end_time`, `has_lunch`/`has_dinner` checkboxes, `template_code`.
+  This is where each day is configured **and the RSVP is sent** (`EventRsvpComposer`). Listed via
+  `GET /api/admin/niyaz/days`; edited via `GET/PUT /api/admin/niyaz/days/[date]`
+  (`src/lib/rsvp/event-config.ts`). The page maps each day to a **representative registration
+  instance** for that date to drive the broadcast.
+- **Niyaz overview** (`/admin/niyaz`) — a **days overview**: the per-meal `rsvp_registration_instance`
+  rows (still the RSVP/tally source of truth) grouped by `event_date` client-side
+  (`groupTalliesByDay`, `src/lib/rsvp/niyaz-day-grouping.ts`) over `GET /api/admin/niyaz/instances`.
+  Each day row has a **Send RSVP →** button that routes to `/admin/niyaz/days?date=<date>` (the
+  composer, preselected), and expands to its jaman (lunch/dinner) showing the **Yes count** and
+  **Thaals** (⌈yes ÷ 8⌉) plus an **Edit** button. Edit/New open a modal (`src/components/admin/niyaz/EventFormModal.tsx`, reusing
+  `POST`/`PATCH /api/admin/niyaz/instances`). Clicking a jaman opens the **event detail page**
+  (`/admin/niyaz/events/[id]?mode=`) showing **Yes count, No count (each with an adults/kids breakdown), Thaals (⌈yes ÷ 8⌉), and the response list** via
+  `GET /api/admin/niyaz/instances/[id]/responses?mode=`. The Yes/No headline comes from the mode-aware
+  DB aggregate (`getEventTallies`) returned as `tally`, **not** by counting the fetched rows — so it
+  matches the overview and is correct past the 1000-row PostgREST `db-max-rows` cap. That cap is real
+  and not overridable by `.range()`, so the `responses` (and `unregistered`) lists are **paged
+  server-side** (`fetchAllRows`) to return the whole event — earlier they were capped at the most-recent
+  1000, which made search/filters silently miss anyone outside that window. A **Breakdown** table reports the
+  **eligible-to-RSVP population** (columns: Eligible · Yes · No · Responded · Not responded · Response
+  rate); it comes from the `niyaz_event_breakdown(id)` DB aggregate (RPC, current def in
+  `20260617250000_*`) — **not** counted from the capped row list. Rows are **Local / Mehmaan / Total**
+  (eligible members) plus a separate **Guests** row. *Eligible* = the same rule as the all_adults/all_hof
+  audience: roster-active + attending members, all Locals + Mehmaan whose family registration is
+  `submitted`. *Yes/No* are confirmation-based (`source IN ('whatsapp','admin')`); *Responded* = Yes+No;
+  *Not responded* is the **complement** within the eligible set (so it includes `default`/`roster`/
+  `registration` and members with no row — a literal `source='default'` would miss the large `roster`
+  bucket); *Response rate* = Responded ÷ Eligible. **Guests** are sentinel-ITS placeholders
+  (`its like '00000%'`, `full_name='Guest'`) that RSVP'd yes — shown yes-only, kept out of the member
+  Total (they still count in the headline & Thaals). The Breakdown is **mode-independent** and
+  **intentionally differs from the headline** (different population, confirmation-only).
+  `assembleBreakdown` (`src/lib/rsvp/niyaz-breakdown.ts`) rolls Local+Mehmaan into Total;
+  `unregistered_rsvps` are a separate table and excluded. The response list
+  also has **Type / Age / RSVP / Response** chip filters. The detail page inherits the overview's
+  Max/Min via the `?mode=` link. (`GET/PUT /api/admin/niyaz/instances/[id]/config`
+  still exists as an instance-keyed alias.)
+
+The composer sends `ashara_relay_double_rsvp` (a **Flow** button "Attending" + a "Not attending"
+quick-reply) from the niyaz RSVP number (the broadcast WhatsApp account that owns the template).
+Body variables auto-bind to the event-config values (`rsvp_event_title` / `lunch_menu` /
+`dinner_menu` / `rsvp_end_time`), person fields, or `family_members`. The **button payloads are
+specified in the composer** and resolved **per recipient** at send time via `resolveBindings` —
+`{{Person.Id}}` → mumin id, `{{RegistrationInstanceId}}` → this instance, `{{EligibleFamilyCount}}` →
+the family's roster-active, not-attending=false count. `buildSendComponents` emits the Flow button as
+`{ sub_type: "flow", parameters: [{ type: "action", action: { flow_token, flow_action_data } }] }`.
+
+**Audiences** (the composer): *All HOF* (one reachable number per family, `roster_active` +
+`not_attending=false`, `require_registered=false`) and *All HOF — not yet responded* (the same, minus
+families with a `whatsapp`/`admin` `niyaz_rsvp` row for this event). Both have a **preview** (count +
+a sample list of name / ITS / masked phone), an **Export CSV** button — `GET …/broadcast?…&format=csv`
+streams the *full* resolved audience (Name, ITS, HOF ITS, Jamaat, City, Gender, Local/Mehman, unmasked
+WhatsApp; the preview sample is capped at 100, this is every recipient), gated to admin/leadership
+since it carries full numbers — and there's a **single-ITS test send**.
+
+**Upload CSV** audience: re-upload a CSV in the *exact export format* (a `WhatsApp` column is required;
+Name/ITS/HOF ITS/etc. optional) to broadcast to a hand-trimmed list — e.g. export *All Adults*, delete
+rows in a sheet, re-upload. Parsed client-side for the preview (count + sample) and re-parsed server-side
+at send (`resolveNiyazCsvRecipients` → `parseAudienceCsv`). Each row is matched back to the roster by its
+WhatsApp number so recipients carry the same computed fields a resolved audience would (`family_id`,
+`mumin_id`, `hof_its`, `eligible_family_count`) and the per-recipient RSVP buttons still personalize; rows
+with no roster match are still sent (CSV fields + `eligible_family_count` 1). CSV upload is **POST-only**
+(the file is in the body, not a query param), so it has no GET preview/export — preview is client-side,
+and there's no Export button for it. Deduped by number; every recipient is enqueued + delivery-tracked
+like any other broadcast.
+
+The flow_token / not-attending payloads use the `rsvp:<hof_its>:<day_id>` shape (`day_id` =
+`niyaz_event_config.day_id`, a stable numeric per-day id; the Flow's `registration_instance_id` is
+this day_id, not a per-meal instance UUID). flow_action_data carries `hof_its`,
+`registration_instance_id` (day_id), and `lunch_attending_count` / `dinner_attending_count`.
+
+**RSVP cutoff:** each day has an `rsvp_end_at` timestamp (set via a datetime field in the composer; the
+`{{rsvp_end_time}}` variable renders it in Chicago time). An interactive response arriving **after**
+`rsvp_end_at` is **not recorded** — `recordNiyazRsvpFromInteractive` returns `ended` and the webhook
+replies "registration has ended". No cutoff set ⇒ always open.
+
+**Inbound (phase 2 — recorded):** Flow completions (`nfm_reply`) and `rsvp:…:not-attending` taps are
+captured raw into `whatsapp_interactive_responses` AND decoded into `niyaz_rsvp`
+(`recordNiyazRsvpFromInteractive` → `recordNiyazDayRsvp`): resolve family by `hof_its`, day by
+`day_id`, then write per meal — `min(count, roster)` members attending (head→adults→kids), and any
+**overflow** beyond the roster as **guest** mumineen rows (`roster_active=false`, sentinel ITS
+`00000-…`, `full_name='Guest'`) that still count in the tallies. Re-submissions reconcile (idempotent;
+guests walk down on a lower count). **`hof_its` + `day_id` are read from the `flow_token`
+(`rsvp:<hof>:<day_id>`) first** — always present and under our control — falling back to the Flow
+body, so decoding survives a Flow that omits `registration_instance_id`. See
+[whatsapp-webhook.md](./whatsapp-webhook.md).
+
+**Single-meal days (`ashara_relay_single_rsvp`):** a dinner-only (or lunch-only) day uses a Flow that
+returns a single **`attending_count`** instead of separate lunch/dinner counts. The webhook detects
+`attending_count` and maps it onto whichever meal the day serves (`config.hasLunch`/`hasDinner` — e.g.
+Ashura dinner-only → `dinner = attending_count`, `lunch = 0`); "Not attending" records 0. Both still
+send the confirmation template, exactly like the double flow. The composer
+(`EventRsvpComposer.tsx`) defaults a single-meal day's RSVP buttons to a Flow whose `flow_action_data`
+prefills `attending_count: {{EligibleFamilyCount}}` (plus a not-attending quick-reply).
+
+**Confirmation template (sent after a response):** each niyaz day also configures a **second**
+template — the RSVP confirmation (`ashara_relay_double_rsvp_confirmation`, body vars `{{mumin_name}}`
++ `{{rsvp_status}}`) — with its own variable bindings + button payloads, persisted on
+`niyaz_event_config` (`confirmation_template_code` / `confirmation_variable_bindings` /
+`confirmation_buttons`). After phase 2 records a response, `sendNiyazConfirmation`
+(`src/lib/rsvp/niyaz-interactive.ts`) sends it back to the responder via the single-recipient pipeline:
+`mumin_name` ← family head name, `rsvp_status` ← `getNiyazRsvpStatus` (recomputed `Lunch n, Dinner n`
+from `niyaz_rsvp`, guests included), and the change-button reopens the RSVP Flow pre-filled with the
+current lunch/dinner counts. Fires for both attending and not-attending responses; best-effort (never
+blocks the record). Both templates are configured per day in the composer's two
+`TemplateBindingEditor` sections; Send saves config first so the confirmation is ready.
+
+> **Confirmation buttons must match the confirmation Flow.** A confirmation Flow button's
+> `flow_action_data` keys have to be exactly the fields the confirmation template's Flow declares —
+> an **extra/unknown key makes Meta reject the whole confirmation send** (this is what silently broke
+> the single-meal Ashura day: its confirmation buttons carried a stray `attending_count` that the
+> double confirmation Flow doesn't accept). For a single-meal day reusing the double confirmation,
+> keep the double shape (`hof_its` + `lunch_attending_count` + `dinner_attending_count` +
+> `registration_instance_id`). `sendNiyazConfirmation` now **logs a PII-free error** when the send is
+> rejected or skipped (it previously swallowed it via `sendTemplateNotification`'s `failed` result).
+
+**Niyaz inbox:** conversations on the niyaz number are attributed via
+`conversation_sessions.phone_number_id` (and `messages.phone_number_id`) and kept **out of the main
+inbox**; view them via the **Niyaz inbox** button on `/admin/niyaz` (→ `/admin/conversations?scope=niyaz`).
 
 ## 2. Feedback
 
@@ -136,7 +344,7 @@ uses the same classifier to route issues to the right department when the agent 
 so they don't sit untriaged. (`POST /api/feedback` + `recordFeedback` remain as a programmatic
 insert path for future admin/manual entry, but are no longer wired to the agent.)
 
-## 3. Nightly department digest (03:00 UTC (10pm Chicago, CDT))
+## 3. Department digest (manual trigger; nightly cron currently paused)
 
 Before aggregating, the cron **mines the last 24h of raw conversations** for feedback
 (`src/lib/digest/mine-conversations.ts`) — the single source of digest feedback. This is **batched** —
@@ -164,7 +372,9 @@ in `department_daily_summaries` (`ai_briefing` = long, `ai_briefing_short` = sho
   `{{2}}` short summary) — `DEPARTMENT_SUMMARY_WA_TEMPLATE`. Gated by `DIGEST_WHATSAPP_ENABLED=true`
   (default off) to control Meta template quota. When enabled, a summary `template_broadcasts` row
   (`audience_key = 'department_digest'`) is logged for visibility on the `/admin/whatsapp-templates`
-  broadcasts page.
+  broadcasts page. For the **All Departments** send, `{{2}}` is now a richer multi-line payload:
+  headline + a few per-department lines (only departments with issues/open tickets/escalations),
+  plus untriaged issue count when present.
 - **Email** via the Postmark `daily-department-summary` template (`department_name`, `feedback_html`
   bullet list, `feedback_text`) — `POSTMARK_DEPARTMENT_SUMMARY_TEMPLATE`.
 
@@ -178,7 +388,7 @@ Recipients opt out via `department_members.daily_feedback_digest` (default **ON*
 departments gets N messages. The **all-up** summary (one per day, `department_id` null) goes to
 admin/leadership plus **Project Management** and **Leadership** department members.
 
-Cron: `/api/cron/department-digest` (03:00 UTC (10pm Chicago, CDT), `?date=` override). Portal: `/admin/department-digest`
+Cron endpoint: `/api/cron/department-digest` (`?date=` override), currently **not scheduled** in `vercel.json`. Portal: `/admin/department-digest`
 + `GET /api/admin/department-digest`, **access-scoped**: a department member sees only their own
 departments' summaries; admin/leadership and Project Management / Leadership members see every
 department plus the all-up. Summaries are stored per day for historical reference. The dashboard
@@ -189,6 +399,25 @@ renders open ticket counts and titles in each department card.
 `/admin/whatsapp-templates` (External nav, **admin/leadership only**, server-gated by
 `requireAdminLeadership`). Pick an approved template, pick an audience, preview free/paid counts +
 cost, send. No auto-scheduling — every send is a button press.
+
+**Choosing the sending number ("Send from").** When more than one WhatsApp account is configured
+(e.g. an **AI Bot** number + an **Anjuman e Saifee** broadcast number — see
+[environment.md](./environment.md#multiple-whatsapp-numbers-accounts)), a top-level **Send from**
+picker appears. It's sourced from `GET /api/admin/whatsapp/accounts` (labels only, no secrets), and
+choosing a number both **filters the template list** to that account's templates (a template can only
+be sent from the WABA that owns it) and **sets the number for free-text sends**. The selection is
+threaded to `POST /send` (and the single-recipient `POST /api/admin/whatsapp/send`) as
+`phone_number_id`; `createBroadcast` records it on the `template_broadcasts.phone_number_id` column and
+the drain sends through that account. Single-account deployments never see the picker (behavior
+unchanged), but the only account is still used as the implicit sending number.
+
+**Free-text broadcasts.** Both the Broadcast and Single-recipient views have a **Template / Free text**
+toggle. Free text sends a plain WhatsApp message with no template (`message_kind=text`, `text` body on
+`POST /send`). Because Meta only delivers free-form messages **inside the recipient's 24h
+conversation window** (it rejects out-of-window free text with error 131047), a free-text broadcast is
+**locked to the in-window audience**: the UI disables the Conversation-window dropdown (forcing
+`in_window`) and `createBroadcast` re-forces it server-side as a guardrail. These sends are free
+(`est_cost_usd = 0`), carry no `body_params`, and surface as "Free text" in the broadcast log.
 
 **Why the page is shaped this way:** Meta caps us at ~250 template messages/day, so the console
 helps staff spend that quota deliberately. People who **messaged us in the last 24h** sit inside the
@@ -264,7 +493,20 @@ and Single-recipient dropdowns** (the popup still lists them so they can be reac
   (paid) using `conversation_sessions.last_message_at`; cost via `WHATSAPP_UTILITY_MSG_COST_USD`.
   The `custom` filter fields (`FIELD_CATALOG` in `audience-filter.ts`) include person/family columns
   such as Jamaat, City, Gender, Age, Is-head-of-family, ITS, and **HOF ITS** (`hof_its` — target a
-  whole family by its head's ITS, e.g. `HOF ITS = 12345678`).
+  whole family by its head's ITS, e.g. `HOF ITS = 12345678`), plus three **behavioral** groups
+  attached per-phone in `loadRoster()` from aggregate views (keyed by `whatsapp_e164`):
+  - **Engagement** (from `phone_message_stats`): `hours_since_last_inbound` (≤ N — conversed recently),
+    `has_messaged_us` (= No — cold contacts), `no_reply_from_them` (we sent ≥1, zero inbound), and
+    `inbound_message_count` (≥ N). A never-messaged row uses a large `hours_since` sentinel so both
+    `≤ N` (excludes) and `> N` (includes) read correctly.
+  - **AI tool usage** (from `phone_tool_usage` over `tool_audit_logs`) and **Template history** (from
+    `phone_template_sends`, parsing the `[template:NAME]` outbound marker) are `set` fields: a recency
+    -windowed multiselect with the value `{ items, withinHours }`. `in` = did any of the selected
+    within the last N hours; `notIn` = did none within N hours (covers never-done **and**
+    done-before-the-window). Blank hours = ever/never. Tool options are the curated mumineen-facing
+    tools (`FILTERABLE_AGENT_TOOLS` in `src/lib/agent/tool-names.ts`); template options are codes that
+    have actually been sent. Rendered by the custom `RecentSetValueEditor` (multiselect + "within last
+    N hours") wired into the QueryBuilder via `controlElements.valueEditor`.
 - `csv_upload` (`src/lib/whatsapp/audience-csv.ts`): audience taken from an uploaded CSV in the **same
   format as the app's CSV downloads** (the audience export, or a broadcast's failures export). Columns
   matched by header (case-insensitive, order-free); a `WhatsApp` column is required; the roster columns
@@ -297,6 +539,12 @@ and Single-recipient dropdowns** (the popup still lists them so they can be reac
   hint for common codes, e.g. `131049` engagement/frequency cap, `131026` undeliverable) is stored in
   the recipient's `error_detail` — never any PII. Most large-broadcast failures are Meta *delivery*
   decisions reported async (not send-time rejections), so this is the only place the real reason exists.
+  A `failed` callback also keeps the broadcast's aggregate columns honest: on the **first** transition
+  of a recipient into `failed`, the webhook adjusts `template_broadcasts.count_failed +1` (and
+  `count_sent -1` when the row had been counted as sent) via the `adjust_broadcast_counters` RPC. Without
+  this the columns reflected send-time outcomes only, so the Broadcast-log header undercounted failures
+  (e.g. header `Failed 1` vs the live rollup's `Failed 65`). The first-transition guard makes it
+  idempotent against Meta's at-least-once webhook redelivery.
 - Failure visibility: send-time and delivery-status failures are surfaced per broadcast in the console —
   expand a Broadcast-log row for the status rollup + a grouped failure-reason breakdown
   (`failure_reasons` on `GET .../broadcasts/[id]`), with a per-recipient list / CSV from
@@ -305,11 +553,35 @@ and Single-recipient dropdowns** (the popup still lists them so they can be reac
   24h-window label is only a fallback for failures Meta reports with no error detail (`categorizeFailure`).
   The per-recipient Name/ITS are resolved via the shared `resolveRosterByPhone` (direct + the
   `mumin_phone_links` fallback), so they populate for any failed number that maps to a roster member.
+- Undeliverable-number suppression: when a `failed` callback carries Meta code `131026` (not on
+  WhatsApp / can't receive), the webhook records it in `whatsapp_undeliverable` via the
+  `record_whatsapp_undeliverable` RPC (`src/lib/whatsapp/undeliverable.ts`). After
+  `UNDELIVERABLE_FAIL_THRESHOLD` (2) such failures a number is marked `suppressed`, and the audience
+  layer (`suppressedPhones` in `previewExplicitRecipients` + the explicit-recipients path of
+  `createBroadcast`) drops it from **every** future broadcast — so a dead number isn't re-sent or
+  re-billed. Two failures (not one) is deliberate: a single 131026 can be transient, and we'd rather
+  send one wasted message than silently drop a real family. Admins manage the list from the Broadcast
+  log header (**Undeliverable numbers** modal): `GET /api/admin/whatsapp/undeliverable` lists
+  suppressed numbers with identity; `DELETE …?phone=` un-flags one (clears suppression, resets the
+  counter) for a mistyped/corrected number. Both admin/leadership only.
+- Audience transparency: the expanded Broadcast-log row also shows an **Audience & filters** block —
+  the audience label, the conversation-window toggle + hours, the saved rule tree rendered in plain
+  language (`formatQuery` natural-language; `set`-field compound values render approximately), and the
+  variable bindings. The toggles are persisted on `template_broadcasts` (`window_filter`,
+  `window_hours`, `selected_user_ids`; `audience_rules`/`variable_bindings` were already stored) by
+  `createBroadcast()`; older broadcasts predating the columns read as "not recorded". The **full
+  recipient list** (every status, not just failures) is available — loaded on demand (PII) and as a
+  CSV — from `GET .../broadcasts/[id]/recipients` (admin/leadership only), reusing the failures route's
+  roster resolution. Both the recipients and failures reads page server-side via `fetchAllRows`, so the
+  full set is returned even past PostgREST's 1000-row response cap (a bare query silently truncated the
+  CSV — e.g. 1000 of 1858 recipients).
 - API: `GET /api/admin/templates` (catalog + friendly-name/active annotations),
   `PUT /api/admin/templates/settings` (friendly name / active flag),
   `GET /api/admin/templates/segments` (reach-segment sizes),
   `POST /api/admin/templates/preview`, `POST .../send`,
-  `POST .../drain`, `GET .../broadcasts(/[id])`, `GET .../broadcasts/[id]/failures`.
+  `POST .../drain`, `GET .../broadcasts(/[id])`, `GET .../broadcasts/[id]/failures`,
+  `GET .../broadcasts/[id]/recipients` (full audience, JSON/CSV),
+  `GET /api/admin/whatsapp/undeliverable`, `DELETE /api/admin/whatsapp/undeliverable?phone=`.
 
 The console handles **no-variable** templates to audiences; the older single-recipient composer
 (`/admin/whatsapp`, free-text + variable templates) remains for those cases. Full consolidation is

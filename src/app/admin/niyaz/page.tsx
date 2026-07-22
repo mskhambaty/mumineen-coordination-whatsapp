@@ -1,18 +1,19 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { canAccessPortal } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
+import EventFormModal, { type EditableInstance } from "@/components/admin/niyaz/EventFormModal";
+import InfoIcon from "@/components/admin/niyaz/InfoIcon";
+import { groupTalliesByDay } from "@/lib/rsvp/niyaz-day-grouping";
 
 type Meal = "lunch" | "dinner";
 type ServingType = "thaal" | "packet";
-
-// One Niyaz event with its per-event attendance tallies (from the niyaz_event_tallies view) plus the
-// free-text family head-count total and the combined RSVP count.
 type TallyMode = "max" | "min";
 
+// One Niyaz event with its per-event attendance tallies (from the niyaz_event_tallies view).
 type NiyazEvent = {
   id: string;
   title: string;
@@ -21,6 +22,8 @@ type NiyazEvent = {
   meal: Meal | null;
   servingType: ServingType | null;
   description: string | null;
+  thaalWardiCount: number | null;
+  actualCount: number | null;
   yesAdults: number;
   yesKids: number;
   yesFamilies: number;
@@ -34,109 +37,46 @@ type NiyazEvent = {
   rsvpCount: number;
 };
 
-type RespRow = {
-  id: string;
-  attending: boolean;
-  source: string;
-  responded_by_phone: string | null;
-  recorded_by: string | null;
-  updated_at: string;
-  mumin: { full_name: string | null; its: string | null; is_adult: boolean | null } | null;
-  family: { hof_its: string | null } | null;
-};
-
-type UnregRow = {
-  id: string;
-  phone_e164: string;
-  attending: boolean;
-  adults: number;
-  kids: number;
-  its_number: string | null;
-  source: string;
-  created_at: string;
-};
-
-// How each niyaz_rsvp row got its value — lets staff tell a real confirmation from a seeded default.
-const SOURCE_META: Record<string, { label: string; cls: string }> = {
-  default: { label: "Seeded (arrival)", cls: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300" },
-  registration: { label: "Registration", cls: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" },
-  whatsapp: { label: "WhatsApp", cls: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300" },
-  admin: { label: "Admin", cls: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300" },
-};
-
-function sourceMeta(source: string) {
-  return SOURCE_META[source] ?? { label: source || "—", cls: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300" };
-}
-type Summary = {
-  responded: number;
-  yes_adults: number;
-  yes_kids: number;
-  yes_families: number;
-  no_adults: number;
-  no_kids: number;
-  no_families: number;
-  headcount_families: number;
-  headcount_total: number;
-};
-
-type InstanceForm = {
-  title: string;
-  event_date: string;
-  hijri_date: string;
-  meal: "" | Meal;
-  serving_type: "" | ServingType;
-  description: string;
-};
-
-type HeadCount = { id: string; head_count: number; responded_by_phone: string | null; updated_at: string; family: { hof_its: string | null } | null };
-
-const emptyInstanceForm: InstanceForm = { title: "", event_date: "", hijri_date: "", meal: "", serving_type: "", description: "" };
-
-const inputCls =
-  "block w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-950";
-
 function dayLabel(date: string): string {
   const d = new Date(`${date}T12:00:00`);
   if (Number.isNaN(d.getTime())) return date;
   return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
+function yesOf(e: NiyazEvent): number {
+  return e.yesAdults + e.yesKids;
+}
+
+function thaalsOf(yes: number): number {
+  return Math.ceil(yes / 8); // one thaal per 8 attending heads
+}
+
+function toEditable(e: NiyazEvent): EditableInstance {
+  return {
+    id: e.id,
+    title: e.title,
+    eventDate: e.eventDate,
+    hijriDate: e.hijriDate,
+    meal: e.meal,
+    servingType: e.servingType,
+    description: e.description,
+    thaalWardiCount: e.thaalWardiCount,
+    actualCount: e.actualCount,
+  };
+}
+
 export default function NiyazPage() {
   const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
 
-  const [mode, setMode] = useState<TallyMode>("max");
+  const [mode, setMode] = useState<TallyMode>("min");
   const [events, setEvents] = useState<NiyazEvent[]>([]);
-  const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<InstanceForm>(emptyInstanceForm);
-  const [saving, setSaving] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // Per-event detail (responses view; the Send RSVP composer is removed for now)
-  const [selected, setSelected] = useState<NiyazEvent | null>(null);
-  const [responses, setResponses] = useState<RespRow[]>([]);
-  const [unregResponses, setUnregResponses] = useState<UnregRow[]>([]);
-  const [headcounts, setHeadcounts] = useState<HeadCount[]>([]);
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [respSearch, setRespSearch] = useState("");
+  // Edit/create modal
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<EditableInstance | null>(null);
 
-  const q = respSearch.trim().toLowerCase();
-  const filteredResponses = q
-    ? responses.filter(
-        (r) =>
-          (r.mumin?.full_name ?? "").toLowerCase().includes(q) ||
-          (r.mumin?.its ?? "").toLowerCase().includes(q) ||
-          (r.family?.hof_its ?? "").toLowerCase().includes(q) ||
-          (r.responded_by_phone ?? "").toLowerCase().includes(q),
-      )
-    : responses;
-  const filteredUnreg = q
-    ? unregResponses.filter(
-        (u) =>
-          u.phone_e164.toLowerCase().includes(q) ||
-          (u.its_number ?? "").toLowerCase().includes(q),
-      )
-    : unregResponses;
+  const days = useMemo(() => groupTalliesByDay(events), [events]);
 
   useEffect(() => {
     const user = readAdminUser();
@@ -149,6 +89,7 @@ export default function NiyazPage() {
       return;
     }
     void loadEvents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   async function loadEvents(m: TallyMode = mode) {
@@ -161,136 +102,58 @@ export default function NiyazPage() {
     void loadEvents(m);
   }
 
-  const loadResponses = useCallback(async (instanceId: string) => {
-    const res = await apiFetch(`/api/admin/niyaz/instances/${instanceId}/responses`);
-    const data = await res.json().catch(() => ({}));
-    if (res.ok) {
-      setResponses((data.responses as RespRow[]) ?? []);
-      setUnregResponses((data.unregistered as UnregRow[]) ?? []);
-      setHeadcounts((data.headcounts as HeadCount[]) ?? []);
-      setSummary((data.summary as Summary) ?? null);
-    }
-  }, []);
-
-  function selectEvent(e: NiyazEvent) {
-    setSelected(e);
-    setRespSearch("");
-    void loadResponses(e.id);
+  function toggleDay(date: string) {
+    setExpanded((cur) => {
+      const next = new Set(cur);
+      if (next.has(date)) next.delete(date);
+      else next.add(date);
+      return next;
+    });
   }
 
   function openCreate() {
-    setEditingId(null);
-    setForm(emptyInstanceForm);
-    setShowForm(true);
+    setEditing(null);
+    setModalOpen(true);
   }
 
   function openEdit(e: NiyazEvent) {
-    setEditingId(e.id);
-    setForm({
-      title: e.title,
-      event_date: e.eventDate ?? "",
-      hijri_date: e.hijriDate ?? "",
-      meal: e.meal ?? "",
-      serving_type: e.servingType ?? "",
-      description: e.description ?? "",
-    });
-    setShowForm(true);
+    setEditing(toEditable(e));
+    setModalOpen(true);
   }
 
-  async function save() {
-    if (!form.title.trim()) {
-      setError("Title is required.");
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      const payload = {
-        title: form.title,
-        event_date: form.event_date || null,
-        hijri_date: form.hijri_date || null,
-        meal: form.meal || null,
-        serving_type: form.serving_type || null,
-        description: form.description,
-      };
-      const url = editingId ? `/api/admin/niyaz/instances/${editingId}` : "/api/admin/niyaz/instances";
-      const res = await apiFetch(url, { method: editingId ? "PATCH" : "POST", body: JSON.stringify(payload) });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Save failed");
-      setShowForm(false);
-      await loadEvents();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
-    } finally {
-      setSaving(false);
-    }
+  // Compact per-meal Yes hint for the collapsed day row (e.g. "Lunch 33 · Dinner 33").
+  function mealHint(dayEvents: NiyazEvent[]): string {
+    return dayEvents
+      .map((e) => `${e.meal ? e.meal[0].toUpperCase() + e.meal.slice(1) : "Meal"} ${yesOf(e)}`)
+      .join(" · ");
   }
-
-  const num = "px-2 py-1.5 text-right tabular-nums";
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mb-5 flex items-center justify-between">
+      <div className="mb-5 flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold">Niyaz Registration</h1>
+          <h1 className="text-xl font-bold">Niyaz Days</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Click an event to see its RSVP responses.
+            Expand a day to see its jaman and counts. Click a jaman for its RSVP responses; use Send RSVP to configure and broadcast.
           </p>
         </div>
-        <button type="button" onClick={openCreate} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
-          New event
-        </button>
-      </div>
-
-      {error && (
-        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{error}</div>
-      )}
-
-      {showForm && (
-        <div className="mb-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-          <h2 className="mb-3 text-lg font-semibold">{editingId ? "Edit event" : "New event"}</h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <label className="sm:col-span-2 text-xs uppercase tracking-wide text-gray-400">Title
-              <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className={inputCls} />
-            </label>
-            <label className="text-xs uppercase tracking-wide text-gray-400">Day
-              <input type="date" value={form.event_date} onChange={(e) => setForm({ ...form, event_date: e.target.value })} className={inputCls} />
-            </label>
-            <label className="text-xs uppercase tracking-wide text-gray-400">Hijri date
-              <input value={form.hijri_date} onChange={(e) => setForm({ ...form, hijri_date: e.target.value })} className={inputCls} placeholder="2 Muharram al-Haram 1448H" />
-            </label>
-            <label className="text-xs uppercase tracking-wide text-gray-400">Meal
-              <select value={form.meal} onChange={(e) => setForm({ ...form, meal: e.target.value as InstanceForm["meal"] })} className={inputCls}>
-                <option value="">—</option>
-                <option value="lunch">Lunch</option>
-                <option value="dinner">Dinner</option>
-              </select>
-            </label>
-            <label className="text-xs uppercase tracking-wide text-gray-400">Serving type
-              <select value={form.serving_type} onChange={(e) => setForm({ ...form, serving_type: e.target.value as InstanceForm["serving_type"] })} className={inputCls}>
-                <option value="">—</option>
-                <option value="thaal">Thaal</option>
-                <option value="packet">Packet</option>
-              </select>
-            </label>
-            <label className="sm:col-span-2 text-xs uppercase tracking-wide text-gray-400">Description
-              <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} className={inputCls} />
-            </label>
-          </div>
-          <div className="mt-4 flex gap-2">
-            <button type="button" onClick={save} disabled={saving} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-700">
-              {saving ? "Saving…" : "Save"}
-            </button>
-            <button type="button" onClick={() => setShowForm(false)} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
-              Cancel
-            </button>
-          </div>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => router.push("/admin/conversations?scope=niyaz")}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+          >
+            Niyaz inbox →
+          </button>
+          <button type="button" onClick={openCreate} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+            New event
+          </button>
         </div>
-      )}
+      </div>
 
       <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Niyaz events</h2>
+          <h2 className="text-lg font-semibold">Days</h2>
           <div className="flex gap-1 rounded-md border border-gray-200 p-0.5 dark:border-gray-700">
             <button
               type="button"
@@ -324,192 +187,103 @@ export default function NiyazPage() {
               Viewing your RSVP via the bot counts as confirmation. Use this to see who has actively confirmed.
             </>
           )}{" "}
-          Thaals = ceil(attending heads ÷ 8). Unreg columns are guests not linked to a registered family.
+          Yes count = attending heads (adults + kids).
         </p>
-        {events.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">No Niyaz events yet.</p>
+
+        {days.length === 0 ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400">No Niyaz days yet.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="text-xs uppercase text-gray-400">
-                <tr>
-                  <th className="px-2 py-1.5">Event</th>
-                  <th className="px-2 py-1.5 text-right">Yes adults</th>
-                  <th className="px-2 py-1.5 text-right">Yes kids</th>
-                  <th className="px-2 py-1.5 text-right">Yes families</th>
-                  <th className="px-2 py-1.5 text-right" title="Unregistered adults">Unreg</th>
-                  <th className="px-2 py-1.5 text-right" title="Unregistered kids">Unreg kids</th>
-                  <th className="px-2 py-1.5 text-right">Thaals</th>
-                  <th className="px-2 py-1.5 text-right">No adults</th>
-                  <th className="px-2 py-1.5 text-right">No kids</th>
-                  <th className="px-2 py-1.5 text-right">No families</th>
-                  <th className="px-2 py-1.5"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {events.map((e) => (
-                  <tr
-                    key={e.id}
-                    onClick={() => selectEvent(e)}
-                    className={`cursor-pointer border-t border-gray-100 dark:border-gray-800 ${selected?.id === e.id ? "bg-blue-50 dark:bg-blue-950/30" : "hover:bg-gray-50 dark:hover:bg-gray-800"}`}
+          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+            {days.map((day) => {
+              const isOpen = expanded.has(day.date);
+              return (
+                <div key={day.date}>
+                  {/* Day row */}
+                  <div
+                    onClick={() => toggleDay(day.date)}
+                    className="flex cursor-pointer items-center gap-3 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800"
                   >
-                    <td className="px-2 py-1.5">
-                      <div className="font-medium">{e.title || dayLabel(e.eventDate)}</div>
+                    <span className="w-4 text-gray-400" aria-hidden>{isOpen ? "▾" : "▸"}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium">{day.title || dayLabel(day.date)}</div>
                       <div className="text-xs text-gray-500 dark:text-gray-400">
-                        {dayLabel(e.eventDate)}
-                        {e.meal ? ` · ${e.meal}` : ""}
-                        {e.servingType ? ` · ${e.servingType}` : ""}
+                        {dayLabel(day.date)} · {mealHint(day.events)}
                       </div>
-                    </td>
-                    <td className={num}>{e.yesAdults}</td>
-                    <td className={num}>{e.yesKids}</td>
-                    <td className={num}>{e.yesFamilies}</td>
-                    <td className={`${num} text-orange-600 dark:text-orange-400`}>{e.unregAdults || ""}</td>
-                    <td className={`${num} text-orange-600 dark:text-orange-400`}>{e.unregKids || ""}</td>
-                    <td className={`${num} font-semibold`}>{e.thaalCount}</td>
-                    <td className={`${num} text-gray-500`}>{e.noAdults}</td>
-                    <td className={`${num} text-gray-500`}>{e.noKids}</td>
-                    <td className={`${num} text-gray-500`}>{e.noFamilies}</td>
-                    <td className="px-2 py-1.5" onClick={(ev) => ev.stopPropagation()}>
-                      <button type="button" onClick={() => openEdit(e)} className="rounded border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
-                        Edit
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {selected && (
-        <div className="mt-6">
-          {/* Responses */}
-          <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-            <div className="mb-3 flex items-baseline justify-between gap-2">
-              <h2 className="text-lg font-semibold">Responses — {selected.title || dayLabel(selected.eventDate)}</h2>
-              {summary && (
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Yes {summary.yes_adults + summary.yes_kids} ({summary.yes_families} fam) · No {summary.no_adults + summary.no_kids} ({summary.no_families} fam)
-                  {summary.headcount_families ? ` · Head counts: ${summary.headcount_total} (${summary.headcount_families} fam)` : ""}
-                </p>
-              )}
-            </div>
-
-            {(responses.length > 0 || unregResponses.length > 0) && (
-              <div className="mb-3 flex items-center gap-2">
-                <input
-                  type="search"
-                  value={respSearch}
-                  onChange={(e) => setRespSearch(e.target.value)}
-                  placeholder="Search by name, ITS, or phone…"
-                  className={`${inputCls} max-w-xs`}
-                />
-                {q && (
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
-                    {filteredResponses.length + filteredUnreg.length} of {responses.length + unregResponses.length}
-                  </span>
-                )}
-              </div>
-            )}
-
-            {headcounts.length > 0 && (
-              <div className="mb-4 rounded-md border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-950">
-                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Family head counts</h3>
-                <div className="max-h-40 overflow-auto text-sm">
-                  {headcounts.map((h) => (
-                    <div key={h.id} className="flex justify-between border-t border-gray-100 py-1 dark:border-gray-800">
-                      <span className="font-mono text-xs">{h.family?.hof_its ?? "—"}</span>
-                      <span className="font-semibold">{h.head_count}</span>
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {responses.length === 0 && unregResponses.length === 0 ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">No responses yet.</p>
-            ) : (
-              <>
-                {filteredResponses.length === 0 && filteredUnreg.length === 0 && q ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">No responses match &quot;{respSearch}&quot;.</p>
-                ) : null}
-
-                {filteredResponses.length > 0 && (
-                  <div className="max-h-96 overflow-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead className="sticky top-0 bg-white text-xs uppercase text-gray-400 dark:bg-gray-900">
-                        <tr>
-                          <th className="px-2 py-1.5">Name</th>
-                          <th className="px-2 py-1.5">RSVP</th>
-                          <th className="px-2 py-1.5" title="How this RSVP was set">Source</th>
-                          <th className="px-2 py-1.5" title="Phone (WhatsApp) or admin who set it">Responded by</th>
-                          <th className="px-2 py-1.5">When</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredResponses.map((r) => {
-                          const meta = sourceMeta(r.source);
-                          return (
-                            <tr key={r.id} className="border-t border-gray-100 dark:border-gray-800">
-                              <td className="px-2 py-1.5">
-                                {r.mumin?.full_name ?? r.mumin?.its ?? "—"}
-                                {r.mumin?.is_adult === false ? <span className="ml-1 text-xs text-gray-400">(kid)</span> : null}
-                              </td>
-                              <td className="px-2 py-1.5">
-                                <span className={r.attending ? "text-green-600 dark:text-green-400" : "text-red-500"}>{r.attending ? "Yes" : "No"}</span>
-                              </td>
-                              <td className="px-2 py-1.5">
-                                <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${meta.cls}`}>{meta.label}</span>
-                              </td>
-                              <td className="px-2 py-1.5 font-mono text-xs text-gray-500">{r.responded_by_phone ?? r.recorded_by ?? "—"}</td>
-                              <td className="px-2 py-1.5 text-xs text-gray-500">{new Date(r.updated_at).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                    <button
+                      type="button"
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        router.push(`/admin/niyaz/days?date=${day.date}`);
+                      }}
+                      className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                    >
+                      Send RSVP →
+                    </button>
                   </div>
-                )}
 
-                {filteredUnreg.length > 0 && (
-                  <div className="mt-4">
-                    <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Unregistered guests ({filteredUnreg.length})</h3>
-                    <div className="max-h-60 overflow-auto">
+                  {/* Expanded jaman (per-meal events) */}
+                  {isOpen && (
+                    <div className="mb-2 ml-7 overflow-x-auto rounded-md border border-gray-100 dark:border-gray-800">
                       <table className="w-full text-left text-sm">
-                        <thead className="sticky top-0 bg-white text-xs uppercase text-gray-400 dark:bg-gray-900">
+                        <thead className="text-xs uppercase text-gray-400">
                           <tr>
-                            <th className="px-2 py-1.5">Phone</th>
-                            <th className="px-2 py-1.5">RSVP</th>
-                            <th className="px-2 py-1.5">Adults</th>
-                            <th className="px-2 py-1.5">Kids</th>
-                            <th className="px-2 py-1.5">ITS</th>
-                            <th className="px-2 py-1.5">When</th>
+                            <th className="px-3 py-1.5">Jaman</th>
+                            <th className="px-3 py-1.5 text-right">Yes count</th>
+                            <th className="px-3 py-1.5 text-right">
+                              <span className="inline-flex items-center gap-1">
+                                Thaals
+                                <InfoIcon label="Thaals = Yes count ÷ 8 (rounded up) — the estimate. Wardi/Actual are the manually-entered thaals ordered vs served." />
+                              </span>
+                            </th>
+                            <th className="px-3 py-1.5 text-right" title="Thaals ordered (manually entered)">Wardi</th>
+                            <th className="px-3 py-1.5 text-right" title="Thaals actually served (manually entered)">Actual</th>
+                            <th className="px-3 py-1.5"></th>
                           </tr>
                         </thead>
                         <tbody>
-                          {filteredUnreg.map((u) => (
-                            <tr key={u.id} className="border-t border-gray-100 dark:border-gray-800">
-                              <td className="px-2 py-1.5 font-mono text-xs">{u.phone_e164}</td>
-                              <td className="px-2 py-1.5">
-                                <span className={u.attending ? "text-green-600 dark:text-green-400" : "text-red-500"}>{u.attending ? "Yes" : "No"}</span>
+                          {day.events.map((e) => (
+                            <tr
+                              key={e.id}
+                              onClick={() => router.push(`/admin/niyaz/events/${e.id}?mode=${mode}`)}
+                              className="cursor-pointer border-t border-gray-100 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
+                            >
+                              <td className="px-3 py-1.5">
+                                <span className="font-medium capitalize">{e.meal ?? "—"}</span>
+                                {e.servingType ? <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">· {e.servingType}</span> : null}
                               </td>
-                              <td className="px-2 py-1.5 tabular-nums">{u.adults}</td>
-                              <td className="px-2 py-1.5 tabular-nums">{u.kids}</td>
-                              <td className="px-2 py-1.5 font-mono text-xs text-gray-500">{u.its_number ?? "—"}</td>
-                              <td className="px-2 py-1.5 text-xs text-gray-500">{new Date(u.created_at).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}</td>
+                              <td className="px-3 py-1.5 text-right font-semibold tabular-nums">{yesOf(e)}</td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-gray-600 dark:text-gray-300">{thaalsOf(yesOf(e))}</td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-gray-600 dark:text-gray-300">{e.thaalWardiCount ?? "—"}</td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-gray-600 dark:text-gray-300">{e.actualCount ?? "—"}</td>
+                              <td className="px-3 py-1.5 text-right" onClick={(ev) => ev.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  onClick={() => openEdit(e)}
+                                  className="rounded border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                                >
+                                  Edit
+                                </button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
-                  </div>
-                )}
-              </>
-            )}
+                  )}
+                </div>
+              );
+            })}
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      <EventFormModal
+        open={modalOpen}
+        instance={editing}
+        onClose={() => setModalOpen(false)}
+        onSaved={() => loadEvents()}
+      />
     </main>
   );
 }

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { canAccessInbox } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { logEscalationActivity } from "@/lib/escalation/activity";
+import { resolveAllLinksForIssue } from "@/lib/issues/link-status";
 import { sendWhatsAppText } from "@/lib/meta/whatsapp";
 import {
   getSupabaseAdmin,
@@ -73,6 +74,10 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
         { status: 500 },
       );
     }
+
+    // Mark every link's episode resolved so the issue stays consistent (and won't auto-reopen
+    // unless a genuinely new link is added later). Non-critical — never fail the resolve.
+    try { await resolveAllLinksForIssue(supabase, issueId, callerUserId); } catch { /* non-critical */ }
   }
 
   // Fetch all linked conversations.
@@ -151,8 +156,8 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
       const { error } = await supabase
         .from("conversation_sessions")
         .update({
+          // escalation_status is derived from escalation_stage by a DB trigger — set stage only.
           escalation_stage: "resolved",
-          escalation_status: "resolved",
           handling_mode: "ai",
           handling_mode_at: new Date().toISOString(),
         })

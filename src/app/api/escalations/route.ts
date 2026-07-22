@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { matchIssuesToEscalation } from "@/lib/escalation/issue-match";
 import { notifyEscalationTeam } from "@/lib/escalation/notify";
 import { notifyDepartmentIssueContacts } from "@/lib/issues/notify";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -35,7 +34,86 @@ type EscalationBody = {
   category?: unknown;
   department?: unknown;
   source?: unknown;
+  requires_department_coordination?: unknown;
 };
+
+// Create (or reuse) a tracked issue + workspace task for an escalation that needs department
+// coordination. Idempotent per conversation: if the conversation already has an OPEN linked issue
+// (e.g. a re-escalation — the ISS-21/ISS-22 case), reuse it instead of minting a duplicate.
+// Cross-conversation topical auto-linking is intentionally NOT done here (human-confirmed via the
+// suggestions endpoint; cross-conversation promotion is Trigger B, handled separately).
+async function createOrReuseIssueForEscalation(args: {
+  supabase: ReturnType<typeof getSupabaseAdmin>;
+  sessionId: string;
+  phone: string;
+  issueTitle: string;
+  issuePriority: string;
+  description: string | null;
+  departmentId: string | null;
+}): Promise<{ issueId: string | null; deduplicated: boolean }> {
+  const { supabase, sessionId, phone, issueTitle, issuePriority, description, departmentId } = args;
+  let issueId: string | null = null;
+  let deduplicated = false;
+
+  // Re-escalation guard: reuse an OPEN issue already linked to this conversation.
+  try {
+    const { data: priorLinks } = await supabase
+      .from("issue_escalation_links")
+      .select("issue_id, issues(status)")
+      .eq("conversation_session_id", sessionId);
+    const links = (priorLinks ?? []) as Array<{ issue_id: string; issues: { status: string } | { status: string }[] | null }>;
+    const openLink = links.find((l) => {
+      const issue = Array.isArray(l.issues) ? l.issues[0] : l.issues;
+      const status = issue?.status;
+      return status != null && status !== "resolved" && status !== "closed";
+    });
+    if (openLink) {
+      issueId = openLink.issue_id;
+      deduplicated = true;
+      await supabase.from("conversation_sessions").update({ linked_issue_id: issueId }).eq("id", sessionId);
+      try {
+        const { logEscalationActivity } = await import("@/lib/escalation/activity");
+        await logEscalationActivity({
+          sessionId, issueId, phoneE164: phone, action: "linked_to_issue", actorLabel: "AI Agent",
+          details: { deduplicated: true, reason: "conversation already has an open issue" },
+        });
+      } catch { /* fire-and-forget */ }
+    }
+  } catch (err) {
+    console.error("Re-escalation idempotency check failed; will create a new issue:", err);
+  }
+
+  if (issueId) return { issueId, deduplicated };
+
+  // No open issue on this conversation — create a new issue + workspace task.
+  try {
+    const { data: issue } = await supabase
+      .from("issues")
+      .insert({ title: issueTitle, description, priority: issuePriority, department_id: departmentId })
+      .select("id, title")
+      .single();
+    if (issue) {
+      issueId = issue.id;
+      await supabase.from("issue_escalation_links").insert({ issue_id: issue.id, conversation_session_id: sessionId });
+      await supabase.from("conversation_sessions").update({ linked_issue_id: issue.id }).eq("id", sessionId);
+      await supabase.from("tasks").insert({
+        title: issueTitle, description, department_id: departmentId, priority: issuePriority,
+        item_type: "issue", source: "whatsapp_agent", origin: "external", source_phone: phone,
+      });
+      try {
+        const { logEscalationActivity } = await import("@/lib/escalation/activity");
+        await logEscalationActivity({ sessionId, issueId: issue.id, phoneE164: phone, action: "created_issue", actorLabel: "AI Agent", details: { title: issueTitle, priority: issuePriority } });
+        await logEscalationActivity({ sessionId, issueId: issue.id, phoneE164: phone, action: "linked_to_issue", actorLabel: "AI Agent" });
+      } catch { /* fire-and-forget */ }
+      if (departmentId) {
+        void notifyDepartmentIssueContacts({ issueId: issue.id, title: issueTitle, description, departmentId });
+      }
+    }
+  } catch (err) {
+    console.error("Issue/task creation during escalation failed:", err);
+  }
+  return { issueId, deduplicated };
+}
 
 export async function POST(req: NextRequest) {
   const phone = req.headers.get("x-whatsapp-from");
@@ -49,6 +127,9 @@ export async function POST(req: NextRequest) {
   const description = typeof body.description === "string" ? body.description.trim() : "";
   const category = typeof body.category === "string" ? body.category : "other";
   const source = body.source === "rule" || body.source === "manual" ? body.source : "ai";
+  // Escalation ≠ issue: we only create a tracked issue when the problem needs department
+  // coordination (the agent sets this). Everything else is handed to the on-call team only.
+  const requiresDeptCoordination = body.requires_department_coordination === true;
   // The model's "urgent" label does NOT bypass the gate — only real emergency wording does.
   const isEmergency = EMERGENCY_PATTERN.test(reason);
   const priority = body.priority === "urgent" ? "urgent" : "normal";
@@ -101,7 +182,7 @@ export async function POST(req: NextRequest) {
   const { data, error } = await supabase
     .from("conversation_sessions")
     .update({
-      escalation_status: "pending",
+      // escalation_status is derived from escalation_stage by a DB trigger — set stage only.
       escalation_stage: "pending",
       escalation_reason: reason || null,
       escalation_priority: priority,
@@ -140,147 +221,23 @@ export async function POST(req: NextRequest) {
     // fire-and-forget
   }
 
-  // --- Dedupe: check for matching open issues before creating a new one ---
+  // Escalation ≠ issue. The escalation above hands the conversation to the on-call team. We create a
+  // tracked issue + task ONLY when the agent flags that the problem needs department coordination.
   const issueTitle = title || reason || "Escalation";
   const issuePriority = priority === "urgent" ? "high" : "medium";
   let issueId: string | null = null;
   let deduplicated = false;
 
-  try {
-    // Gather recent inbound messages for matching context
-    const { data: recentMsgs } = await supabase
-      .from("messages")
-      .select("body")
-      .eq("phone_e164", phone)
-      .eq("direction", "inbound")
-      .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-      .order("created_at", { ascending: false })
-      .limit(8);
-
-    const msgContext = (recentMsgs ?? [])
-      .filter((m) => m.body)
-      .map((m) => (m.body as string).slice(0, 150))
-      .reverse()
-      .join(" → ");
-
-    const matchContext = `${issueTitle} ${description || ""} ${reason}`.trim();
-    const matches = await matchIssuesToEscalation(
+  if (requiresDeptCoordination) {
+    ({ issueId, deduplicated } = await createOrReuseIssueForEscalation({
       supabase,
-      matchContext,
-      category,
-      priority,
-      msgContext,
-    );
-
-    if (matches.length > 0) {
-      // Link this escalation to the existing issue instead of creating a new one
-      const matched = matches[0];
-      issueId = matched.id;
-      deduplicated = true;
-
-      await supabase.from("issue_escalation_links").insert({
-        issue_id: matched.id,
-        conversation_session_id: data.id,
-      });
-
-      await supabase
-        .from("conversation_sessions")
-        .update({ linked_issue_id: matched.id })
-        .eq("id", data.id);
-
-      try {
-        const { logEscalationActivity } = await import("@/lib/escalation/activity");
-        await logEscalationActivity({
-          sessionId: data.id,
-          issueId: matched.id,
-          phoneE164: phone,
-          action: "linked_to_issue",
-          actorLabel: "AI Agent",
-          details: {
-            deduplicated: true,
-            matched_issue: `ISS-${matched.issue_number}`,
-            reason: matched.relevance_reason,
-          },
-        });
-      } catch {
-        // fire-and-forget
-      }
-    }
-  } catch (err) {
-    console.error("Issue dedup check failed, will create new issue:", err);
-  }
-
-  // No match found — create a new issue + workspace task
-  if (!issueId) {
-    try {
-      const { data: issue } = await supabase
-        .from("issues")
-        .insert({
-          title: issueTitle,
-          description: description || reason || null,
-          priority: issuePriority,
-          department_id: escalationDepartmentId,
-        })
-        .select("id, title")
-        .single();
-
-      if (issue) {
-        issueId = issue.id;
-
-        await supabase.from("issue_escalation_links").insert({
-          issue_id: issue.id,
-          conversation_session_id: data.id,
-        });
-
-        await supabase
-          .from("conversation_sessions")
-          .update({ linked_issue_id: issue.id })
-          .eq("id", data.id);
-
-        await supabase.from("tasks").insert({
-          title: issueTitle,
-          description: description || reason || null,
-          department_id: escalationDepartmentId,
-          priority: issuePriority,
-          item_type: "issue",
-          source: "whatsapp_agent",
-          origin: "external",
-          source_phone: phone,
-        });
-
-        try {
-          const { logEscalationActivity } = await import("@/lib/escalation/activity");
-          await logEscalationActivity({
-            sessionId: data.id,
-            issueId: issue.id,
-            phoneE164: phone,
-            action: "created_issue",
-            actorLabel: "AI Agent",
-            details: { title: issueTitle, priority: issuePriority },
-          });
-          await logEscalationActivity({
-            sessionId: data.id,
-            issueId: issue.id,
-            phoneE164: phone,
-            action: "linked_to_issue",
-            actorLabel: "AI Agent",
-          });
-        } catch {
-          // fire-and-forget
-        }
-
-        if (escalationDepartmentId) {
-          void notifyDepartmentIssueContacts({
-            issueId: issue.id,
-            title: issueTitle,
-            description: description || reason || null,
-            departmentId: escalationDepartmentId,
-          });
-        }
-      }
-    } catch (err) {
-      console.error("Issue/task creation during escalation failed:", err);
-    }
+      sessionId: data.id,
+      phone,
+      issueTitle,
+      issuePriority,
+      description: description || reason || null,
+      departmentId: escalationDepartmentId,
+    }));
   }
 
   // Notify escalation team members via email + WhatsApp. Best-effort: a

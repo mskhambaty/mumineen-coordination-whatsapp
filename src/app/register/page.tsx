@@ -232,6 +232,11 @@ export default function RegisterPage() {
 
   const headAttending = Boolean(members[0]) && !members[0]?.not_attending;
 
+  // A mehman family that marks EVERY member not-attending isn't coming — they owe no
+  // accommodation/transport, so those sections are hidden and not required.
+  const allNotAttending = members.length > 0 && members.every((m) => m.not_attending);
+  const needsAccommodation = !isLocal && !allNotAttending;
+
   // Non-head members linked to the head inherit the head's flight (computed, not stored, so
   // unchecking restores each member's own values). Suspended if the head isn't attending.
   function effectiveMembers(): Member[] {
@@ -300,18 +305,18 @@ export default function RegisterPage() {
       if (!isLocal && !m.departure_at) return { message: `Enter departure date & time for ${who}.`, fieldId: `reg-${m.its}-departure` };
       if (!isLocal && m.wants_khidmat !== true && m.wants_khidmat !== false) return { message: `Select khidmat interest for ${who}.`, fieldId: `reg-${m.its}-khidmat` };
     }
-    if (!isLocal && acc.acc_type !== "hotel" && acc.acc_type !== "utaro") return { message: "Select your accommodation type.", fieldId: "reg-acc-type" };
-    if (!isLocal && acc.acc_type === "hotel") {
+    if (needsAccommodation && acc.acc_type !== "hotel" && acc.acc_type !== "utaro") return { message: "Select your accommodation type.", fieldId: "reg-acc-type" };
+    if (needsAccommodation && acc.acc_type === "hotel") {
       const hotelNameTrimmed = acc.hotel_name?.trim() ?? "";
       const JUNK = new Set(["pending", "na", "n/a", "n.a", "tbd", "tba", "none", "unknown", "no", "-", "--", "hotel"]);
       if (!hotelNameTrimmed) return { message: "Enter your hotel name.", fieldId: "reg-hotel-name" };
       if (JUNK.has(hotelNameTrimmed.toLowerCase())) return { message: `Please enter the actual name of your hotel (e.g. "Marriott O'Hare").`, fieldId: "reg-hotel-name" };
       if (!acc.hotel_address?.trim()) return { message: "Enter your hotel address.", fieldId: "reg-hotel-address" };
     }
-    if (!isLocal && acc.acc_type === "utaro" && !acc.utaro_host_name?.trim()) {
+    if (needsAccommodation && acc.acc_type === "utaro" && !acc.utaro_host_name?.trim()) {
       return { message: "Enter the host's name.", fieldId: "reg-host-name" };
     }
-    if (!isLocal) {
+    if (needsAccommodation) {
       if (!acc.transport_mode?.trim()) return { message: "Select how you will get to the relay center.", fieldId: "reg-transport-mode" };
       if (acc.transport_mode === "other" && !acc.transport_detail?.trim()) return { message: "Enter your transport details.", fieldId: "reg-transport-detail" };
     }
@@ -689,8 +694,8 @@ export default function RegisterPage() {
               </div>
             </section>
 
-            {/* Accommodation (mehman only) */}
-            {!isLocal && (
+            {/* Accommodation (mehman only; hidden when the whole family isn't attending) */}
+            {needsAccommodation && (
             <section className={cardClass}>
               <h2 className={sectionHeading}>Accommodation<span className="text-red-500"> *</span></h2>
               <div id="reg-acc-type" className="mt-3 flex flex-col gap-3 text-sm text-emerald-950/80 sm:flex-row sm:gap-6">
@@ -772,8 +777,8 @@ export default function RegisterPage() {
             </section>
             )}
 
-            {/* Transport (mehman only) */}
-            {!isLocal && (
+            {/* Transport (mehman only; hidden when the whole family isn't attending) */}
+            {needsAccommodation && (
             <section className={cardClass}>
               <h2 className={sectionHeading}>Transport</h2>
               <label className={`${labelClass} mt-3`}>How will you get to the relay center daily?<span className="text-red-500"> *</span>

@@ -21,6 +21,7 @@ export const publicTools = new Set([
   "flag_knowledge_gap",
   "get_family_meal_rsvps",
   "set_family_meal_rsvps",
+  "get_family_parking_passes",
 ]);
 
 /** Task tools accessible to all authenticated users */

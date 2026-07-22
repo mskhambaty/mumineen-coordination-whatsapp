@@ -63,10 +63,114 @@ paths:
       tags: [lost-found, admin]
       summary: List all lost and found reports
       description: >-
-        Any portal member. Returns item details, escalation state, and reporter name/phone/ITS.
+        Any portal member. Returns item details, escalation state, resolver info, and reporter name/phone/ITS.
       security: [{ portalSession: [] }]
       responses:
         "200": { description: "{ reports: LostFoundReport[] }." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [lost-found, admin]
+      summary: Manually add a lost or found item
+      description: >-
+        Any portal member can add items. Source is recorded as 'manual'.
+      security: [{ portalSession: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [report_type, item_name]
+              properties:
+                report_type: { type: string, enum: [lost, found] }
+                item_name: { type: string, minLength: 2, maxLength: 160 }
+                description: { type: string, maxLength: 2000 }
+                category: { type: string, maxLength: 120 }
+                color: { type: string, maxLength: 120 }
+                brand: { type: string, maxLength: 120 }
+                location: { type: string, maxLength: 500 }
+                reporter_name: { type: string, maxLength: 200 }
+                reporter_its: { type: string, maxLength: 40 }
+      responses:
+        "201": { description: "{ report: { id, report_type, created_at } }." }
+        "400": { description: "Validation error." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/lost-found/{id}:
+    put:
+      tags: [lost-found, admin]
+      summary: Edit a lost/found item
+      description: Any portal member can edit item details.
+      security: [{ portalSession: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                item_name: { type: string, minLength: 2, maxLength: 160 }
+                description: { type: string, maxLength: 2000 }
+                category: { type: string, maxLength: 120 }
+                color: { type: string, maxLength: 120 }
+                brand: { type: string, maxLength: 120 }
+                location: { type: string, maxLength: 500 }
+                reporter_name: { type: string, maxLength: 200 }
+                reporter_its: { type: string, maxLength: 40 }
+      responses:
+        "200": { description: "{ ok: true }." }
+        "400": { description: "Validation error." }
+        "404": { description: "Report not found." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    delete:
+      tags: [lost-found, admin]
+      summary: Remove a lost/found item
+      description: Any portal member can delete items.
+      security: [{ portalSession: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: "{ ok: true }." }
+        "404": { description: "Report not found." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /admin/lost-found/{id}/resolve:
+    patch:
+      tags: [lost-found, admin]
+      summary: Mark an item as resolved (found/returned)
+      description: >-
+        Any portal member. Records who closed it (user_id + display_name), when, and optional notes.
+        Shows in the Resolved history tab.
+      security: [{ portalSession: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes: { type: string, maxLength: 2000 }
+      responses:
+        "200": { description: "{ ok: true }." }
+        "404": { description: "Report not found or already resolved." }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "500": { $ref: "#/components/responses/ServerError" }
@@ -355,8 +459,38 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, default: 75, maximum: 200 }
+        - name: scope
+          in: query
+          schema: { type: string, enum: [main, niyaz], default: main }
+          description: >-
+            Inbox split by the number a conversation is on (conversation_sessions.phone_number_id).
+            main = exclude the niyaz RSVP/broadcast number; niyaz = only it. NOTE: this split applies
+            to the Conversations list only. Escalations (pending + resolved) are cross-cutting and are
+            returned regardless of number under scope=main, so a ticket that arrived on the broadcast
+            number is never hidden from the main Escalations tab. scope=niyaz still narrows escalations
+            to the niyaz number.
+        - name: includeResolved
+          in: query
+          schema: { type: string, enum: ["1"] }
+          description: >-
+            When "1", also load resolved escalations (escalation_status=resolved) for the Escalations
+            tab, bounded to the most-recent `resolvedLimit`. Resolved escalations linked to an issue
+            are ALWAYS returned regardless of this flag so issue "View" links resolve. Pending
+            escalations are always returned.
+        - name: resolvedLimit
+          in: query
+          schema: { type: integer, default: 50, maximum: 500 }
+          description: Page size for resolved escalations when includeResolved=1 (used for "load more").
       responses:
-        "200": { description: Conversations with handling mode, messages, and tool calls. }
+        "200":
+          description: >-
+            Conversations with handling mode, messages, and tool calls. Body also includes
+            `resolved_has_more` (boolean) — true when more resolved escalations exist beyond
+            `resolvedLimit` — and `accounts`: an array of WABA numbers
+            (`{ phoneNumberId, label, displayNumber, isPrimary }`) the UI uses to attribute each
+            message to the number it went to/from. Each conversation carries `escalation_status`
+            (none|pending|resolved), the canonical open/resolved lifecycle field; each message carries
+            `phone_number_id` (NULL = primary account) identifying which WABA number it used.
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
   /admin/conversations/religious-export:
@@ -522,10 +656,12 @@ paths:
         Emergencies and the `religious_followup` category bypass that gate
         (a deen/Waaz question the reflections can't answer is often the first
         message); the agent then replies with a fixed Waaz-scoped acknowledgment.
-        Before creating a new issue, an AI + keyword dedup check runs against
-        open issues. If a match is found the escalation is linked to the existing
-        issue (response includes `deduplicated: true`); otherwise a new issue +
-        workspace task is created.
+        Escalation ≠ issue: the escalation always notifies the on-call team, but a tracked issue +
+        workspace task is created ONLY when `requires_department_coordination` is true (an actionable
+        problem a department must coordinate to fix — not an individual request/question/hand-off).
+        Issue creation is idempotent per conversation: a re-escalation reuses the conversation's
+        existing open issue (`deduplicated: true`) instead of creating a duplicate. No cross-conversation
+        topical auto-linking (that is suggestion-only / a planned Trigger B).
       security: [{ whatsappPhone: [] }]
       requestBody:
         required: true
@@ -543,6 +679,7 @@ paths:
                   type: string
                   enum: [emergency, accommodation, transport, registration, schedule, facilities, complaint, religious_followup, other]
                 department: { type: string, description: "Department name to assign the issue to" }
+                requires_department_coordination: { type: boolean, description: "When true, create a tracked issue + task for department coordination. When false/absent, escalation-only (on-call follow-up, no issue)." }
                 source: { type: string, enum: [ai, rule, manual] }
       responses:
         "200":
@@ -555,8 +692,8 @@ paths:
                   status: { type: string, enum: [escalated, declined] }
                   priority: { type: string }
                   category: { type: string }
-                  issue_id: { type: string, nullable: true }
-                  deduplicated: { type: boolean, description: "True if linked to an existing issue instead of creating a new one." }
+                  issue_id: { type: string, nullable: true, description: "The created/reused issue id, or null when the escalation created no issue (escalation-only)." }
+                  deduplicated: { type: boolean, description: "True if the conversation's existing open issue was reused instead of creating a new one." }
                   message: { type: string }
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -595,6 +732,12 @@ paths:
         Counts + recent personal fiqh / halal-haram questions the assistant refused (redirecting to
         the Aamil Saheb) and quietly flagged via the deterministic ruling guard. NOT escalations —
         no one is paged. Phone is masked to the last 4 digits. Admin/leadership or a religious monitor.
+      parameters:
+        - in: query
+          name: from
+          required: false
+          schema: { type: string, format: date }
+          description: Floor flags by date (YYYY-MM-DD), e.g. "Since Ashara", to exclude pre-event test flags.
       security: [{ portalSession: [] }, { adminKey: [] }]
       responses:
         "200": { description: "{ total, unreviewed, recent[] } of flagged ruling questions." }
@@ -616,11 +759,21 @@ paths:
   /admin/religious/conversations:
     get:
       tags: [conversations]
-      summary: Conversations that used a religious tool, with each member's 24h-window state.
-      description: Threads (newest first) for the Waaz Talaqqi Chats tab. ?from/?to optional. Each thread includes handling_mode (ai|manual) + in_window. Religious monitor / admin.
+      summary: Religious chats ACTIVE in the last N hours (by religious tool-call recency).
+      description: >-
+        Threads (newest religious-activity first) for the Waaz Talaqqi Inbox. Membership is scoped
+        by religious tool-CALL recency, NOT message activity, so a chat whose religious tool-call
+        aged past the window no longer appears even if it got a logistics/template message today.
+        A Manual-mode chat with a recent handoff (within the window) is kept. The general
+        Conversations inbox keeps its all-time religious filter as the archive. Religious monitor / admin.
+      parameters:
+        - in: query
+          name: windowHours
+          schema: { type: integer, enum: [24, 48, 168], default: 48 }
+          description: Lookback window for religious tool-call recency. Invalid values fall back to 48.
       security: [{ portalSession: [] }, { adminKey: [] }]
       responses:
-        "200": { description: "{ conversations[] } each with messages, in_window, handling_mode." }
+        "200": { description: "{ conversations[], window_hours } each conversation with messages, in_window, handling_mode." }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
   /admin/religious/mode:
@@ -868,8 +1021,8 @@ paths:
   /admin/lisan-words:
     get:
       tags: [conversations]
-      summary: Count of Lisan ud Dawat words, or export the whole dictionary as CSV.
-      description: "Default returns { count }. With ?format=csv, streams the dictionary as a re-importable CSV (transliteration,lisan,meaning,example) as a file download — a backup / master copy (DB is the source of truth)."
+      summary: Count, CSV export, or a searchable page of the Lisan ud Dawat dictionary.
+      description: "Default returns { count }. With ?format=csv, streams the dictionary as a re-importable CSV. With ?list=1, returns a paginated, searchable page { rows[], total, page, pageSize } for the admin Dictionary browser (?q=, ?field=word|meaning|all, ?page=, ?pageSize=). DB is the source of truth."
       security: [{ portalSession: [] }, { adminKey: [] }]
       parameters:
         - in: query
@@ -877,14 +1030,37 @@ paths:
           required: false
           schema: { type: string, enum: [csv] }
           description: When "csv", download the full dictionary instead of the count.
+        - in: query
+          name: list
+          required: false
+          schema: { type: string, enum: ["1"] }
+          description: When "1", return a searchable page of rows (with ids) instead of the count.
+        - in: query
+          name: q
+          required: false
+          schema: { type: string }
+          description: Substring search term (used with list=1).
+        - in: query
+          name: field
+          required: false
+          schema: { type: string, enum: [word, meaning, all], default: all }
+          description: Which columns the search term matches (word = transliteration/lisan).
+        - in: query
+          name: page
+          required: false
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: pageSize
+          required: false
+          schema: { type: integer, default: 25, maximum: 100 }
       responses:
-        "200": { description: "{ count }, or a text/csv attachment when format=csv." }
+        "200": { description: "{ count }, a text/csv attachment (format=csv), or { rows[], total, page, pageSize } (list=1)." }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
     put:
       tags: [conversations]
       summary: Add (or update) ONE Lisan word without re-uploading the whole CSV.
-      description: "Day-to-day path for filling a dictionary gap. Computes the match columns (norm/skeleton/forms) like the bulk import and inserts one row; deduped on the normalized word (an existing word is updated in place). Powers get_lisan_word_meaning."
+      description: "Day-to-day path for filling a dictionary gap. Computes the match columns (norm/skeleton/forms) like the bulk import; deduped on the normalized word. If the word already exists and confirm is not set, returns 409 { status: 'exists', existing } WITHOUT writing, so the UI can warn before overwriting. With confirm:true it overwrites in place. Powers get_lisan_word_meaning."
       security: [{ portalSession: [] }, { adminKey: [] }]
       requestBody:
         required: true
@@ -897,13 +1073,53 @@ paths:
                 lisan: { type: string }
                 meaning: { type: string }
                 example: { type: string }
+                confirm: { type: boolean, default: false, description: Authorise overwriting an existing entry with the same normalized word. }
               description: At least one of transliteration or lisan is required.
       responses:
-        "200": { description: "Existing word updated: { status: 'updated', entry, count }." }
+        "200": { description: "Existing word updated (confirm:true): { status: 'updated', entry, count }." }
         "201": { description: "New word added: { status: 'added', entry, count }." }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { description: "Word already exists and confirm was not set: { status: 'exists', existing }." }
         "422": { description: Word has no transliteration or lisan text. }
+        "500": { $ref: "#/components/responses/ServerError" }
+    patch:
+      tags: [conversations]
+      summary: Edit ONE existing Lisan word by id (fix a wrong spelling / meaning).
+      description: "Recomputes all match columns via prepareLisanRow so the edited row stays searchable like an imported one."
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: integer }
+                transliteration: { type: string }
+                lisan: { type: string }
+                meaning: { type: string }
+                example: { type: string }
+      responses:
+        "200": { description: "{ status: 'updated', entry }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { description: Word has no transliteration or lisan text. }
+        "500": { $ref: "#/components/responses/ServerError" }
+    delete:
+      tags: [conversations]
+      summary: Delete ONE Lisan word by id (?id=123).
+      security: [{ portalSession: [] }, { adminKey: [] }]
+      parameters:
+        - in: query
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200": { description: "{ status: 'deleted', count }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
     post:
       tags: [conversations]
@@ -1438,17 +1654,26 @@ paths:
   /whatsapp/webhook:
     get:
       tags: [conversations]
-      summary: Verify Meta WhatsApp webhook subscription.
+      summary: Verify Meta WhatsApp webhook subscription (all numbers).
+      description: >-
+        Single shared callback URL for every WhatsApp account. The GET handshake echoes the challenge
+        when hub.verify_token matches ANY configured account's verify token (e.g.
+        META_WEBHOOK_VERIFY_TOKEN or META_WEBHOOK_VERIFY_TOKEN_BROADCAST).
       security: []
       responses:
         "200": { description: Challenge response. }
         "403": { $ref: "#/components/responses/Forbidden" }
     post:
       tags: [conversations]
-      summary: Receive inbound WhatsApp webhook messages.
+      summary: Receive inbound WhatsApp webhook messages (all numbers).
+      description: >-
+        Single shared endpoint for every WhatsApp account. The handler resolves the account from the
+        payload's metadata.phone_number_id, verifies the X-Hub-Signature-256 with THAT account's app
+        secret, and sends any reply from that number. Deliveries for an unconfigured number are acked
+        with 200 and ignored.
       security: []
       responses:
-        "200": { description: Webhook processed. }
+        "200": { description: Webhook processed (or ignored for an unknown number). }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
   /relay-updates:
@@ -1685,7 +1910,12 @@ paths:
     post:
       tags: [registration]
       summary: Submit or edit a family registration.
-      description: Public. First submission sets status to submitted. Subsequent edits require a valid edit_token from /register/otp/verify.
+      description: >
+        Public. First submission sets status to submitted. Subsequent edits require a valid
+        edit_token from /register/otp/verify. Accommodation and transport are required for mehman
+        families EXCEPT when every member is marked not-attending — such a family isn't coming, so
+        those fields are neither required nor stored (any previously entered values are cleared).
+        Local families never provide accommodation/transport.
       requestBody:
         required: true
         content:
@@ -1803,18 +2033,20 @@ paths:
   /api/rsvp/meals:
     get:
       tags: [rsvp]
-      summary: Get the caller's family Niyaz RSVP grid
+      summary: Get the caller's family Niyaz RSVP, organised per day
       description: >-
-        Self-scoped via x-whatsapp-from. Returns every UPCOMING Niyaz event (today-and-future in
-        America/Chicago — past events are filtered out) with how many of the family are attending
-        (split into adults/kids via mumineen.is_adult) vs. family size. Phone→family resolution
-        checks mumin_phone_links first, then falls back to the member's own mumineen.whatsapp_e164,
-        so roster-seeded numbers without a registration link still resolve. For genuinely unlinked
-        phones, returns status=unregistered with any existing (future) unregistered_rsvps rows plus
-        an events array (canonical date/meal/title per jaman) so the agent maps day references to
-        real dates. Used by the get_family_meal_rsvps agent tool.
+        Self-scoped via x-whatsapp-from. Returns the family RSVP grouped per DAY (one row per
+        Gregorian day, today→Ashura — past days filtered out, America/Chicago), each with a single
+        attending count for lunch and for dinner. The day `title` comes from the day-level
+        niyaz_event_config (matching the admin "Niyaz days" view), NOT the per-meal instance title
+        (which differs on dinners due to the hijri night-shift). Phone→family resolution checks
+        mumin_phone_links first, then falls back to the member's own mumineen.whatsapp_e164, so
+        roster-seeded numbers without a registration link still resolve. For genuinely unlinked
+        phones, returns status=unregistered with any existing (future) unregistered_rsvps rows plus a
+        per-day events array (date/dateLabel/title + which meals served) so the agent maps day
+        references to real dates. Used by the get_family_meal_rsvps agent tool.
       responses:
-        "200": { description: "Upcoming-only grid rows { event, attending, adults, kids, total, dateLabel } + familyMembers [{name, isAdult, isHead, notAttending}] (status=ok; dateLabel e.g. 'Mon, Jun 15' has the weekday pre-computed for the agent's read-back), or status=unregistered with rsvps + events (each with a weekday `label`) for unlinked phones." }
+        "200": { description: "status=ok: days [{ date, dateLabel, title, hijriDate, lunch, dinner, closed, closedAt, closedLabel }] where lunch/dinner are each { attending, total } or null when that meal isn't served (Pehli Raat/Ashura are dinner-only); dateLabel e.g. 'Mon, Jun 15' has the weekday pre-computed for the agent's read-back; closed=true (with closedAt/closedLabel) means the day's RSVP cutoff has passed and it can no longer be changed. Plus familyMembers [{name, isAdult, isHead, notAttending}]. Or status=unregistered with rsvps + per-day events [{ date, dateLabel, title, lunch:boolean, dinner:boolean, closed, closedAt, closedLabel }] for unlinked phones." }
         "400": { $ref: "#/components/responses/BadRequest" }
     post:
       tags: [rsvp]
@@ -1823,7 +2055,11 @@ paths:
         Self-scoped via x-whatsapp-from. Attendance is pre-set from arrival dates; this records
         changes (mostly "not coming on day X"). Each entry marks the family attending or not for
         specific dates (or all days), optionally narrowed to one meal; the change cascades to the
-        whole family. Used by set_family_meal_rsvps.
+        whole family. An entry applies globally ONLY when all=true is set explicitly — an entry with
+        no dates/titles and no all=true matches nothing and is ignored, so a single-day change can
+        never accidentally overwrite every day. Per-day RSVP cutoff: a day whose niyaz_event_config
+        rsvp_end_at has passed is locked — changes to it are NOT applied (for every source, no bypass)
+        and are returned in a blocked array. Used by set_family_meal_rsvps.
       requestBody:
         required: true
         content:
@@ -1841,16 +2077,37 @@ paths:
                     required: [attending]
                     properties:
                       attending: { type: boolean }
-                      titles: { type: array, items: { type: string }, description: "Preferred selector — event titles copied verbatim from the grid (e.g. 'Pehli Raat'). Server resolves title (+meal) to the correct date, avoiding hijri night-shift date guessing. Pair with meal to disambiguate a title shared by a lunch and a dinner." }
-                      dates: { type: array, items: { type: string, format: date }, description: "Explicit calendar dates only. For named events use titles instead." }
+                      dates: { type: array, items: { type: string, format: date }, description: "Preferred selector — the day row's `date` copied verbatim from the per-day response. Pair with meal; (date, meal) is exactly one jaman, so no hijri night-shift guessing. Omit (or all=true) for every day." }
+                      titles: { type: array, items: { type: string }, description: "Legacy/fallback selector — event titles (e.g. 'Pehli Raat'). Server resolves title (+meal) to a date. Prefer dates+meal copied from the day row. Pair with meal to disambiguate a title shared by a lunch and a dinner." }
                       meal: { type: string, enum: [lunch, dinner] }
-                      all: { type: boolean }
-                adults: { type: integer, description: "Number of adults attending. For registered families, triggers partial attendance (head of family kept first); capped at the family's adult count. For unregistered callers, records head count." }
-                kids: { type: integer, description: "Number of kids attending. For registered families, triggers partial attendance; capped at the family's kid count. For unregistered callers, records head count." }
+                      all: { type: boolean, description: "Set true to apply to every day (required for any global change). An entry with no dates/titles and all!=true targets nothing and is skipped." }
+                total: { type: integer, description: "Bare head count with no adult/kid split (e.g. 'change to 5'). Fills that many attendees head→adults→kids, capped at the registered family size. Preferred over adults/kids when the caller doesn't state a split. For unregistered callers it records the head count (as adults)." }
+                adults: { type: integer, description: "Number of adults attending — use only with an explicit adult/kid split. For registered families, triggers partial attendance (head of family kept first); capped at the family's adult count. For unregistered callers, records head count." }
+                kids: { type: integer, description: "Number of kids attending — use only with an explicit split. For registered families, triggers partial attendance; capped at the family's kid count." }
                 its_number: { type: string, description: "Unregistered callers only — optional ITS for family matching." }
       responses:
-        "200": { description: "Updated row count + refreshed grid. When the requested adults/kids exceeded the family size, also returns clamped {requestedAdults, requestedKids, maxAdults, maxKids, message} so the agent tells the user the count was capped and extras must register separately. (Or status=unregistered for unlinked phones — upserts into unregistered_rsvps.)" }
+        "200": { description: "Updated row count + the refreshed per-day days array (same shape as GET, today→Ashura). When the requested counts exceeded the family size, also returns clamped {requestedAdults, requestedKids, requestedTotal, maxAdults, maxKids, maxTotal, message} so the agent tells the user the count was capped and extras must register separately. requestedTotal/maxTotal carry the single-number (head-count) case; adults/kids the split case. When one or more targeted days were past their RSVP cutoff, returns blocked [{date, title, endAt, endLabel}] for the days that were NOT changed so the agent tells the user RSVP has closed for them. (Or status=unregistered_recorded for unlinked phones — upserts into unregistered_rsvps.)" }
         "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/parking/my-passes:
+    get:
+      tags: [rsvp]
+      summary: Get the caller's own family's parking pass(es)
+      description: >-
+        Strictly self-scoped via x-whatsapp-from — resolves the caller's phone to their family
+        (mumin_phone_links, falling back to the member's own whatsapp_e164) and returns ONLY that
+        family's allocated parking passes. No ITS or family identifier is accepted from the request,
+        so a caller can never query another person's pass. Each pass carries lot_name, color, the
+        per-color entry guidance (entry; plus purpose for gold=wheelchair support and
+        green=khidmat-guzaar early access), general_access (southbound Route 83 / Kingery Hwy) and
+        rideshare_dropoff (Wat Buddha Damma Meditation Center). status=ok with passes; status=no_passes
+        when the family has none; status=unregistered when the number isn't linked (the agent then asks
+        if they need a pass and escalates to Transport). The DB has no "collected" flag, so collection
+        status is asked of the user, not returned. Used by the get_family_parking_passes agent tool.
+      responses:
+        "200": { description: "{ status: ok|no_passes|unregistered, head_name, general_access, rideshare_dropoff, passes: [{ lot_name, color, purpose, entry }] }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { description: "Pass lookup failed." }
 
   /api/admin/niyaz/instances:
     get:
@@ -1860,7 +2117,8 @@ paths:
         Admin/leadership (portal). Returns all events ordered by date, each with
         per-event attendance tallies (yes/no by adult/kid/family, thaal count,
         unregistered adults/kids). Thaal count includes both registered and
-        unregistered attendees.
+        unregistered attendees. Each item also carries the manually-entered
+        thaal_wardi_count (thaals ordered) and actual_count (thaals served), or null.
       parameters:
         - name: mode
           in: query
@@ -1889,42 +2147,243 @@ paths:
                 meal: { type: string, enum: [lunch, dinner] }
                 serving_type: { type: string, enum: [thaal, packet] }
                 description: { type: string }
+                thaal_wardi_count: { type: integer, minimum: 0, nullable: true, description: "Thaals ordered (the wardi). Negative/non-numeric → null." }
+                actual_count: { type: integer, minimum: 0, nullable: true, description: "Thaals actually served on the day. Negative/non-numeric → null." }
       responses:
         "201": { description: "{ instance: { id } }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/niyaz/instances/{id}:
+    patch:
+      tags: [admin]
+      summary: Edit a Niyaz event
+      description: >-
+        Admin/leadership (portal). Partial patch of an event's day / meal / serving type / details
+        and the manually-entered thaal_wardi_count & actual_count — only provided fields are written.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                event_date: { type: string, format: date }
+                hijri_date: { type: string }
+                meal: { type: string, enum: [lunch, dinner] }
+                serving_type: { type: string, enum: [thaal, packet] }
+                description: { type: string }
+                thaal_wardi_count: { type: integer, minimum: 0, nullable: true, description: "Thaals ordered. Negative/non-numeric/empty → null." }
+                actual_count: { type: integer, minimum: 0, nullable: true, description: "Thaals served. Negative/non-numeric/empty → null." }
+      responses:
+        "200": { description: "{ instance: { id, title, event_date, hijri_date, meal, serving_type, description, thaal_wardi_count, actual_count, updated_at } }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/admin/niyaz/days:
+    get:
+      tags: [admin]
+      summary: List Niyaz days (day-level RSVP config)
+      description: >-
+        Admin (portal). The configured Niyaz days from niyaz_event_config (prefilled 1st–10th
+        Moharram), each with a representative registration instance id for that date (used to
+        preview/send the RSVP broadcast). Ordered by date.
+      responses:
+        "200": { description: "{ days: [{ date, title, lunch_menu, dinner_menu, rsvp_end_time, has_lunch, has_dinner, template_code, instance_id }] }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/niyaz/days/{date}:
+    get:
+      tags: [admin]
+      summary: Day-level Niyaz config by date
+      description: Admin (portal). The niyaz_event_config row for a date (null if not configured yet).
+      parameters:
+        - { name: date, in: path, required: true, schema: { type: string, format: date } }
+      responses:
+        "200": { description: "{ date, config }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [admin]
+      summary: Upsert day-level Niyaz config by date
+      description: Admin/leadership (portal). Partial patch — only provided fields are written.
+      parameters:
+        - { name: date, in: path, required: true, schema: { type: string, format: date } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rsvp_event_title: { type: string, nullable: true }
+                lunch_menu: { type: string, nullable: true }
+                dinner_menu: { type: string, nullable: true }
+                rsvp_end_time: { type: string, nullable: true, description: "Legacy free-text label (display fallback)." }
+                rsvp_end_at: { type: string, format: date-time, nullable: true, description: "RSVP cutoff instant. Interactive responses after this are rejected with a 'registration has ended' reply; {{rsvp_end_time}} renders this in Chicago time." }
+                has_lunch: { type: boolean }
+                has_dinner: { type: boolean }
+                template_code: { type: string, nullable: true }
+                confirmation_template_code: { type: string, nullable: true, description: "Template sent back to a family after they respond (e.g. ashara_relay_double_rsvp_confirmation)." }
+                confirmation_variable_bindings: { type: object, nullable: true, description: "Flat token→binding map for the confirmation template." }
+                confirmation_buttons: { type: array, nullable: true, items: { type: object }, description: "Per-recipient button spec for the confirmation template." }
+      responses:
+        "200": { description: "{ date, config }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/niyaz/instances/{id}/config:
+    get:
+      tags: [admin]
+      summary: Day-level Niyaz event config (by instance)
+      description: >-
+        Admin/leadership (portal). The day-level config (keyed by the instance's event_date) holding
+        the template-facing fields the RSVP broadcast needs: rsvp_event_title, lunch/dinner menus,
+        rsvp_end_time, which meals are offered, and the template to send. The per-meal
+        rsvp_registration_instance rows remain the RSVP/tally source of truth.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ date, config }. config is null if not configured yet." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [admin]
+      summary: Upsert day-level Niyaz event config
+      description: Admin/leadership (portal). Partial patch — only provided fields are written.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rsvp_event_title: { type: string, nullable: true }
+                lunch_menu: { type: string, nullable: true }
+                dinner_menu: { type: string, nullable: true }
+                rsvp_end_time: { type: string, nullable: true }
+                has_lunch: { type: boolean }
+                has_dinner: { type: boolean }
+                template_code: { type: string, nullable: true }
+      responses:
+        "200": { description: "{ date, config }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
   /api/admin/niyaz/instances/{id}/responses:
     get:
       tags: [admin]
       summary: Recorded Niyaz RSVP responses for an event
-      description: Admin/leadership (portal). Per-mumin niyaz_rsvp rows for the event (name, attending, source) plus a yes/no summary.
+      description: >-
+        Admin/leadership (portal). Returns the event's instance meta (title, event_date, hijri_date,
+        meal, serving_type, thaal_wardi_count, actual_count), a mode-aware Yes/No `tally`, a mode-independent `breakdown` of the
+        eligible-to-RSVP population grouped into local/mehman/guest (per-group eligible + confirmation-based
+        Yes/No with adults/kids + responded/not-responded + response rate, from the `niyaz_event_breakdown`
+        DB aggregate; guests are sentinel-ITS yes-only and excluded from the member total), the per-mumin niyaz_rsvp rows (name, attending, source, `is_adult`,
+        `local_mehman`), unregistered RSVPs, and family head-counts. Both `tally` and `breakdown` are
+        sourced from DB aggregates (the same numbers as the days overview), NOT by counting the
+        returned rows, so they are correct even when the event has more than 1000 responses. The
+        `responses` and `unregistered` lists are paged server-side (fetchAllRows) to return the full
+        event past PostgREST's 1000-row db-max-rows cap, sorted most-recent first. `crossMeal` lists
+        the mumineen attending THIS meal but NOT the day's other meal (e.g. yes-lunch/no-dinner), from
+        the `niyaz_event_cross_meal` RPC (paged; mode-aware via the same Min/Max confirmed-only rule);
+        it is `null` when the day has no sibling meal.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: mode, in: query, schema: { type: string, enum: [min, max], default: min }, description: "min = whatsapp/admin-confirmed only; max = includes arrival-date defaults. Drives the tally, breakdown, and crossMeal." }
+      responses:
+        "200": { description: "JSON { instance, tally: { mode, yes, no, ... }, breakdown: { local, mehman, guest, total }, responses, unregistered, headcounts, crossMeal: { otherMeal, members: [{ mumin_id, its, full_name, is_adult, local_mehman, hof_its, whatsapp }] } | null }." }
+        "404": { description: Niyaz event not found. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/niyaz/instances/{id}/families:
+    get:
+      tags: [admin]
+      summary: Per-family RSVP grid for an event (the admin "By Family" view)
+      description: >-
+        Admin/leadership (portal). One row per roster-active family from the `niyaz_event_family_grid`
+        DB aggregate: `family_id`, `hof_its`, `hof_name` (the family's acting head — the `is_head`
+        member, else the eldest member, matching the mumin-lookup "Acting head"; falls back to the ITS
+        string only if no roster member exists), `responded` (any whatsapp/admin row for the family this event),
+        `attending` (attending real members, guests excluded), `guests` (attending sentinel-ITS
+        placeholders), and `responded_at` / `responded_by` from the latest confirmed row. Derived from
+        niyaz_rsvp (not the often-empty niyaz_family_headcount). PAGED server-side (fetchAllRows), so
+        all ~1k families are returned past PostgREST's 1000-row db-max-rows cap.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        "200": { description: Responses + summary. }
+        "200": { description: "JSON { families: [{ family_id, hof_its, hof_name, responded, attending, guests, responded_at, responded_by }] }." }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/admin/niyaz/instances/{id}/individuals:
+    get:
+      tags: [admin]
+      summary: Per-member RSVP grid for an event (the admin "By Individual" view)
+      description: >-
+        Admin/leadership (portal). One row per eligible-to-RSVP member from the
+        `niyaz_event_individual_grid` DB aggregate — the per-person parallel of the By Family grid.
+        Eligible population is identical to `niyaz_event_breakdown` (roster-active, not_attending=false,
+        active family, local OR submitted-mehman), LEFT-joined to niyaz_rsvp so members who never
+        replied still appear with `responded=false` and null rsvp fields ("No response"). Each row:
+        `mumin_id`, `its`, `full_name`, `is_adult`, `local_mehman`, `hof_its`, `whatsapp` (own
+        whatsapp_e164 else primary mumin_phone_links, for the CSV export), `attending`, `source`,
+        `responded_by`, `updated_at`, `responded`. So the "No response" count ties out to the Breakdown
+        panel's "Not responded" total. PAGED server-side (fetchAllRows, stable order by mumin_id) past
+        PostgREST's 1000-row db-max-rows cap.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "JSON { individuals: [{ mumin_id, its, full_name, is_adult, local_mehman, hof_its, whatsapp, attending, source, responded_by, updated_at, responded }] }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
 
   /api/admin/niyaz/instances/{id}/broadcast:
     get:
       tags: [admin]
-      summary: Preview recipient count for a Niyaz RSVP send
-      description: Admin (portal). Returns the recipient count (and any unresolved ITS) for the chosen audience/level/filter.
+      summary: Preview (or export) the audience for a Niyaz RSVP send
+      description: >-
+        Admin (portal). Returns the recipient count, any unresolved ITS, and a sample list
+        (name / ITS / masked phone, first 100) for the chosen audience/level/filter so the composer
+        can preview who will receive the broadcast. With `format=csv` it instead streams the FULL
+        resolved audience (every matched recipient, UNMASKED phone numbers) as a CSV download — that
+        branch is gated to admin/leadership.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
-        - { name: audience, in: query, required: true, schema: { type: string, enum: [specific_its, all_mumineen, all_hof, all_adults] } }
+        - { name: audience, in: query, required: true, schema: { type: string, enum: [specific_its, all_mumineen, all_hof, all_adults, all_adults_hof] }, description: "all_adults_hof = all adults of one family; pass its=<HOF ITS>. only_non_responders is family-level. all_adults & all_hof apply a conditional registration filter: locals are included regardless of registration, mehman only when their family registration is submitted (both attending) — this ignores require_registered." }
         - { name: level, in: query, schema: { type: string, enum: [ind, fam] } }
         - { name: only_non_responders, in: query, schema: { type: boolean } }
+        - { name: require_registered, in: query, schema: { type: boolean, default: true }, description: "Governs all_mumineen only: false drops the submitted-registration filter, targeting every roster-active, not-attending=false family. all_adults/all_hof ignore this and use the local-vs-mehman rule instead." }
         - { name: its, in: query, schema: { type: string }, description: Comma/space-separated ITS for the test audience. }
+        - { name: format, in: query, schema: { type: string, enum: [csv] }, description: "csv = download the full resolved audience (Name, ITS, HOF ITS, Jamaat, City, Gender, Local/Mehman, WhatsApp) instead of the masked JSON preview. Admin/leadership only." }
       responses:
-        "200": { description: "{ count, unresolved_its }." }
+        "200": { description: "JSON { count, unresolved_its, sample: [{ name, its, phone_masked }] }, or a text/csv attachment when format=csv." }
         "403": { $ref: "#/components/responses/Forbidden" }
     post:
       tags: [admin]
-      summary: Send the daily Niyaz RSVP template (quick-reply buttons)
+      summary: Send a Niyaz RSVP template (quick-reply or custom Flow/quick-reply buttons)
       description: >-
         Admin/leadership (portal). Sends an approved template to the chosen audience for the event's
-        date, stamping each quick-reply button with a niyaz|level|scope|date payload, via the
-        broadcast queue. Taps are recorded by the WhatsApp webhook.
+        date via the broadcast queue. Body variables auto-bind to person fields, family_members, or
+        the day's event-config values (rsvp_event_title / lunch_menu / dinner_menu / rsvp_end_time).
+        When `buttons` is supplied (ashara_relay_double_rsvp), each button's payload templates are
+        resolved per recipient — {{hof_its}}, {{RegistrationInstanceId}} (the day's numeric
+        niyaz_event_config.day_id), {{EligibleFamilyCount}} — replacing the legacy
+        niyaz|level|scope|date quick-reply buttons. Single-meal days (ashara_relay_single_rsvp) use a
+        Flow that returns one `attending_count` (prefilled from {{EligibleFamilyCount}}); the webhook
+        maps it to whichever meal the day serves (has_lunch/has_dinner). hof_its + day_id are decoded
+        from the flow_token (rsvp:<hof>:<day_id>) so it works even if the Flow body omits them.
+        For audience=csv_upload, pass `csv` (raw CSV text in the audience-export format); audience
+        resolution is skipped and each row is matched back to the roster by its WhatsApp number so
+        recipients carry the same computed fields (family_id, mumin_id, hof_its, eligible_family_count)
+        a resolved audience would — so the per-recipient buttons still personalize. CSV upload is
+        POST-only (the file isn't a query param), so the GET preview/export does not accept it.
+        Phase 1: inbound Flow/button responses are captured raw by the webhook; decoding into RSVPs
+        is phase 2.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       requestBody:
@@ -1935,18 +2394,543 @@ paths:
               type: object
               required: [audience, level, template_code]
               properties:
-                audience: { type: string, enum: [specific_its, all_mumineen, all_hof, all_adults] }
-                its: { type: array, items: { type: string } }
-                only_non_responders: { type: boolean }
+                audience: { type: string, enum: [specific_its, all_mumineen, all_hof, all_adults, all_adults_hof, csv_upload], description: "all_adults & all_hof apply a conditional registration filter: locals included regardless of registration, mehman only when family registration is submitted (both attending)." }
+                csv: { type: string, description: "Raw CSV text in the audience-export format (audience=csv_upload). A WhatsApp column is required; Name/ITS/HOF ITS/etc. personalize." }
+                its: { type: array, items: { type: string }, description: "ITS list for specific_its; the single HOF ITS for all_adults_hof." }
+                only_non_responders: { type: boolean, description: "Family-level: excludes a family once any member has a whatsapp/admin RSVP for the day." }
+                require_registered: { type: boolean, default: true, description: "Governs all_mumineen only: false targets every roster-active, not-attending=false family. all_adults/all_hof use the local-vs-mehman rule instead." }
                 level: { type: string, enum: [ind, fam] }
                 template_code: { type: string }
-                mode: { type: string, enum: [buttons, headcount], description: "buttons = quick-reply RSVP; headcount = free-text family head count (logs a prompt for the numeric reply)." }
+                mode: { type: string, enum: [buttons, headcount], description: "buttons = quick-reply RSVP; headcount = free-text family head count (logs a prompt for the numeric reply). Ignored when `buttons` is supplied." }
                 registration_message: { type: string, description: "Head-count mode: {{registration_message}} (auto-generated if omitted)." }
                 example_response: { type: string, description: "Head-count mode: {{example_response}} (default 4)." }
+                buttons:
+                  type: array
+                  description: "Custom per-recipient button payloads (Flow + quick-reply). Replaces the legacy niyaz buttons."
+                  items:
+                    oneOf:
+                      - type: object
+                        required: [type, index, flow_token]
+                        properties:
+                          type: { type: string, enum: [flow] }
+                          index: { type: integer }
+                          flow_token: { type: string, description: "Templated, e.g. rsvp:{{Person.Id}}:{{RegistrationInstanceId}}." }
+                          flow_action_data: { type: object, additionalProperties: { type: string }, description: "Templated values; integer-looking values are coerced to numbers." }
+                      - type: object
+                        required: [type, index, payload]
+                        properties:
+                          type: { type: string, enum: [quick_reply] }
+                          index: { type: integer }
+                          payload: { type: string, description: "Templated, e.g. rsvp:{{hof_its}}:{{RegistrationInstanceId}}:not-attending." }
+                variable_bindings:
+                  type: object
+                  description: "Explicit per-variable bindings (override the auto-bound defaults). Each body token (and optional header) binds to a static value or a per-recipient roster field."
+                  properties:
+                    body:
+                      type: object
+                      additionalProperties:
+                        oneOf:
+                          - { type: object, required: [kind, value], properties: { kind: { type: string, enum: [static] }, value: { type: string } } }
+                          - { type: object, required: [kind, field], properties: { kind: { type: string, enum: [field] }, field: { type: string } } }
+                    header:
+                      oneOf:
+                        - { type: object, required: [kind, value], properties: { kind: { type: string, enum: [static] }, value: { type: string } } }
+                        - { type: object, required: [kind, field], properties: { kind: { type: string, enum: [field] }, field: { type: string } } }
       responses:
         "200": { description: "{ status: started, broadcastId, total, … }." }
         "400": { $ref: "#/components/responses/BadRequest" }
         "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/feedback-survey/{token}:
+    get:
+      tags: [feedback]
+      summary: Load a targeted survey for a recipient token (public)
+      description: >-
+        Token-scoped, no auth. The opaque per-recipient token maps to exactly one (mumin, form).
+        Returns the form's sections/questions snapshot + the responder's FIRST NAME only (shown as
+        "Submitting as <name> — is this you?"). Marks the recipient 'opened'. 404 for an unknown token.
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "{ status: ok|closed, firstName, formTitle, alreadyCompleted, sections: [{ section_id, title, questions: [{ form_question_id, question_id, area, snapshot }] }] }." }
+        "404": { description: "Unknown token (status=not_found)." }
+    post:
+      tags: [feedback]
+      summary: Submit a targeted survey response (public)
+      description: >-
+        Token-scoped, no auth. Records answers (one row per question), each scored 1-5
+        (`sentiment_1_5`) and routed to the area's department; negative answers carry a `reason`.
+        Idempotent — re-submitting replaces this recipient's prior answers and marks them 'completed'.
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [answers]
+              properties:
+                answers:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  items:
+                    type: object
+                    required: [question_id, value]
+                    properties:
+                      question_id: { type: string, format: uuid }
+                      value: { type: string, nullable: true }
+                      reason: { type: string, nullable: true }
+      responses:
+        "200": { description: "{ status: ok, recorded: <n> }." }
+        "400": { description: "Invalid body or invalid/expired token." }
+        "404": { description: "Malformed token." }
+
+  /api/quiz/{token}:
+    get:
+      tags: [quiz]
+      summary: Load the Ashara knowledge quiz (public)
+      description: >-
+        Public, no auth. `{token}` is EITHER the quiz's shared share_token (the link everyone gets)
+        OR a per-recipient test-link token. Returns the bilingual quiz (English + Lisan ud Dawat).
+        For the shared link the response sets `requires_identity: true` (the page then collects ITS +
+        name) and the quiz must be open. A completed test-link recipient gets their saved score. 404
+        for an unknown/closed token.
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "{ status: ok, title_en, title_ld, first_name, questions: [...], requires_identity? } | { status: completed, first_name, score, total }." }
+        "404": { description: "Unknown/closed token (status=not_found)." }
+    post:
+      tags: [quiz]
+      summary: Submit + grade a quiz attempt (public)
+      description: >-
+        Public, no auth. Two body shapes: (1) shared-link self-identified — includes its_number
+        (8 digits) + name + timing; one attempt per (quiz, ITS), idempotent. (2) test-link — answers
+        only. Grading is server-side against correctIndex; the stored score is authoritative. ITS is
+        PII — stored, never logged.
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [its_number, name, duration_seconds, time_taken_seconds, answers]
+                  properties:
+                    its_number: { type: string, pattern: '^\d{8}$' }
+                    name: { type: string, minLength: 1, maxLength: 80 }
+                    duration_seconds: { type: integer, minimum: 0, maximum: 36000 }
+                    time_taken_seconds: { type: integer, minimum: 0, maximum: 86400 }
+                    answers: { $ref: "#/components/schemas/QuizAnswers" }
+                - type: object
+                  required: [answers]
+                  properties:
+                    answers: { $ref: "#/components/schemas/QuizAnswers" }
+      responses:
+        "200": { description: "{ status: completed, score, total, answers: [{ question_id, chosen_index, correct_index, is_correct }] }." }
+        "400": { description: "Invalid body, bad ITS, closed quiz, or invalid token." }
+        "404": { description: "Malformed token." }
+
+  /api/admin/quiz/results:
+    get:
+      tags: [admin]
+      summary: Quiz leaderboard + summary (admin-only)
+      description: >-
+        Religious-monitor/admin only (requirePortalCaller · canMonitorReligiousChats). Completed,
+        non-test attempts ranked by score, then fastest time, then earliest finish. ITS is included
+        for admin display only. Participants never see this.
+      responses:
+        "200": { description: "{ rows: [{ name, its_number, score, total, time_taken_seconds, completed_at }], summary: { sent, completed, avg_score, total } }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/quiz/share:
+    get:
+      tags: [admin]
+      summary: Shared quiz link + open state (admin-only)
+      description: Religious-monitor/admin only. Returns the shared public link and whether the quiz is open.
+      responses:
+        "200": { description: "{ status: ok, share_token, is_open, link }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [admin]
+      summary: Open or close the quiz (admin-only)
+      description: Religious-monitor/admin only. Sets is_open; closing makes the shared link stop accepting attempts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [is_open], properties: { is_open: { type: boolean } } }
+      responses:
+        "200": { description: "{ status: ok, share_token, is_open, link }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/quiz/test-link:
+    post:
+      tags: [admin]
+      summary: Mint a quiz test link (admin-only)
+      description: >-
+        Religious-monitor/admin only. Creates an is_test recipient (excluded from the leaderboard)
+        and returns a link to preview the live quiz end-to-end.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, properties: { display_name: { type: string } } }
+      responses:
+        "200": { description: "{ status: ok, token, link }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/surveys/databank:
+    get:
+      tags: [admin]
+      summary: Survey databank (sections + questions) and target groups
+      description: Admin/leadership only (requirePortalCaller · isAdminOrLeadership). Powers the survey console.
+      responses:
+        "200": { description: "{ sections: [{ ..., questions: [...] }], groups: [...] }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/surveys/sections:
+    post:
+      tags: [admin]
+      summary: Add a databank section
+      description: >-
+        Admin/leadership only. Body { title, area (one of the 7 feedback areas), description?,
+        is_general? }. The slug `key` is derived from the title (made unique automatically). New
+        sections sort to the end of the databank.
+      responses:
+        "201": { description: "{ section } (with empty questions)." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/surveys/sections/{id}:
+    patch:
+      tags: [admin]
+      summary: Edit a databank section (name / area / general flag)
+      description: Admin/leadership only. Updates any of { title, area, description, is_general }.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ section }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { description: "Section not found." }
+    delete:
+      tags: [admin]
+      summary: Delete a databank section (soft-delete, cascades to its questions)
+      description: >-
+        Admin/leadership only. Sets active=false on the section and all its questions — they leave
+        the databank and compose picker. Already-composed forms keep working off their snapshots.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ ok: true }." }
+        "404": { description: "Section not found." }
+
+  /api/admin/surveys/questions:
+    post:
+      tags: [admin]
+      summary: Add a question to a section (databank grows during the event)
+      description: >-
+        Admin/leadership only. Body { section_id, text, type, options?, negative_values?, polarity?,
+        is_general?, collect_comment?, comment_threshold?, required?, scored? }. `scored:false` marks
+        an informational/cross-tab question (no 1–5 sentiment). `collect_comment` toggles the
+        "why?" box; `comment_threshold` (scale questions) is the rating ≤ which an answer opens it;
+        `required` makes the question mandatory on the public form (client + server enforced).
+      responses:
+        "201": { description: "Created question." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/surveys/questions/reorder:
+    post:
+      tags: [admin]
+      summary: Reorder questions within a section
+      description: >-
+        Admin/leadership only. Body { section_id, ordered_ids: [...] } rewrites each question's
+        sort_order to its position in the list. All ids must be active questions in that section.
+        Order is cosmetic (databank + compose listing); it never touches composed-form snapshots.
+      responses:
+        "200": { description: "{ ok: true }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/surveys/questions/{id}:
+    patch:
+      tags: [admin]
+      summary: Edit a databank question
+      description: >-
+        Admin/leadership only. Updates any of { text, type, options, negative_values, polarity,
+        is_general, collect_comment, comment_threshold, required, scored }. Edits affect FUTURE forms only —
+        existing forms snapshot the question, so already-sent surveys are unchanged.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ question }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { description: "Question not found." }
+    delete:
+      tags: [admin]
+      summary: Retire a databank question (soft-delete)
+      description: >-
+        Admin/leadership only. Sets active=false — the question leaves the databank and compose
+        picker, but existing forms (which snapshot question text) and past answers/exposures stay.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ status: retired }." }
+        "404": { description: "Question not found." }
+
+  /api/admin/surveys/groups:
+    get:
+      tags: [admin]
+      summary: List target groups
+      responses:
+        "200": { description: "{ groups: [...] }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [admin]
+      summary: Create a target group from an audience RuleGroup
+      description: Admin/leadership only. Body { name, description?, rules (RuleGroup), area_focus? }. Validates rules; returns a live reachable count.
+      responses:
+        "201": { description: "{ group, reachable }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { description: "Duplicate group name." }
+
+  /api/admin/surveys/forms:
+    get:
+      tags: [admin]
+      summary: List forms with recipient/response counts
+      responses:
+        "200": { description: "{ forms: [{ id, title, group_name, status, recipient_count, completed_count, ... }] }." }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [admin]
+      summary: Create a form and compose its questions
+      description: >-
+        Admin/leadership only. Body { title, tags?, sample_size?, public_title?, census?, template_phrase?, question_ids[] }
+        plus EXACTLY ONE target: `group_id` (a saved survey_group) OR `rules` (an inline audience-filter
+        RuleGroup, supporting mixed AND/OR and NOT groups for exclusions like "attending AND NOT rahat")
+        OR `sample_plan` (stratified). `census:true` (pair with `rules`, e.g. everyone) sends to the whole
+        eligible audience with no sampling. `tags` are free-form labels to tell same-titled forms apart.
+        Snapshots each question for stability; the custom filter is validated against the field catalog before saving.
+      responses:
+        "201": { description: "{ form_id, question_count }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/admin/surveys/forms/{id}/preview:
+    post:
+      tags: [admin]
+      summary: Dry-run the sample (no writes)
+      description: >-
+        Admin/leadership only. Body { freeWindowOnly?, excludeAlreadySent? }. Returns the sampling
+        funnel (candidates/excludedUnregistered/excludedToday/excludedExhausted/excludedNonResponder/
+        excludedAlreadySent/fresh/reused/chosen) + first-name preview. Candidates are always
+        registration-submitted households; excludeAlreadySent drops anyone already sent any survey
+        this event (cross-form de-overlap).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ funnel, sample_names }." }
+        "404": { description: "Form not found." }
+
+  /api/admin/surveys/forms/{id}/send:
+    post:
+      tags: [admin]
+      summary: Commit the sample and (optionally) dispatch the WhatsApp template
+      description: >-
+        Admin/leadership only. Body { template?, freeWindowOnly?, excludeAlreadySent? }. Creates
+        per-recipient tokens + writes (mumin, question) exposures (once-per-event). Dispatches via
+        WhatsApp when a template is selected (or SURVEY_SEND_ENABLED + SURVEY_WA_TEMPLATE are set);
+        otherwise returns the per-recipient links for manual sending. excludeAlreadySent drops anyone
+        already sent any survey this event.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ formId, funnel, recipients: [{ phone, token, link, name }], sent, sendError? }." }
+        "400": { description: "Not sendable (no group/questions/eligible recipients, or already sent)." }
+
+  /api/admin/surveys/forms/{id}:
+    patch:
+      tags: [admin]
+      summary: Edit a form (sample size / title / tags)
+      description: >-
+        Admin/leadership only. Body { sample_size?, title?, tags? }. Updates the form's editable
+        fields; sample_size sets how many mumineen the next Preview/Commit & send will sample. Does
+        not touch already-committed recipients.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ form }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { description: "Form not found." }
+    delete:
+      tags: [admin]
+      summary: Delete a form
+      description: >-
+        Admin/leadership only. Removes the form and cascades its composed questions, recipients, and
+        answers. Also deletes the form's (mumin, question) exposures so its questions become askable
+        again (a full undo). Cannot be undone.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ status: deleted }." }
+        "404": { description: "Form not found." }
+
+  /api/admin/surveys/forms/{id}/questions:
+    get:
+      tags: [admin]
+      summary: The form's composed questions (snapshots), in order
+      description: Admin/leadership only. Powers the per-form "Questions" review/edit panel.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ form, questions: [{ id, question_id, section_id, area, snapshot, sort_order }] }." }
+        "404": { description: "Form not found." }
+
+  /api/admin/surveys/forms/{id}/questions/{fqId}:
+    patch:
+      tags: [admin]
+      summary: Edit one composed question on a form (its snapshot)
+      description: >-
+        Admin/leadership only. Body { text?, options?, negative_values?, polarity?, comment_threshold?,
+        collect_comment?, required? } merged into this form's snapshot. Applies ONLY to this form (the
+        databank is untouched). Blocked once the form is sent.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: fqId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ snapshot }." }
+        "400": { description: "Invalid body, or form already sent." }
+        "404": { description: "Question not found on this form." }
+    delete:
+      tags: [admin]
+      summary: Remove one question from a form
+      description: Admin/leadership only. Drops the composed question from this form. Blocked once the form is sent.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: fqId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ ok: true }." }
+        "400": { description: "Form already sent." }
+
+  /api/admin/surveys/mumin:
+    get:
+      tags: [admin]
+      summary: One mumin's personal + registration details (popup)
+      description: Admin/leadership only. By `?its=`, returns roster + family fields shown in the "view details" popup off a sampled record.
+      parameters:
+        - { name: its, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "{ mumin: {...}, family: {...}|null }." }
+        "404": { description: "ITS not in the active roster." }
+
+  /api/admin/surveys/responses:
+    get:
+      tags: [admin]
+      summary: Individual mumin survey-feedback lookup
+      description: >-
+        Admin/leadership only. `?q=<name|its>` returns up to 20 candidate matches to pick from;
+        `?its=<its>` returns that person's full survey history — every answer with its question text,
+        form and section, their 1-5 sentiment and any reason — plus per-section sentiment, an overall
+        sentiment, and the forms they were sent.
+      parameters:
+        - { name: q, in: query, required: false, schema: { type: string } }
+        - { name: its, in: query, required: false, schema: { type: string } }
+      responses:
+        "200": { description: "{ matches: [{its,name}] } for q, or { mumin, overall_sentiment, answered, forms_received, sections, answers } for its." }
+        "400": { description: "Neither its nor q provided." }
+        "404": { description: "ITS not found in the active roster." }
+
+  /api/admin/surveys/forms/{id}/test-batch:
+    post:
+      tags: [admin]
+      summary: Send to manually-selected individuals (test, or real attributed send)
+      description: >-
+        Admin/leadership only. Body { its: string[], deliver?, real? }. Creates a recipient per ITS and
+        returns each one's link; deliver:true also sends it to their WhatsApp. `real:false` (default) →
+        is_test recipient (no exposures, excluded from results) for in-team testing. `real:true` →
+        genuine, attributed recipient COUNTED in analytics — the "send manually, individually" path for
+        forms with no roster-derived audience (e.g. special-care seating feedback). Used by the
+        "Test to people" picker + its "real send" toggle.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ recipients: [{ its, name, phone, link?, delivered?, error? }] }." }
+        "400": { description: "Invalid body or no composed questions." }
+        "404": { description: "Form not found." }
+
+  /api/admin/surveys/forms/{id}/test-link:
+    post:
+      tags: [admin]
+      summary: Mint a self-test link for a form (optionally to a specific person)
+      description: >-
+        Admin/leadership only. Creates an is_test recipient (no question exposures written, excluded
+        from results) and returns its tokenized form link. Body { its? } targets a specific person
+        (form greets them by name, response attributable; returns their name + phone). Body
+        { its, deliver:true } also sends the link to THAT person's WhatsApp when SURVEY_SEND_ENABLED
+        + SURVEY_WA_TEMPLATE are set (otherwise delivery.error explains and you copy the link).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                its: { type: string, description: "Target a specific person by ITS." }
+                deliver: { type: boolean, description: "Also send the link to that person's WhatsApp." }
+      responses:
+        "200": { description: "{ link, token, name, phone, delivery: { delivered, error? } | null }." }
+        "400": { description: "Form has no composed questions, or ITS not in the active roster." }
+        "404": { description: "Form not found." }
+
+  /api/admin/surveys/forms/{id}/results:
+    get:
+      tags: [admin]
+      summary: Per-section 1-5 sentiment, response rate, breakdowns, comments
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ form, response: { sent, completed, rate }, sections: [{ title, sentiment, responses }], questions: [{ text, sentiment, breakdown, comments }] }." }
+        "404": { description: "Form not found." }
+
+  /api/admin/surveys/analytics:
+    post:
+      tags: [admin]
+      summary: Cross-form feedback analytics (fully filterable)
+      description: >-
+        Admin/leadership only. Read-only (POST carries the filter object). Body { formIds?, areas?,
+        sectionIds?, includeTest?, gender?, ageMin?, ageMax?, localMehman?, rahatOnly?, jamaats?,
+        categories?, drillScore? }. Every aggregate reflects the active filters. When `drillScore`
+        (1-5) is set, also returns `responses` — the individual answers at that sentiment score
+        (name, ITS, question, answer, reason) for the "who responded" side pane. Returns overview
+        (sent, responded [distinct people], response_rate, avg_sentiment, comment_count), by
+        section/area/question, by-attribute breakdowns (local/mehman, gender, age, rahat, jamaat),
+        the comment list, and the filter-option universe.
+      responses:
+        "200": { description: "{ forms, options, overview, distribution, by_section, by_area, by_question, by_attribute, comments }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/surveys/analytics/ai:
+    post:
+      tags: [admin]
+      summary: AI qualitative analysis of feedback comments
+      description: >-
+        Admin/leadership only. Body { comments: [{ text, area? }], scope? }. Sends only the comment
+        TEXT (no PII) to the LLM (via getAIClient / AI_MODEL) and returns structured analysis:
+        overall_sentiment, sentiment_score_1_5, summary, themes, ranked improvements, positives, and
+        per_comment (one "g"|"f"|"n" label per input comment, in order — lets the UI sort free-text
+        comments into Good/Fair/Negative).
+      responses:
+        "200": { description: "{ analysis, analyzed }." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { description: "AI call failed or returned unparseable output." }
 
   /api/feedback:
     post:
@@ -1986,16 +2970,22 @@ paths:
         x-portal-user-id). Returns the FULL catalog (active + inactive); each template carries
         friendlyName (string|null) and isActive (boolean) merged from whatsapp_template_settings.
         The console filters its dropdowns to isActive and drives the cleanup popup from the full
-        list. No phone numbers returned.
+        list. No phone numbers returned. Spans ALL configured WhatsApp accounts: each template is
+        tagged with accountLabel (string), wabaId (string|null), and phoneNumberId (string) of the
+        account/WABA that owns it, and its friendlyName/isActive are scoped to that WABA.
       responses:
-        "200": { description: "templates[] (each + friendlyName, isActive) + selectable_users[] (id + name only)." }
+        "200": { description: "templates[] (each + friendlyName, isActive, accountLabel, wabaId, phoneNumberId) + selectable_users[] (id + name only)." }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
   /api/admin/templates/settings:
     put:
       tags: [admin, templates]
       summary: Set a template's friendly name and/or active flag
-      description: Admin/leadership only. Upserts whatsapp_template_settings for one Meta template. Inactive templates are hidden from the console's Template dropdowns.
+      description: >-
+        Admin/leadership only. Upserts whatsapp_template_settings for one Meta template, scoped to a
+        WABA. Inactive templates are hidden from the console's Template dropdowns. Pass waba_id to
+        annotate a non-primary account's template; omit it for the primary account. An unknown
+        waba_id returns 400.
       requestBody:
         required: true
         content:
@@ -2005,6 +2995,7 @@ paths:
               required: [template_name]
               properties:
                 template_name: { type: string }
+                waba_id: { type: string, description: "WABA that owns the template; omit for the primary account." }
                 friendly_name: { type: string, nullable: true, maxLength: 120 }
                 is_active: { type: boolean }
       responses:
@@ -2056,28 +3047,67 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
-  /api/admin/templates/send:
+  /api/admin/whatsapp/accounts:
+    get:
+      tags: [admin, templates]
+      summary: List configured WhatsApp sending numbers
+      description: Admin/leadership only. Returns the configured WhatsApp accounts for the send console's "Send from" picker. No secrets — only the non-PII routing id and display labels.
+      responses:
+        "200":
+          description: "{ accounts: [{ label, name, displayName, displayNumber, phoneNumberId }] }"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/whatsapp/send:
     post:
       tags: [admin, templates]
-      summary: Start a manual template broadcast
-      description: Admin/leadership only. Creates a broadcast, enqueues recipients, then drains inline until the queue is empty (bounded); the minute cron is a backstop. Manual — no auto-scheduling. For audience_key=custom pass rules; for csv_upload pass csv (raw CSV text in the audience-export/failures-export format); template variables are bound via variable_bindings.
+      summary: Send a free-text or template message to one recipient
+      description: Admin/leadership only. Resolves an ITS or phone to a destination number and sends a free-text (kind=text) or template (kind=template) message. Free-text sends from phone_number_id when provided (else primary); template sends from the account whose WABA owns the template.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [template_code, audience_key]
+              required: [kind]
               properties:
-                template_code: { type: string }
+                its: { type: string, description: "ITS code (resolved to the roster member's WhatsApp number). One of its/phone required." }
+                phone: { type: string, description: "E.164 phone number. One of its/phone required." }
+                kind: { type: string, enum: [text, template] }
+                text: { type: string, description: "Free-text body (kind=text)." }
+                phone_number_id: { type: string, description: "Account/number to send a free-text message from (kind=text); defaults to primary." }
+                template: { type: object, description: "Template payload (kind=template): name, language, bodyParams, optional header/url-button params." }
+      responses:
+        "200": { description: "{ ok, to, name, kind, template? }" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/templates/send:
+    post:
+      tags: [admin, templates]
+      summary: Start a manual template or free-text broadcast
+      description: Admin/leadership only. Creates a broadcast, enqueues recipients, then drains inline until the queue is empty (bounded); the minute cron is a backstop. Manual — no auto-scheduling. message_kind=template (default) sends an approved template (template_code required; variables bound via variable_bindings). message_kind=text sends a plain free-text message (text + phone_number_id required); free-text only delivers inside the recipient's 24h window, so the audience is forced to in_window. For audience_key=custom pass rules; for csv_upload pass csv (raw CSV text in the audience-export/failures-export format).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [audience_key]
+              properties:
+                message_kind: { type: string, enum: [template, text], default: template, description: "template = approved template send; text = plain free-text send." }
+                template_code: { type: string, description: "Required when message_kind=template." }
                 template_language: { type: string }
+                text: { type: string, description: "Free-text body; required when message_kind=text." }
+                phone_number_id: { type: string, description: "WhatsApp account/number to send from. Required for free-text; for templates it is validated against the template's owning WABA." }
                 audience_key: { type: string, enum: [selected_users, chicago_committee, arrived_hof, registered_hof, all_members, segment_all_users, segment_hof, segment_hof_unresponded, custom, csv_upload] }
                 selected_user_ids: { type: array, items: { type: string, format: uuid } }
                 rules: { type: object, description: react-querybuilder rule tree (audience_key=custom) }
                 csv: { type: string, description: Raw CSV text in the audience-export format (audience_key=csv_upload) }
-                window: { type: string, enum: [all, in_window, out_window], default: all, description: "Restrict the audience to one side of the customer-service window — in_window (free) or out_window (paid)." }
+                window: { type: string, enum: [all, in_window, out_window], default: all, description: "Restrict the audience to one side of the customer-service window — in_window (free) or out_window (paid). Ignored for free-text (forced in_window)." }
                 window_hours: { type: number, minimum: 1, description: "Override the free-window size in hours, any positive value (defaults to WHATSAPP_WINDOW_HOURS, 24)." }
-                variable_bindings: { type: object, description: Per-variable static value or roster-field mapping }
+                variable_bindings: { type: object, description: Per-variable static value or roster-field mapping (template sends only) }
       responses:
         "200": { description: "status=started + broadcastId + counts." }
         "400": { $ref: "#/components/responses/BadRequest" }
@@ -2121,7 +3151,9 @@ paths:
     get:
       tags: [admin, templates]
       summary: Broadcast send log with metrics
-      description: Admin/leadership only.
+      description: Admin/leadership only. Optionally filter by audience_key (e.g. niyaz_rsvp for the Niyaz RSVP sends). count_sent / count_failed are delivery-aware: bumped at send time, then kept in sync as Meta's async delivery-status webhooks report messages undeliverable (so they match the per-recipient rollup, not just send-time outcomes).
+      parameters:
+        - { name: audience_key, in: query, required: false, schema: { type: string }, description: "Filter to broadcasts with this audience_key (e.g. niyaz_rsvp)." }
       responses:
         "200": { description: "broadcasts[] (most recent first)." }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -2130,11 +3162,24 @@ paths:
     get:
       tags: [admin, templates]
       summary: One broadcast + delivery-status rollup + grouped failure reasons
-      description: Admin/leadership only. Aggregate status counts and a grouped failure-reason breakdown only — no phone numbers (use /failures for the per-recipient list). Failure reasons group by Meta's captured error code/title when available, otherwise the free/paid 24h-window fallback label.
+      description: Admin/leadership only. Aggregate status counts and a grouped failure-reason breakdown only — no phone numbers (use /failures or /recipients for per-recipient lists). The returned broadcast object carries how the audience was defined — audience_key, audience_rules, variable_bindings, and the audience toggles window_filter / window_hours / selected_user_ids (null on broadcasts created before these were recorded). Failure reasons group by Meta's captured error code/title when available, otherwise the free/paid 24h-window fallback label.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        "200": { description: "broadcast + status_counts + failure_reasons (reason → count)." }
+        "200": { description: "broadcast (incl. audience_rules/variable_bindings/window_filter/window_hours/selected_user_ids) + status_counts + failure_reasons (reason → count)." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/admin/templates/broadcasts/{id}/recipients:
+    get:
+      tags: [admin, templates]
+      summary: Full recipient list for a broadcast — every status (JSON or CSV)
+      description: Admin/leadership only. Returns the entire audience the broadcast sent to (sent/failed/skipped/queued/delivered/read/replied), each with phone, best-effort identity (name/ITS resolved by phone), send status, window flag, sent_at, and a detail field (failure reason for failed rows, skip reason for skipped). Paged server-side, so the full audience is returned even past PostgREST's 1000-row response cap. Exposes PII to authorized staff (same level as /failures); never shown to visitors. ?format=csv returns a download.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: format, in: query, required: false, schema: { type: string, enum: [csv] } }
+      responses:
+        "200": { description: "{ recipients[] } (JSON) or a text/csv attachment." }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
@@ -2142,7 +3187,7 @@ paths:
     get:
       tags: [admin, templates]
       summary: Per-recipient failure list for a broadcast (JSON or CSV)
-      description: Admin/leadership only. Returns each failed recipient with phone, best-effort identity (name/ITS resolved by phone), window flag, and failure reason. The reason is Meta's captured error code/title (e.g. "131026: Undeliverable …") when the delivery-status webhook supplied one, otherwise a free/paid 24h-window fallback label. Exposes PII to authorized staff (same level as the audience CSV export); never shown to visitors. ?format=csv returns a download.
+      description: Admin/leadership only. Returns each failed recipient with phone, best-effort identity (name/ITS resolved by phone), window flag, and failure reason. The reason is Meta's captured error code/title (e.g. "131026: Undeliverable …") when the delivery-status webhook supplied one, otherwise a free/paid 24h-window fallback label. Paged server-side, so all failures are returned even past PostgREST's 1000-row response cap. Exposes PII to authorized staff (same level as the audience CSV export); never shown to visitors. ?format=csv returns a download.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: format, in: query, required: false, schema: { type: string, enum: [csv] } }
@@ -2150,6 +3195,28 @@ paths:
         "200": { description: "{ failures[] } (JSON) or a text/csv attachment." }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/admin/whatsapp/undeliverable:
+    get:
+      tags: [admin, templates]
+      summary: List auto-suppressed undeliverable numbers
+      description: Admin/leadership only. Numbers auto-suppressed because Meta reported them as not-on-WhatsApp / can't-receive (error 131026) past the failure threshold, so they're skipped on every broadcast. Each row carries phone, best-effort identity (name/ITS by phone), fail_count, last error code, and timestamps. Exposes PII to authorized staff (same level as the failures export); never shown to visitors.
+      responses:
+        "200": { description: "{ numbers[] } (newest failure first)." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      tags: [admin, templates]
+      summary: Un-flag an undeliverable number
+      description: Admin/leadership only. Clears suppression for one number and resets its failure counter so it's eligible for sends again (e.g. a mistyped number that's since been corrected). It would take a fresh run of failures to re-suppress.
+      parameters:
+        - { name: phone, in: query, required: true, schema: { type: string }, description: "The number to un-flag (any format; normalized server-side)." }
+      responses:
+        "200": { description: "{ cleared: true, phone }." }
+        "400": { description: "phone is required." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "Number is not on the suppression list." }
 
   /api/admin/prompts/{key}:
     get:
@@ -2262,7 +3329,7 @@ paths:
   /api/cron/department-digest:
     get:
       tags: [cron]
-      summary: Nightly department digest (03:00 UTC (10pm Chicago, CDT))
+      summary: Department digest runner (manual/admin trigger)
       description: Aggregate→AI briefing→store→distribute (email + free in-window WhatsApp). Auth via CRON_SECRET bearer or admin key. Optional ?date= override.
       responses:
         "200": { description: Run result. }
@@ -2344,6 +3411,16 @@ components:
       required: [error]
       properties:
         error: { type: string }
+    QuizAnswers:
+      type: array
+      minItems: 1
+      maxItems: 100
+      items:
+        type: object
+        required: [question_id, chosen_index]
+        properties:
+          question_id: { type: string }
+          chosen_index: { type: integer, nullable: true, minimum: 0, maximum: 9 }
     TaskStatus:
       type: string
       enum: [open, in_progress, blocked, complete]
@@ -2810,7 +3887,7 @@ components:
       tags: [issues]
       summary: List issues with optional filters.
       parameters:
-        - { name: status, in: query, schema: { type: string, enum: [open, in_progress, resolved, all] } }
+        - { name: status, in: query, description: "active = open + in_progress; all/omitted = every status", schema: { type: string, enum: [active, open, in_progress, resolved, all] } }
         - { name: department_id, in: query, schema: { type: string, format: uuid } }
         - { name: priority, in: query, schema: { type: string, enum: [low, medium, high, all] } }
         - { name: search, in: query, schema: { type: string } }
@@ -2841,6 +3918,13 @@ components:
     get:
       tags: [issues]
       summary: Issue detail with linked escalations and activity log.
+      description: >-
+        Each linked escalation carries a per-link episode lifecycle: `link_status` (open|resolved)
+        and `link_resolved_at`, plus the conversation's `escalation_status`/`escalation_stage`.
+        Resolved-ness and `breaching` are computed from `link_status` (this conversation's episode in
+        THIS issue) — not the conversation's current state, which may have moved on to another issue.
+        Resolving a conversation resolves its open link(s); when all of an issue's links are resolved
+        the issue auto-closes (and auto-reopens if a fresh link is added).
       responses:
         200:
           description: Issue detail.
@@ -3154,21 +4238,36 @@ components:
 
   /api/admin/parking/print:
     get:
-      summary: Get lot details and all passes for print layout
+      summary: Get passes for the print layout (by lot, by household, or all)
       description: |
-        Returns the lot's metadata and every parking pass in that lot with the
-        family head's name and phone number, sorted alphabetically by name.
-        Used by the /admin/parking/print page to render a 2-per-page printable layout.
+        Returns parking passes with the family head's name and phone number for the
+        /admin/parking/print page (2-per-page printable layout). Scope is controlled by
+        query params:
+          - lot_id   — passes for one lot, sorted alphabetically by head name.
+          - hof_its  — passes for one household, sorted by lot name; response includes
+                       a `household` object. Used by the per-row "Show passes" action.
+          - neither  — all passes across every lot, sorted by ITS number.
+        unprinted_only defaults to true (only passes with printed_at IS NULL).
       tags: [Parking]
       security: [{ portalSession: [] }]
       parameters:
         - name: lot_id
           in: query
-          required: true
+          required: false
           schema: { type: string, format: uuid }
+        - name: hof_its
+          in: query
+          required: false
+          description: Restrict to a single household's passes (mutually exclusive with lot_id).
+          schema: { type: string }
+        - name: unprinted_only
+          in: query
+          required: false
+          description: "1 (default) returns only unprinted passes; 0 returns all."
+          schema: { type: string, enum: ["0", "1"] }
       responses:
         200:
-          description: Lot details and pass list.
+          description: Pass list (optionally scoped to a lot or household).
           content:
             application/json:
               schema:
@@ -3176,18 +4275,31 @@ components:
                 properties:
                   lot:
                     type: object
+                    nullable: true
                     properties:
                       id: { type: string, format: uuid }
                       name: { type: string }
                       color: { type: string, nullable: true }
+                  household:
+                    type: object
+                    nullable: true
+                    properties:
+                      hof_its: { type: string }
+                      head_name: { type: string }
                   passes:
                     type: array
                     items:
                       type: object
                       properties:
                         id: { type: string, format: uuid }
+                        hof_its: { type: string }
                         head_name: { type: string }
                         phone: { type: string, nullable: true }
+                        lot_name: { type: string }
+                        lot_color: { type: string, nullable: true }
+                        printed_at: { type: string, format: date-time, nullable: true }
+                  total_passes: { type: integer }
+                  unprinted_count: { type: integer }
         400: { $ref: "#/components/responses/BadRequest" }
         401: { $ref: "#/components/responses/Unauthorized" }
         404: { $ref: "#/components/responses/NotFound" }

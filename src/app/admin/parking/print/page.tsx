@@ -8,7 +8,8 @@ import { apiFetch, readAdminUser } from "@/lib/admin/client";
 
 type Pass = { id: string; hof_its: string; head_name: string; phone: string | null; lot_name: string; lot_color: string | null; printed_at: string | null };
 type Lot = { id: string; name: string; color: string | null };
-type PrintApiResponse = { lot?: Lot; passes?: Pass[]; total_passes?: number; unprinted_count?: number; error?: string };
+type Household = { hof_its: string; head_name: string };
+type PrintApiResponse = { lot?: Lot; household?: Household; passes?: Pass[]; total_passes?: number; unprinted_count?: number; error?: string };
 
 // How many passes to print per lot color (assigned + blank write-in templates).
 const LOT_PRINT_TARGETS: Record<string, number> = {
@@ -153,12 +154,16 @@ function PrintContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const lotId = searchParams.get("lot_id");
+  const hofIts = searchParams.get("hof_its");
 
   const [lot, setLot] = useState<Lot | null>(null);
+  const [household, setHousehold] = useState<Household | null>(null);
   const [passes, setPasses] = useState<Pass[]>([]);
   const [totalPasses, setTotalPasses] = useState(0);
   const [unprintedCount, setUnprintedCount] = useState(0);
-  const [unprintedOnly, setUnprintedOnly] = useState(true);
+  // A single-household view is for reprinting on demand, so default to all passes
+  // (printed or not). Lot/all views default to just the new (unprinted) ones.
+  const [unprintedOnly, setUnprintedOnly] = useState(!hofIts);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pendingMark, setPendingMark] = useState<string[]>([]); // pass IDs to mark after print
@@ -170,6 +175,7 @@ function PrintContent() {
     setLoading(true);
     const params = new URLSearchParams();
     if (lotId) params.set("lot_id", lotId);
+    if (hofIts) params.set("hof_its", hofIts);
     params.set("unprinted_only", unprinted ? "1" : "0");
     const res = await apiFetch(`/api/admin/parking/print?${params.toString()}`);
     const json = (await res.json().catch(() => ({}))) as PrintApiResponse;
@@ -179,11 +185,12 @@ function PrintContent() {
       return;
     }
     setLot(json.lot ?? null);
+    setHousehold(json.household ?? null);
     setPasses(json.passes ?? []);
     setTotalPasses(json.total_passes ?? 0);
     setUnprintedCount(json.unprinted_count ?? 0);
     setLoading(false);
-  }, [lotId]);
+  }, [lotId, hofIts]);
 
   // When the browser print dialog closes, prompt to mark passes as printed.
   useEffect(() => {
@@ -312,7 +319,11 @@ function PrintContent() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", padding: "10px 20px" }}>
           <div>
             <span style={{ fontWeight: "700", fontSize: "15px", color: "#111" }}>
-              {lot ? `${lot.name} — Parking Passes` : "All Parking Passes (by ITS)"}
+              {lot
+                ? `${lot.name} — Parking Passes`
+                : household
+                  ? `${household.head_name} (${household.hof_its}) — Parking Passes`
+                  : "All Parking Passes (by ITS)"}
             </span>
             <span style={{ marginLeft: "10px", fontSize: "13px", color: "#6b7280" }}>
               {unprintedOnly

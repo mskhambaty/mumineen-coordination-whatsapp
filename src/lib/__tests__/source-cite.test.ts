@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   collectSources,
-  ensureSourcesCited,
+  finalizeSources,
+  distinctSourceGroups,
+  looksLikeHandoff,
   newSourceCollector,
   looksLeakedOrGarbled,
   sanitizeFinalReply,
@@ -10,6 +12,8 @@ import {
 
 const URL2 = "https://blogs.jameasaifiyah.edu/reflection/ashara/1447h/reflections-majlis-2-5/";
 const URL7 = "https://blogs.jameasaifiyah.edu/reflection/ashara/1447h/reflections-majlis-7-6/";
+const ARCHIVE = "https://blogs.jameasaifiyah.edu/reflection-category/1447h/";
+const ANSWER = { decision: "answer" as string | null, year: "1447" as string | null, archiveUrl: null as string | null };
 
 describe("collectSources", () => {
   it("extracts the title + url from a religious tool result", () => {
@@ -45,33 +49,111 @@ describe("collectSources", () => {
   });
 });
 
-describe("ensureSourcesCited", () => {
-  it("appends the source line when the model omitted it", () => {
+describe("distinctSourceGroups (collapse by majlis, not by url)", () => {
+  it("counts two facets of the SAME majlis as one article", () => {
     const c = newSourceCollector();
-    c.religious.push({ title: "Reflections — Majlis 7", url: URL7 });
-    const out = ensureSourcesCited("Majlis 7 was about the Sun.", c);
-    expect(out).toBe(`Majlis 7 was about the Sun.\n\nSource: Reflections — Majlis 7 — ${URL7}`);
+    c.religious.push({ title: "Reflections — Ashara 1447H, Majlis 6 (7th Muharram)", url: "u1" });
+    c.religious.push({ title: "Al-Dars — Ashara 1447H, Majlis 6", url: "u2" });
+    expect(distinctSourceGroups(c)).toBe(1);
+  });
+  it("counts different majalis distinctly", () => {
+    const c = newSourceCollector();
+    c.religious.push({ title: "Reflections — Ashara 1447H, Majlis 8 (9th Muharram)", url: "u8" });
+    c.religious.push({ title: "Reflections — Ashara 1447H, Majlis 7 (8th Muharram)", url: "u7" });
+    c.religious.push({ title: "Reflections — Ashara 1447H, Majlis 4 (5th Muharram)", url: "u4" });
+    expect(distinctSourceGroups(c)).toBe(3);
+  });
+});
+
+describe("looksLikeHandoff", () => {
+  it("flags model-improvised hand-offs / refusals", () => {
+    for (const r of [
+      "To help with that properly, I need to pass it to the team for religious follow-up.",
+      "I couldn't find this in the published reflections.",
+      "I don't have that yet.",
+      // Broadened: a "don't find / don't see" no-answer must also strip its source line
+      // (eval: "I don't find instructions here…" was answered with a stray 1447 source link).
+      "I don't find instructions here for how to receive the daily waaz reflections.",
+      "I couldn't locate that in the reflections.",
+    ]) expect(looksLikeHandoff(r), r).toBe(true);
+  });
+  it("does not flag a normal grounded answer", () => {
+    expect(looksLikeHandoff("In Ashara 1447H, Majlis 7 was about the Sun (Shams).")).toBe(false);
+    expect(looksLikeHandoff("Majlis 2 was about Information Technology and the Safina.")).toBe(false);
+  });
+});
+
+describe("finalizeSources", () => {
+  it("appends the single precise source when the model omitted it", () => {
+    const c = newSourceCollector();
+    c.religious.push({ title: "Reflections — Ashara 1447H, Majlis 7", url: URL7 });
+    const out = finalizeSources("Majlis 7 was about the Sun.", c, ANSWER);
+    expect(out).toBe(`Majlis 7 was about the Sun.\n\nSource: Reflections — Ashara 1447H, Majlis 7 — ${URL7}`);
   });
 
-  it("does not double-cite when the link is already in the reply", () => {
+  it("strips a model-emitted Source line and re-derives exactly one (no double-cite)", () => {
     const c = newSourceCollector();
-    c.religious.push({ title: "Reflections — Majlis 7", url: URL7 });
-    const reply = `Majlis 7 was about the Sun. Source: Reflections — Majlis 7 — ${URL7}`;
-    expect(ensureSourcesCited(reply, c)).toBe(reply);
+    c.religious.push({ title: "Reflections — Ashara 1447H, Majlis 7", url: URL7 });
+    const reply = `Majlis 7 was about the Sun.\n\nSource: Reflections — Ashara 1447H, Majlis 7 — ${URL7}`;
+    const out = finalizeSources(reply, c, ANSWER);
+    expect(out).toBe(reply);
+    expect((out.match(/Source:/g) ?? []).length).toBe(1);
   });
 
-  it("appends the dictionary source for word lookups", () => {
+  it("collapses a multi-majlis answer to ONE archive link (the 'shadi'/noise case)", () => {
+    const c = newSourceCollector();
+    for (const [m, u] of [["8", "u8"], ["7", "u7"], ["4", "u4"], ["6", "u6"]] as const) {
+      c.religious.push({ title: `Reflections — Ashara 1447H, Majlis ${m}`, url: u });
+    }
+    const out = finalizeSources("In Ashara 1447H, marriage was discussed in Majlis 8.", c, { decision: "answer", year: "1447", archiveUrl: ARCHIVE });
+    expect((out.match(/Source:/g) ?? []).length).toBe(1);
+    expect(out).toContain(`Source: Ashara 1447H reflections — ${ARCHIVE}`);
+    expect(out).not.toContain("u8");
+  });
+
+  it("two facets of one majlis keep the precise link (no collapse)", () => {
+    const c = newSourceCollector();
+    c.religious.push({ title: "Reflections — Ashara 1447H, Majlis 6", url: URL2 });
+    c.religious.push({ title: "Al-Dars — Ashara 1447H, Majlis 6", url: URL7 });
+    const out = finalizeSources("Majlis 6 covered Zohra.", c, { decision: "answer", year: "1447", archiveUrl: ARCHIVE });
+    expect(out).toContain(`Source: Reflections — Ashara 1447H, Majlis 6 — ${URL2}`);
+    expect(out).not.toContain(ARCHIVE);
+  });
+
+  it("falls back to the single best link when collapse is wanted but no archive URL resolved", () => {
+    const c = newSourceCollector();
+    c.religious.push({ title: "Reflections — Ashara 1447H, Majlis 8", url: "u8" });
+    c.religious.push({ title: "Reflections — Ashara 1447H, Majlis 7", url: "u7" });
+    const out = finalizeSources("…", c, { decision: "answer", year: "1447", archiveUrl: null });
+    expect((out.match(/Source:/g) ?? []).length).toBe(1);
+    expect(out).toContain("Majlis 8 — u8"); // first/best, never a stack
+  });
+
+  it("suppresses sources entirely on a hand-off reply even on the answer path", () => {
+    const c = newSourceCollector();
+    c.religious.push({ title: "Reflections — Ashara 1447H, Majlis 6", url: "u6" });
+    c.religious.push({ title: "Reflections — Ashara 1447H, Majlis 7", url: "u7" });
+    c.religious.push({ title: "Reflections — Ashara 1447H, Majlis 3", url: "u3" });
+    const out = finalizeSources("To help with that properly, I need to pass it to the team for religious follow-up.", c, { decision: "answer", year: "1447", archiveUrl: ARCHIVE });
+    expect(out).not.toContain("Source:");
+  });
+
+  it("suppresses sources when the decision is not an answer", () => {
+    const c = newSourceCollector();
+    c.religious.push({ title: "Reflections — Ashara 1447H, Majlis 6", url: "u6" });
+    expect(finalizeSources("Some reply.", c, { decision: "not_found", year: "1447", archiveUrl: ARCHIVE })).not.toContain("Source:");
+  });
+
+  it("appends the dictionary source for a direct word lookup (decision null)", () => {
     const c = newSourceCollector();
     c.lisanDictionary = true;
-    expect(ensureSourcesCited("Aab means Water.", c)).toBe("Aab means Water.\n\nSource: Lisan ud Dawat dictionary");
-    // …but not if already present
-    expect(ensureSourcesCited("Aab means Water. (Lisan ud Dawat dictionary)", c)).toBe(
-      "Aab means Water. (Lisan ud Dawat dictionary)",
+    expect(finalizeSources("Aab means Water.", c, { decision: null, year: null, archiveUrl: null })).toBe(
+      "Aab means Water.\n\nSource: Lisan ud Dawat dictionary",
     );
   });
 
   it("leaves replies untouched when there are no sources", () => {
-    expect(ensureSourcesCited("Which hotels have a shuttle?", newSourceCollector())).toBe("Which hotels have a shuttle?");
+    expect(finalizeSources("Which hotels have a shuttle?", newSourceCollector(), ANSWER)).toBe("Which hotels have a shuttle?");
   });
 });
 

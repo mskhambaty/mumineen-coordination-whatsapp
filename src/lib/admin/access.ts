@@ -71,6 +71,14 @@ export function canManageKnowledge(user: PortalUser | null | undefined) {
   return isAdminOrLeadership(user) || user?.is_manager === true || user?.is_support === true;
 }
 
+// Manage the Waaz Talaqqi content — the Lisan dictionary + the per-majlis religious topics —
+// from /admin/religious. The monitor team works these tabs, so this is the existing knowledge/
+// portal managers PLUS a religious monitor (often a visitor-role teammate added only to the team).
+// Additive: nobody who could edit this content before loses access.
+export function canManageReligiousContent(user: PortalUser | null | undefined) {
+  return canAccessPortal(user) || canManageKnowledge(user) || canMonitorReligiousChats(user);
+}
+
 // Workspace pages (Tasks, Milestones, Upload Transcripts, Daily Digest): open to
 // every portal user. The page is visible to all; the data routes scope content
 // to the caller's own departments (a deptless user simply sees empty lists), and

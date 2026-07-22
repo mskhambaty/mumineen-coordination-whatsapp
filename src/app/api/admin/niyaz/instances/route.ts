@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { canAccessPortal } from "@/lib/admin/access";
-import { dateStr, oneOf, str } from "@/lib/registration/normalize";
+import { dateStr, nonNegInt, oneOf, str } from "@/lib/registration/normalize";
 import { getEventTallies, type TallyMode } from "@/lib/rsvp/meal-rsvp";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
@@ -19,6 +19,8 @@ type InstanceBody = {
   meal?: unknown;
   serving_type?: unknown;
   description?: unknown;
+  thaal_wardi_count?: unknown;
+  actual_count?: unknown;
 };
 
 // GET /api/admin/niyaz/instances — Niyaz events ordered by date, each with per-event attendance
@@ -58,6 +60,8 @@ export async function POST(req: NextRequest) {
       meal: oneOf(body.meal, MEALS),
       serving_type: oneOf(body.serving_type, SERVING_TYPES),
       description: str(body.description),
+      thaal_wardi_count: nonNegInt(body.thaal_wardi_count),
+      actual_count: nonNegInt(body.actual_count),
     })
     .select("id")
     .single();

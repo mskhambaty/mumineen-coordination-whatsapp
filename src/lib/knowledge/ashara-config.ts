@@ -11,17 +11,27 @@ export type AsharaCategory = {
   // Lisan items must be translated by a human before indexing; English ones are just
   // awaiting their content (auto-fetch or transcription).
   sameDayTranslate?: boolean;
+  // Shown + seeded BY DEFAULT. This year only Reflections + Q&A are published; the others
+  // (Tazyeen, Al-Dars, Jumla, Kalema, Unwaan) are added on demand via the grid's "Add block".
+  isDefault?: boolean;
 };
 
-// The 6 categories ingested for each majlis (user-selected scope).
+// The per-majlis content cells. This year's scope is Reflections + Q&A only. "Q&A" is a curated
+// bucket of likely member questions + grounded answers (pasted in), indexed like the rest so the
+// agent answers recurring / "list all N" questions from a vetted answer rather than raw prose.
+// Tazyeen is NOT per-majlis this year — it's a single year-level block (see TAZYEEN_CATEGORY,
+// rendered like the Overall-theme block). Al-Dars / Jumla / Kalema / Unwaan are not used this year.
 export const ASHARA_CATEGORIES: AsharaCategory[] = [
-  { key: "reflection", label: "Reflections", language: "en" },
-  { key: "tazyeen", label: "Tazyeen", language: "en" },
-  { key: "al_dars", label: "Al-Dars", language: "en" },
-  { key: "jumla", label: "Jumla", language: "lisan", sameDayTranslate: true },
-  { key: "kalema", label: "Kalema", language: "lisan", sameDayTranslate: true },
-  { key: "unwaan", label: "Unwaan", language: "lisan", sameDayTranslate: true },
+  { key: "reflection", label: "Reflections", language: "en", isDefault: true },
+  { key: "faq", label: "Q&A", language: "en", isDefault: true },
 ];
+
+// Categories shown + seeded by default (this year: Reflections + Q&A only).
+export const DEFAULT_ASHARA_CATEGORIES: AsharaCategory[] = ASHARA_CATEGORIES.filter((c) => c.isDefault);
+
+// Tazyeen is a SINGLE year-level block for the whole Ashara (one article for all of 1448), edited
+// like the Overall-theme block — not a per-majlis grid column.
+export const TAZYEEN_CATEGORY: AsharaCategory = { key: "tazyeen", label: "Tazyeen", language: "en" };
 
 export const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
   ASHARA_CATEGORIES.map((c) => [c.key, c.label]),
@@ -104,20 +114,24 @@ export function majlisLabel(majlisNumber: number | null, isAshura: boolean): str
   return isAshura ? "Majlis 9/10 (Ashura)" : `Majlis ${majlisNumber}`;
 }
 
-// "Start here" istibsaar search link for a majlis (delegates click through to read the
-// original; also used as the citation source until an exact item URL is known).
-export function istibsaarSearchUrl(majlisNumber: number | null, isAshura: boolean, year: string): string {
-  const yy = year.slice(-2); // 1448 -> 48
-  const miqaat = isAshura
-    ? "Majlis 9 & 10 - Ashara Mubarak"
-    : `Majlis ${majlisNumber} - Ashara Mubaraka ${yy}H`;
-  return `https://www.talabulilm.com/istibsaar/search?miqaat=${encodeURIComponent(miqaat)}`;
-}
-
 // Canonical title for a per-majlis topic block, e.g. "Al-Dars — Ashara 1448H, Majlis 2".
 export function topicTitle(categoryLabel: string, year: string, majlisNumber: number | null, isAshura: boolean): string {
   return `${categoryLabel} — Ashara ${year}H, ${majlisLabel(majlisNumber, isAshura)}`;
 }
+
+// --- Source-citation collapse ---------------------------------------------------------------
+// When one religious answer draws on this many DISTINCT majlis/articles, the per-majlis links
+// are collapsed into a single year-archive link instead of stacking 3–5 "Source:" lines.
+export const SOURCE_COLLAPSE_THRESHOLD = 2;
+
+// The blog's per-year reflections index (verified live, e.g. 1447H lists every majlis). `year`
+// is the 4-digit Hijri year. This is the link a collapsed multi-majlis citation points to.
+export function reflectionsArchiveUrl(year: string): string {
+  return `https://blogs.jameasaifiyah.edu/reflection-category/${year}h/`;
+}
+
+// Stable Ashara Mubaraka landing page — the no-year fallback when the year is unknown.
+export const ASHARA_CATEGORY_PAGE = "https://blogs.jameasaifiyah.edu/ashara-mubaraka/";
 
 // New English slots await content; Lisan slots await a human translation.
 export function defaultStatus(language: ReligiousLanguage): ReligiousStatus {

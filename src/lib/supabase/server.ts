@@ -115,6 +115,8 @@ export async function recordInboundMessage(message: IncomingWhatsAppMessage) {
       body: message.body,
       message_type: message.messageType,
       raw_payload: message.rawMessage,
+      // Which of our numbers this came in on (NULL = primary) — powers the inbox split.
+      phone_number_id: message.businessPhoneNumberId ?? null,
     })
     .select("id")
     .single();
@@ -135,6 +137,9 @@ export async function recordOutboundMessage(input: {
   body: string;
   whatsappMessageId?: string;
   rawPayload?: unknown;
+  // Which of our numbers this went out from (NULL = primary). Set for niyaz/broadcast sends so they
+  // attribute to the niyaz inbox, not the main one.
+  phoneNumberId?: string | null;
 }) {
   const { error } = await getSupabaseAdmin().from("messages").insert({
     phone_e164: input.phoneE164,
@@ -143,6 +148,7 @@ export async function recordOutboundMessage(input: {
     body: input.body,
     message_type: "text",
     raw_payload: input.rawPayload,
+    phone_number_id: input.phoneNumberId ?? null,
   });
 
   if (error && error.code !== "23505") {
@@ -236,6 +242,18 @@ export async function isEscalationSupportMember(userId: string): Promise<boolean
   return Boolean(data);
 }
 
+// On the religious-monitor team (Waaz Talaqqi) — gates the /admin/religious page + nav.
+export async function isReligiousMonitor(userId: string): Promise<boolean> {
+  if (!userId) return false;
+  const { data, error } = await getSupabaseAdmin()
+    .from("religious_monitors")
+    .select("id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) return false;
+  return Boolean(data);
+}
+
 export type ConversationTurn = {
   direction: "inbound" | "outbound";
   body: string | null;
@@ -266,17 +284,37 @@ export async function touchConversationSession(input: {
   userId?: string;
   currentIntent?: string | null;
   state?: Record<string, unknown>;
+  // The number this conversation is on (NULL = primary). Latest message wins; OMITTED leaves the
+  // existing value untouched on conflict (so callers that don't know the account don't clobber it).
+  phoneNumberId?: string | null;
+  // When true, phoneNumberId is applied only if this is a brand-new session; an existing
+  // conversation's number is preserved. Outbound broadcast/template sends use this so a blast never
+  // reclassifies ("flips") a person's helpline conversation onto the broadcast number — only inbound
+  // messages define where a conversation lives. New (reply-less) recipients are still tagged.
+  phoneNumberIdOnlyIfNew?: boolean;
 }) {
-  const { error } = await getSupabaseAdmin().from("conversation_sessions").upsert(
-    {
-      phone_e164: input.phoneE164,
-      user_id: input.userId,
-      current_intent: input.currentIntent ?? null,
-      state: input.state ?? {},
-      last_message_at: new Date().toISOString(),
-    },
-    { onConflict: "phone_e164" },
-  );
+  const supabase = getSupabaseAdmin();
+
+  let phoneNumberId = input.phoneNumberId;
+  if (input.phoneNumberIdOnlyIfNew && phoneNumberId !== undefined) {
+    const { data: existing } = await supabase
+      .from("conversation_sessions")
+      .select("id")
+      .eq("phone_e164", input.phoneE164)
+      .maybeSingle();
+    if (existing) phoneNumberId = undefined; // preserve the existing conversation's number
+  }
+
+  const row: Record<string, unknown> = {
+    phone_e164: input.phoneE164,
+    user_id: input.userId,
+    current_intent: input.currentIntent ?? null,
+    state: input.state ?? {},
+    last_message_at: new Date().toISOString(),
+  };
+  if (phoneNumberId !== undefined) row.phone_number_id = phoneNumberId;
+
+  const { error } = await supabase.from("conversation_sessions").upsert(row, { onConflict: "phone_e164" });
 
   if (error) {
     throw error;

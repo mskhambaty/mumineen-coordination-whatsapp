@@ -1,4 +1,5 @@
-import { ARABIC_RE, type LisanLookup } from "@/lib/knowledge/lisan-words";
+import { optionalEnv } from "@/lib/env";
+import { ARABIC_RE, type LisanLookup, type ReverseLisanLookup } from "@/lib/knowledge/lisan-words";
 import { isOverviewQuery, parseMajlisRef } from "@/lib/knowledge/religious-topics";
 
 // ─── Fixed reply strings (verbatim, named constants) ─────────────────────────────────────────
@@ -7,6 +8,67 @@ export const NOT_FOUND_REPLY =
 
 export const THIS_YEAR_OFFER_LAST =
   "This year's reflections (Ashara Mubaraka 1448H) aren't published yet. Would you like last year's (1447H) reflection on this instead?";
+
+// ─── On-call Istibsaar suggestion ─────────────────────────────────────────────────────────────
+// When the bot can't answer a deen question, or after a member has gone several rounds on religious
+// topics, point them to the on-call Istibsaar (login with ITS). Deterministic append — the codebase
+// never lets the model improvise religious replies. Personal rulings are excluded (Aamil Saheb only).
+export const ISTIBSAAR_ONCALL_URL =
+  optionalEnv("ISTIBSAAR_ONCALL_URL")?.trim() || "https://www.talabulilm.com/istibsaar/oncall";
+export const ON_CALL_SUGGESTION =
+  `For a more detailed answer, you can ask your question on the on-call Istibsaar — sign in with your ITS: ${ISTIBSAAR_ONCALL_URL}`;
+const ON_CALL_AFTER_INBOUND = 3;
+
+// Append the suggestion to a religious reply. `force` = always (the can't-answer dead-ends); otherwise
+// only after >= ON_CALL_AFTER_INBOUND inbound messages (the "deep engagement" trigger). Deduped with
+// no new state: skip if a recent outbound in the loaded history already suggested it.
+export function appendOnCallSuggestion(
+  reply: string,
+  history: { direction: string; body: string | null }[],
+  opts: { force: boolean },
+): string {
+  if (history.some((m) => m.direction === "outbound" && (m.body ?? "").includes(ISTIBSAAR_ONCALL_URL))) return reply;
+  if (!opts.force && history.filter((m) => m.direction === "inbound").length < ON_CALL_AFTER_INBOUND) return reply;
+  return `${reply}\n\n${ON_CALL_SUGGESTION}`;
+}
+
+// ─── Reverse dictionary pre-route (English → Lisan word) ─────────────────────────────────────
+// Detect an explicit "what is the Lisan word for X" / "what is X in lisan ud dawat" ask and return
+// the English term to reverse-look-up. Deliberately requires the literal "lisan … word for" / "in
+// lisan" phrasing so it never swallows a forward "what does X mean" lookup (handled below).
+const LISAN_UD_DAWAT = String.raw`lisan(?:\s*[-']?\s*(?:ud|ul|e)\s*[-']?\s*dawat)?`;
+
+export function maybeReverseWordQuery(message: string): { english: string } | null {
+  const m = message.trim();
+  if (!m) return null;
+
+  // "(what is the) lisan (ud dawat) word for/of X"
+  let mm = m.match(new RegExp(String.raw`\b${LISAN_UD_DAWAT}\s+word\s+(?:for|of)\s+["']?([a-z][a-z'’\s-]{1,40}?)["']?\s*[?.!]*$`, "i"));
+  if (mm) return { english: cleanEnglishTerm(mm[1]) };
+
+  // "what is X in lisan (ud dawat)" / "X in lisan ud dawat" / "how do you/we/i say X in lisan"
+  mm = m.match(new RegExp(String.raw`^(?:what(?:'?s| is)\s+(?:the\s+)?|how\s+(?:do\s+(?:you|we|i|u)\s+|to\s+)say\s+)?["']?([a-z][a-z'’\s-]{1,40}?)["']?\s+in\s+${LISAN_UD_DAWAT}\s*[?.!]*$`, "i"));
+  if (mm) return { english: cleanEnglishTerm(mm[1]) };
+
+  return null;
+}
+
+function cleanEnglishTerm(s: string): string {
+  return s.trim().toLowerCase().replace(/^(?:the|a|an)\s+/i, "").replace(/["'’?.!,]+$/g, "").trim();
+}
+
+// Render a reverse lookup deterministically (WhatsApp markup). Source line only on a real hit.
+export function renderReverseLisanReply(query: string, lookup: ReverseLisanLookup): string {
+  if (lookup.status === "ok" && lookup.matches.length) {
+    const lines = lookup.matches.slice(0, 3).map((e) =>
+      `*${e.transliteration ?? ""}*${e.lisan ? ` (_${e.lisan}_)` : ""}${e.meaning ? ` — ${e.meaning}` : ""}`.trim(),
+    );
+    const head =
+      lines.length > 1 ? `Lisan ud Dawat words for *${query}*:` : `The Lisan ud Dawat word for *${query}* is:`;
+    return `${head}\n${lines.join("\n")}\n\nSource: Lisan ud Dawat dictionary`;
+  }
+  return `I don't have a Lisan ud Dawat word for *${query}* in the dictionary. If you share a sentence or more context, the team can help.`;
+}
 
 // ─── Single-word dictionary pre-route detection ──────────────────────────────────────────────
 // Returns the word to look up, plus whether a not-found should still be answered deterministically
@@ -100,12 +162,67 @@ export function isAffirmative(message: string): boolean {
 // NOTE: "ashara" (the event name) is intentionally NOT a religious signal — it appears in
 // almost every logistics question (e.g. "my Ashara raza got transferred"), so it was wrongly
 // routing registration/account questions to the religious-only path. Keep "aashura" (the day).
+// "allah" is matched as a whole word, so it never fires inside inshallah / mashallah / alhamdolillah
+// (no word boundary there); those bare blessings are already handled by isClearlySocial first. Core
+// figures/terms (allah, rasul, nabi, sahaba, ghulam, sadaqa) were missing, so a clearly-religious
+// question that used none of the other keywords (e.g. "what happened when a man gave only Allah as his
+// guarantor for a camel") carried NO signal — it bypassed the force-tool rule AND the no-tool refusal,
+// and the model answered from memory with a fabricated Majlis source.
 const RELIGIOUS_SIGNAL_RE =
-  /\b(waaz|wa'?az|bayan|sermon|majlis|majalis|aashura|muharram|moharram|tazyeen|reflection|iqtibas|al[\s-]?dars|duroos|lisan|imam|husain|hussain|hasan|fatema|fatima|karbala|shahadat|shahaadat|maula|aqa|dai|du'?aat|nas|mansoos|deen|namaz|namaaz|roza|matam|maatam|ziyarat|sajda|quran|qur'?an|hadith|ayat|surah|aqaid|shariat|tariqat|haqiqat)\b/i;
+  /\b(waaz|wa'?az|bayan|sermon|majlis|majalis|aashura|muharram|moharram|tazyeen|reflection|iqtibas|al[\s-]?dars|duroos|lisan|allah|rasul|rasool|nabi|sahaba|sahabi|ghulam|sadaqa|sadqa|imam|husain|hussain|hasan|fatema|fatima|karbala|shahadat|shahaadat|maula|aqa|dai|du'?aat|nas|mansoos|deen|namaz|namaaz|roza|matam|maatam|ziyarat|sajda|quran|qur'?an|hadith|ayat|surah|aqaid|shariat|tariqat|haqiqat)\b/i;
 
 export function hasReligiousSignal(message: string): boolean {
   if (RELIGIOUS_SIGNAL_RE.test(message)) return true;
   return parseMajlisRef(message) != null || isOverviewQuery(message);
+}
+
+// A factual "who/what is X" lookup about a person, place, or term — e.g. "who was Abu Sufyan",
+// "what was Imam Mansoor known for", "tell me about al-Mahdiyya". The religious bot must answer these
+// ONLY from the indexed reflections — never from the model's own general knowledge — so the caller
+// routes them through answer_religious_questions (or an honest not-found), not a free answer.
+// EXCLUDES self/meta ("who are you", "what is this", "what is the time/schedule"); the caller also
+// gates this with looksLogistics so a logistics "who/what" (get_site_content_faq) isn't swallowed.
+export function looksLikeFactualLookup(message: string): boolean {
+  const t = ` ${message.trim().toLowerCase()} `;
+  return (
+    /\b(who|what)\s+(was|is|were|are)\s+(?!you\b|u\b|this\b|that\b|it\b|i\b|we\b|my\b|our\b|the\s+(?:time|schedule|timing)\b)\S/.test(t) ||
+    /\btell me about\b/.test(t) ||
+    /\b\w+\s+kon\s+(?:hata|hta|hto|che|chha|cha|hati|hai)\b/.test(t) || // Lisan "X kon hata" (who was X)
+    /\b\w+\s+kaun\s+(?:tha|the|hai|hain)\b/.test(t) // Urdu "X kaun tha"
+  );
+}
+
+// An interrogative question about a religious subject — "how/why/what/when/where did Imam Hasan AS …",
+// "tell me about …", "explain …". Used to FORCE the religious tool so the search always runs (the
+// model otherwise decided case-by-case under tool_choice "auto", so the SAME question answered once
+// then returned "not found" the next time — it had simply skipped the search). `looksLikeFactualLookup`
+// only covered "who/what was X"; this also covers "how/why did X …", which is how members actually ask.
+// Religious subject is detected by either a content keyword (hasReligiousSignal) OR an Islamic honorific
+// (AS / SAW / RA / TUS / QR, matched case-sensitively so the English word "as" never triggers it) — the
+// latter recognises name-only questions like "why did Maulana Ali AS stop at Siffin" that carry no
+// keyword. The caller still excludes logistics / own-RSVP / social messages.
+const INTERROGATIVE_RE = /\b(how|why|who|whose|whats?|what'?s|when|where|which|did|does|tell me about|explain|describe)\b/i;
+const HONORIFIC_RE = /\b(AS|SAW|SA|RA|TUS|QR|AQ)\b/; // case-sensitive: Islamic honorifics (not "as")
+export function looksLikeReligiousQuestion(message: string): boolean {
+  if (!INTERROGATIVE_RE.test(message)) return false;
+  return hasReligiousSignal(message) || HONORIFIC_RE.test(message);
+}
+
+// ─── Own-attendance / meal-RSVP intent (A1 routing guard) ────────────────────────────────────
+// A possessive/attendance question — even when it names a Moharram day (each day is BOTH a jaman
+// event and a majlis) — is a meal-RSVP question, NOT religious content. Used to (a) steer the model
+// to the RSVP tool, and (b) make sure a mis-routed RSVP question never gets the religious-only
+// "I answer only from published reflections" not-found reply. Eval case: "What is my RSVP for 4th
+// Moharram" was answered with a religious not-found.
+const OWN_RSVP_RE =
+  /\b(?:my|our|mera|meri|hamara|hamari|amaro|amari)\b[^.?!\n]{0,32}\b(?:rsvp|attend(?:ing|ance|ed)?|sign(?:ed)?\s*up|registrat\w*|registered|coming|down\s+for)\b/i;
+const OWN_RSVP_PHRASE_RE =
+  /\b(?:what(?:'?s| is| did i)\s+(?:my|our)\s+rsvp|did\s+(?:i|we)\s+(?:sign\s*up|register|rsvp)|are\s+we\s+(?:attending|coming|down\s+for)|am\s+i\s+attending|change\s+(?:my|our)\s+rsvp)\b/i;
+
+export function looksLikeOwnRsvpIntent(message: string): boolean {
+  const m = message.trim();
+  if (!m) return false;
+  return OWN_RSVP_RE.test(m) || OWN_RSVP_PHRASE_RE.test(m);
 }
 
 // ─── Clearly-social messages (greeting / thanks / dua / chant / bare affirmation) → pass ─────

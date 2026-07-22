@@ -2,16 +2,18 @@ import type OpenAI from "openai";
 
 import { canUseTool, canUseTaskToolForCaller, publicTools, taskReadTools, taskWriteTools, taskCreateTools, leadershipTools, type AppUser } from "@/lib/permissions";
 import { retrieveReligiousContext, retrieveSiteContext, RELIGIOUS_FALLBACK_MIN_SCORE } from "@/lib/scraper/retrieve-site-context";
-import { lookupLisanWord } from "@/lib/knowledge/lisan-words";
+import { lookupEnglishMeaning, lookupLisanWord } from "@/lib/knowledge/lisan-words";
 import { recordMissingLisanWord } from "@/lib/knowledge/lisan-word-requests";
 import { maybeSingleWordQuery } from "@/lib/agent/religious-guard";
-import { ACTIVE_ASHARA_YEAR, LAST_COMPLETED_ASHARA_YEAR, resolveAsharaYear } from "@/lib/knowledge/ashara-config";
+import { ACTIVE_ASHARA_YEAR, ASHARA_ROWS, LAST_COMPLETED_ASHARA_YEAR, majlisRowForToday, resolveAsharaYear } from "@/lib/knowledge/ashara-config";
 import {
   availableFacets,
   findMajlisForRef,
   getOverviewBlock,
   isDeepQuery,
   isOverviewQuery,
+  isSummaryQuery,
+  latestPublishedReflection,
   listMajlisThemes,
   parseMajlisRef,
 } from "@/lib/knowledge/religious-topics";
@@ -95,13 +97,20 @@ export const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "get_lisan_word_meaning",
       description:
-        "Look up the meaning of a single Lisan ud Dawat word in the official dictionary (exact lookup). Use this whenever a user asks what a Lisan ud Dawat / Lisaan ud Dawat word means, or how to say a word. Returns the exact entry, or close 'did you mean' suggestions if the word isn't found exactly. NEVER answer a word's meaning from general knowledge.",
+        "Two-way Lisan ud Dawat dictionary lookup. DEFAULT (direction 'to_english'): the user gives a Lisan ud Dawat word and wants its English meaning — returns the exact entry or close 'did you mean' suggestions. REVERSE (direction 'to_lisan'): the user asks for the Lisan ud Dawat WORD for an English term (e.g. 'what is the lisan word for brain', 'how do you say patience in lisan') — pass the English term in `word` and set direction 'to_lisan'. NEVER answer a word's meaning from general knowledge.",
       parameters: {
         type: "object",
         properties: {
           word: {
             type: "string",
-            description: "The single word to look up, as the user typed it (Roman transliteration or Lisan script).",
+            description:
+              "The term to look up: for 'to_english', the Lisan word as typed (Roman or Lisan script); for 'to_lisan', the English word the user wants the Lisan term for.",
+          },
+          direction: {
+            type: "string",
+            enum: ["to_english", "to_lisan"],
+            description:
+              "'to_english' (default) = Lisan word → English meaning. 'to_lisan' = English word → Lisan ud Dawat word.",
           },
         },
         required: ["word"],
@@ -162,7 +171,7 @@ export const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "move_to_escalation",
       description:
-        "Hand the conversation to the human team and create an issue for tracking. TWO uses: (1) LAST RESORT for logistics — only after you genuinely tried get_site_content_faq and still cannot, or the user is clearly frustrated after you tried, or an emergency (lost child, lost passport, medical, security); never escalate just because someone asks for a person early on. (2) RELIGIOUS FOLLOW-UP — a genuine Waaz/deen question the reflections can't answer, or a personal fiqh/fatwa question: call with category 'religious_followup' so the team can follow up (the system sends a fixed reply; do not add your own). This also creates an issue, workspace task, and notifies the department team.",
+        "Hand the conversation to the human team (on-call) for follow-up. This by itself does NOT create a tracked issue — a single person's request being escalated is not an issue. TWO uses: (1) LAST RESORT for logistics — only after you genuinely tried get_site_content_faq and still cannot, or the user is clearly frustrated after you tried, or an emergency (lost child, lost passport, medical, security); never escalate just because someone asks for a person early on. (2) RELIGIOUS FOLLOW-UP — a genuine Waaz/deen question the reflections can't answer, or a personal fiqh/fatwa question: call with category 'religious_followup' (the system sends a fixed reply; do not add your own). Set requires_department_coordination=true ONLY when the problem is an actionable issue a DEPARTMENT must coordinate to fix (see that field) — that is what creates a tracked issue, workspace task, and department notification.",
       parameters: {
         type: "object",
         properties: {
@@ -205,8 +214,13 @@ export const allToolDefinitions: ToolDefinition[] = [
             description:
               "Name of the department that should handle this. ALWAYS pick the best match from the Available Departments list. Required for issue routing and notifications.",
           },
+          requires_department_coordination: {
+            type: "boolean",
+            description:
+              "Whether this needs a tracked ISSUE for a department to coordinate a fix. Set TRUE only for an actionable PROBLEM a department must act on — something broken, missing, unsafe, or not working (e.g. shuttle not running, AC out, water spill, supplies missing, a facility/safety problem). Set FALSE for an individual request, a question, an info/registration/parking-pass ask, a religious_followup, or a plain 'talk to a person' hand-off — those are handled in the conversation or by the on-call team and must NOT create an issue.",
+          },
         },
-        required: ["reason", "priority", "category", "title", "department"],
+        required: ["reason", "priority", "category", "title", "department", "requires_department_coordination"],
         additionalProperties: false,
       },
     },
@@ -241,7 +255,7 @@ export const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "get_family_meal_rsvps",
       description:
-        "Get the caller's family's current jaman (meal) Niyaz RSVP for Ashara — every event (Pehli Raat, lunch thaals, dinners) with how many of the family are currently down as attending vs. their family size. Each grid row includes `adults` and `kids` (the attending counts, split by age), `attending` (total) and `total` (family size), plus a `dateLabel` (e.g. \"Mon, Jun 15\") with the weekday already worked out — use the adults/kids breakdown and the dateLabel verbatim when reading the RSVP back to the user. The response also includes `familyMembers` — an array of {name, isAdult, isHead, notAttending} for each roster-active member. Use this to list names when the user claims more people than the family has. RSVP is pre-set for everyone from their arrival date, so use this to show what's already on file before changing it. RSVP is tracked for the whole family. If the caller isn't linked to a registered family, status will be 'unregistered' with any existing unregistered RSVPs in `rsvps`.",
+        "Get the caller's family's current jaman (meal) Niyaz RSVP for Ashara, organised per DAY. The response has a `days` array — one entry per Gregorian day (today→Ashura), each with `date` (YYYY-MM-DD), `title` (the day's name, e.g. \"1st Moharram ul Haram\"), `dateLabel` (e.g. \"Mon, Jun 15\", weekday already worked out — use verbatim), and `lunch`/`dinner` columns. Each meal column is either an object `{attending, total}` (attending count vs family size) or null when that meal isn't served that day (Pehli Raat and Ashura are dinner-only). Each day also has `closed` (boolean) and `closedLabel` — when `closed` is true the day's RSVP cutoff has passed and it can no longer be changed; note it as closed and don't offer to change that day. Read the RSVP back to the user one line PER DAY using the title, dateLabel, and a single attending count per served meal. The response also includes `familyMembers` — an array of {name, isAdult, isHead, notAttending} for each roster-active member; use it to list names when the user claims more people than the family has. RSVP is pre-set for everyone from their arrival date, so use this to show what's already on file before changing it. RSVP is tracked for the whole family. If the caller isn't linked to a registered family, status will be 'unregistered' with the per-day jaman list in `events` and any existing unregistered RSVPs in `rsvps`.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
@@ -250,7 +264,7 @@ export const allToolDefinitions: ToolDefinition[] = [
     function: {
       name: "set_family_meal_rsvps",
       description:
-        "Update the caller's family's jaman (meal) Niyaz RSVP. Attendance is already pre-set for everyone from their arrival date, so use this mainly to record CHANGES — most often when the family says they will NOT attend on some day(s). Each entry marks the family attending (true) or not (false) for specific dates, or for ALL days (omit dates or set all=true), optionally narrowed to one meal. The change applies to the WHOLE family. Always confirm back to the user. For PARTIAL attendance (e.g. 'only 1 adult on the 21st'), pass adults and/or kids with the entries — the system keeps the head of family attending first, then other adults, then kids, and marks the rest not-attending for those events. For unregistered callers (status 'unregistered'), adults/kids/its_number record their count. NEVER pass adults/kids higher than the family size — if you do, the system caps the count at the family size and returns a `clamped` object ({requestedAdults, requestedKids, maxAdults, maxKids, message}); when present you MUST tell the user the RSVP was capped at their registered family and the extra people must message this number from their own phones to register separately. Examples: 'we won't be there on the 16th' -> {attending:false, dates:['2026-06-16']}; 'skip all the dinners' -> {attending:false, meal:'dinner', all:true}; 'only 1 adult for dinner on the 21st' -> {entries:[{attending:true, dates:['2026-06-21'], meal:'dinner'}], adults:1, kids:0}.",
+        "Update the caller's family's jaman (meal) Niyaz RSVP. Attendance is already pre-set for everyone from their arrival date, so use this mainly to record CHANGES — most often when the family says they will NOT attend on some day(s). To target a change, COPY the `date` of the relevant day row from get_family_meal_rsvps verbatim into the entry's `dates` and set `meal` to the column the user means (lunch/dinner) — each (date, meal) is exactly one jaman, so this never mis-targets. Omit dates (or set all=true) to apply to every day. The change applies to the WHOLE family. Always confirm back to the user. For PARTIAL attendance (e.g. 'only 1 adult on the 21st'), pass adults and/or kids with the entries — the system keeps the head of family attending first, then other adults, then kids, and marks the rest not-attending for those events. For unregistered callers (status 'unregistered'), adults/kids/its_number record their count. NEVER pass adults/kids higher than the family size — if you do, the system caps the count at the family size and returns a `clamped` object ({requestedAdults, requestedKids, maxAdults, maxKids, message}); when present you MUST tell the user the RSVP was capped at their registered family and the extra people must message this number from their own phones to register separately. Examples: 'we won't be there on the 16th' -> {attending:false, dates:['2026-06-16']}; 'skip all the dinners' -> {attending:false, meal:'dinner', all:true}; 'only 1 adult for dinner on the 21st' -> {entries:[{attending:true, dates:['2026-06-21'], meal:'dinner'}], adults:1, kids:0}. RSVP CLOSES PER DAY: a day past its cutoff is locked — that day's change is NOT applied and the response returns a `blocked` array ({title, date, endLabel}). When `blocked` is present you MUST tell the user RSVP for that day has closed (cite title + endLabel) so it couldn't be changed; days not in `blocked` were applied.",
       parameters: {
         type: "object",
         properties: {
@@ -261,30 +275,40 @@ export const allToolDefinitions: ToolDefinition[] = [
               type: "object",
               properties: {
                 attending: { type: "boolean", description: "true if the family will attend, false if not." },
-                titles: {
-                  type: "array",
-                  items: { type: "string", description: "An event title copied EXACTLY from the grid/events list, e.g. 'Pehli Raat', '2nd Moharram ul Haram', 'Ashura'." },
-                  description: "PREFERRED way to target a named event. Copy the title verbatim from get_family_meal_rsvps — the server resolves it to the correct date, so you never guess. A title like '2nd Moharram ul Haram' exists as BOTH a lunch and a dinner on different days, so ALWAYS pair titles with `meal`.",
-                },
                 dates: {
                   type: "array",
-                  items: { type: "string", description: "A date in YYYY-MM-DD." },
-                  description: "Specific days to apply to, ONLY when the user gave an explicit calendar date. For named events (Pehli Raat, Nth Moharram, Ashura) use `titles` instead — never translate a name to a date yourself. Omit (or set all=true) to apply to every day.",
+                  items: { type: "string", description: "A date in YYYY-MM-DD, copied verbatim from a day row's `date` in get_family_meal_rsvps." },
+                  description: "PREFERRED way to target days. Copy the `date` of the relevant day row from get_family_meal_rsvps verbatim — NEVER work out a date yourself from a jaman's name. Pair with `meal` to hit a specific meal that day. Omit (or set all=true) to apply to every day.",
                 },
-                meal: { type: "string", enum: ["lunch", "dinner"], description: "Narrow to one meal; omit to apply to every event on the day(s). Required when using `titles` to disambiguate lunch vs dinner." },
+                titles: {
+                  type: "array",
+                  items: { type: "string", description: "An event title, e.g. 'Pehli Raat', '2nd Moharram ul Haram', 'Ashura'." },
+                  description: "Legacy/fallback selector — prefer `dates`+`meal` copied from the day row. The server resolves a title to its date; a title like '2nd Moharram ul Haram' exists as BOTH a lunch and a dinner on different days, so ALWAYS pair titles with `meal`.",
+                },
+                meal: { type: "string", enum: ["lunch", "dinner"], description: "Narrow to one meal; omit to apply to every meal on the day(s). Pair with `dates` (or `titles`) to target a specific lunch or dinner." },
                 all: { type: "boolean", description: "Set true to apply to every day (same as omitting dates)." },
               },
               required: ["attending"],
               additionalProperties: false,
             },
           },
-          adults: { type: "number", description: "Number of adults attending. For registered families, triggers partial attendance (only this many adults attend; head of family kept first). For unregistered callers, records their head count." },
-          kids: { type: "number", description: "Number of kids attending. For registered families, triggers partial attendance (only this many kids attend). For unregistered callers, records their head count." },
+          total: { type: "number", description: "PREFERRED for a bare head count with no adult/kid split (e.g. 'change to 5 for dinner', '5 of us are coming'). The system fills that many attendees in priority order — head of family first, then other adults, then kids — and caps at the registered family size. Use this instead of guessing adults vs kids; only use adults/kids when the user explicitly states the split or which members attend." },
+          adults: { type: "number", description: "Number of ADULTS attending — use ONLY when the user explicitly gives an adult/kid split (e.g. '2 adults and 1 kid') or names which members. Do NOT put a bare total here — use `total`. Head of family kept first. For unregistered callers, records their head count." },
+          kids: { type: "number", description: "Number of KIDS attending — use ONLY alongside `adults` when the user explicitly states the split. For unregistered callers, records their head count." },
           its_number: { type: "string", description: "ITS number (optional, for unregistered callers to help match to a family later)." },
         },
         required: ["entries"],
         additionalProperties: false,
       },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_family_parking_passes",
+      description:
+        "Look up the parking pass(es) allocated to the CALLER'S OWN family for Ashara. Identified by the caller's WhatsApp number — it ONLY ever returns the caller's own family's passes, so use it solely for the person you're chatting with or their family, never to look up anyone else. Returns each pass's lot name and color, the entry point for that color (plus the special purpose for gold = wheelchair support and green = khidmat guzaar early-access), general access (southbound Route 83 / Kingery Hwy), and the rideshare drop-off (Wat Buddha Damma Meditation Center). status 'ok' with passes; 'no_passes' if the family has none; 'unregistered' if the number isn't linked to a registered family. For 'no_passes'/'unregistered', ask whether they need a pass and escalate to Transport. The DB has no collection status, so ASK the user whether they've already collected their pass. Takes no arguments.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
   // --- Task Management Tools ---
@@ -720,12 +744,21 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       const today = new Date().toISOString().slice(0, 10);
       // Resolve "this year / today / last year / 1447" to a concrete event year. cue "none" → null.
       const yr = resolveAsharaYear(query, today);
+      // F1: an UNqualified query (cue "none") must NOT search across years (which let last year's
+      // 1447 content answer current questions — the cross-year "hallucination"). Default to the
+      // active Ashara once it has started, else the last completed one. The offer_last fallbacks
+      // below then turn "no active-year match" into "1448 isn't posted — want 1447?".
+      const defaultYear = yr.activeStarted ? ACTIVE_ASHARA_YEAR : LAST_COMPLETED_ASHARA_YEAR;
       const renderHits = (hits: { title: string; content: string; source_url: string | null; theme?: string | null }[]) =>
         hits.map((t) => `[${t.title}${t.source_url ? ` — Source: ${t.source_url}` : ""}]\n${t.theme ? `Theme: ${t.theme}\n` : ""}${t.content}`).join("\n\n---\n\n");
       const yearFromContext = (s: string): string | null => {
         const m = s.match(/Ashara\s+(14\d\d)\s*H/i);
         return m ? m[1] : null;
       };
+      // A "summary/recap" ask gets the fuller summary style; an explicit "go deeper" gets deep;
+      // otherwise the short brief.
+      const styleFor = (q: string): "summary" | "deep" | "brief" =>
+        isSummaryQuery(q) ? "summary" : isDeepQuery(q) ? "deep" : "brief";
 
       // Decision contract (consumed deterministically by runAgent — the model only narrates an
       // "answer"): { decision: "answer", year, context, ... } | { decision: "offer_last" } |
@@ -737,25 +770,60 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       const wordAsk = maybeSingleWordQuery(query);
       if (wordAsk?.forceAnswer) return { decision: "word_lookup", word: wordAsk.word };
 
+      // 0.5 "today / aaj / tonight" (and "yesterday") → resolve to the day's majlis deterministically
+      // (not a vector guess that returns a random earlier majlis). Detect the word DIRECTLY, not via
+      // resolveAsharaYear's cue: the model usually appends the year ("today's waaz Ashara 1448H"),
+      // which makes the cue "explicit" and would otherwise skip this. Only during the active Ashara,
+      // and only when no OTHER (non-active) year was explicitly named. If today's majlis isn't posted
+      // yet, lead with a notice + the most recent PUBLISHED majlis (same year — never 1447).
+      const mentionsToday = /\b(today|todays|today'?s|tonight|aaj|aaj\s*no)\b/i.test(query);
+      const isYesterday = /\b(yesterday|yesterdays|yesterday'?s|kal)\b|gai\s*kaal/i.test(query);
+      const todayYearOk = !yr.year || yr.year === ACTIVE_ASHARA_YEAR; // "today's waaz 1447" → not today
+      if ((mentionsToday || isYesterday) && yr.activeStarted && todayYearOk) {
+        const idx = majlisRowForToday(ACTIVE_ASHARA_YEAR, today);
+        const targetIdx = idx == null ? null : idx - (isYesterday ? 1 : 0);
+        if (targetIdx != null && targetIdx >= 0 && targetIdx < ASHARA_ROWS.length) {
+          const row = ASHARA_ROWS[targetIdx];
+          const tref = { lailat: row.isAshura, majlisNum: row.majlisNumber, wantsTazyeen: false, wantsDars: false, wantsCategory: null as null, year: ACTIVE_ASHARA_YEAR };
+          const hits = await findMajlisForRef(tref);
+          if (hits.length) {
+            return {
+              status: "ok", decision: "answer", source: "religious_topic_exact",
+              answer_style: styleFor(query), year: ACTIVE_ASHARA_YEAR,
+              available_facets: await availableFacets(tref), context: renderHits(hits),
+            };
+          }
+          // Today's majlis not posted yet → lead with a notice + the latest published majlis (same year).
+          if (!isYesterday) {
+            const latest = await latestPublishedReflection(ACTIVE_ASHARA_YEAR);
+            const notice = `Today's waaz (${row.label}, Ashara ${ACTIVE_ASHARA_YEAR}H) isn't posted yet — reflections go up after the majlis.`;
+            if (latest) {
+              return {
+                status: "ok", decision: "answer", source: "religious_topic_exact",
+                answer_style: styleFor(query), year: ACTIVE_ASHARA_YEAR,
+                notice: `${notice} Here's the most recent one:`, context: renderHits([latest]),
+              };
+            }
+            return { decision: "not_found", notice };
+          }
+        }
+      }
+
       // 1. Specific majlis ("Majlis 2", "second waaz", "4th Muharram") → exact indexed block(s).
       const ref = parseMajlisRef(query);
       if (ref) {
-        const targetYear = yr.year ?? ref.year ?? null;
+        const targetYear = yr.year ?? ref.year ?? defaultYear;
         const hits = await findMajlisForRef({ ...ref, year: targetYear });
         if (hits.length) {
           const hitYear = hits[0].year_hijri ?? targetYear ?? null;
           const facets = await availableFacets({ ...ref, year: hitYear });
           return {
             status: "ok", decision: "answer", source: "religious_topic_exact",
-            answer_style: isDeepQuery(query) ? "deep" : "brief",
+            answer_style: styleFor(query),
             year: hitYear, available_facets: facets, context: renderHits(hits),
           };
         }
-        // Explicitly asked for the active (unpublished) year, but last year has it → offer.
-        if (targetYear === ACTIVE_ASHARA_YEAR) {
-          const altHits = await findMajlisForRef({ ...ref, year: LAST_COMPLETED_ASHARA_YEAR });
-          if (altHits.length) return { decision: "offer_last", year: LAST_COMPLETED_ASHARA_YEAR };
-        }
+        // Fix Y: never silently fall back to 1447 — only an explicit "1447 / last year" serves it.
         return { decision: "not_found" };
       }
 
@@ -769,36 +837,50 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
           if (themes.length) parts.push(`Majlis themes — Ashara ${y}H:\n` + themes.map((t) => `- ${t.majlisLabel}: ${t.theme}`).join("\n"));
           return parts.join("\n\n---\n\n");
         };
-        const year = yr.year ?? LAST_COMPLETED_ASHARA_YEAR;
+        const year = yr.year ?? defaultYear;
         const ctx = await overviewCtx(year);
         if (ctx) return { status: "ok", decision: "answer", source: "religious_overview", answer_style: "overview", year, context: ctx };
-        if (year === ACTIVE_ASHARA_YEAR) {
-          const altCtx = await overviewCtx(LAST_COMPLETED_ASHARA_YEAR);
-          if (altCtx) return { decision: "offer_last", year: LAST_COMPLETED_ASHARA_YEAR };
-        }
+        // Fix Y: no auto-1447 fallback.
         return { decision: "not_found" };
       }
 
       // 3. General religious question → YEAR-SCOPED, category-aware vector fallback. A 1448 query
       // is year-filtered to nothing (zero 1448 rows) so it can't relabel the embedded 1447 rows.
-      const decoration = /\b(tazyeen|tazeen|tazyin|decorat|sajawat|sajaawat|artwork|calligraph)\b/i.test(query);
-      const cats = decoration ? ["tazyeen"] : ["reflection", "al_dars", "overview"];
-      const targetYear = yr.year ?? null;
-      const ctx = await retrieveReligiousContext(query, 5, cats, targetYear, RELIGIOUS_FALLBACK_MIN_SCORE);
+      // Decoration / tazyeen intent — includes the motifs of this year's tazyeen (signet ring /
+      // khaatam / takht / masnad) so a question like "whose names are on the central ring" routes to
+      // the tazyeen block even without the literal word "tazyeen".
+      const decoration = /\b(tazyeen|tazeen|tazyin|decorat|sajawat|sajaawat|artwork|calligraph|signet|khaatam|khatam|rings?|takht|masnad)\b/i.test(query);
+      // 'faq' = the curated Q&A bucket; searched alongside the sermon sources so a member's question
+      // matches a vetted answer. For a decoration question, search tazyeen AND the Q&A bucket (the
+      // tazyeen content may live in either), never the sermon reflections.
+      const cats = decoration ? ["tazyeen", "faq"] : ["reflection", "al_dars", "overview", "faq"];
+      const targetYear = yr.year ?? defaultYear;
+      // F3: prefer the curated Q&A (faq) chunk — a vetted answer the weak model narrates verbatim —
+      // over raw reflection prose when both match, for consistent replies.
+      const ctx = await retrieveReligiousContext(query, 5, cats, targetYear, RELIGIOUS_FALLBACK_MIN_SCORE, "faq");
       if (ctx) {
+        const year = targetYear ?? yearFromContext(ctx);
+        // F2: derive the leading chunk's majlis+year so the follow-up only offers the al-Dars
+        // deep-dive / tazyeen when that facet actually exists (path 1 returns this; path 3 didn't).
+        const header = ctx.match(/^\[([^\]]+)\]/)?.[1] ?? "";
+        const facetYear = header.match(/Ashara\s+(14\d\d)\s*H/i)?.[1] ?? year ?? null;
+        const facetRef = parseMajlisRef(header);
+        const facets = facetRef && facetYear ? await availableFacets({ ...facetRef, year: facetYear }) : undefined;
         return {
           status: "ok", decision: "answer", source: "indexed_religious_content",
-          year: targetYear ?? yearFromContext(ctx), context: ctx,
+          answer_style: styleFor(query), year, available_facets: facets, context: ctx,
         };
       }
-      if (targetYear === ACTIVE_ASHARA_YEAR) {
-        const altCtx = await retrieveReligiousContext(query, 5, cats, LAST_COMPLETED_ASHARA_YEAR, RELIGIOUS_FALLBACK_MIN_SCORE);
-        if (altCtx) return { decision: "offer_last", year: LAST_COMPLETED_ASHARA_YEAR };
-      }
+      // Fix Y: never silently fall back to 1447 — only an explicit "1447 / last year" serves it.
       return { decision: "not_found" };
     }
     case "get_lisan_word_meaning": {
       const word = String(args.word ?? "");
+      // Reverse direction (English → Lisan word): a miss is not a dictionary gap (the query is an
+      // English word, not a Lisan one), so it is NOT queued for the team.
+      if (args.direction === "to_lisan") {
+        return await lookupEnglishMeaning(word);
+      }
       const lookup = await lookupLisanWord(word);
       // A genuine gap (not_found, not a "did you mean") → queue it + alert the owner once so the
       // word can be added. Fire-and-forget; never blocks or breaks the member's reply.
@@ -816,6 +898,7 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
           priority: args.priority,
           category: args.category,
           department: args.department,
+          requires_department_coordination: args.requires_department_coordination === true,
           source: "ai",
         },
       });
@@ -841,13 +924,17 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
       return flagKnowledgeGap(String(args.topic ?? "").trim(), args.question != null ? String(args.question) : null, context.phoneE164);
     case "get_family_meal_rsvps":
       return callInternalApi("/api/rsvp/meals", { phone: context.phoneE164 });
+    case "get_family_parking_passes":
+      return callInternalApi("/api/parking/my-passes", { phone: context.phoneE164 });
     case "set_family_meal_rsvps":
       return callInternalApi("/api/rsvp/meals", {
         method: "POST",
         phone: context.phoneE164,
         body: {
           entries: args.entries ?? [],
-          // Forward head-count + ITS for unregistered callers; the API ignores them for registered families.
+          // Forward head-count + ITS. `total` is a bare count (no adult/kid split); adults/kids are
+          // the explicit split. For unregistered callers these record the head count.
+          ...(args.total !== undefined ? { total: args.total } : {}),
           ...(args.adults !== undefined ? { adults: args.adults } : {}),
           ...(args.kids !== undefined ? { kids: args.kids } : {}),
           ...(args.its_number !== undefined ? { its_number: args.its_number } : {}),
@@ -947,6 +1034,26 @@ async function runTool(name: string, args: ToolInput, context: ToolContext) {
 function summarizeResult(result: unknown) {
   if (typeof result === "string") {
     return result.slice(0, 500);
+  }
+
+  // Religious answer results carry a `decision` + a (possibly large) `context`. Store a structured,
+  // VALID-JSON summary instead of a mid-string-truncated blob (the old slice(0,500) cut the JSON mid
+  // `context`, so evals couldn't parse `decision`/`source` and saw only the FIRST matched chunk —
+  // which made correct answers look wrong). `matched` keeps the titles / Q-headers of ALL retrieved
+  // top-K chunks (identifiers, not bodies, so it stays bounded). Religious content is not PII.
+  if (result && typeof result === "object" && "decision" in result) {
+    const r = result as { decision?: unknown; year?: unknown; source?: unknown; context?: unknown };
+    const matched: string[] = [];
+    if (typeof r.context === "string") {
+      for (const m of r.context.matchAll(/\[([^\]\n]{1,140})\]/g)) matched.push(`[${m[1].trim()}]`);
+      for (const m of r.context.matchAll(/^Q:\s*([^\n]{1,140})/gim)) matched.push(`Q: ${m[1].trim()}`);
+    }
+    return JSON.stringify({
+      decision: r.decision ?? null,
+      year: r.year ?? null,
+      source: r.source ?? null,
+      matched: matched.slice(0, 8),
+    });
   }
 
   return JSON.stringify(result).slice(0, 500);

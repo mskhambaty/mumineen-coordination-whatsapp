@@ -16,6 +16,7 @@ import { aggregateAllUpExtras, aggregateDepartments, type AllUpExtras, type Dept
 
 const WA_TEMPLATE = optionalEnv("DEPARTMENT_SUMMARY_WA_TEMPLATE") ?? "daily_department_issue_confirmation";
 const ALL_UP_LABEL = "All Departments";
+const MAX_ALL_UP_WA_CHARS = 900;
 
 export type DigestRunResult = { date: string; departments: number; emails: number; whatsapp: number; errors: string[] };
 
@@ -51,6 +52,54 @@ function textList(bullets: string[]): string {
 }
 function stripFences(s: string): string {
   return s.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+}
+
+function allUpIssueScore(m: DeptMetrics): number {
+  return m.open_tickets * 3 + m.issues * 2 + m.escalations;
+}
+
+function hasDepartmentIssues(m: DeptMetrics): boolean {
+  return m.open_tickets > 0 || m.issues > 0 || m.escalations > 0;
+}
+
+function allUpIssueLine(m: DeptMetrics): string {
+  const parts: string[] = [];
+  if (m.open_tickets > 0) parts.push(`${m.open_tickets} open`);
+  if (m.issues > 0) parts.push(`${m.issues} new`);
+  if (m.escalations > 0) parts.push(`${m.escalations} escalated`);
+  const top =
+    m.open_ticket_details.find((d) => d.title)?.title ??
+    m.new_issue_samples.find((i) => i.title)?.title ??
+    m.escalation_samples.find((s) => s)?.trim();
+  return `${m.department_name}: ${parts.join(", ")}${top ? ` — ${top}` : ""}`;
+}
+
+export function buildAllUpWhatsappSummary(baseShort: string, depts: DeptMetrics[], extras: AllUpExtras): string {
+  const headline = (baseShort || `${extras.total_open_tickets} open tickets across all departments.`).trim();
+  const issueDepts = depts.filter(hasDepartmentIssues).sort((a, b) => allUpIssueScore(b) - allUpIssueScore(a));
+  if (issueDepts.length === 0 && extras.untriaged_issues === 0) return headline.slice(0, MAX_ALL_UP_WA_CHARS);
+
+  // Trailing lines (untriaged + a possible overflow marker) are appended after the per-department
+  // lines, so the loop must RESERVE room for them — otherwise the final slice() truncates the
+  // marker that tells the reader some departments were omitted.
+  const untriagedLine = extras.untriaged_issues > 0 ? `- Untriaged agent issues: ${extras.untriaged_issues}` : null;
+
+  const lines = [headline, "Departments needing attention:"];
+  let hidden = 0;
+  for (let i = 0; i < issueDepts.length; i++) {
+    const candidate = `- ${allUpIssueLine(issueDepts[i])}`;
+    const remaining = issueDepts.length - i;
+    // Reserve space for the untriaged line and a worst-case marker for the still-unshown depts.
+    const reserved = [untriagedLine, `- +${remaining} more departments with issues`].filter(Boolean);
+    if ([...lines, candidate, ...reserved].join("\n").length > MAX_ALL_UP_WA_CHARS) {
+      hidden = remaining;
+      break;
+    }
+    lines.push(candidate);
+  }
+  if (untriagedLine) lines.push(untriagedLine);
+  if (hidden > 0) lines.push(`- +${hidden} more departments with issues`);
+  return lines.join("\n").slice(0, MAX_ALL_UP_WA_CHARS);
 }
 
 const DEPT_SYSTEM =
@@ -151,6 +200,7 @@ async function distribute(
   departmentLabel: string,
   s: Summary,
   counters: { emails: number; whatsapp: number; errors: string[] },
+  options?: { whatsappSummary?: string },
 ) {
   const feedbackHtml = htmlList(s.bullets);
   const feedbackText = textList(s.bullets);
@@ -173,7 +223,7 @@ async function distribute(
         phoneE164: r.phone_e164,
         userId: r.user_id,
         templateName: WA_TEMPLATE,
-        bodyParams: [departmentLabel, s.short || "See dashboard for today's summary."],
+        bodyParams: [departmentLabel, options?.whatsappSummary ?? s.short ?? "See dashboard for today's summary."],
         source: "department_digest",
       });
       if (res.status === "sent") counters.whatsapp++;
@@ -223,7 +273,8 @@ export async function runDepartmentDigest(date: string): Promise<DigestRunResult
     }
 
     await upsertSummary(null, date, allUpPayload, allUpSummary);
-    await distribute(await allUpRecipients(), ALL_UP_LABEL, allUpSummary, result);
+    const allUpWhatsappSummary = buildAllUpWhatsappSummary(allUpSummary.short, deptMetrics, extras);
+    await distribute(await allUpRecipients(), ALL_UP_LABEL, allUpSummary, result, { whatsappSummary: allUpWhatsappSummary });
   }
 
   const waFailCount = result.errors.filter((e) => e.startsWith("wa ")).length;

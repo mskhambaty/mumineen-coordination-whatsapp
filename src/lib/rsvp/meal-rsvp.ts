@@ -1,3 +1,4 @@
+import { getClosedEventDates, getEventConfigTitles, type ClosedDay } from "@/lib/rsvp/event-config";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 // Per-mumin Niyaz attendance over the `niyaz_rsvp` table: one row per (event, mumin), `attending`
@@ -16,6 +17,10 @@ export type NiyazEvent = {
   meal: Meal | null;
   servingType: string | null; // 'thaal' | 'packet'
   description: string | null;
+  // Manually-entered operational thaal numbers (null until staff fill them in): thaals ordered
+  // (wardi) vs thaals actually served. Distinct from the computed thaalCount estimate (ceil(yes/8)).
+  thaalWardiCount: number | null;
+  actualCount: number | null;
 };
 
 type RawEvent = {
@@ -26,6 +31,8 @@ type RawEvent = {
   meal: Meal | null;
   serving_type: string | null;
   description: string | null;
+  thaal_wardi_count: number | null;
+  actual_count: number | null;
 };
 const toEvent = (r: RawEvent): NiyazEvent => ({
   id: r.id,
@@ -35,13 +42,15 @@ const toEvent = (r: RawEvent): NiyazEvent => ({
   meal: r.meal,
   servingType: r.serving_type,
   description: r.description,
+  thaalWardiCount: r.thaal_wardi_count,
+  actualCount: r.actual_count,
 });
 
 // All Niyaz events (instances with an event_date), ordered by day then meal.
 export async function getEvents(): Promise<NiyazEvent[]> {
   const { data } = await getSupabaseAdmin()
     .from("rsvp_registration_instance")
-    .select("id, title, event_date, hijri_date, meal, serving_type, description")
+    .select("id, title, event_date, hijri_date, meal, serving_type, description, thaal_wardi_count, actual_count")
     .not("event_date", "is", null)
     .order("event_date", { ascending: true })
     .order("meal", { ascending: false });
@@ -83,6 +92,70 @@ export async function getFamilyNiyazGrid(familyId: string): Promise<FamilyGridRo
     const a = agg.get(event.id) ?? { yes: 0, adults: 0, kids: 0, total: 0 };
     return { event, attending: a.yes, adults: a.adults, kids: a.kids, total: a.total };
   });
+}
+
+// --- Per-day grouping (the family RSVP summary the bot reads back) ---
+
+export type DayMeal = { attending: number; total: number };
+// One Gregorian day of the Ashara jaman schedule, the unit the bot's RSVP summary is organised by
+// (matching the admin "Niyaz days" view). `title` is the DAY-level title (config first), NOT a
+// per-meal instance title; `lunch`/`dinner` are null when that meal isn't served that day.
+export type FamilyDayRow = {
+  date: string; // YYYY-MM-DD Gregorian calendar day
+  title: string;
+  hijriDate: string | null;
+  lunch: DayMeal | null;
+  dinner: DayMeal | null;
+};
+
+// Day skeleton (which meals are served + the day title) without any family counts. Pure — events and
+// the date→title map are passed in, so it's directly unit-testable. Title fallback order:
+// config day-title → lunch instance title → dinner instance title → the date itself. The night-shifted
+// dinner instance title is only a last resort; it is never used to TARGET a write.
+export type DaySkeleton = { date: string; title: string; hijriDate: string | null; lunch: boolean; dinner: boolean };
+export function groupEventsByDay(events: NiyazEvent[], titles: Map<string, string>): DaySkeleton[] {
+  const byDate = new Map<string, { lunch?: NiyazEvent; dinner?: NiyazEvent }>();
+  const order: string[] = [];
+  for (const ev of events) {
+    let day = byDate.get(ev.eventDate);
+    if (!day) {
+      day = {};
+      byDate.set(ev.eventDate, day);
+      order.push(ev.eventDate);
+    }
+    if (ev.meal === "lunch") day.lunch = ev;
+    else if (ev.meal === "dinner") day.dinner = ev;
+  }
+  order.sort();
+  return order.map((date) => {
+    const day = byDate.get(date)!;
+    // `||` (not `??`) so a blank instance title (toEvent maps null → "") falls through to the date.
+    const title = titles.get(date) || day.lunch?.title || day.dinner?.title || date;
+    const hijriDate = day.lunch?.hijriDate ?? day.dinner?.hijriDate ?? null;
+    return { date, title, hijriDate, lunch: Boolean(day.lunch), dinner: Boolean(day.dinner) };
+  });
+}
+
+// The caller's family RSVP organised per DAY: each day carries its title + a single attending count
+// for lunch and for dinner (or null when that meal isn't served). Built by overlaying the per-event
+// grid (getFamilyNiyazGrid — proven attending/total aggregation) onto the day skeleton.
+export async function getFamilyNiyazDays(familyId: string): Promise<FamilyDayRow[]> {
+  const [grid, titles] = await Promise.all([getFamilyNiyazGrid(familyId), getEventConfigTitles()]);
+  const byKey = new Map<string, FamilyGridRow>(); // `${date}|${meal}` → row
+  for (const row of grid) byKey.set(`${row.event.eventDate}|${row.event.meal}`, row);
+
+  const meal = (date: string, m: Meal): DayMeal | null => {
+    const row = byKey.get(`${date}|${m}`);
+    return row ? { attending: row.attending, total: row.total } : null;
+  };
+
+  return groupEventsByDay(grid.map((r) => r.event), titles).map((d) => ({
+    date: d.date,
+    title: d.title,
+    hijriDate: d.hijriDate,
+    lunch: d.lunch ? meal(d.date, "lunch") : null,
+    dinner: d.dinner ? meal(d.date, "dinner") : null,
+  }));
 }
 
 export type FamilyMember = {
@@ -141,17 +214,33 @@ const normTitle = (s: string): string => s.trim().toLowerCase();
 
 // When the caller asked for more attendees than the family has, `clamped` reports the cap that was
 // applied so the agent can tell the user the extras must register from their own phones.
-export type ClampNotice = { requestedAdults?: number; requestedKids?: number; maxAdults: number; maxKids: number };
-export type ApplyResult = { updated: number; grid: FamilyGridRow[]; clamped?: ClampNotice };
+// `requestedTotal`/`maxTotal` carry the single-number (head-count) case; adults/kids the split case.
+export type ClampNotice = {
+  requestedAdults?: number;
+  requestedKids?: number;
+  requestedTotal?: number;
+  maxAdults: number;
+  maxKids: number;
+  maxTotal: number;
+};
+export type ApplyResult = { updated: number; grid: FamilyGridRow[]; clamped?: ClampNotice; blocked?: BlockedDay[] };
 
 type RsvpTarget = { muminId: string; notAttending: boolean; isAdult: boolean; isHead: boolean };
 type ApplyOpts = { source: "whatsapp" | "admin"; phone?: string | null; recordedBy?: string | null; respectNotAttending?: boolean };
-type PartialCounts = { adults?: number; kids?: number };
+// Either an adults/kids split, or a single `total` head count (no split — fill in priority order).
+type PartialCounts = { adults?: number; kids?: number; total?: number };
 
 // Resolve entries → a per-event attending decision (last entry wins per event).
-function decideEvents(events: NiyazEvent[], entries: NiyazRsvpEntry[]): Map<string, boolean> {
+export function decideEvents(events: NiyazEvent[], entries: NiyazRsvpEntry[]): Map<string, boolean> {
   const decisions = new Map<string, boolean>();
   for (const entry of entries) {
+    // Guard the global-cascade footgun: an entry must name day(s)/title(s) OR opt in
+    // explicitly with all:true. An entry with no selector (and a bare meal counts as no
+    // selector) targets nothing — so a mis-scoped single-day change can never silently
+    // overwrite the whole Ashara. Global changes must be deliberate (all:true).
+    const hasDates = Boolean(entry.dates && entry.dates.length > 0);
+    const hasTitles = Boolean(entry.titles && entry.titles.length > 0);
+    if (!hasDates && !hasTitles && entry.all !== true) continue;
     const dateSet = entry.all || !entry.dates || entry.dates.length === 0 ? null : new Set(entry.dates);
     const titleSet = entry.all || !entry.titles || entry.titles.length === 0 ? null : new Set(entry.titles.map(normTitle));
     for (const ev of events) {
@@ -164,6 +253,34 @@ function decideEvents(events: NiyazEvent[], entries: NiyazRsvpEntry[]): Map<stri
   return decisions;
 }
 
+// A day whose RSVP cutoff has passed — reported back so the caller can tell the user their change
+// wasn't applied for it.
+export type BlockedDay = { date: string; title: string | null; endAt: string };
+
+// Split per-event decisions into those the cutoff still allows vs those whose DAY's RSVP has closed.
+// Pure (the closed-day map is passed in), so the cutoff clock stays in one testable place. A change
+// to a closed day is dropped from the write entirely — neither direction (yes or no) is recorded.
+export function partitionDecisionsByCutoff(
+  events: NiyazEvent[],
+  decisions: Map<string, boolean>,
+  closed: Map<string, ClosedDay>,
+): { allowed: Map<string, boolean>; blocked: BlockedDay[] } {
+  if (closed.size === 0) return { allowed: decisions, blocked: [] };
+  const byId = new Map(events.map((e) => [e.id, e] as const));
+  const allowed = new Map<string, boolean>();
+  const blocked = new Map<string, BlockedDay>();
+  for (const [id, attending] of decisions) {
+    const ev = byId.get(id);
+    const c = ev ? closed.get(ev.eventDate) : undefined;
+    if (ev && c) {
+      blocked.set(ev.eventDate, { date: ev.eventDate, title: c.title, endAt: c.endAt });
+    } else {
+      allowed.set(id, attending);
+    }
+  }
+  return { allowed, blocked: [...blocked.values()] };
+}
+
 // Pick which members attend when the caller gives explicit adults/kids counts smaller than the
 // family. Priority: head of family first, then other adults, then kids. Members flagged
 // not_attending are excluded up front (they were never in the attending pool).
@@ -173,6 +290,18 @@ function decideEvents(events: NiyazEvent[], entries: NiyazRsvpEntry[]): Map<stri
 // {adults:2}) from silently keeping all the kids too — it now means 2 adults, 0 kids.
 function selectPartialTargets(targets: RsvpTarget[], counts: PartialCounts): Set<string> {
   const eligible = targets.filter((t) => !t.notAttending);
+
+  // Total mode (free-text head count): a single number with no adult/kid split. Fill in the same
+  // priority order — head of family first, then other adults, then kids — until N are attending.
+  if (counts.total !== undefined) {
+    const ordered = [...eligible].sort((a, b) => {
+      if (a.isHead !== b.isHead) return a.isHead ? -1 : 1;
+      if (a.isAdult !== b.isAdult) return a.isAdult ? -1 : 1;
+      return 0;
+    });
+    return new Set(ordered.slice(0, counts.total).map((t) => t.muminId));
+  }
+
   const adults = eligible.filter((t) => t.isAdult);
   const kids = eligible.filter((t) => !t.isAdult);
 
@@ -192,12 +321,21 @@ function selectPartialTargets(targets: RsvpTarget[], counts: PartialCounts): Set
 // cascade so we don't pull an absent member into attendance; an explicit individual answer doesn't).
 // When `partial` counts are given for attending=true events, only the selected subset attends and
 // the rest are marked not-attending — so the per-member rows stay accurate.
-async function applyNiyazRsvp(targets: RsvpTarget[], familyId: string | null, entries: NiyazRsvpEntry[], opts: ApplyOpts, partial?: PartialCounts): Promise<number> {
-  if (targets.length === 0) return 0;
-  const decisions = decideEvents(await getEvents(), entries);
-  if (decisions.size === 0) return 0;
+async function applyNiyazRsvp(targets: RsvpTarget[], familyId: string | null, entries: NiyazRsvpEntry[], opts: ApplyOpts, partial?: PartialCounts): Promise<{ updated: number; blocked: BlockedDay[] }> {
+  if (targets.length === 0) return { updated: 0, blocked: [] };
+  const events = await getEvents();
+  let decisions = decideEvents(events, entries);
+  if (decisions.size === 0) return { updated: 0, blocked: [] };
 
-  const usePartial = partial && (partial.adults !== undefined || partial.kids !== undefined);
+  // Enforce the per-day RSVP cutoff for EVERY source: once a day's rsvp_end_at has passed its count is
+  // locked and nobody — including an admin acting as their own registrant — can change it. Same guard
+  // the Flow path (niyaz-interactive.ts) applies to button responses.
+  const part = partitionDecisionsByCutoff(events, decisions, await getClosedEventDates(Date.now()));
+  decisions = part.allowed;
+  const blocked = part.blocked;
+  if (decisions.size === 0) return { updated: 0, blocked };
+
+  const usePartial = partial && (partial.adults !== undefined || partial.kids !== undefined || partial.total !== undefined);
   const attendingSet = usePartial ? selectPartialTargets(targets, partial) : null;
 
   const rows: Record<string, unknown>[] = [];
@@ -224,7 +362,7 @@ async function applyNiyazRsvp(targets: RsvpTarget[], familyId: string | null, en
       .upsert(rows.slice(i, i + 500), { onConflict: "registration_instance_id,mumin_id" });
     if (error) throw new Error(error.message);
   }
-  return rows.length;
+  return { updated: rows.length, blocked };
 }
 
 // Whole-family RSVP: cascades to ALL roster_active family members; a "yes" never flips a member
@@ -253,22 +391,25 @@ export async function setFamilyNiyazRsvp(
   const eligible = targets.filter((t) => !t.notAttending);
   const maxAdults = eligible.filter((t) => t.isAdult).length;
   const maxKids = eligible.filter((t) => !t.isAdult).length;
+  const maxTotal = eligible.length;
   const clampedCounts: PartialCounts | undefined = partial
     ? {
         adults: partial.adults !== undefined ? Math.min(partial.adults, maxAdults) : undefined,
         kids: partial.kids !== undefined ? Math.min(partial.kids, maxKids) : undefined,
+        total: partial.total !== undefined ? Math.min(partial.total, maxTotal) : undefined,
       }
     : undefined;
   // Flag when the requested counts exceeded the family — so the agent tells the user the extras
   // must message this number from their own phones to register and RSVP separately.
   const wasClamped =
     (partial?.adults !== undefined && partial.adults > maxAdults) ||
-    (partial?.kids !== undefined && partial.kids > maxKids);
+    (partial?.kids !== undefined && partial.kids > maxKids) ||
+    (partial?.total !== undefined && partial.total > maxTotal);
   const clamped: ClampNotice | undefined = wasClamped
-    ? { requestedAdults: partial?.adults, requestedKids: partial?.kids, maxAdults, maxKids }
+    ? { requestedAdults: partial?.adults, requestedKids: partial?.kids, requestedTotal: partial?.total, maxAdults, maxKids, maxTotal }
     : undefined;
-  const updated = await applyNiyazRsvp(targets, familyId, entries, { ...opts, respectNotAttending: true }, clampedCounts);
-  return { updated, grid: await getFamilyNiyazGrid(familyId), clamped };
+  const { updated, blocked } = await applyNiyazRsvp(targets, familyId, entries, { ...opts, respectNotAttending: true }, clampedCounts);
+  return { updated, grid: await getFamilyNiyazGrid(familyId), clamped, blocked: blocked.length ? blocked : undefined };
 }
 
 // Individual RSVP: records only the one responding mumin (their explicit answer overrides the
@@ -279,8 +420,8 @@ export async function setMuminNiyazRsvp(
   entries: NiyazRsvpEntry[],
   opts: { source: "whatsapp" | "admin"; phone?: string | null; recordedBy?: string | null },
 ): Promise<ApplyResult> {
-  const updated = await applyNiyazRsvp([{ muminId, notAttending: false, isAdult: true, isHead: false }], familyId, entries, { ...opts, respectNotAttending: false });
-  return { updated, grid: familyId ? await getFamilyNiyazGrid(familyId) : [] };
+  const { updated, blocked } = await applyNiyazRsvp([{ muminId, notAttending: false, isAdult: true, isHead: false }], familyId, entries, { ...opts, respectNotAttending: false });
+  return { updated, grid: familyId ? await getFamilyNiyazGrid(familyId) : [], blocked: blocked.length ? blocked : undefined };
 }
 
 // --- WhatsApp daily button taps ---
@@ -303,16 +444,31 @@ export function scopeToEntries(scope: NiyazScope, date: string): NiyazRsvpEntry[
 
 // --- Free-text family head counts (niyaz_family_headcount) ---
 
-// Record a whole-family head count for a date (applies to every event that day). One number = the
-// day's total attending heads from that family. Upserts per (event, family).
+// Record a whole-family head count for a date (applies to every event that day). The single number
+// is materialized as the SOURCE OF TRUTH through niyaz_rsvp: we allocate exactly that many attending
+// member rows (head → adults → kids, clamped to the family's roster) so the per-member table and any
+// count query agree — no parallel number to double-count. The raw reply is also kept in
+// niyaz_family_headcount purely as an audit record of what the family literally said (it is NOT
+// separately summed into tallies). When the number exceeds the family's roster, the returned
+// `clamped` reports the cap so the caller can nudge the extras to register from their own phones.
 export async function recordFamilyHeadCount(
   familyId: string,
   date: string,
   headCount: number,
   phone?: string | null,
-): Promise<number> {
+): Promise<ApplyResult> {
   const events = (await getEvents()).filter((e) => e.eventDate === date);
-  if (events.length === 0) return 0;
+  if (events.length === 0) return { updated: 0, grid: await getFamilyNiyazGrid(familyId) };
+
+  // Allocate the head count across the family's members in niyaz_rsvp (single source of truth).
+  const result = await setFamilyNiyazRsvp(
+    familyId,
+    [{ attending: true, dates: [date] }],
+    { source: "whatsapp", phone },
+    { total: headCount },
+  );
+
+  // Keep the raw reported number per (event, family) as an audit record of the literal reply.
   const rows = events.map((e) => ({
     registration_instance_id: e.id,
     family_id: familyId,
@@ -324,7 +480,8 @@ export async function recordFamilyHeadCount(
     .from("niyaz_family_headcount")
     .upsert(rows, { onConflict: "registration_instance_id,family_id" });
   if (error) throw new Error(error.message);
-  return rows.length;
+
+  return result;
 }
 
 export type FamilyHeadCountRow = {
@@ -360,6 +517,125 @@ export async function recordNiyazButtonResponse(input: {
   return input.level === "fam" && input.familyId
     ? setFamilyNiyazRsvp(input.familyId, entries, opts)
     : setMuminNiyazRsvp(input.muminId, input.familyId, entries, opts);
+}
+
+// --- Double-RSVP (ashara_relay_double_rsvp) decode → niyaz_rsvp ---
+
+// Resolve a family by its head-of-family ITS (families.hof_its is unique). Returns null if unknown.
+export async function getFamilyByHofIts(hofIts: string): Promise<{ familyId: string; hofIts: string } | null> {
+  const its = String(hofIts).trim();
+  if (!its) return null;
+  const { data } = await getSupabaseAdmin().from("families").select("id, hof_its").eq("hof_its", its).maybeSingle();
+  return data ? { familyId: (data as { id: string }).id, hofIts: (data as { hof_its: string }).hof_its } : null;
+}
+
+// Guest mumineen rows let a family RSVP MORE attendees than its roster (extra heads for food
+// planning). Guests are plain mumineen rows with roster_active=false (so they're excluded from every
+// member-list/audience query but still counted in the niyaz tallies), family_id set, a sentinel ITS
+// `00000-<uuid>` (the `00000-` prefix marks a guest and can't collide with a real numeric ITS), and
+// age null (counts as an adult in tallies). Returns the family's full guest pool (existing + any newly
+// created), so callers can reconcile a lowered count by marking surplus guests not-attending.
+export async function ensureFamilyGuests(familyId: string, hofIts: string, needed: number): Promise<string[]> {
+  const supabase = getSupabaseAdmin();
+  const { data } = await supabase
+    .from("mumineen")
+    .select("id")
+    .eq("family_id", familyId)
+    .like("its", "00000-%")
+    .order("created_at", { ascending: true });
+  const ids = ((data ?? []) as { id: string }[]).map((r) => r.id);
+
+  if (ids.length >= needed) return ids;
+
+  const toCreate = needed - ids.length;
+  const rows = Array.from({ length: toCreate }, () => ({
+    its: `00000-${crypto.randomUUID()}`,
+    hof_its: String(hofIts),
+    family_id: familyId,
+    is_head: false,
+    roster_active: false,
+    full_name: "Guest",
+  }));
+  const { data: created, error } = await supabase.from("mumineen").insert(rows).select("id");
+  if (error) throw new Error(error.message);
+  return [...ids, ...((created ?? []) as { id: string }[]).map((r) => r.id)];
+}
+
+// Record a day-level double-RSVP (separate lunch/dinner counts) into niyaz_rsvp, RECONCILING on
+// re-submission. Per meal instance for the date:
+//   • real members: min(count, rosterEligible) marked attending (head→adults→kids), the rest not —
+//     via setFamilyNiyazRsvp (idempotent), so a changed count re-allocates cleanly.
+//   • overflow: max(0, count - rosterEligible) guest rows attending, the rest of the family's guest
+//     pool marked not-attending (so a later lower count walks guests back down).
+// count 0 ⇒ everyone (members + guests) not attending for that meal — the "not attending" tap path.
+export async function recordNiyazDayRsvp(
+  familyId: string,
+  hofIts: string,
+  date: string,
+  lunchCount: number,
+  dinnerCount: number,
+  phone?: string | null,
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const dayEvents = (await getEvents()).filter((e) => e.eventDate === date);
+  const meals: { meal: Meal; count: number }[] = [
+    { meal: "lunch", count: Math.max(0, lunchCount) },
+    { meal: "dinner", count: Math.max(0, dinnerCount) },
+  ];
+
+  // Eligible roster members (the cap for "real" attendees).
+  const { data: members } = await supabase
+    .from("mumineen")
+    .select("not_attending")
+    .eq("family_id", familyId)
+    .eq("roster_active", true);
+  const rosterEligible = ((members ?? []) as { not_attending: boolean }[]).filter((m) => !m.not_attending).length;
+
+  // Guest pool sized to the largest overflow across meals; always fetched so surplus reconciles down.
+  const maxGuestNeeded = Math.max(0, meals[0].count - rosterEligible, meals[1].count - rosterEligible);
+  const guestIds = await ensureFamilyGuests(familyId, hofIts, maxGuestNeeded);
+
+  for (const { meal, count } of meals) {
+    const inst = dayEvents.find((e) => e.meal === meal);
+    if (!inst) continue;
+
+    const realAttending = Math.min(count, rosterEligible);
+    await setFamilyNiyazRsvp(familyId, [{ attending: true, meal, dates: [date] }], { source: "whatsapp", phone }, { total: realAttending });
+
+    if (guestIds.length > 0) {
+      const guestNeeded = Math.max(0, count - rosterEligible);
+      const rows = guestIds.map((id, idx) => ({
+        registration_instance_id: inst.id,
+        mumin_id: id,
+        family_id: familyId,
+        attending: idx < guestNeeded,
+        source: "whatsapp",
+        responded_by_phone: phone ?? null,
+      }));
+      const { error } = await supabase.from("niyaz_rsvp").upsert(rows, { onConflict: "registration_instance_id,mumin_id" });
+      if (error) throw new Error(error.message);
+    }
+  }
+}
+
+// The authoritative `rsvp_status` string for a family + day, recomputed from niyaz_rsvp (so it
+// reflects the saved attendance incl. guests): `Lunch {n}, Dinner {n}` for the meals the day offers.
+export async function getNiyazRsvpStatus(familyId: string, date: string): Promise<string> {
+  const supabase = getSupabaseAdmin();
+  const dayEvents = (await getEvents()).filter((e) => e.eventDate === date);
+  const parts: string[] = [];
+  for (const meal of ["lunch", "dinner"] as Meal[]) {
+    const inst = dayEvents.find((e) => e.meal === meal);
+    if (!inst) continue;
+    const { count } = await supabase
+      .from("niyaz_rsvp")
+      .select("id", { count: "exact", head: true })
+      .eq("registration_instance_id", inst.id)
+      .eq("family_id", familyId)
+      .eq("attending", true);
+    parts.push(`${meal === "lunch" ? "Lunch" : "Dinner"} ${count ?? 0}`);
+  }
+  return parts.join(", ");
 }
 
 export type EventTally = NiyazEvent & {
@@ -422,6 +698,9 @@ export async function getEventTallies(mode: TallyMode = "max"): Promise<EventTal
     const t = byId.get(event.id);
     const yesAdults = Number(t?.yes_adults ?? 0);
     const yesKids = Number(t?.yes_kids ?? 0);
+    // headcountHeads is the raw free-text reply, kept for display only. The attendance it represents
+    // is already materialized into niyaz_rsvp (and thus into yesAdults/yesKids), so it must NOT be
+    // added to the total — doing so double-counts the same family.
     const headcountHeads = headsById.get(event.id) ?? 0;
     const unreg = unregById.get(event.id) ?? { adults: 0, kids: 0 };
     const totalYes = yesAdults + yesKids + unreg.adults + unreg.kids;
@@ -437,7 +716,7 @@ export async function getEventTallies(mode: TallyMode = "max"): Promise<EventTal
       unregAdults: unreg.adults,
       unregKids: unreg.kids,
       headcountHeads,
-      rsvpCount: totalYes + headcountHeads,
+      rsvpCount: totalYes,
     };
   });
 }
@@ -456,11 +735,18 @@ export async function recordUnregisteredRsvp(input: {
   kids?: number;
   itsNumber?: string | null;
   source?: "whatsapp" | "admin";
-}): Promise<{ upserted: number }> {
-  const decisions = decideEvents(await getEvents(), input.entries);
+}): Promise<{ upserted: number; blocked?: BlockedDay[] }> {
+  const events = await getEvents();
+  const decisions = decideEvents(events, input.entries);
   if (decisions.size === 0) return { upserted: 0 };
 
-  const rows = [...decisions].map(([instanceId, attending]) => {
+  // Enforce the per-day RSVP cutoff for every source — a closed day can't be changed.
+  const part = partitionDecisionsByCutoff(events, decisions, await getClosedEventDates(Date.now()));
+  const allowed = part.allowed;
+  const blocked = part.blocked;
+  if (allowed.size === 0) return { upserted: 0, blocked };
+
+  const rows = [...allowed].map(([instanceId, attending]) => {
     const row: Record<string, unknown> = {
       phone_e164: input.phone,
       registration_instance_id: instanceId,
@@ -477,7 +763,7 @@ export async function recordUnregisteredRsvp(input: {
     .from("unregistered_rsvps")
     .upsert(rows, { onConflict: "phone_e164,registration_instance_id" });
   if (error) throw new Error(error.message);
-  return { upserted: rows.length };
+  return { upserted: rows.length, blocked: blocked.length ? blocked : undefined };
 }
 
 export async function recordUnregisteredHeadCount(

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { canAccessInbox } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
 import { logEscalationActivity } from "@/lib/escalation/activity";
+import { syncIssueStatusFromLinks } from "@/lib/issues/link-status";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 type RouteContext = { params: Promise<{ issueId: string }> };
@@ -87,6 +88,9 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
     });
   } catch { /* swallowed */ }
 
+  // A fresh (open) link auto-reopens a resolved issue. Non-critical — never fail the link op.
+  try { await syncIssueStatusFromLinks(supabase, issueId); } catch { /* non-critical */ }
+
   return NextResponse.json({ linked: true, issue_number: issue.issue_number });
 }
 
@@ -148,6 +152,9 @@ export async function DELETE(req: NextRequest, { params }: RouteContext) {
       actorLabel: auth.caller.display_name ?? undefined,
     });
   } catch { /* swallowed */ }
+
+  // Removing a link may leave the issue with all-resolved links → auto-close. Non-critical.
+  try { await syncIssueStatusFromLinks(supabase, issueId); } catch { /* non-critical */ }
 
   return NextResponse.json({ unlinked: true });
 }

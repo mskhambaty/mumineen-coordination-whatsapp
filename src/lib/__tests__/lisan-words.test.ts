@@ -12,7 +12,11 @@ vi.mock("@/lib/knowledge/lisan-word-requests", () => ({ markWordRequestAdded: vi
 
 import {
   normalizeWord,
+  normalizeLisanScript,
+  skeleton,
   lookupLisanWord,
+  lookupEnglishMeaning,
+  meaningTerms,
   splitForms,
   trigramSim,
   isTrivialLookup,
@@ -21,7 +25,7 @@ import {
   listAllLisanWords,
 } from "@/lib/knowledge/lisan-words";
 
-type Row = { transliteration: string | null; lisan: string | null; meaning: string | null; example: string | null; norm?: string | null; similarity?: number };
+type Row = { transliteration: string | null; lisan: string | null; meaning: string | null; example: string | null; norm?: string | null; lisan_norm?: string | null; similarity?: number; meaning_terms?: string[] | null };
 
 // Wire the supabase mock:
 //   .eq("norm",…) → exactData,  .eq("norm_skeleton",…) → skelData (legacy fallback)
@@ -34,7 +38,7 @@ function wire(
   mocks.from.mockReturnValue({
     select: () => ({
       eq: (col: string) => ({ limit: () => Promise.resolve({ data: col === "norm_skeleton" ? skelData : exactData }) }),
-      contains: (col: string) => ({ limit: () => Promise.resolve({ data: col === "lisan_forms" ? lisanFormData : skelData }) }),
+      contains: (col: string) => ({ limit: () => Promise.resolve({ data: col.startsWith("lisan_forms") ? lisanFormData : skelData }) }),
       ilike: () => ({ limit: () => Promise.resolve({ data: arabicData }) }),
     }),
   });
@@ -57,6 +61,22 @@ describe("normalizeWord", () => {
     expect(normalizeWord("Aaeen")).toBe("aaeen");
     expect(normalizeWord("Aā-eén!")).toBe("aa een");
     expect(normalizeWord("  Aaeen  si ")).toBe("aaeen si");
+  });
+});
+
+describe("normalizeLisanScript", () => {
+  it("maps modern Perso-Arabic letters to the stored doubled-standard convention", () => {
+    expect(normalizeLisanScript("لالچ")).toBe("لالحح"); // ch → حح ; matches stored "Laalach"
+    expect(normalizeLisanScript("لالحح")).toBe("لالحح"); // already in stored form → idempotent
+    expect(normalizeLisanScript("لالچْ")).toBe("لالحح"); // harakat (sukun) stripped
+    expect(normalizeLisanScript("پاني")).toBe("ثثاني"); // p → ثث
+  });
+});
+
+describe("skeleton (digraph folding)", () => {
+  it("folds gh/kh so spelling variants share a skeleton", () => {
+    expect(skeleton("raghbat")).toBe(skeleton("ragbat")); // the reported raghbat≈ragbat miss
+    expect(skeleton("khubi")).toBe(skeleton("kubi"));
   });
 });
 
@@ -137,18 +157,26 @@ describe("lookupLisanWord", () => {
     expect((await lookupLisanWord("zzzzz")).status).toBe("not_found");
   });
 
-  it("matches Lisan-script input against the lisan column", async () => {
-    wire({ arabicData: [{ transliteration: "Aaeen", lisan: "اْئين", meaning: "Regulation", example: "" }] });
+  it("matches Lisan-script input against the normalized lisan column", async () => {
+    wire({ arabicData: [{ transliteration: "Aaeen", lisan: "اْئين", lisan_norm: normalizeLisanScript("اْئين"), meaning: "Regulation", example: "" }] });
     const res = await lookupLisanWord("اْئين");
     expect(res.status).toBe("ok");
   });
 
   it("matches a Lisan-script word that is one form of a compound entry", async () => {
-    // "نعمة" is a form of "نعمة - نعم، انعم"; lisan_forms exact match answers directly.
+    // "نعمة" is a form of "نعمة - نعم، انعم"; lisan_forms_norm exact match answers directly.
     wire({ lisanFormData: [{ transliteration: "Ne'mat - Ne'am, An'um", lisan: "نعمة - نعم، انعم", meaning: "A blessing, favor, or grace", example: "" }] });
     const res = await lookupLisanWord("نعمة");
     expect(res.status).toBe("ok");
     expect(res.status === "ok" && res.matches[0].meaning).toContain("blessing");
+  });
+
+  it("matches modern Perso-Arabic script to the stored doubled-letter form (لالچ → Laalach)", async () => {
+    // Stored "Laalach" is لالحح (ch→حح); the member types لالچ. Normalizing both makes them match.
+    wire({ lisanFormData: [{ transliteration: "Laalach", lisan: "لالحح", meaning: "Greed", example: "" }] });
+    const res = await lookupLisanWord("لالچ");
+    expect(res.status).toBe("ok");
+    expect(res.status === "ok" && res.matches[0].transliteration).toBe("Laalach");
   });
 
   it("returns not_found for empty input", async () => {
@@ -157,8 +185,67 @@ describe("lookupLisanWord", () => {
   });
 });
 
+describe("meaningTerms", () => {
+  it("tokenizes a gloss into distinct content words (drops short/stop words)", () => {
+    expect(meaningTerms("Painstaking, hardworking")).toEqual(["painstaking", "hardworking"]);
+    expect(meaningTerms("calmness, tranquility, rest, quiet, stillness")).toEqual([
+      "calmness", "tranquility", "rest", "quiet", "stillness",
+    ]);
+    expect(meaningTerms("Back")).toEqual(["back"]);
+    expect(meaningTerms("To listen")).toEqual(["listen"]); // "to" dropped as a stopword
+    expect(meaningTerms(null)).toEqual([]);
+  });
+});
+
+describe("lookupEnglishMeaning (reverse: English → Lisan word)", () => {
+  // select("…").overlaps("meaning_terms",…).limit() → exactData; rpc() → suggData.
+  function wireReverse({ exactData = [] as Row[], suggData = [] as Row[] } = {}) {
+    mocks.from.mockReturnValue({
+      select: () => ({ overlaps: () => ({ limit: () => Promise.resolve({ data: exactData }) }) }),
+    });
+    mocks.rpc.mockResolvedValue({ data: suggData });
+  }
+
+  it("returns the Lisan word on an exact gloss-word match (hardworking → Jafakash)", async () => {
+    wireReverse({ exactData: [{ transliteration: "Jafakash", lisan: "جفاكش", meaning: "Painstaking, hardworking", example: null, meaning_terms: ["painstaking", "hardworking"] }] });
+    const res = await lookupEnglishMeaning("hardworking");
+    expect(res.status).toBe("ok");
+    expect(res.status === "ok" && res.matches[0].transliteration).toBe("Jafakash");
+    expect(mocks.rpc).not.toHaveBeenCalled(); // exact term hit, no fuzzy needed
+  });
+
+  it("ranks the most specific entry first (back → Kamar over a multi-gloss entry)", async () => {
+    wireReverse({ exactData: [
+      { transliteration: "Pusht", lisan: "پشت", meaning: "rear, behind, back, reverse, posterior", example: null, meaning_terms: ["rear", "behind", "back", "reverse", "posterior"] },
+      { transliteration: "Kamar", lisan: "كمر", meaning: "Back", example: null, meaning_terms: ["back"] },
+    ] });
+    const res = await lookupEnglishMeaning("back");
+    expect(res.status === "ok" && res.matches[0].transliteration).toBe("Kamar");
+  });
+
+  it("falls back to fuzzy word-trigram when no exact term matches (calm → calmness)", async () => {
+    wireReverse({ exactData: [], suggData: [{ transliteration: "Sukun", lisan: "سكون", meaning: "calmness, tranquility, rest", example: null, similarity: 0.8 }] });
+    const res = await lookupEnglishMeaning("calm");
+    expect(res.status).toBe("ok");
+    expect(res.status === "ok" && res.matches[0].transliteration).toBe("Sukun");
+    expect(mocks.rpc).toHaveBeenCalled();
+  });
+
+  it("returns a clean not_found when nothing matches (never a forward fuzzy guess)", async () => {
+    wireReverse({ exactData: [], suggData: [] });
+    expect((await lookupEnglishMeaning("brain")).status).toBe("not_found");
+  });
+
+  it("returns not_found for a stopword-only / trivial query without hitting the DB", async () => {
+    wireReverse();
+    expect((await lookupEnglishMeaning("the")).status).toBe("not_found"); // no content terms
+    expect((await lookupEnglishMeaning("ok")).status).toBe("not_found"); // trivial
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+});
+
 describe("prepareLisanRow", () => {
-  it("computes norm / skeleton / forms for a simple word", () => {
+  it("computes norm / skeleton / forms / meaning_terms for a simple word", () => {
     const r = prepareLisanRow({ transliteration: "Sadaqa", lisan: "صدقة", meaning: "Charity", example: "" });
     expect(r).toMatchObject({
       transliteration: "Sadaqa",
@@ -167,6 +254,7 @@ describe("prepareLisanRow", () => {
       example: null,
       norm: "sadaqa",
       norm_skeleton: "sdq",
+      meaning_terms: ["charity"],
     });
   });
 
@@ -188,7 +276,10 @@ describe("addLisanWord", () => {
 
   // Wire the chain for a single add: select("id").eq("norm").limit() → existing rows;
   // select("id",{head}) → count; insert/update → {error}.
-  function wireAdd({ existing = [] as { id: number }[], count = 1 } = {}) {
+  function wireAdd({
+    existing = [] as { id: number; transliteration?: string | null; lisan?: string | null; meaning?: string | null; example?: string | null }[],
+    count = 1,
+  } = {}) {
     insert.mockResolvedValue({ error: null });
     update.mockReturnValue({ eq: () => Promise.resolve({ error: null }) });
     mocks.from.mockReturnValue({
@@ -215,9 +306,17 @@ describe("addLisanWord", () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  it("dedupes on norm: an existing word is UPDATED in place, not inserted twice", async () => {
-    wireAdd({ existing: [{ id: 7 }], count: 100 });
+  it("dedupes on norm: an existing word returns 'exists' (warn) and does NOT overwrite without confirm", async () => {
+    wireAdd({ existing: [{ id: 7, transliteration: "Aflaak", lisan: "افلاك", meaning: "Old", example: null }], count: 100 });
     const res = await addLisanWord({ transliteration: "Aflaak", lisan: "افلاك", meaning: "Spheres (revised)", example: "" });
+    expect(res).toMatchObject({ status: "exists", existing: { id: 7, meaning: "Old" } });
+    expect(update).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it("dedupes on norm: with confirm it UPDATES in place, not inserted twice", async () => {
+    wireAdd({ existing: [{ id: 7, transliteration: "Aflaak", meaning: "Old" }], count: 100 });
+    const res = await addLisanWord({ transliteration: "Aflaak", lisan: "افلاك", meaning: "Spheres (revised)", example: "" }, null, { confirm: true });
     expect(res).toMatchObject({ status: "updated", count: 100 });
     expect(update).toHaveBeenCalledTimes(1);
     expect(insert).not.toHaveBeenCalled();

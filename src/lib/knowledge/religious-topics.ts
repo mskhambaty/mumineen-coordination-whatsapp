@@ -1,10 +1,10 @@
 import { AI_MODEL, chatParams, getAIClient } from "@/lib/ai/model";
-import { DEFAULT_ACTIVE_YEAR, majlisLabel } from "@/lib/knowledge/ashara-config";
+import { ASHARA_CATEGORY_PAGE, DEFAULT_ACTIVE_YEAR, majlisLabel, reflectionsArchiveUrl } from "@/lib/knowledge/ashara-config";
 import { deleteReligiousContent, indexReligiousTopic, type ReligiousMeta } from "@/lib/knowledge/index-content";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export type ReligiousCategory =
-  | "reflection" | "tazyeen" | "al_dars" | "jumla" | "kalema" | "unwaan" | "overview" | "misc";
+  | "reflection" | "tazyeen" | "al_dars" | "jumla" | "kalema" | "unwaan" | "overview" | "faq" | "misc";
 export type ReligiousLanguage = "en" | "lisan";
 export type ReligiousStatus = "indexed" | "pending_translation" | "placeholder";
 
@@ -280,13 +280,37 @@ export function parseMajlisRef(query: string): MajlisRef | null {
 // phrasings here can't hijack a specific-majlis question.
 export function isOverviewQuery(query: string): boolean {
   const q = ` ${query.toLowerCase()} `;
-  return (/\b(all|every|each|list|overview|overall|summary|whole|entire)\b/.test(q) && /\b(majlis|majalis|waaz|wa'?az|ashara|theme|topic|year)\b/.test(q))
-    || /\b(topics?|themes?|subjects?)\s+of\s+(all|the|every|each)\b/.test(q)
-    || /\b(all|every)\s+majalis\b/.test(q)
+  // YEAR-LEVEL asks (whole-Ashara theme list). NOTE: a bare "summary"/"summarize" must NOT count as
+  // overview — "summary of today's waaz" / "summary of majlis 4" are single-majlis summaries (handled
+  // with the summary answer_style), not the whole-Ashara theme list. So "summary" is deliberately
+  // excluded from the year-level trigger words below.
+  return (/\b(all|every|each|list|overview|overall|whole|entire)\b/.test(q)
+      && /\b(majlis|majalis|waaz|wa'?az|ashara|themes?|topics?|subjects?|year)\b/.test(q))
     || /\bcompare\b/.test(q)
-    || /\bthis\s+(week|whole ashara|entire ashara)\b/.test(q)
     // "topic for last year's waaz" / "what was last year about" — but NOT if a majlis is named.
     || (/\b(last|previous)\s+year('?s)?\b/.test(q) && !/\b(majlis|majalis)\b/.test(q));
+}
+
+// A SUMMARY / recap ask — wants a fuller, structured answer (theme + key points), not a 1–2 line
+// blurb. Used to set answer_style = "summary".
+export function isSummaryQuery(query: string): boolean {
+  return /\b(summary|summarise|summarize|summarisation|recap|main\s+points?|key\s+points?|key\s+takeaways?|takeaways?|brief\s+(?:on|me)|tl;?dr|sum\s+(?:it\s+)?up|gist)\b/i.test(query);
+}
+
+// The most recently published reflection for a year (highest majlis number; Ashura 9/10 last) — used
+// when "today's" majlis isn't posted yet, to offer the latest available one (same year, never 1447).
+export async function latestPublishedReflection(year: string): Promise<MajlisHit | null> {
+  const { data } = await getSupabaseAdmin()
+    .from("religious_topics")
+    .select("title, content, source_url, theme, year_hijri, majlis_number, is_ashura")
+    .eq("category", "reflection")
+    .eq("year_hijri", year)
+    .eq("status", "indexed");
+  const rows = ((data ?? []) as (MajlisHit & { majlis_number: number | null; is_ashura: boolean })[])
+    .filter((t) => (t.content ?? "").trim())
+    .sort((a, b) => (b.is_ashura ? 99 : b.majlis_number ?? 0) - (a.is_ashura ? 99 : a.majlis_number ?? 0));
+  const t = rows[0];
+  return t ? { title: t.title, content: t.content, source_url: t.source_url ?? null, theme: t.theme ?? null, year_hijri: t.year_hijri ?? null } : null;
 }
 
 // The curated year-level overall-theme block (category "overview"), or null if none/empty.
@@ -302,6 +326,21 @@ export async function getOverviewBlock(year: string): Promise<MajlisHit | null> 
   const t = data as (MajlisHit & { year_hijri: string | null }) | null;
   if (!t || !(t.content ?? "").trim()) return null;
   return { title: t.title, content: t.content, source_url: t.source_url ?? null, theme: t.theme ?? null, year_hijri: t.year_hijri ?? null };
+}
+
+// Resolve the single archive link for a year, used when a multi-majlis answer collapses its
+// citations. Order: the overview row's curated source_url (so the team can pin an exact URL
+// without a code change) → the derived per-year reflections index → the Ashara landing page.
+// Never throws — a DB hiccup falls back to the derived link.
+export async function resolveArchiveUrl(year: string | null): Promise<string> {
+  if (!year) return ASHARA_CATEGORY_PAGE;
+  try {
+    const block = await getOverviewBlock(year);
+    if (block?.source_url?.trim()) return block.source_url.trim();
+  } catch {
+    // fall through to the derived link
+  }
+  return reflectionsArchiveUrl(year);
 }
 
 // "Deep" intent: the user explicitly wants more than the headline.

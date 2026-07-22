@@ -24,10 +24,47 @@ escalation_status = 'pending'  ──►  moves to the Escalations tab
       │                              guest told "this has been escalated"
       │  (support member clicks "De-escalate" on the chat)
       ▼
-escalation_status = 'resolved' ──►  returns to the Conversations tab
+escalation_status = 'resolved' ──►  stays in the Escalations tab as history
+                                     (hidden behind the "Resolved"/"All" stage filter)
 ```
 
 Re-escalation is allowed (sets `pending` again). The AI keeps replying throughout.
+
+### Status is derived from stage (single source of truth)
+
+`escalation_stage` (`none` / `pending` / `picked_up` / `waiting_on_department` / `resolved`) is the
+**single source of truth**. `escalation_status` (`none` / `pending` / `resolved`) is a coarse
+projection of it and drives tab membership / the hot conversations query (it stays a real, indexed
+column for that). The two used to be hand-maintained separately and **diverged** (a real prod bug);
+now a DB trigger derives `escalation_status` from `escalation_stage` on every insert/update
+(`escalation_status_from_stage()` + `set_escalation_status_from_stage`, migration
+`20260617043459_escalation_status_derived_from_stage`), so they can never diverge again:
+
+| `escalation_stage` | derived `escalation_status` |
+|---|---|
+| `resolved` | `resolved` |
+| `none` / null | `none` |
+| `pending` / `picked_up` / `waiting_on_department` | `pending` |
+
+**Write only `escalation_stage`** — never set `escalation_status` in app code (the trigger overrides
+it). Reads of `escalation_status` are fine and encouraged for the open/resolved/none lifecycle.
+
+### Resolved escalations in the inbox
+
+Resolved escalations remain in the **Escalations tab** (escalation history), not the Conversations
+tab — the Conversations tab shows only `escalation_status = 'none'` threads. They are hidden by the
+default "Active" stage filter and revealed via the **Resolved** / **All** stage options (paged with
+"Load more"). Resolved escalations linked to an issue are always loadable so an issue's "View →"
+link always reaches them.
+
+### Escalations are cross-scope
+
+The inbox `scope` split (`main` vs `niyaz`, by `conversation_sessions.phone_number_id`) applies to
+the **Conversations** list only. **Escalations are cross-cutting**: under the default `main` scope
+the Escalations tab loads pending + resolved escalations regardless of the number they arrived on,
+including the broadcast/niyaz number. Mumineen often reply to broadcast blasts and the AI escalates
+those threads — a breaching ticket must never be hidden just because it landed on the broadcast
+line. `scope=niyaz` still narrows escalations to the niyaz number for that focused view.
 
 ## Triggers & decision logic
 
@@ -77,14 +114,17 @@ Escalate **only** when one of these holds:
 **Add two API-first tools** (call internal API routes like the task tools do, via
 `callInternalApi`):
 
-- **`move_to_escalation`** — unified escalation + issue creation. Params: `reason`, `title`,
-  `description`, `priority`, `category`, `department`. In one call it:
+- **`move_to_escalation`** — hand-off to the human team. Params: `reason`, `title`,
+  `description`, `priority`, `category`, `department`, `requires_department_coordination`. In one call it:
   1. Tags the conversation as pending escalation and notifies on-call support.
-  2. Creates an issue in the `issues` table (appears in the Inbox Issues tab).
-  3. Links the escalation conversation to the issue via `issue_escalation_links`.
-  4. Creates a workspace task (`item_type='issue'`) in the `tasks` table.
-  5. Notifies department issue contacts (email + WhatsApp `department_ticket_assigned` template).
-  6. Notifies escalation team (email + WhatsApp escalation template).
+  2. Notifies escalation team (email + WhatsApp escalation template).
+  3. **Only when `requires_department_coordination` is true** (an actionable problem a department must
+     coordinate to fix — not an individual request/question/hand-off) does it also create a tracked
+     issue: insert into `issues`, link the conversation via `issue_escalation_links`, create a
+     workspace task (`item_type='issue'`), and notify department issue contacts
+     (`department_ticket_assigned`). **Escalation ≠ issue** — a single person's request being
+     escalated does not create an issue. Issue creation is idempotent per conversation (a
+     re-escalation reuses the conversation's existing open issue — see ISS-21/ISS-22).
 
 ## Data model
 
@@ -160,10 +200,10 @@ section on their profile (same page as department memberships), with on-call hou
   table** + **Add** button. Add picks from the **existing user list**; adding a user inserts
   an `escalation_support_members` row (= assigns the role) and lets them set **on-call hours**
   (weekday × time ranges).
-- **Lead Inbox split into two tabs:** **Conversations** (normal) and **Escalations**
-  (`pending` threads, simplified/grouped view with tag + priority).
-- **De-escalate button** on an escalated chat → sets `escalation_status='resolved'` and
-  returns the thread to Conversations.
+- **Lead Inbox split into two tabs:** **Conversations** (`escalation_status = 'none'` threads)
+  and **Escalations** (`pending` + `resolved` threads; resolved hidden behind the stage filter).
+- **De-escalate button** on an escalated chat → sets `escalation_status='resolved'`; the thread
+  stays in the Escalations tab as resolved history (visible via the Resolved/All stage filter).
 
 ## Notifications (on-call support only)
 
@@ -241,23 +281,69 @@ All notification sends are fire-and-forget (failures never block the agent reply
    clears `contact_for_issues` (the user/membership is kept); removing a `reference` deletes the
    row.
 
-## Issue Deduplication
+## Escalation ≠ issue, and grouping is suggestion-only (no topical auto-link)
 
-When `POST /api/escalations` creates an escalation, it checks for matching open issues
-**before** creating a new one. The flow:
+`POST /api/escalations` creates a tracked issue **only when `requires_department_coordination` is
+true** — an actionable problem a department must coordinate to fix. A plain escalation of one
+person's request/question/hand-off creates **no** issue (the on-call team follows up with that
+person). When it does create an issue it links only that conversation, and is idempotent per
+conversation (a re-escalation reuses the conversation's open issue rather than duplicating — the
+ISS-21/ISS-22 bug). It still does **not** topically auto-link to OTHER conversations' issues.
 
-1. Fetch the user's last 8 inbound messages (24h window) for context.
-2. Call `matchIssuesToEscalation()` (AI matching with keyword fallback) against all
-   open/in-progress issues.
-3. **Match found** → link the escalation to the existing issue via `issue_escalation_links`
-   and `linked_issue_id`. No new issue or workspace task is created. The activity log
-   records `linked_to_issue` with `deduplicated: true` and the matched issue number.
-4. **No match** → create a new issue + workspace task + link + notify (original flow).
+**Trigger B — cross-conversation promotion (auto, cron).** When MULTIPLE distinct conversations
+report the SAME problem, that pattern is a real issue. `/api/cron/escalation-grouping` (hourly, see
+`vercel.json`) scans ungrouped active escalations (`escalation_status='pending'`, no linked issue,
+last 72h), asks the model to cluster genuinely same-problem ones, and promotes each cluster into one
+shared issue + task linking all its conversations (`src/lib/escalation/issue-grouping.ts`). It is
+deliberately conservative — the pure `selectPromotableClusters` gate requires **high** confidence and
+**≥2 distinct** conversations, dedupes ids, and assigns each conversation to at most one cluster — so
+the model can't over-group or promote a lone escalation. Created issues are visible/reversible in the
+Issues tab. (Auto-creating issues is consequential — watch the first runs; thresholds live in
+`issue-grouping.ts`.) Single-source, manual grouping still uses the suggestions endpoint below.
 
-The response includes `deduplicated: true/false` so callers know which path was taken.
+An earlier auto-dedupe linked each new escalation to the best AI/keyword match.
+That over-grouped on topical adjacency — e.g. parking-pass requests (and even a registration
+request) were auto-linked onto a carpool issue because they shared the `transport` department and
+words like "car / parking / masjid". Auto-linking the model into a consequential action also runs
+against the agent guardrails in `AGENTS.md`.
 
-The matching logic lives in `src/lib/escalation/issue-match.ts` and is shared with the
-portal AI Suggestions endpoint.
+Grouping is now **human-confirmed**:
+
+- When a triager opens an escalation, `GET /api/admin/escalations/[phone]/suggestions` surfaces
+  matching open issues via `matchIssuesToEscalation()` (`src/lib/escalation/issue-match.ts`).
+- Each match carries a `confidence` (`high` | `medium` | `low`). Only matches at or above
+  `SUGGESTION_CONFIDENCE_THRESHOLD` (default **`high`**) are surfaced — the matcher over-matches on
+  topical adjacency, so weaker matches would just be noise. Keyword-fallback matches are capped at
+  `medium` (never auto-surface under the `high` threshold).
+- The triager applies the link deliberately (or uses the AI Grouping modal for batch grouping).
+
+`POST /api/escalations` still returns `deduplicated: false` for backward compatibility.
+
+## Per-link episode lifecycle + issue auto-close
+
+A `conversation_session` is one row per person and its `escalation_*` fields track only the
+**current** episode. So a person can offer a carpool (escalates → issue A), get resolved, then later
+ask about something else (escalates → issue B) on the *same* conversation. To support this, each
+**link** carries its own lifecycle on `issue_escalation_links`:
+
+- `status` (`open` | `resolved`), `resolved_at`, `resolved_by`.
+
+Rules:
+
+- **Resolved-ness is per link, not per conversation.** The issue detail panel marks a linked
+  escalation resolved (and computes SLA "breaching") from the **link's** `status` — so issue A shows
+  that person resolved even after they re-escalate into issue B.
+- **Resolving a conversation** (inbox de-escalate or the escalation "Resolve" action) marks that
+  conversation's currently-**open** link(s) `resolved`. In practice a conversation has at most one
+  open link (past episodes are already resolved).
+- **Resolving an issue** (bulk-resolve) marks all its links `resolved`.
+- **Auto-close:** when an issue's links are *all* resolved, the issue is set to `resolved`
+  automatically. **Auto-reopen:** adding a fresh (open) link to a resolved issue sets it back to
+  `open`. Manual `open`/`in_progress` and link-less issues are never touched.
+
+The status-sync logic lives in `src/lib/issues/link-status.ts`
+(`resolveOpenLinksForSession`, `resolveAllLinksForIssue`, `syncIssueStatusFromLinks`) and is called
+from the resolve and link/unlink routes (non-critically — a sync failure never fails the action).
 
 ## AI Suggestions
 

@@ -1,7 +1,14 @@
 import { optionalEnv } from "@/lib/env";
 import { runFilter, runFilterDetailed, type RuleGroup } from "@/lib/whatsapp/audience-filter";
+import { normalizePhone } from "@/lib/whatsapp/phone";
 import { MAPPABLE_FIELDS } from "@/lib/whatsapp/templates";
+import { suppressedPhones } from "@/lib/whatsapp/undeliverable";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+
+// Re-exported so the many call sites that import it from here (audience-csv, the failures route,
+// etc.) keep working; the implementation lives in the leaf phone.ts module to avoid an import cycle
+// with undeliverable.ts.
+export { normalizePhone };
 
 // Audience resolution for the template-send console. Each audience key resolves to a set of
 // recipients, always DEDUPED by phone number (one message max per number). A recipient is "in
@@ -93,13 +100,6 @@ function fieldsOf(row: Record<string, unknown>): Record<string, string | null> {
   return out;
 }
 
-// Normalize a phone string to "+<digits>" so it keys/dedupes consistently with getInWindowPhones
-// and the broadcast recipient rows. Exported for the CSV-upload audience parser.
-export function normalizePhone(input: string): string {
-  const digits = input.replace(/[^\d]/g, "");
-  return digits ? `+${digits}` : input;
-}
-
 // Dedupe a candidate list by phone, keeping the first recipient (with its fields) seen.
 function dedupeByPhone(candidates: Recipient[]): Recipient[] {
   const byPhone = new Map<string, Recipient>();
@@ -117,10 +117,10 @@ const isEmptyField = (v: unknown) => v == null || String(v).trim() === "";
 // audience counts collapse (e.g. 3k+ members read as ~900). Page through a query in 1000-row windows
 // so the full set is returned. `make` must return a fresh query builder each call (so .range() can be
 // applied) and the query must carry a stable .order() for correct, non-overlapping paging.
-interface Pageable<T> {
+export interface Pageable<T> {
   range(from: number, to: number): PromiseLike<{ data: T[] | null }>;
 }
-async function fetchAllRows<T>(make: () => Pageable<T>): Promise<T[]> {
+export async function fetchAllRows<T>(make: () => Pageable<T>): Promise<T[]> {
   const PAGE = 1000;
   const out: T[] = [];
   for (let from = 0; ; from += PAGE) {
@@ -469,8 +469,12 @@ export async function previewExplicitRecipients(
   windowFilter: WindowFilter = "all",
   hours?: number,
 ): Promise<AudiencePreview> {
-  const inWindow = await getInWindowPhones(hours);
-  const tagged = recipients.map((r) => ({ ...r, inWindow: inWindow.has(r.phone) }));
+  const [inWindow, suppressed] = await Promise.all([getInWindowPhones(hours), suppressedPhones()]);
+  // Drop numbers Meta has flagged as undeliverable (not on WhatsApp / can't receive) so they never
+  // get re-sent or counted toward the cost estimate. See src/lib/whatsapp/undeliverable.ts.
+  const tagged = recipients
+    .filter((r) => !suppressed.has(normalizePhone(r.phone)))
+    .map((r) => ({ ...r, inWindow: inWindow.has(r.phone) }));
   // Optionally keep only one side of the 24h window, then report counts on what remains — so the
   // total and cost reflect exactly the people who will be messaged.
   const enriched =

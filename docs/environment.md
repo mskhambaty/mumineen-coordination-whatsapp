@@ -20,7 +20,7 @@ All env var lookups go through `src/lib/env.ts`, which supports mixed-case alias
 | `ADMIN_API_KEY` | — | Server-to-server auth for agent tools and cron jobs. Never sent to the browser. Rotate after deploying the session-auth migration (see Security Notes). |
 | `POSTMARK_API_TOKEN` | `Postmark_api_token` | Postmark server API token; rotate if exposed |
 | `POSTMARK_FROM_EMAIL` | `Postmark_from_email` | Verified Postmark sender address |
-| `LISAN_ALERT_EMAIL` | — | Single recipient for "missing Lisan word" alerts (one address, not all admins). Optional — unset means the word is still queued in `lisan_word_requests` but no email is sent. |
+| `LISAN_ALERT_EMAIL` | — | **Additional** recipient for Lisan missing-word / word-added alerts, on top of the religious-monitor team (managed on Waaz Talaqqi → Team). Optional — unset means only the monitors are emailed; if there are also no monitors, the word is still queued in `lisan_word_requests` but no email is sent. |
 | `POSTMARK_PASSWORD_RESET_TEMPLATE` | `Postmark_password_reset_template` | Postmark template alias for password reset (default `password-reset`) |
 | `POSTMARK_WELCOME_ADMIN_TEMPLATE` | `Postmark_welcome_admin_template` | Postmark template alias for new portal user welcome invites (default `welcome-admin-email`) |
 | `POSTMARK_ASSIGNMENT_TEMPLATE` | `Postmark_assignment_template` | Postmark template alias for assignment and department issue-contact alerts (default `assignment-notification`) |
@@ -36,12 +36,47 @@ All env var lookups go through `src/lib/env.ts`, which supports mixed-case alias
 | `WHATSAPP_BUSINESS_ACCOUNT_ID` | `Whatsapp_business_account_id` | (unset) | WhatsApp Business Account ID. **Required for every template notification** (welcome `committee_platform_access_created`, issue `department_ticket_assigned`, escalation `escalation_ticket_assigned`) — `listMessageTemplates()` reads it to resolve the approved template. Without it, template sends fail gracefully and only the email channel goes out. |
 | `WHATSAPP_UTILITY_MSG_COST_USD` | — | `0.0` | Estimated per-message cost (USD) of a paid (out-of-window) utility template send (~$4 per 1000 delivered = `0.004`). Display-only — used by the admin Send Templates console to estimate broadcast cost. Not billed or enforced. |
 | `DIGEST_WHATSAPP_ENABLED` | — | `false` | Set to `true` to enable WhatsApp sends in the nightly department digest. Controls Meta template quota usage. |
+| `SURVEY_SEND_ENABLED` | — | `false` | **Fallback only.** The survey console now picks the WhatsApp template from a dropdown (any approved URL-button template) and sends with it directly — no env needed. This flag + `SURVEY_WA_TEMPLATE` are used only when no template is chosen in the UI. |
+| `SURVEY_WA_TEMPLATE` | — | — | Fallback approved WhatsApp URL-button template (dynamic URL suffix `{{1}}` = per-recipient token, body `{{1}}` = first name), used only when no template is selected in the console and `SURVEY_SEND_ENABLED=true`. |
 | `WHATSAPP_WINDOW_HOURS` | — | `24` | **Default** hours of the WhatsApp customer-service window treated as "free" (in-window) when the Send Templates console splits an audience free/paid and applies the conversation-window filter. The console can override this per action via its **Window (hours)** input (any positive value). Meta's billing window is 24h; set this **below** 24 for a conservative safety margin (e.g. `14` → anyone who hasn't messaged in 14h counts as paid even if technically still free). Non-positive / unparseable values fall back to `24`. |
 | `DEPARTMENT_SUMMARY_WA_TEMPLATE` | — | `daily_department_issue_confirmation` | Approved Meta template for the nightly department digest WhatsApp message. Two body vars: `{{1}}` department name, `{{2}}` short summary. |
 | `POSTMARK_DEPARTMENT_SUMMARY_TEMPLATE` | — | `daily-department-summary` | Postmark template alias for the nightly department digest email. Model: `department_name`, `feedback_html`, `feedback_text`. |
 | `OPENAI_MODEL` | `OpenAI_model` | `gpt-4o-mini` | Override the centralized chat completion model in `src/lib/ai/model.ts`. Any model id valid for the Chat Completions API works, including GPT-5.x (e.g. `gpt-5.4-mini`) — `chatParams()` adapts the request shape automatically (see note below). |
 | `OPENAI_MODEL_HIGH` | — | falls back to `OPENAI_MODEL` | Higher-end model for Waaz Talaqi / Lisan answers AND the nightly digest conversation-mining batch (e.g. `gpt-5.4`). Falls back to `OPENAI_MODEL` when unset or on error. **Must be a genuine OpenAI Chat Completions model.** If you ever see replies containing leaked tool-call text (`to=functions.…`), harmony markers, or non-Latin junk tokens (e.g. CJK), this var (or `OPENAI_BASE_URL`) is pointed at a non-OpenAI / open-weights endpoint — fix it or unset this var (falls back to the stable `OPENAI_MODEL`). `sanitizeFinalReply` in `run-agent.ts` is only a backstop, not a cure. |
 | `SESSION_SECRET` | — | falls back to `ADMIN_API_KEY` | Signs portal session cookies (HMAC-SHA256). Set a dedicated random value in production to isolate cookie signing from the server-to-server API key. |
+| `ISTIBSAAR_ONCALL_URL` | — | `https://www.talabulilm.com/istibsaar/oncall` | Link the agent suggests for deeper guidance when it can't answer a deen question or after a few religious back-and-forths. Override only if the on-call URL changes. |
+
+## Multiple WhatsApp numbers (accounts)
+
+The app can serve more than one WhatsApp number — e.g. a higher-tier **broadcast** number for sending
+templates. Each number is a separate "account": its own phone number id, access token, WABA, Meta App
+secret, and webhook verify token. The registry lives in [`src/lib/whatsapp/accounts.ts`](../src/lib/whatsapp/accounts.ts).
+
+- The **primary** account is the existing unsuffixed configuration (`WHATSAPP_PHONE_NUMBER_ID`, …).
+- A **broadcast** account is configured with the suffixed `*_BROADCAST` variables below. If
+  `WHATSAPP_PHONE_NUMBER_ID_BROADCAST` is unset, only the primary account exists and behavior is
+  unchanged.
+
+Because the two numbers live under separate Meta Apps, each has its **own** app secret and webhook
+verify token. All Meta Apps point at the **same** callback URL (`/api/whatsapp/webhook`); the handler
+routes each delivery to the right account by `metadata.phone_number_id` (see
+[`whatsapp-webhook.md`](./whatsapp-webhook.md)), so adding a number never adds a route. A template
+lives in exactly one WABA, so the chosen template determines which number a template send goes out
+from; replies are always sent from the number the message arrived on. The send console's **"Send from"**
+picker (shown only when more than one account is configured) lets an admin choose the number explicitly —
+this both filters the template list to that account and sets the number for **free-text** broadcasts
+(which have no template to derive the number from).
+
+| Name | Accepted Aliases | Default | Notes |
+|------|-----------------|---------|-------|
+| `WHATSAPP_DISPLAY_NAME` | `Whatsapp_display_name` | (unset) | Friendly name for the **primary** number in the send console's "Send from" picker (e.g. `AI Bot`). Falls back to the display number, then the label. |
+| `WHATSAPP_PHONE_NUMBER_ID_BROADCAST` | `Whatsapp_phone_number_id_broadcast` | (unset) | Phone number id of the second number. Presence of this var is what enables the broadcast account. |
+| `WHATSAPP_ACCESS_TOKEN_BROADCAST` | `Whatsapp_access_token_broadcast` | (unset) | Access token for the second number's Meta App. Required when the broadcast account is enabled. |
+| `WHATSAPP_BUSINESS_ACCOUNT_ID_BROADCAST` | `Whatsapp_business_account_id_broadcast` | (unset) | WABA id that owns the second number's templates. |
+| `META_APP_SECRET_BROADCAST` | `Meta_app_secret_broadcast` | (unset) | App secret of the second Meta App; validates `X-Hub-Signature-256` on the broadcast webhook route. |
+| `META_WEBHOOK_VERIFY_TOKEN_BROADCAST` | `Meta_webhook_verify_token_broadcast` | (unset) | Verify token for the second Meta App's GET handshake. Its webhook points at the shared `/api/whatsapp/webhook` URL (the handshake accepts any account's token). |
+| `WHATSAPP_DISPLAY_PHONE_NUMBER_BROADCAST` | `Whatsapp_display_phone_number_broadcast` | (unset) | Optional display number for labeling / inbound allow-checks. |
+| `WHATSAPP_DISPLAY_NAME_BROADCAST` | `Whatsapp_display_name_broadcast` | (unset) | Friendly name for the **broadcast** number in the send console's "Send from" picker (e.g. `Anjuman e Saifee`). |
 
 > **Model compatibility (GPT-5.x / o-series).** These are reasoning models: they reject a custom
 > `temperature` and the deprecated `max_tokens`, requiring `max_completion_tokens` instead. All

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
+import { WEBINAR_SHARE_PARAM, webinarShareUrl } from "@/lib/webinars/share";
 import {
   extractYouTubeId,
   youtubeEmbedUrl,
@@ -196,6 +197,65 @@ function AddModal({
   );
 }
 
+// ─── Share button ────────────────────────────────────────────────────────────
+// Copies a deep link (/webinars?w=<seq>) to the clipboard. Used on each card and in
+// the player modal. Stops propagation so tapping it never triggers the card's play.
+
+function ShareButton({
+  seq,
+  className,
+  label = "Share",
+}: {
+  seq: number;
+  className?: string;
+  label?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
+  async function handleCopy(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const url = webinarShareUrl(window.location.origin, seq);
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // Clipboard unavailable (older browser / insecure context) — surface the link so
+      // the user can copy it manually rather than failing silently.
+      window.prompt("Copy this link:", url);
+      return;
+    }
+    setCopied(true);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      aria-label="Copy shareable link to this webinar"
+      className={className}
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+        {copied ? (
+          <path strokeLinecap="round" strokeLinejoin="round" d="M20 6 9 17l-5-5" />
+        ) : (
+          <>
+            <circle cx="18" cy="5" r="3" />
+            <circle cx="6" cy="12" r="3" />
+            <circle cx="18" cy="19" r="3" />
+            <path strokeLinecap="round" d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5" />
+          </>
+        )}
+      </svg>
+      {label && <span>{copied ? "Copied!" : label}</span>}
+    </button>
+  );
+}
+
 // ─── Video Card ──────────────────────────────────────────────────────────────
 
 function VideoCard({ webinar, onPlay }: { webinar: Webinar; onPlay: () => void }) {
@@ -203,11 +263,18 @@ function VideoCard({ webinar, onPlay }: { webinar: Webinar; onPlay: () => void }
   const [thumbError, setThumbError] = useState(false);
 
   return (
-    <button
-      type="button"
-      onClick={onPlay}
-      className="group flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5 text-left transition hover:border-white/20 hover:bg-white/[0.07]"
-    >
+    <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5 transition hover:border-white/20 hover:bg-white/[0.07]">
+      {/* Share — absolutely positioned sibling so it isn't nested inside the play button */}
+      <ShareButton
+        seq={webinar.seq}
+        label=""
+        className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white/80 opacity-0 backdrop-blur transition hover:bg-black/80 hover:text-white focus:opacity-100 group-hover:opacity-100"
+      />
+      <button
+        type="button"
+        onClick={onPlay}
+        className="flex flex-col overflow-hidden text-left"
+      >
       <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-teal-950 to-gray-950">
         {videoId && !thumbError ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -241,7 +308,8 @@ function VideoCard({ webinar, onPlay }: { webinar: Webinar; onPlay: () => void }
           </p>
         )}
       </div>
-    </button>
+      </button>
+    </div>
   );
 }
 
@@ -290,11 +358,17 @@ function PlayerModal({ webinar, onClose }: { webinar: Webinar; onClose: () => vo
             </div>
           )}
         </div>
-        <div className="border-t border-white/5 px-5 py-3.5">
-          <p className="text-sm font-semibold text-white">{webinar.title}</p>
-          {webinar.description && (
-            <p className="mt-0.5 text-xs leading-relaxed text-gray-400">{webinar.description}</p>
-          )}
+        <div className="flex items-start justify-between gap-4 border-t border-white/5 px-5 py-3.5">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-white">{webinar.title}</p>
+            {webinar.description && (
+              <p className="mt-0.5 text-xs leading-relaxed text-gray-400">{webinar.description}</p>
+            )}
+          </div>
+          <ShareButton
+            seq={webinar.seq}
+            className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-gray-300 transition hover:border-white/20 hover:text-white"
+          />
         </div>
       </div>
     </div>
@@ -339,14 +413,35 @@ export default function WebinarsPage() {
   }, []);
 
   // ── Fetch webinars once verified ─────────────────────────────────────────────
+  // After loading, honor a ?w=<seq> deep link by auto-opening that webinar. Done here in
+  // the async callback (not a separate effect) so it runs once and survives the ITS gate —
+  // a shared link keeps its query param across verification.
   useEffect(() => {
     if (gateState !== "open") return;
     apiFetch("/api/webinars")
       .then((r) => r.json())
-      .then((d) => setWebinars(d.webinars ?? []))
+      .then((d) => {
+        const list: Webinar[] = d.webinars ?? [];
+        setWebinars(list);
+        const seq = new URLSearchParams(window.location.search).get(WEBINAR_SHARE_PARAM);
+        if (seq) {
+          const match = list.find((w) => String(w.seq) === seq);
+          if (match) setPlaying(match);
+        }
+      })
       .catch(() => null)
       .finally(() => setLoadingWebinars(false));
   }, [gateState]);
+
+  // ── Open/close keep the URL shareable (address bar reflects the open webinar) ───
+  function openWebinar(w: Webinar) {
+    setPlaying(w);
+    window.history.replaceState(null, "", `${window.location.pathname}?${WEBINAR_SHARE_PARAM}=${w.seq}`);
+  }
+  function closeWebinar() {
+    setPlaying(null);
+    window.history.replaceState(null, "", window.location.pathname);
+  }
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
   function handleVerified(name: string | null) {
@@ -485,14 +580,14 @@ export default function WebinarsPage() {
         ) : (
           <div className="mx-auto grid max-w-6xl grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {webinars.map((w) => (
-              <VideoCard key={w.id} webinar={w} onPlay={() => setPlaying(w)} />
+              <VideoCard key={w.id} webinar={w} onPlay={() => openWebinar(w)} />
             ))}
           </div>
         )}
       </main>
 
       {/* ── Player modal ── */}
-      {playing && <PlayerModal webinar={playing} onClose={() => setPlaying(null)} />}
+      {playing && <PlayerModal webinar={playing} onClose={closeWebinar} />}
 
       {/* ── Add modal ── */}
       {showAdd && (

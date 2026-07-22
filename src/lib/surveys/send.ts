@@ -1,0 +1,275 @@
+import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { createBroadcast } from "@/lib/whatsapp/broadcast";
+import type { AudienceKey, Recipient } from "@/lib/whatsapp/audience";
+
+// audience_key tag stamped on survey broadcasts so the feedback console can list/scope their
+// delivery history (mirrors the Niyaz "niyaz_rsvp" tag). Not a resolvable audience — recipients are
+// always passed explicitly — so it's cast onto the label field only.
+export const SURVEY_AUDIENCE_KEY = "feedback_survey" as AudienceKey;
+import type { RuleGroup } from "@/lib/whatsapp/audience-filter";
+import { resolveApprovedTemplateForAnyAccount } from "@/lib/whatsapp/send-template";
+import type { VariableBindings } from "@/lib/whatsapp/templates";
+import { suggestSample, suggestSamplePlan, dedupExemptSectionIds, type SampleResult, type Stratum } from "@/lib/surveys/sampling";
+import { generateSurveyToken, chicagoToday } from "@/lib/surveys/tokens";
+
+// The roster's full_name already carries the honorific (e.g. "Murtaza bhai Alihusain bhai
+// Bhinderwala"), so the template's name variable uses the full name verbatim — no first-name split.
+export function displayName(fullName: string | null | undefined): string {
+  return (fullName ?? "").trim() || "Mumin";
+}
+
+type DispatchPerson = { phone: string; token: string; name: string | null; muminId?: string | null; familyId?: string | null };
+
+// Queue the WhatsApp template to a set of recipients. Resolves the template (and the WABA/number it
+// lives in) from Meta, binds EVERY body variable the template declares to the name honorific, and
+// sets the dynamic URL-button suffix to `feedback/s/<token>` (the template's base URL is the site
+// root). Works whether the body var is positional ({{1}}) or named (e.g. mumin_name).
+async function dispatchSurveyTemplate(templateCode: string, people: DispatchPerson[], phrase?: string | null, eventTitle?: string | null): Promise<{ ok: true } | { error: string }> {
+  let resolved;
+  try {
+    resolved = await resolveApprovedTemplateForAnyAccount(templateCode);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Template not found." };
+  }
+  const { account, descriptor } = resolved;
+  // Bind the FIRST body var to the name honorific; any further body var (e.g. the new "specific"
+  // template's 2nd param) binds to the per-form phrase ("your Farzand's experience" / "your overall
+  // ashara experience"). A single-var template is unaffected.
+  const body = Object.fromEntries(descriptor.bodyVars.map((tok, i) => [tok, { kind: "field" as const, field: i === 0 ? "display_name" : "experience_label" }]));
+  const recipients: Recipient[] = people.map((p) => ({
+    phone: p.phone,
+    familyId: p.familyId ?? null,
+    muminId: p.muminId ?? null,
+    fields: { url_suffix: `feedback/s/${p.token}`, display_name: displayName(p.name), experience_label: (phrase ?? "").trim() || "your Ashara experience" },
+  }));
+  // Some templates (e.g. the "specific" one) have a TEXT header variable (event_title) — bind it to a
+  // static event label so the send doesn't fail with "missing binding for header variable".
+  const variableBindings: VariableBindings = { urlButton: { kind: "field", field: "url_suffix" }, body };
+  if (descriptor.header?.format === "TEXT" && descriptor.headerVar) {
+    variableBindings.header = { kind: "static", value: (eventTitle ?? "").trim() || "Feedback: Ashara 1448H Chicago Relay Center" };
+  }
+  const result = await createBroadcast({
+    templateCode,
+    account,
+    recipients,
+    audienceKey: SURVEY_AUDIENCE_KEY,
+    variableBindings,
+  });
+  if ("error" in result) return { error: result.error };
+  return { ok: true };
+}
+
+// Commit a form's sample and (optionally) dispatch the WhatsApp template.
+//
+// "Commit" is the irreversible step: it creates per-recipient tokens and writes the
+// (mumin, question) exposures that enforce once-per-event no-repeat. WhatsApp dispatch is gated
+// by SURVEY_SEND_ENABLED + SURVEY_WA_TEMPLATE so the build never blocks on Meta template approval;
+// until then the returned links can be exported and sent another way.
+
+export function surveyBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, "");
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return "http://localhost:3000";
+}
+
+export function surveyLink(token: string): string {
+  return `${surveyBaseUrl()}/feedback/s/${token}`;
+}
+
+// Resolve which template to send with: an explicitly chosen template (from the admin dropdown)
+// always wins; otherwise fall back to the env default, but only when SURVEY_SEND_ENABLED is on.
+export function resolveSurveyTemplate(explicit?: string | null): string | undefined {
+  if (explicit && explicit.trim()) return explicit.trim();
+  return process.env.SURVEY_SEND_ENABLED === "true" ? process.env.SURVEY_WA_TEMPLATE || undefined : undefined;
+}
+
+// Send a single survey link to one phone via the WhatsApp template (used for "send a test to a
+// specific person"). Pass an explicit templateCode (admin dropdown) or rely on the env default.
+// Queues via the broadcast engine (the drain cron delivers). Returns delivered=true when queued.
+export async function deliverSurveyLink(phone: string, token: string, name: string | null, templateCodeOverride?: string | null, phrase?: string | null, eventTitle?: string | null): Promise<{ delivered: boolean; error?: string }> {
+  const templateCode = resolveSurveyTemplate(templateCodeOverride);
+  if (!templateCode) {
+    return { delivered: false, error: "No WhatsApp template selected (pick one from the dropdown, or set SURVEY_SEND_ENABLED + SURVEY_WA_TEMPLATE). Copy the link and send it manually." };
+  }
+  const r = await dispatchSurveyTemplate(templateCode, [{ phone, token, name }], phrase, eventTitle);
+  if ("error" in r) return { delivered: false, error: r.error };
+  return { delivered: true };
+}
+
+export type CommittedRecipient = { recipientId: string; muminId: string; phone: string; name: string | null; token: string; link: string };
+export type CommitResult = {
+  formId: string;
+  funnel: SampleResult["funnel"];
+  recipients: CommittedRecipient[];
+  sent: boolean;
+  sendError?: string;
+};
+
+type FormRow = { id: string; group_id: string | null; rules: RuleGroup | null; sample_plan: Stratum[] | null; resend_until_responded: boolean | null; sample_size: number; status: string; census: boolean | null; template_phrase: string | null; public_title: string | null };
+
+export async function commitAndSendForm(formId: string, templateCodeOverride?: string | null, freeWindowOnly = false, excludeAlreadySent = false): Promise<CommitResult | { error: string }> {
+  const supabase = getSupabaseAdmin();
+  const eventDate = chicagoToday();
+
+  const { data: form } = await supabase
+    .from("survey_forms")
+    .select("id, group_id, rules, sample_plan, resend_until_responded, sample_size, status, census, template_phrase, public_title")
+    .eq("id", formId)
+    .maybeSingle();
+  if (!form) return { error: "Form not found." };
+  const f = form as FormRow;
+  if (f.status === "sent") return { error: "This form has already been sent." };
+
+  const emptyFunnel: SampleResult["funnel"] = {
+    candidates: 0, excludedNotAttending: 0, excludedUnregistered: 0, excludedToday: 0,
+    excludedExhausted: 0, excludedNonResponder: 0, excludedResponded: 0, excludedAlreadySent: 0, fresh: 0, reused: 0, chosen: 0,
+  };
+
+  // Already committed (status "sampled") but not dispatched — e.g. a first Commit & send done in
+  // "Manual links only" mode. Don't re-sample (that would exclude these as "already today" and find
+  // ~nobody); instead dispatch THIS existing batch as-is. Picking a template now finishes the send.
+  if (f.status === "sampled") {
+    // Paginate — a single PostgREST read caps at 1000 rows. A large committed batch (e.g. a 1400-person
+    // census) would otherwise be silently truncated to the first 1000, leaving the rest never sent.
+    const existing: { id: string; mumin_id: string; phone_e164: string; token: string; is_test: boolean }[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabase
+        .from("survey_recipients")
+        .select("id, mumin_id, phone_e164, token, is_test")
+        .eq("form_id", formId)
+        .eq("status", "sampled")
+        .range(from, from + 999);
+      if (error) break;
+      existing.push(...((data ?? []) as typeof existing));
+      if (!data || data.length < 1000) break;
+    }
+    const rows = existing.filter((r) => !r.is_test);
+    if (rows.length > 0) {
+      const ids = Array.from(new Set(rows.map((r) => r.mumin_id)));
+      const nameById = new Map<string, string | null>();
+      for (let i = 0; i < ids.length; i += 500) {
+        const { data } = await supabase.from("mumineen").select("id, full_name").in("id", ids.slice(i, i + 500));
+        for (const m of (data ?? []) as { id: string; full_name: string | null }[]) nameById.set(m.id, m.full_name);
+      }
+      const funnel: SampleResult["funnel"] = { ...emptyFunnel, candidates: rows.length, chosen: rows.length };
+      const recipients: CommittedRecipient[] = rows.map((r) => ({ recipientId: r.id, muminId: r.mumin_id, phone: r.phone_e164, name: nameById.get(r.mumin_id) ?? null, token: r.token, link: surveyLink(r.token) }));
+      const templateCode = resolveSurveyTemplate(templateCodeOverride);
+      if (!templateCode) {
+        return { formId, funnel, recipients, sent: false, sendError: "These links are already committed. Pick a WhatsApp template to send them (or copy the links below)." };
+      }
+      const dispatch = await dispatchSurveyTemplate(templateCode, rows.map((r) => ({ phone: r.phone_e164, token: r.token, name: nameById.get(r.mumin_id) ?? null, muminId: r.mumin_id })), f.template_phrase);
+      if ("error" in dispatch) return { formId, funnel, recipients, sent: false, sendError: dispatch.error };
+      await supabase.from("survey_recipients").update({ status: "sent", sent_at: new Date().toISOString() }).eq("form_id", formId).eq("status", "sampled");
+      await supabase.from("survey_forms").update({ status: "sent", sent_at: new Date().toISOString() }).eq("id", formId);
+      return { formId, funnel, recipients, sent: true };
+    }
+    // No committed batch left → fall through and sample fresh.
+  }
+
+  // Target: a stratified sample_plan (Local 107 + Mehman 70, …) OR a saved group OR a custom filter.
+  let targetRules: RuleGroup | null = f.rules;
+  const plan = Array.isArray(f.sample_plan) && f.sample_plan.length > 0 ? f.sample_plan : null;
+  if (!plan) {
+    if (f.group_id) {
+      const { data: group } = await supabase
+        .from("survey_groups")
+        .select("id, rules")
+        .eq("id", f.group_id)
+        .maybeSingle();
+      if (!group) return { error: "Target group not found." };
+      targetRules = (group as { rules: RuleGroup }).rules;
+    }
+    if (!targetRules) return { error: "Form has no target group or filter." };
+  }
+
+  const { data: fqs } = await supabase
+    .from("survey_form_questions")
+    .select("question_id, section_id")
+    .eq("form_id", formId);
+  const fqRows = (fqs ?? []) as { question_id: string | null; section_id: string | null }[];
+  const allQuestionIds = fqRows.map((q) => q.question_id).filter((id): id is string => Boolean(id));
+  if (allQuestionIds.length === 0) return { error: "Form has no questions composed." };
+  // Dedup/exhaustion is driven ONLY by the form's core sections — sections flagged dedup_exempt
+  // (Seating, Overall Experience) ride along on many forms and must not affect who's "fresh".
+  const exemptSectionIds = await dedupExemptSectionIds(supabase);
+  const coreQuestionIds = fqRows.filter((q) => q.question_id && !(q.section_id && exemptSectionIds.has(q.section_id))).map((q) => q.question_id as string);
+
+  // Resend-until-responded forms (Atfaal/Rahat reminders) don't exhaust on send — instead they
+  // exclude people who've already ANSWERED, so non-responders get re-nudged until they reply.
+  const census = f.census === true;
+  const resendMode = f.resend_until_responded === true;
+  // Census writes no exposures (it's a one-off blast, not part of the rotating sampler).
+  const questionIds = census || resendMode ? [] : coreQuestionIds; // exhaustion off in census/resend
+  const sampleOpts = { freeWindowOnly, excludeAlreadySent, ...(resendMode ? { respondedExcludeQuestionIds: coreQuestionIds } : {}) };
+
+  // Census: send to the WHOLE eligible audience (all attending + registered + reachable, deduped by
+  // phone) with no sampling limits. Otherwise sample fresh-first: a sample_plan draws per-stratum
+  // quotas; a plain group/filter draws one pool to sample_size.
+  const sample: SampleResult = census
+    ? await suggestSample((targetRules ?? { combinator: "and", rules: [] }) as RuleGroup, [], 0, eventDate, { freeWindowOnly, census: true })
+    : plan
+      ? await suggestSamplePlan(plan, questionIds, eventDate, { ...sampleOpts, totalCap: f.sample_size })
+      : await suggestSample(targetRules as RuleGroup, questionIds, f.sample_size, eventDate, sampleOpts);
+  if (sample.chosen.length === 0) {
+    return { formId, funnel: sample.funnel, recipients: [], sent: false, sendError: "No eligible recipients to sample." };
+  }
+
+  // Create recipient rows with unique tokens.
+  const recipientRows = sample.chosen.map((c) => ({
+    form_id: formId,
+    mumin_id: c.muminId,
+    family_id: c.familyId,
+    phone_e164: c.phone,
+    group_id: f.group_id,
+    token: generateSurveyToken(),
+    status: "sampled" as const,
+    event_date: eventDate,
+    census,
+  }));
+  const { data: inserted, error: insErr } = await supabase
+    .from("survey_recipients")
+    .insert(recipientRows)
+    .select("id, mumin_id, phone_e164, token");
+  if (insErr || !inserted) return { error: insErr?.message ?? "Failed to create recipients." };
+
+  // Record (mumin, question) exposures — once-per-event no-repeat. Ignore duplicates.
+  const exposureRows = sample.chosen.flatMap((c) =>
+    questionIds.map((qid) => ({ mumin_id: c.muminId, question_id: qid, form_id: formId, event_date: eventDate })),
+  );
+  await supabase
+    .from("survey_question_exposures")
+    .upsert(exposureRows, { onConflict: "mumin_id,question_id", ignoreDuplicates: true });
+
+  const nameByMumin = new Map(sample.chosen.map((c) => [c.muminId, c.fullName]));
+  const insertedRows = inserted as { id: string; mumin_id: string; phone_e164: string; token: string }[];
+  const recipients: CommittedRecipient[] = insertedRows.map((r) => ({
+    recipientId: r.id,
+    muminId: r.mumin_id,
+    phone: r.phone_e164,
+    name: nameByMumin.get(r.mumin_id) ?? null,
+    token: r.token,
+    link: surveyLink(r.token),
+  }));
+
+  await supabase.from("survey_forms").update({ status: "sampled" }).eq("id", formId);
+
+  // WhatsApp dispatch: an explicitly selected template (admin dropdown) sends directly; otherwise
+  // fall back to the env default only when SURVEY_SEND_ENABLED is on. No template → just committed.
+  const templateCode = resolveSurveyTemplate(templateCodeOverride);
+  if (!templateCode) {
+    return { formId, funnel: sample.funnel, recipients, sent: false };
+  }
+
+  const dispatch = await dispatchSurveyTemplate(
+    templateCode,
+    insertedRows.map((r) => ({ phone: r.phone_e164, token: r.token, name: nameByMumin.get(r.mumin_id) ?? null, muminId: r.mumin_id })),
+    f.template_phrase,
+  );
+  if ("error" in dispatch) {
+    return { formId, funnel: sample.funnel, recipients, sent: false, sendError: dispatch.error };
+  }
+
+  await supabase.from("survey_recipients").update({ status: "sent", sent_at: new Date().toISOString() }).eq("form_id", formId).eq("status", "sampled");
+  await supabase.from("survey_forms").update({ status: "sent", sent_at: new Date().toISOString() }).eq("id", formId);
+  return { formId, funnel: sample.funnel, recipients, sent: true };
+}
