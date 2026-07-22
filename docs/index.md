@@ -27,9 +27,7 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 | [task-management.md](./task-management.md) | Task management system: roles, API routes, agent tools |
 | [transcript-parser.md](./transcript-parser.md) | AI-powered WhatsApp transcript parsing service |
 | [admin-dashboard.md](./admin-dashboard.md) | Admin web dashboard: pages, auth, features |
-| [escalation.md](./escalation.md) | Escalation & site support: triggers, roles, on-call, notifications (design spec) |
-| [triage-desk-design.md](./superpowers/specs/2026-06-09-triage-desk-design.md) | Triage Desk UI: Kanban board, SLA dashboard, ticket detail view |
-| [ai-grouping-assistant.md](./superpowers/specs/2026-06-11-ai-grouping-assistant-design.md) | AI-powered escalation grouping: FAB, modal, batch issue creation |
+| [escalation.md](./escalation.md) | Escalation & site support: triggers, roles, on-call, notifications; Triage Desk (Kanban/SLA/ticket detail) and AI grouping (Trigger B) |
 | [relay-updates.md](./relay-updates.md) | Public relay-page updates feed: endpoint, authoring UI, agent indexing |
 | [accommodations-matching.md](./plans/accommodations-matching.md) | Accommodations host-guest utaro matching module: import, rollups, matching |
 | [meal-rsvp-feedback-digest.md](./meal-rsvp-feedback-digest.md) | Jaman meal RSVP, feedback capture, nightly department digest, and the manual template send console |

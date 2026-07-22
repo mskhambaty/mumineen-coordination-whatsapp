@@ -31,6 +31,73 @@ verify prompt/model changes before shipping. **Reserve frontier models for front
 
 ---
 
+## Where AI actually happens *(the map)*
+
+If you're here to understand **how AI flows through the application**, this is the section. The
+LLM is not one magic box at the front — it shows up at ~15 specific, bounded points, each doing a
+narrow job. Everything funnels through **one hub** so models, temperatures, and token caps are set
+in a single file, never scattered.
+
+### The one hub — [`src/lib/ai/model.ts`](./src/lib/ai/model.ts)
+
+Every AI call in the codebase imports from here. Nothing hardcodes a model name.
+
+| Export | What it is |
+|---|---|
+| `getAIClient()` | The single OpenAI client factory (server-only). |
+| `AI_MODEL` | Cheap default model (`gpt-4o-mini` class) — used for almost everything. |
+| `AI_MODEL_HIGH` | Stronger model — used only for heavy **batched** jobs (e.g. nightly mining). |
+| `AI_VISION_MODEL` | Multimodal model for image questions. |
+| `AI_EMBEDDING_MODEL` | `text-embedding-3-small` — powers all RAG / semantic search. |
+| `AGENT_TEMPERATURE` / `PARSE_TEMPERATURE` / `SUMMARY_TEMPERATURE` | Task-tuned determinism (0.2 / 0.1 / 0.4). |
+| `MAX_AGENT_TOKENS` … | Hard output caps that bound cost and runaway generation. |
+| `chatParams()`, `isReasoningModel()` | Build request params correctly per model family. |
+
+### 1. Real-time — runs on each inbound WhatsApp message
+
+| Touchpoint | Code | What the model does | Model / settings |
+|---|---|---|---|
+| **Agent loop** | `src/lib/agent/run-agent.ts` | Reads the message + RAG context, decides a reply, and makes **one bounded round of permissioned tool calls**. The reasoning core. | `AI_MODEL`, temp 0.2, capped tokens |
+| **RAG retrieval** | `src/lib/scraper/retrieve-site-context.ts` | Embeds the question and vector-searches curated content so answers are **sourced, not invented**. | embeddings |
+| **Ruling guard** | `src/lib/agent/ruling-guard.ts` | A pre-model classifier that catches personal fiqh / halal-haram questions and refuses **before** the model can opine. Safety rail. | `AI_MODEL`, ~8 tokens, temp 0 |
+| **Department routing** | `src/lib/departments/classify.ts` | One tiny cached call maps an issue/feedback to the right department from the **live** committee list. | `AI_MODEL`, ~40 tokens, temp 0 |
+| **Image questions** | `src/lib/agent/vision.ts` | Answers about a sent image, grounded **only** on that image (isolated from RAG so event context can't bleed in). | `AI_VISION_MODEL` |
+
+### 2. Indexing — turns content into embeddings (so RAG can find it)
+
+| Touchpoint | Code | What the model does |
+|---|---|---|
+| Knowledge base indexing | `src/lib/knowledge/index-content.ts` | Embeds curated docs/FAQ buckets into `site_content`. |
+| Religious topics | `src/lib/knowledge/religious-topics.ts` | Routing/themes over Waaz Talaqqi content. |
+| Relay updates | `src/lib/relay-updates/shared.ts` | Embeds public updates so the agent can cite them. |
+
+### 3. Background analysis — cron / admin-triggered, batched
+
+This is the **most AI-native** layer: reading conversations in bulk and producing structure.
+
+| Touchpoint | Code | What the model does | Model |
+|---|---|---|---|
+| Conversation mining (for digest) | `src/lib/digest/mine-conversations.ts` | Mines 24h of chats for experience feedback — **many conversations per call**. | `AI_MODEL_HIGH` |
+| Department digest | `src/lib/digest/run.ts` | Aggregates + writes the nightly per-department summary. | summary preset |
+| Issue matching / grouping | `src/lib/escalation/issue-match.ts`, `src/lib/escalation/issue-grouping.ts` | Clusters escalations and matches same-problem reports into one shared issue (Trigger B). | `AI_MODEL` |
+| Escalation & issue suggestions | `src/app/api/admin/escalations/[phoneE164]/suggestions/route.ts`, `src/app/api/admin/issues/suggestions/route.ts` | Suggests matching issues + resolution history to a triager. | `AI_MODEL` |
+| Conversation-quality scoring | `src/app/api/cron/conversation-quality/route.ts` | Scores/summarizes handled conversations. | summary preset |
+| Knowledge-gap analysis | `src/lib/knowledge/analyze-gaps.ts` | Finds questions the KB couldn't answer, to fill later. | `AI_MODEL` |
+| Survey comment analysis | `src/app/api/admin/surveys/analytics/ai/route.ts` | Themes + sentiment over free-text survey comments. | summary preset |
+| Transcript parsing | `src/lib/transcripts/parser.ts` | Turns a pasted WhatsApp transcript into structured rows. | parse preset |
+
+### 4. Model testing — pick the cheapest model that passes
+
+| Touchpoint | Code | What it does |
+|---|---|---|
+| Ollama A/B page | `src/app/api/ollama/`, `src/app/admin/ollama-test/` | Runs the same prompt against candidate (incl. open-source) models side by side, so you can verify quality before switching `OPENAI_MODEL`. |
+
+**The pattern to copy:** each AI touchpoint is small, single-purpose, funneled through one config
+hub, and wrapped in software that enforces permissions and grounds the output. That's what makes it
+reliable enough to point at real people.
+
+---
+
 ## High-level architecture
 
 ```
