@@ -25,8 +25,9 @@ the brain; the software is the body. If you want to build something like this, y
   (never left to the model — see `src/lib/permissions.ts`).
 
 You don't need a frontier model for most of this. We ran on a small, inexpensive model
-(GPT‑4.1‑mini class) with excellent results, and included a model A/B testing page to verify
-prompt/model changes. **Reserve frontier models for frontier problems.**
+(GPT‑4.1‑mini class, `OPENAI_MODEL`) with excellent results, and only reach for a stronger model
+(`OPENAI_MODEL_HIGH`) on the few hard tasks that need it. A built-in A/B testing page lets you
+verify prompt/model changes before shipping. **Reserve frontier models for frontier problems.**
 
 ---
 
@@ -50,8 +51,12 @@ Meta WhatsApp Cloud API ──webhook──► /api/whatsapp/webhook   (parse, d
                escalation, etc.)        + RLS on every table
 
 Admin portal (/admin/**) ──► API routes (/api/**) ──► Supabase
-Cron jobs (/api/cron/**) ──► nightly digests, broadcast draining
+Cron jobs (/api/cron/**) ──► department digests, broadcast draining, escalation grouping
 ```
+
+One shared webhook (`/api/whatsapp/webhook`) serves **all** WhatsApp numbers and routes each
+delivery to the right account by `metadata.phone_number_id` — so you can run a second (broadcast)
+number alongside the primary one without a second endpoint (see `src/lib/whatsapp/accounts.ts`).
 
 **Design rules the whole codebase follows** (see [`AGENTS.md`](./AGENTS.md)):
 
@@ -72,8 +77,9 @@ Cron jobs (/api/cron/**) ──► nightly digests, broadcast draining
 | Framework | Next.js (App Router) |
 | Hosting / CI | Vercel (deploy on git push) |
 | Database / Auth | Supabase (Postgres + Row Level Security) |
-| Messaging | Meta WhatsApp Cloud API + Graph API |
-| AI | OpenAI (small model by default); Ollama for A/B testing |
+| Messaging | Meta WhatsApp Cloud API + Graph API (multi-account: primary + broadcast number) |
+| AI | OpenAI (small model by default, stronger model on demand); Ollama for A/B testing |
+| UI helpers | react-querybuilder (audience filters), react-phone-number-input, xlsx (imports) |
 | Email | Postmark |
 | Validation | Zod on every boundary |
 
@@ -91,9 +97,10 @@ The platform every other module plugs into. If you fork nothing else, fork this.
 
 | Piece | Code | Doc |
 |---|---|---|
-| Meta webhook (inbound/outbound, dedup, signature verify) | `src/app/api/whatsapp/webhook/route.ts`, `src/lib/meta/whatsapp.ts`, `src/lib/whatsapp/parser.ts` | [whatsapp-webhook.md](./docs/whatsapp-webhook.md) |
+| Meta webhook (inbound/outbound, dedup, signature verify) | `src/app/api/whatsapp/webhook/route.ts`, `src/lib/whatsapp/inbound.ts`, `src/lib/meta/whatsapp.ts`, `src/lib/whatsapp/parser.ts` | [whatsapp-webhook.md](./docs/whatsapp-webhook.md) |
+| Multi-account WhatsApp registry (primary + broadcast number) | `src/lib/whatsapp/accounts.ts` | [whatsapp-webhook.md](./docs/whatsapp-webhook.md) |
 | AI agent (prompt, bounded tool-calling loop) | `src/lib/agent/run-agent.ts`, `src/lib/agent/tools.ts` | [ai-agent.md](./docs/ai-agent.md) |
-| Central model/client config | `src/lib/ai/model.ts` | — |
+| Central model/client config (default + high tier) | `src/lib/ai/model.ts` | — |
 | Permissions & tool access | `src/lib/permissions.ts` | [permissions.md](./docs/permissions.md) |
 | Knowledge / RAG (embeddings + vector retrieval) | `src/lib/knowledge/index-content.ts`, `src/lib/scraper/retrieve-site-context.ts` | [site-scraper.md](./docs/site-scraper.md) |
 | Supabase operations | `src/lib/supabase/server.ts`, `supabase/migrations/` | [database.md](./docs/database.md) |
@@ -110,8 +117,11 @@ Independent domain features. Each is self-contained enough to keep or drop.
 |---|---|---|---|
 | Registration & roster | ITS registration + spreadsheet roster import | `src/app/register/`, `src/app/admin/registration/`, `src/lib/mumineen/`, `public/templates/mumineen-roster-template.xlsx` | [admin-dashboard.md](./docs/admin-dashboard.md) |
 | Accommodations matching | Host↔guest matching, XLSX import, capacity rollups | `src/lib/accommodations/{import,rollups,matching}.ts`, `src/app/admin/accommodations/` | [accommodations-matching.md](./docs/plans/accommodations-matching.md) |
-| Meal RSVP / Niyaz | Per-mumin RSVP grids, family cascade, tallies | `src/lib/rsvp/`, `src/app/api/rsvp/`, `src/app/admin/niyaz/` | [meal-rsvp-feedback-digest.md](./docs/meal-rsvp-feedback-digest.md) |
-| Lost & found | Agent intake, auto-escalation, portal | `src/app/api/lost-found/`, `src/lib/lost-found/reporter.ts`, `src/app/admin/lost-found/` | [lost-found.md](./docs/lost-found.md) |
+| Meal RSVP / Niyaz | Per-day events, RSVP grids (by family / by individual), interactive Flow replies + confirmations, tallies & charts | `src/lib/rsvp/`, `src/app/api/rsvp/`, `src/app/api/admin/niyaz/`, `src/app/admin/niyaz/` | [meal-rsvp-feedback-digest.md](./docs/meal-rsvp-feedback-digest.md) |
+| Lost & found | Agent intake, auto-escalation, portal CRUD | `src/app/api/lost-found/`, `src/lib/lost-found/reporter.ts`, `src/app/admin/lost-found/` | [lost-found.md](./docs/lost-found.md) |
+| Feedback surveys | Question databank, group sampling (fresh-first, once-per-event), tokenized web form, 1–5 sentiment + AI comment analysis | `src/lib/surveys/`, `src/app/admin/surveys/`, `src/app/feedback/s/[token]/`, `src/app/api/feedback-survey/[token]/` | [feedback-surveys.md](./docs/feedback-surveys.md) |
+| Knowledge quiz | Bilingual (English / Lisan ud Dawat) quiz, shared link + self-entered ITS, server-side grading, admin leaderboard | `src/lib/quiz/`, `src/app/quiz/[token]/`, `src/app/admin/quiz/`, `src/app/api/quiz/`, `src/app/api/admin/quiz/` | [quiz.md](./docs/quiz.md) |
+| Parking passes | Caller-scoped lookup (own family only) + per-color entry guidance; agent tool | `src/app/api/parking/my-passes/`, `src/lib/parking/entry-info.ts` | — |
 | Task management | Committee task tracking + agent tools | `src/app/api/tasks/`, `src/app/admin/tasks/` | [task-management.md](./docs/task-management.md) |
 | Webinars | Public ITS-gated video page | `src/app/webinars/`, `src/lib/webinars/youtube.ts` | [webinars.md](./docs/webinars.md) |
 | Relay updates | Public updates feed + authoring UI | `src/app/api/relay-updates/`, `src/app/admin/relay-updates/` | [relay-updates.md](./docs/relay-updates.md) |
@@ -139,16 +149,20 @@ with humans or rigid if-then bots. This is where the "agent" earns its keep.
 | Piece | Code | Doc |
 |---|---|---|
 | Escalation & Triage Desk (Kanban, SLA, on-call) | `src/lib/escalation/`, `src/app/api/escalations/`, `src/app/admin/escalation/` | [escalation.md](./docs/escalation.md) |
-| AI grouping (messages → tickets) | `src/app/api/admin/issues/suggestions/route.ts`, `src/components/admin/AIGroupingModal.tsx`, `src/lib/escalation/issue-match.ts` | [escalation.md](./docs/escalation.md) |
-| Issues CRUD + linking | `src/app/api/admin/issues/**` | [escalation.md](./docs/escalation.md) |
-| Nightly department digest + cron | `src/lib/digest/run.ts`, `src/app/api/cron/department-digest/route.ts` | [meal-rsvp-feedback-digest.md](./docs/meal-rsvp-feedback-digest.md) |
-| Feedback capture + RSVP follow-ups | `src/lib/feedback/record.ts`, `src/lib/rsvp/niyaz-prompt.ts` | [meal-rsvp-feedback-digest.md](./docs/meal-rsvp-feedback-digest.md) |
+| AI grouping — messages → tickets (on demand) | `src/app/api/admin/issues/suggestions/route.ts`, `src/components/admin/AIGroupingModal.tsx`, `src/lib/escalation/issue-match.ts` | [escalation.md](./docs/escalation.md) |
+| Auto issue-promotion (Trigger B, hourly cron) | `src/lib/escalation/issue-grouping.ts`, `src/app/api/cron/escalation-grouping/route.ts` | [escalation.md](./docs/escalation.md) |
+| Issues CRUD + linking + per-link lifecycle | `src/app/api/admin/issues/**`, `src/lib/issues/link-status.ts` | [escalation.md](./docs/escalation.md) |
+| Department digest (aggregate → AI → distribute) | `src/lib/digest/run.ts`, `src/app/api/cron/department-digest/route.ts` | [meal-rsvp-feedback-digest.md](./docs/meal-rsvp-feedback-digest.md) |
+| Feedback capture + RSVP follow-ups | `src/lib/feedback/record.ts`, `src/lib/rsvp/niyaz-interactive.ts` | [meal-rsvp-feedback-digest.md](./docs/meal-rsvp-feedback-digest.md) |
 | Outbound templates / broadcast (send console) | `src/lib/whatsapp/{send-template,broadcast,audience}.ts`, `src/app/admin/whatsapp-templates/`, `src/app/api/cron/broadcast-drain/route.ts` | [meal-rsvp-feedback-digest.md](./docs/meal-rsvp-feedback-digest.md) |
+| Custom audience filters (behavioral targeting) | `src/lib/whatsapp/audience-filter.ts`, `src/components/admin/AudienceFilterBuilder.tsx` | [meal-rsvp-feedback-digest.md](./docs/meal-rsvp-feedback-digest.md) |
+| Undeliverable-number suppression | `src/lib/whatsapp/undeliverable.ts`, `src/app/api/admin/whatsapp/undeliverable/route.ts` | — |
 | Email notifications | `src/lib/email/postmark.ts`, `src/app/api/auth/` | [email.md](./docs/email.md) |
 
 **Reuse:** The escalation → AI-grouping → digest loop is the flagship. It depends on the
 foundation (agent + Supabase) but not on the event modules, so you can adopt it on its own to add
-"analyze our conversations and open tickets automatically" to any WhatsApp deployment.
+"analyze our conversations and open tickets automatically" to any WhatsApp deployment. The
+send-console + audience-filter stack is reusable on its own for targeted WhatsApp broadcasts.
 
 ### 5. Model testing & tooling
 
@@ -186,18 +200,29 @@ Set in Vercel (Production + Preview). Full list and aliases in
 [`docs/environment.md`](./docs/environment.md).
 
 ```text
+# Core — required
 META_GRAPH_API_VERSION
 META_WEBHOOK_VERIFY_TOKEN
 WHATSAPP_ACCESS_TOKEN
 WHATSAPP_PHONE_NUMBER_ID
+WHATSAPP_BUSINESS_ACCOUNT_ID
 SUPABASE_URL
 SUPABASE_SERVICE_ROLE_KEY
 OPENAI_API_KEY
-OPENAI_MODEL
+OPENAI_MODEL            # small/cheap default model
+OPENAI_MODEL_HIGH       # stronger model, used only where needed
+
+# Optional — second (broadcast) WhatsApp number: same keys with a _BROADCAST suffix
+WHATSAPP_ACCESS_TOKEN_BROADCAST
+WHATSAPP_PHONE_NUMBER_ID_BROADCAST
+WHATSAPP_BUSINESS_ACCOUNT_ID_BROADCAST
 ```
 
 Optional: `META_APP_SECRET` — if set, webhook `POST` requests must include a valid
-`X-Hub-Signature-256` header. `SUPABASE_SERVICE_ROLE_KEY` must only ever live in a server runtime.
+`X-Hub-Signature-256` header. Feature flags such as `SURVEY_SEND_ENABLED` and
+`DIGEST_WHATSAPP_ENABLED` gate outbound sends. `SUPABASE_SERVICE_ROLE_KEY` must only ever live in
+a server runtime. The **full, authoritative list (with aliases and the `_BROADCAST` account) is in
+[`docs/environment.md`](./docs/environment.md)** — start there, not from this excerpt.
 
 ### Webhook
 
@@ -205,8 +230,10 @@ Meta callback URL: `https://<your-vercel-domain>/api/whatsapp/webhook`. Use the 
 `META_WEBHOOK_VERIFY_TOKEN` in Vercel and in Meta's webhook configuration.
 
 - `GET /api/whatsapp/webhook` — validates Meta's challenge.
-- `POST /api/whatsapp/webhook` — parses inbound messages, dedupes by `whatsapp_message_id`,
-  stores in/outbound, runs the agent, and sends the reply.
+- `POST /api/whatsapp/webhook` — routes the delivery to the right account by
+  `metadata.phone_number_id`, parses inbound text / button / Flow responses, dedupes by
+  `whatsapp_message_id`, stores in/outbound, runs the agent, and sends the reply. A single
+  endpoint serves every configured number.
 
 ### Supabase
 
