@@ -1651,31 +1651,6 @@ paths:
         "200": { description: Scrape result. }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
-  /whatsapp/webhook:
-    get:
-      tags: [conversations]
-      summary: Verify Meta WhatsApp webhook subscription (all numbers).
-      description: >-
-        Single shared callback URL for every WhatsApp account. The GET handshake echoes the challenge
-        when hub.verify_token matches ANY configured account's verify token (e.g.
-        META_WEBHOOK_VERIFY_TOKEN or META_WEBHOOK_VERIFY_TOKEN_BROADCAST).
-      security: []
-      responses:
-        "200": { description: Challenge response. }
-        "403": { $ref: "#/components/responses/Forbidden" }
-    post:
-      tags: [conversations]
-      summary: Receive inbound WhatsApp webhook messages (all numbers).
-      description: >-
-        Single shared endpoint for every WhatsApp account. The handler resolves the account from the
-        payload's metadata.phone_number_id, verifies the X-Hub-Signature-256 with THAT account's app
-        secret, and sends any reply from that number. Deliveries for an unconfigured number are acked
-        with 200 and ignored.
-      security: []
-      responses:
-        "200": { description: Webhook processed (or ignored for an unknown number). }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "500": { $ref: "#/components/responses/ServerError" }
   /relay-updates:
     get:
       tags: [conversations]

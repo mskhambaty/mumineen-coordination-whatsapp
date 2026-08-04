@@ -5,6 +5,9 @@ Mubaraka. A mumin texts a registered WhatsApp number → a Meta webhook fires �
 answers in context and can take real actions (RSVPs, lost & found, escalations, and more).
 A web admin portal sits on top for committees to manage everything.
 
+> **Note:** The inbound WhatsApp webhook endpoint (`/api/whatsapp/webhook`) is currently disabled.
+> Inbound WhatsApp messages are not processed until it is reintroduced.
+
 This repo is **built to be forked and reused by other Jamaats.** It's organized as a set of
 mostly-independent modules so you can adopt the whole thing or lift out just the pieces you
 need. This README maps each module to the code that implements it and tells you how to reuse it.
@@ -104,7 +107,7 @@ reliable enough to point at real people.
 WhatsApp user
      │  (text / button reply)
      ▼
-Meta WhatsApp Cloud API ──webhook──► /api/whatsapp/webhook   (parse, dedup, store)
+Meta WhatsApp Cloud API ──webhook──► /api/whatsapp/webhook   (DISABLED — endpoint removed)
                                             │
                                             ▼
                                      AI Agent (src/lib/agent)
@@ -121,9 +124,8 @@ Admin portal (/admin/**) ──► API routes (/api/**) ──► Supabase
 Cron jobs (/api/cron/**) ──► department digests, broadcast draining, escalation grouping
 ```
 
-One shared webhook (`/api/whatsapp/webhook`) serves **all** WhatsApp numbers and routes each
-delivery to the right account by `metadata.phone_number_id` — so you can run a second (broadcast)
-number alongside the primary one without a second endpoint (see `src/lib/whatsapp/accounts.ts`).
+The shared webhook (`/api/whatsapp/webhook`) that previously served **all** WhatsApp numbers has
+been removed. Inbound message processing is currently disabled.
 
 **Design rules the whole codebase follows** (see [`AGENTS.md`](./AGENTS.md)):
 
@@ -164,7 +166,7 @@ The platform every other module plugs into. If you fork nothing else, fork this.
 
 | Piece | Code | Doc |
 |---|---|---|
-| Meta webhook (inbound/outbound, dedup, signature verify) | `src/app/api/whatsapp/webhook/route.ts`, `src/lib/whatsapp/inbound.ts`, `src/lib/meta/whatsapp.ts`, `src/lib/whatsapp/parser.ts` | [whatsapp-webhook.md](./docs/whatsapp-webhook.md) |
+| Meta webhook — **disabled** (inbound processing removed; outbound/template still works) | `src/lib/whatsapp/inbound.ts` (library preserved), `src/lib/meta/whatsapp.ts`, `src/lib/whatsapp/parser.ts` | [whatsapp-webhook.md](./docs/whatsapp-webhook.md) |
 | Multi-account WhatsApp registry (primary + broadcast number) | `src/lib/whatsapp/accounts.ts` | [whatsapp-webhook.md](./docs/whatsapp-webhook.md) |
 | AI agent (prompt, bounded tool-calling loop) | `src/lib/agent/run-agent.ts`, `src/lib/agent/tools.ts` | [ai-agent.md](./docs/ai-agent.md) |
 | Central model/client config (default + high tier) | `src/lib/ai/model.ts` | — |
@@ -285,22 +287,17 @@ WHATSAPP_PHONE_NUMBER_ID_BROADCAST
 WHATSAPP_BUSINESS_ACCOUNT_ID_BROADCAST
 ```
 
-Optional: `META_APP_SECRET` — if set, webhook `POST` requests must include a valid
-`X-Hub-Signature-256` header. Feature flags such as `SURVEY_SEND_ENABLED` and
+Optional: `META_APP_SECRET` — used for webhook signature verification (when/if the webhook is
+re-enabled). Feature flags such as `SURVEY_SEND_ENABLED` and
 `DIGEST_WHATSAPP_ENABLED` gate outbound sends. `SUPABASE_SERVICE_ROLE_KEY` must only ever live in
 a server runtime. The **full, authoritative list (with aliases and the `_BROADCAST` account) is in
 [`docs/environment.md`](./docs/environment.md)** — start there, not from this excerpt.
 
-### Webhook
+### Webhook (currently disabled)
 
-Meta callback URL: `https://<your-vercel-domain>/api/whatsapp/webhook`. Use the same value for
-`META_WEBHOOK_VERIFY_TOKEN` in Vercel and in Meta's webhook configuration.
-
-- `GET /api/whatsapp/webhook` — validates Meta's challenge.
-- `POST /api/whatsapp/webhook` — routes the delivery to the right account by
-  `metadata.phone_number_id`, parses inbound text / button / Flow responses, dedupes by
-  `whatsapp_message_id`, stores in/outbound, runs the agent, and sends the reply. A single
-  endpoint serves every configured number.
+The inbound webhook endpoint (`/api/whatsapp/webhook`) has been removed. To re-enable inbound
+message processing, restore `src/app/api/whatsapp/webhook/route.ts` and point the Meta callback
+URL at `https://<your-vercel-domain>/api/whatsapp/webhook`.
 
 ### Supabase
 
@@ -328,12 +325,6 @@ docs.
 npm install
 cp .env.example .env.local
 npm run dev
-```
-
-Verify the webhook challenge locally:
-
-```bash
-curl "http://localhost:3000/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=$META_WEBHOOK_VERIFY_TOKEN&hub.challenge=test-challenge"
 ```
 
 ### Testing

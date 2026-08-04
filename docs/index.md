@@ -8,12 +8,15 @@
 WhatsApp-only Next.js backend for **Anjuman e Saifee Chicago** Ashara Mubarak 1447H coordination.  
 Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent replies in context.
 
+> **Note:** The inbound webhook endpoint has been intentionally disabled. Inbound WhatsApp messages
+> are not currently processed by this app.
+
 ## Document Map
 
 | Doc | What it covers |
 |-----|---------------|
 | [architecture.md](./architecture.md) | Full system overview: request flow, layers, external services |
-| [whatsapp-webhook.md](./whatsapp-webhook.md) | Meta webhook setup, inbound/outbound flow, deduplication |
+| [whatsapp-webhook.md](./whatsapp-webhook.md) | Meta webhook setup, inbound/outbound flow, deduplication — **endpoint currently disabled** |
 | [ai-agent.md](./ai-agent.md) | OpenAI agent loop, system prompt, tool-calling, model config |
 | [ashara-religious-content.md](./ashara-religious-content.md) | Waaz Talaqi: per-majlis content model, `/admin/ashara` dashboard, daily seed + Lisan translate, theme index, answer routing & length budget |
 | [ollama-ab-testing.md](./ollama-ab-testing.md) | Ollama cloud A/B testing page for model comparison |
@@ -40,8 +43,7 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 ## Key File Locations
 
 ```
-src/app/api/whatsapp/webhook/route.ts    — Single shared Meta webhook for ALL numbers (GET + POST); routes each delivery to its account by metadata.phone_number_id
-src/app/api/ollama/models/route.ts       — Ollama model list proxy
+src/lib/whatsapp/inbound.ts              — Shared inbound webhook logic (verify/parse/process); resolves the account per delivery from metadata.phone_number_id — **webhook route currently disabled**
 src/app/api/ollama/chat/route.ts         — Ollama A/B chat completion endpoint
 src/app/api/auth/forgot-password/route.ts — Password reset email endpoint (any non-visitor user, via canAccessPortal)
 src/lib/admin/email.ts                   — Case-insensitive email normalization/matching for auth lookups

@@ -1,13 +1,18 @@
 # WhatsApp Webhook
 
-## Overview
+> **Disabled.** The inbound webhook endpoint (`/api/whatsapp/webhook`) has been intentionally
+> removed. `src/app/api/whatsapp/webhook/route.ts` no longer exists. Inbound WhatsApp messages
+> are **not** processed by this application until the endpoint is reintroduced.  
+> The underlying library code in `src/lib/whatsapp/inbound.ts` is preserved for future use.
 
-The webhook lives at `/api/whatsapp/webhook` and handles all communication between the Meta WhatsApp Cloud API and this application.  
-Source: `src/app/api/whatsapp/webhook/route.ts`
+## Overview (historical)
 
-The route is a thin binding to the shared handlers in `src/lib/whatsapp/inbound.ts` (`webhookVerify`,
-`webhookReceive`). All verification, parsing, account-routing, and processing logic described below
-lives there. This one URL serves **every** WhatsApp number.
+The webhook formerly lived at `/api/whatsapp/webhook` and handled all communication between the
+Meta WhatsApp Cloud API and this application.
+
+The route was a thin binding to the shared handlers in `src/lib/whatsapp/inbound.ts`
+(`webhookVerify`, `webhookReceive`). All verification, parsing, account-routing, and processing
+logic described below lived there. That one URL served **every** WhatsApp number.
 
 ### Multiple accounts (one shared URL)
 
