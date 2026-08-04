@@ -127,7 +127,7 @@ src/app/api/admin/niyaz/days/route.ts    — GET list of Niyaz days (config + re
 src/app/api/admin/niyaz/days/[date]/route.ts — GET/PUT day-level config by date
 src/app/api/admin/niyaz/instances/[id]/config/route.ts — GET/PUT day-level event config (by instance id)
 src/app/api/admin/niyaz/instances/[id]/broadcast/route.ts — Send Niyaz RSVP: audience + preview (count/sample), event-config body bindings, custom per-recipient Flow/quick-reply button payloads, single-ITS test
-src/components/admin/niyaz/EventRsvpComposer.tsx — Admin composer: event config (template dropdown from the 630 WABA), audience + preview, button-payload editor, send/test
+src/components/admin/niyaz/EventRsvpComposer.tsx — Admin composer: event config (template dropdown from the broadcast WABA), audience + preview, button-payload editor, send/test
 src/components/admin/niyaz/BroadcastHistory.tsx — Niyaz broadcast history + delivery results (sent/delivered/read/failed), reuses /api/admin/templates/broadcasts(/[id]) filtered by audience_key=niyaz_rsvp
 src/lib/whatsapp/interactive-responses.ts — Raw capture of inbound Flow/button responses (whatsapp_interactive_responses)
 src/lib/rsvp/niyaz-interactive.ts        — Phase 2 decode: interactive response → niyaz_rsvp via recordNiyazDayRsvp (real + guest overflow, reconciled); then sendNiyazConfirmation sends the day's confirmation template back to the responder (mumin_name + rsvp_status, change-button reopens the Flow)
