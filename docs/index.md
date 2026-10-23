@@ -9,7 +9,9 @@ WhatsApp-only Next.js backend for **Anjuman e Saifee Chicago** Ashara Mubarak 14
 Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent replies in context.
 
 > **Note:** The inbound webhook endpoint has been intentionally disabled. Inbound WhatsApp messages
-> are not currently processed by this app.
+> are not currently processed by this app. Portal users talk to the agent through the in-app chat
+> (`/admin/agent-chat`) instead — same pipeline, same Inbox triage; on-call alerts are email-only.
+> See [ai-agent.md](./ai-agent.md#in-app-agent-chat).
 
 ## Document Map
 
@@ -44,6 +46,11 @@ Mumineen text the registered WhatsApp number → Meta webhook fires → AI agent
 
 ```
 src/lib/whatsapp/inbound.ts              — Shared inbound webhook logic (verify/parse/process); resolves the account per delivery from metadata.phone_number_id — **webhook route currently disabled**
+src/app/admin/agent-chat/page.tsx        — In-app agent chat ("AI Agent → Chat with Agent"): the user's own persistent conversation + Visitor mode toggle
+src/app/api/agent-chat/route.ts          — GET own thread (poll with ?after=) / POST a message as the session user → shared text pipeline
+src/lib/agent/text-turn.ts               — Channel-neutral inbound-text pipeline (head-count → manual pause → registration gate → coalesced agent), shared by WhatsApp + in-app
+src/lib/conversations/in-app.ts          — In-app channel: record inbound/outbound (raw_payload.channel="in_app"), isInAppConversation for admin-reply routing
+src/lib/conversations/channel.ts         — Client-safe in-app channel marker (isInAppPayload) used by the Inbox tag
 src/app/api/ollama/chat/route.ts         — Ollama A/B chat completion endpoint
 src/app/api/auth/forgot-password/route.ts — Password reset email endpoint (any non-visitor user, via canAccessPortal)
 src/lib/admin/email.ts                   — Case-insensitive email normalization/matching for auth lookups

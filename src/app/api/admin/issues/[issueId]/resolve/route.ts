@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { canAccessInbox } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
+import { deliverInApp, isInAppConversation } from "@/lib/conversations/in-app";
 import { logEscalationActivity } from "@/lib/escalation/activity";
 import { resolveAllLinksForIssue } from "@/lib/issues/link-status";
 import { sendWhatsAppText } from "@/lib/meta/whatsapp";
@@ -109,24 +110,30 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
     // Send WhatsApp message if provided.
     if (message) {
       try {
-        const metaResponse = await sendWhatsAppText(
-          session.phone_e164,
-          message,
-        );
-        const outboundId = metaResponse.messages?.[0]?.id;
-        await recordOutboundMessage({
-          phoneE164: session.phone_e164,
-          body: message,
-          whatsappMessageId: outboundId,
-          rawPayload: {
-            source: "issue_close_broadcast",
-            issue_id: issueId,
-            issue_number: issue.issue_number,
-          },
-        });
-        await touchConversationSession({
-          phoneE164: session.phone_e164,
-        });
+        const rawPayload = {
+          source: "issue_close_broadcast",
+          issue_id: issueId,
+          issue_number: issue.issue_number,
+        };
+        if (await isInAppConversation(session.phone_e164)) {
+          // In-app agent chat: no WhatsApp transport — record it so it shows in the member's chat.
+          await deliverInApp({ phoneE164: session.phone_e164, body: message, rawPayload });
+        } else {
+          const metaResponse = await sendWhatsAppText(
+            session.phone_e164,
+            message,
+          );
+          const outboundId = metaResponse.messages?.[0]?.id;
+          await recordOutboundMessage({
+            phoneE164: session.phone_e164,
+            body: message,
+            whatsappMessageId: outboundId,
+            rawPayload,
+          });
+          await touchConversationSession({
+            phoneE164: session.phone_e164,
+          });
+        }
         messagesSent++;
 
         try {

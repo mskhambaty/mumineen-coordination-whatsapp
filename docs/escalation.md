@@ -215,16 +215,10 @@ leadership, not committee, no one else.
   - Template ID/alias: `escalation-request`
   - Env var: `POSTMARK_ESCALATION_REQUEST_TEMPLATE`
   - An HTML template will be authored to paste into Postmark.
-- **WhatsApp** — the 24h session window is **per recipient**. Guest A's window does **not**
-  authorize messaging a staff member; the staff number has no open window, so a cold alert
-  **requires a pre-approved Meta template message** (free-form returns error 131047). Sent
-  best-effort on top of the guaranteed email via the approved utility template
-  `escalation_ticket_assigned`. Body variables: `{{1}}` request summary
-  (`"<Category>"`, prefixed `"URGENT — "` for urgent escalations), `{{2}}` the escalation
-  reason/details, `{{3}}` the portal deep link. Only on-call members who have a phone number
-  are messaged. All template sends route through `src/lib/whatsapp/send-template.ts` so logging
-  is uniform with the welcome and issue-contact notifications.
-- **Deep link** in both → opens the app → prompts login if needed → lands directly on that
+- **WhatsApp — removed.** The WhatsApp number is gone, so on-call alerts are **email only**
+  (`src/lib/escalation/notify.ts`). The former `escalation_ticket_assigned` template alert, and the
+  `department_ticket_assigned` issue-contact alert (`src/lib/issues/notify.ts`), are no longer sent.
+- **Deep link** in the email → opens the app → prompts login if needed → lands directly on that
   conversation in the Escalations tab (redirect-after-login preserves the target).
 
 All notification sends are fire-and-forget (failures never block the agent reply).

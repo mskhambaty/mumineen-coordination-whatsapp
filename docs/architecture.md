@@ -7,6 +7,22 @@ There is no frontend UI — all interaction happens through WhatsApp.
 
 ## Request Flow
 
+> **Current entry point: the in-app agent chat.** The WhatsApp webhook route below is removed
+> (PR #213). Today a signed-in portal user talks to the agent from `/admin/agent-chat`:
+>
+> ```
+> POST /api/agent-chat               (src/app/api/agent-chat/route.ts) — session → caller's own phone
+>     ├─ recordInAppInbound()          (src/lib/conversations/in-app.ts) — raw_payload.channel = "in_app"
+>     ├─ touchConversationSession()    — conversation lives in the primary inbox
+>     └─ handleInboundText()           (src/lib/agent/text-turn.ts) — SAME pipeline as WhatsApp:
+>            head-count reply → manual pause → registration gate → coalesced runAgent()
+>            └─ deliverInApp()         — record outbound (no transport); chat page polls GET /api/agent-chat
+> ```
+>
+> Inbox admin replies / issue-resolve messages / religious replies to an in-app conversation are
+> recorded the same way instead of sent via Meta. The WhatsApp flow below still describes
+> `src/lib/whatsapp/inbound.ts`, which now calls the same `handleInboundText`.
+
 ```
 WhatsApp User
     │ sends text message

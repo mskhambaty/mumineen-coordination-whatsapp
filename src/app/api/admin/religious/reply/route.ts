@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { canMonitorReligiousChats } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
+import { deliverInApp, isInAppConversation } from "@/lib/conversations/in-app";
 import { sendWhatsAppText } from "@/lib/meta/whatsapp";
 import { getSupabaseAdmin, recordOutboundMessage } from "@/lib/supabase/server";
 
@@ -34,6 +35,22 @@ export async function POST(req: NextRequest) {
   const { phone, text } = parsed.data;
 
   const supabase = getSupabaseAdmin();
+
+  // In-app agent chat: no WhatsApp transport and no 24h window — record it so it shows in the
+  // member's chat. Same state-preserving rule: only last_message_at is bumped below.
+  if (await isInAppConversation(phone)) {
+    const messageId = await deliverInApp({
+      phoneE164: phone,
+      body: text,
+      rawPayload: { source: "religious_dashboard_reply", kind: "text" },
+      touchSession: false,
+    });
+    await supabase
+      .from("conversation_sessions")
+      .update({ last_message_at: new Date().toISOString() })
+      .eq("phone_e164", phone);
+    return NextResponse.json({ sent: true, whatsapp_message_id: messageId });
+  }
 
   // 24h window is measured from the member's last INBOUND message (not last activity, which an
   // outbound would bump). No inbound on record → treat as out-of-window.

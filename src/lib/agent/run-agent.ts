@@ -348,6 +348,9 @@ type AgentInput = {
   phoneE164: string;
   message: string;
   callerContext?: CallerContext;
+  // In-app "visitor mode": skip resolving the caller's real permissions from the phone so the
+  // prompt and task-tool checks see a visitor (pair with user.role = "visitor").
+  visitorMode?: boolean;
 };
 
 // Tools whose answers should be generated with the higher-end model.
@@ -534,9 +537,11 @@ export async function runAgent(input: AgentInput, test?: AgentTestHooks) {
 
   const client = getAIClient();
 
-  const callerPromise: Promise<CallerContext | undefined> = input.callerContext
-    ? Promise.resolve(input.callerContext)
-    : resolveCallerFromPhone(input.phoneE164).catch(() => undefined);
+  const callerPromise: Promise<CallerContext | undefined> = input.visitorMode
+    ? Promise.resolve(undefined)
+    : input.callerContext
+      ? Promise.resolve(input.callerContext)
+      : resolveCallerFromPhone(input.phoneE164).catch(() => undefined);
 
   const [callerContext, systemPromptText, departmentSection, senderProfile, resolvedRules] = await Promise.all([
     callerPromise,

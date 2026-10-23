@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { canAccessInbox } from "@/lib/admin/access";
 import { requirePortalCaller } from "@/lib/api/portal-auth";
+import { deliverInApp, isInAppConversation } from "@/lib/conversations/in-app";
 import { sendWhatsAppImage, sendWhatsAppText, uploadWhatsAppMedia } from "@/lib/meta/whatsapp";
 import {
   getSupabaseAdmin,
@@ -71,6 +72,21 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
       { error: "Switch the conversation to Manual mode before sending a reply" },
       { status: 400 },
     );
+  }
+
+  // In-app agent chat conversation: no WhatsApp transport — record the reply so it shows in the
+  // member's chat page. Text only (there's no media store for in-app images).
+  if (await isInAppConversation(phone)) {
+    if (imageFile) {
+      return NextResponse.json({ error: "Image replies aren't supported for in-app chats — send text" }, { status: 400 });
+    }
+    const messageId = await deliverInApp({
+      phoneE164: phone,
+      body: messageBody,
+      rawPayload: { source: "manual_admin", kind: "text" },
+      userId: typeof session.user_id === "string" ? session.user_id : undefined,
+    });
+    return NextResponse.json({ sent: true, whatsapp_message_id: messageId });
   }
 
   let metaResponse;

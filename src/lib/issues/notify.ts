@@ -1,10 +1,6 @@
 import { sendAssignmentNotificationEmail } from "@/lib/email/postmark";
 import { optionalEnv } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { resolveApprovedTemplate, sendTemplateNotification } from "@/lib/whatsapp/send-template";
-import type { TemplateDescriptor } from "@/lib/whatsapp/templates";
-
-const ISSUE_TEMPLATE_NAME = "department_ticket_assigned";
 
 type IssueContactRow = {
   user_id: string;
@@ -63,18 +59,9 @@ export async function notifyDepartmentIssueContacts(issue: DepartmentIssueNotice
   }
 
   const url = issueUrl(issue);
-  const description = issue.description?.trim() || "No description provided.";
   const notifiedUsers = new Set<string>();
 
-  // Resolve the approved template once for the whole fan-out; if it's missing we
-  // still send the emails below and just skip WhatsApp (best-effort second channel).
-  let descriptor: TemplateDescriptor | null = null;
-  try {
-    descriptor = await resolveApprovedTemplate(ISSUE_TEMPLATE_NAME);
-  } catch (err) {
-    console.error("Issue WhatsApp template unavailable; sending email only:", err);
-  }
-
+  // Email only: the WhatsApp number is gone, so the department_ticket_assigned template alert was removed.
   await Promise.all(
     (data as unknown as IssueContactRow[]).map(async (row) => {
       const user = firstRelation(row.user);
@@ -94,18 +81,6 @@ export async function notifyDepartmentIssueContacts(issue: DepartmentIssueNotice
           departmentName,
           url,
         );
-      }
-
-      if (user.phone_e164 && descriptor) {
-        await sendTemplateNotification({
-          phoneE164: user.phone_e164,
-          userId: user.id,
-          templateName: ISSUE_TEMPLATE_NAME,
-          bodyParams: [issue.title, description, url],
-          source: "department_issue_contact",
-          rawPayloadExtra: { issue_id: issue.issueId },
-          descriptor,
-        });
       }
     }),
   );

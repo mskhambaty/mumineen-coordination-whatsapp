@@ -28,6 +28,33 @@ runAgent(user, phoneE164, message)
 
 If no tool calls are made, the first completion's reply is returned directly.
 
+## In-app agent chat
+
+With the WhatsApp number and inbound webhook gone, the agent's front door is the portal page
+**AI Agent → Chat with Agent** (`/admin/agent-chat`). Any signed-in portal user (`canAccessPortal`)
+chats with the agent **as themselves**, keyed on their own `whatsapp_users.phone_e164`, so:
+
+- It is **one persistent conversation per user** — exactly like a WhatsApp thread (no reset). Any
+  earlier WhatsApp history on that phone is part of it. Leaving the page or logging out and back in
+  shows the conversation as it stands.
+- Each message runs through the **same text pipeline** the webhook used —
+  `handleInboundText` in `src/lib/agent/text-turn.ts` (Niyaz head-count reply → manual-mode pause →
+  registration gate → coalesced `runAgent` → `[[NO_REPLY]]` silence). `src/lib/whatsapp/inbound.ts`
+  calls the same function, so the two channels can't drift. Only reply delivery differs: in-app
+  replies are recorded into `messages` (no transport); the chat page polls for them.
+- Side effects are **real**: escalations, on-call emails, tasks, RSVPs, lost & found.
+- The conversation shows in the **Inbox** tagged **In-app chat**; Inbox users escalate, take over
+  (manual mode), reply, and resolve as before. See [admin-dashboard.md](./admin-dashboard.md).
+- In-app rows carry `raw_payload.channel = "in_app"` and a synthetic `whatsapp_message_id`
+  (`inapp:<uuid>`) — no schema change (`src/lib/conversations/in-app.ts`, client-safe marker in
+  `src/lib/conversations/channel.ts`).
+- **Visitor mode** toggle: when on, that message is handled as a `visitor` — `user.role = "visitor"`
+  for the tool list / `canUseTool`, and `runAgent({ visitorMode: true })` skips resolving the
+  caller's real permissions, so the prompt shows a visitor and task tools are unavailable. Same phone,
+  same thread; it can only narrow access. Recorded per message in `raw_payload.visitor_mode`. The
+  registration gate still uses the caller's real identity.
+- Text only (no image upload). API: `GET`/`POST /api/agent-chat` (see `openapi.yaml`).
+
 ## Image messages
 
 When a visitor sends an **image**, the webhook downloads it from Meta (`fetchWhatsAppMedia`),

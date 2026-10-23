@@ -1,28 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { after } from "next/server";
 
-import { runAgent } from "@/lib/agent/run-agent";
+import { handleInboundText, REGISTER_URL } from "@/lib/agent/text-turn";
 import { answerImageQuestion } from "@/lib/agent/vision";
-import { resolveCallerFromPhone } from "@/lib/api/auth";
-import { getRegistrationStatus, isRegistrationGateEnabled } from "@/lib/mumineen/registration";
 import { optionalEnv } from "@/lib/env";
 import { fetchWhatsAppMedia, sendWhatsAppText, verifyMetaSignature } from "@/lib/meta/whatsapp";
 import { getAccountByPhoneNumberId, getAccounts, type WhatsAppAccount } from "@/lib/whatsapp/accounts";
 import {
-  getSupabaseAdmin,
   getOrCreateWhatsappUser,
   recordInboundMessage,
   recordOutboundMessage,
   touchConversationSession,
 } from "@/lib/supabase/server";
-import { insertPendingMessage, runCoalescedInbound } from "@/lib/whatsapp/coalesce";
 import { extractIncomingMessages, type IncomingWhatsAppMessage } from "@/lib/whatsapp/parser";
 import { applyBroadcastStatuses, extractStatusUpdates, markBroadcastReplied } from "@/lib/whatsapp/broadcast-status";
 import { recordInteractiveResponse } from "@/lib/whatsapp/interactive-responses";
 import { parseCount, parseRsvpToken, recordNiyazRsvpFromInteractive } from "@/lib/rsvp/niyaz-interactive";
 import { resolveFamilyForPhone } from "@/lib/rsvp/family";
-import { recordFamilyHeadCount, recordNiyazButtonResponse, recordUnregisteredRsvp, recordUnregisteredHeadCount, scopeToEntries, type ClampNotice, type NiyazLevel, type NiyazScope } from "@/lib/rsvp/meal-rsvp";
-import { consumePrompt, createPrompt, findOpenPrompt } from "@/lib/rsvp/niyaz-prompt";
+import { recordNiyazButtonResponse, recordUnregisteredRsvp, scopeToEntries, type NiyazLevel, type NiyazScope } from "@/lib/rsvp/meal-rsvp";
+import { createPrompt } from "@/lib/rsvp/niyaz-prompt";
 
 // Shared inbound-webhook logic for the Meta WhatsApp Cloud API. A SINGLE callback URL serves every
 // WhatsApp account: each Meta App points at the same `/api/whatsapp/webhook`, and the account is
@@ -204,92 +199,38 @@ async function processIncomingMessage(message: IncomingWhatsAppMessage, account:
     return true;
   }
 
-  // Free-text family head-count reply: if there's an open RSVP prompt for this number and the message
-  // contains a number, record the family head count for that prompt's date and confirm.
-  if (message.body.trim() && /\d/.test(message.body) && (await handleNiyazHeadCount(message, user.id, account))) {
-    return true;
-  }
-
-  const { data: session } = await getSupabaseAdmin()
-    .from("conversation_sessions")
-    .select("handling_mode")
-    .eq("phone_e164", message.phoneE164)
-    .maybeSingle();
-
-  if (session?.handling_mode === "manual") {
-    return true;
-  }
-
-  // Registration gate (off by default): unregistered, non-internal users get a nudge to
-  // register instead of agent service. Internal users (committee/admin/support) bypass.
-  if (await isRegistrationGateEnabled()) {
-    const { registered } = await getRegistrationStatus(message.phoneE164);
-    if (!registered) {
-      const internal = await resolveCallerFromPhone(message.phoneE164).then(() => true).catch(() => false);
-      if (!internal) {
-        await sendRegistrationNudge(message.phoneE164, user.id, account);
-        return true;
-      }
-    }
-  }
-
-  if (message.media) {
-    await replyToImage(message, user.id, account);
-    return true;
-  }
-
-  if (!message.body.trim()) {
-    return true;
-  }
-
-  // Queue the text message for coalesced processing instead of responding immediately.
-  const lockKey = message.phoneE164;
-
-  await insertPendingMessage({
-    lockKey,
+  // Everything else (head-count reply, manual mode, registration gate, coalesced agent run) is the
+  // channel-neutral text pipeline shared with the in-app chat. Images skip the agent for vision.
+  await handleInboundText({
+    user,
     phoneE164: message.phoneE164,
-    messageId: message.whatsappMessageId,
     body: message.body,
-    inboundMsgId: inbound.id,
+    messageId: message.whatsappMessageId,
+    inboundId: inbound.id,
+    deliver: (text, extra) => deliverWhatsApp(message.phoneE164, text, user.id, account, extra),
+    replyInsteadOfAgent: message.media ? () => replyToImage(message, user.id, account) : undefined,
   });
 
-  after(() =>
-    runCoalescedInbound<string>({
-      lockKey,
-      process: async (combinedText) => {
-        return runAgent({
-          user,
-          phoneE164: message.phoneE164,
-          message: combinedText,
-        });
-      },
-      send: async (reply) => {
-        const cleaned = reply.replace(/\[\[\s*no[_\s]?reply\s*\]\]/gi, "").trim();
-        if (isSilentReply(cleaned)) {
-          return;
-        }
-
-        const metaResponse = await sendWhatsAppText(message.phoneE164, cleaned, account);
-        const outboundId = metaResponse.messages?.[0]?.id;
-
-        await recordOutboundMessage({
-          phoneE164: message.phoneE164,
-          body: cleaned,
-          whatsappMessageId: outboundId,
-          rawPayload: metaResponse,
-          phoneNumberId: account.phoneNumberId,
-        });
-
-        await touchConversationSession({
-          phoneE164: message.phoneE164,
-          userId: user.id,
-          phoneNumberId: account.phoneNumberId,
-        });
-      },
-    }),
-  );
-
   return true;
+}
+
+// WhatsApp reply delivery: send from the receiving account, record, and touch the session.
+async function deliverWhatsApp(
+  phone: string,
+  text: string,
+  userId: string | undefined,
+  account: WhatsAppAccount,
+  extra?: Record<string, unknown>,
+) {
+  const metaResponse = await sendWhatsAppText(phone, text, account);
+  await recordOutboundMessage({
+    phoneE164: phone,
+    body: text,
+    whatsappMessageId: metaResponse.messages?.[0]?.id,
+    rawPayload: extra ? { ...extra, meta_response: metaResponse } : metaResponse,
+    phoneNumberId: account.phoneNumberId,
+  });
+  await touchConversationSession({ phoneE164: phone, userId, phoneNumberId: account.phoneNumberId });
 }
 
 const NIYAZ_LEVELS: NiyazLevel[] = ["ind", "fam"];
@@ -340,48 +281,6 @@ async function handleNiyazButton(message: IncomingWhatsAppMessage, userId: strin
   await touchConversationSession({ phoneE164: message.phoneE164, userId, phoneNumberId: account.phoneNumberId });
 }
 
-// Record a free-text head-count reply against the caller's most recent open prompt. Returns false
-// (so the message flows to the agent) when there's no open prompt or no number in the message.
-async function handleNiyazHeadCount(message: IncomingWhatsAppMessage, userId: string | undefined, account: WhatsAppAccount): Promise<boolean> {
-  const prompt = await findOpenPrompt(message.phoneE164);
-  if (!prompt) return false;
-  const m = message.body.match(/\d{1,3}/);
-  if (!m) return false;
-  const count = Math.min(999, parseInt(m[0], 10));
-
-  const isUnregistered = !prompt.family_id;
-  let clamped: ClampNotice | undefined;
-  if (prompt.family_id) {
-    // Head count is materialized into niyaz_rsvp (allocated across family members). If it exceeds
-    // the family's roster, the result is clamped to the actual member count.
-    const result = await recordFamilyHeadCount(prompt.family_id, prompt.event_date, count, message.phoneE164);
-    clamped = result.clamped;
-  } else {
-    await recordUnregisteredHeadCount(message.phoneE164, prompt.event_date, count);
-  }
-  await consumePrompt(prompt.id);
-
-  const day = new Date(`${prompt.event_date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
-  const recorded = clamped ? clamped.maxTotal : count;
-  let reply = `Shukran! Recorded ${recorded} from your family attending for ${day}. Reply with a new number if it changes.`;
-  if (clamped) {
-    reply += `\n\nThat's more than your registered family size, so we recorded ${clamped.maxTotal}. Anyone extra should message us from their own phone and register at ${REGISTER_URL}.`;
-  }
-  if (isUnregistered) {
-    reply += `\n\nPlease register your family at ${REGISTER_URL} so we can link your records automatically.`;
-  }
-  const metaResponse = await sendWhatsAppText(message.phoneE164, reply, account);
-  await recordOutboundMessage({
-    phoneE164: message.phoneE164,
-    body: reply,
-    whatsappMessageId: metaResponse.messages?.[0]?.id,
-    rawPayload: { source: "niyaz_rsvp_headcount", event_date: prompt.event_date, head_count: count, meta_response: metaResponse },
-    phoneNumberId: account.phoneNumberId,
-  });
-  await touchConversationSession({ phoneE164: message.phoneE164, userId, phoneNumberId: account.phoneNumberId });
-  return true;
-}
-
 // Reply when an interactive RSVP arrives after the day's cutoff: tell the responder it's closed and
 // record/attribute the outbound to the niyaz number (so it stays in the niyaz inbox).
 async function sendNiyazRsvpEnded(message: IncomingWhatsAppMessage, text: string, account: WhatsAppAccount) {
@@ -406,30 +305,6 @@ function niyazConfirmation(level: NiyazLevel, scope: NiyazScope, date: string): 
     none: `${who} not attending`,
   };
   return `Shukran! Recorded: ${scopeText[scope]} for ${day}. Reply here if it changes.`;
-}
-
-function isSilentReply(reply: string): boolean {
-  const trimmed = reply.trim();
-  if (!trimmed) return true;
-  return trimmed.replace(/[^a-z]/gi, "").toUpperCase() === "NOREPLY";
-}
-
-const REGISTER_URL = "https://www.chicagorelaycenter.com/register";
-
-// Tell an unregistered visitor to register, and record it. Best-effort.
-async function sendRegistrationNudge(phone: string, userId: string | undefined, account: WhatsAppAccount) {
-  const reply =
-    "Salaam. This number isn't registered for Ashara Mubaraka 1448H (Chicago) yet, so I can't assist over chat. " +
-    `Please complete your family's registration here: ${REGISTER_URL} — then message us again and we'll be glad to help.`;
-  const metaResponse = await sendWhatsAppText(phone, reply, account);
-  await recordOutboundMessage({
-    phoneE164: phone,
-    body: reply,
-    whatsappMessageId: metaResponse.messages?.[0]?.id,
-    rawPayload: { source: "registration_gate", meta_response: metaResponse },
-    phoneNumberId: account.phoneNumberId,
-  });
-  await touchConversationSession({ phoneE164: phone, userId, phoneNumberId: account.phoneNumberId });
 }
 
 async function replyToImage(message: IncomingWhatsAppMessage, userId: string | undefined, account: WhatsAppAccount) {

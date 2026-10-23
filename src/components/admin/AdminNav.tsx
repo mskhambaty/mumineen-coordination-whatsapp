@@ -62,6 +62,7 @@ const dropdownGroups: DropdownGroup[] = [
   {
     label: "AI Agent",
     links: [
+      { href: "/admin/agent-chat", label: "Chat with Agent", access: "portal" },
       { href: "/admin/prompt", label: "Prompts", access: "manage" },
       { href: "/admin/knowledge", label: "Knowledge Base", access: "portal" },
       { href: "/admin/knowledge-gaps", label: "Knowledge Gaps", access: "manage" },

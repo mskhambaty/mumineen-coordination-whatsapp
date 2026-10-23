@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { canAccessInbox, isAdminOrLeadership } from "@/lib/admin/access";
 import { apiFetch, readAdminUser } from "@/lib/admin/client";
+import { isInAppPayload } from "@/lib/conversations/channel";
 import AIGroupingFAB from "@/components/admin/AIGroupingFAB";
 import AIGroupingModal from "@/components/admin/AIGroupingModal";
 import CloseIssueModal from "@/components/admin/CloseIssueModal";
@@ -565,6 +566,12 @@ export default function ConversationsPage() {
     return [...seen.entries()].map(([key, account]) => ({ key, account }));
   }, [selected, accountByPnid, primaryAccount]);
   const threadSpansNumbers = threadAccounts.length > 1;
+  // In-app agent chat conversation (latest inbound came from /admin/agent-chat): replies are
+  // recorded into the member's chat instead of sent over WhatsApp, and are text-only.
+  const selectedIsInApp = useMemo(() => {
+    const lastInbound = [...(selected?.messages ?? [])].reverse().find((m) => m.direction === "inbound");
+    return isInAppPayload(lastInbound?.raw_payload);
+  }, [selected]);
   // Single-number thread: show a "via <number>" line for whichever number it's on — including the
   // primary. Null only when the number can't be resolved to a configured account.
   const singleViaAccount = !threadSpansNumbers ? threadAccounts[0]?.account ?? null : null;
@@ -1501,7 +1508,14 @@ export default function ConversationsPage() {
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <h2 className="truncate text-base font-semibold">{selected.display_name || selected.phone_e164}</h2>
-                      <p className="truncate text-xs text-gray-500 dark:text-gray-400">{selected.phone_e164}{selected.email ? ` · ${selected.email}` : ""}</p>
+                      <p className="truncate text-xs text-gray-500 dark:text-gray-400">
+                        {selected.phone_e164}{selected.email ? ` · ${selected.email}` : ""}
+                        {selectedIsInApp && (
+                          <span className="ml-2 rounded-full bg-indigo-100 px-2 py-0.5 font-medium text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300" title="This member is chatting from the in-app agent chat, not WhatsApp">
+                            In-app chat
+                          </span>
+                        )}
+                      </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       {selected.escalation_status === "pending" && !selected.escalation_assigned_to && (
@@ -1691,7 +1705,7 @@ export default function ConversationsPage() {
 
             <form onSubmit={sendReply} className="shrink-0 border-t bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
               <div className="mb-2 flex items-center justify-between">
-                <p className="text-sm font-medium">Manual WhatsApp Reply</p>
+                <p className="text-sm font-medium">{selectedIsInApp ? "Manual In-app Reply" : "Manual WhatsApp Reply"}</p>
                 {selected?.handling_mode !== "manual" && <p className="text-xs text-amber-700 dark:text-amber-400">Switch to Manual before replying.</p>}
               </div>
               {attachment && (
@@ -1714,21 +1728,23 @@ export default function ConversationsPage() {
                   className="hidden"
                   onChange={(event) => setAttachment(event.target.files?.[0] ?? null)}
                 />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={!selected || selected.handling_mode !== "manual" || sending}
-                  title="Attach an image"
-                  className="shrink-0 rounded-md border px-3 text-lg text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
-                >
-                  📎
-                </button>
+                {!selectedIsInApp && (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={!selected || selected.handling_mode !== "manual" || sending}
+                    title="Attach an image"
+                    className="shrink-0 rounded-md border px-3 text-lg text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                  >
+                    📎
+                  </button>
+                )}
                 <textarea
                   value={reply}
                   onChange={(event) => setReply(event.target.value)}
                   rows={2}
                   disabled={!selected || selected.handling_mode !== "manual" || sending}
-                  placeholder={attachment ? "Add a caption (optional)" : "Type a WhatsApp reply"}
+                  placeholder={attachment ? "Add a caption (optional)" : selectedIsInApp ? "Type a reply to their in-app chat" : "Type a WhatsApp reply"}
                   className="min-h-[56px] flex-1 resize-none rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500 dark:disabled:bg-gray-800/50"
                 />
                 <button

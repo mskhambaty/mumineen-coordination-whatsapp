@@ -58,6 +58,7 @@ independent: a person's department role does not change their account role and v
 | **Mumineen → Lost & Found** | ✅ | ✅ | ✅ | ✅ | Portal-member report list includes reporter contact details. |
 | **Messaging → Relay Updates** | ✅ | ❌ | ❌ | ❌ | Admin/leadership only (view + edit). |
 | **Messaging → WhatsApp Templates** | ✅ | ❌ | ❌ | ❌ | Admin/leadership only (view + edit). |
+| **AI Agent → Chat with Agent** | ✅ | ✅ | ✅ | ✅ | portal tier. Each user sees and writes **only their own** conversation (phone comes from the session). |
 | **AI Agent → Prompts** | ✅ | ❌ | ❌ | ✅ | manage tier (includes escalation/on-call). |
 | **AI Agent → Knowledge Base** | ✅ | ✅ | ✅ | ✅ | portal tier (any signed-in user). |
 | **AI Agent → Knowledge Gaps** | ✅ | ❌ | ❌ | ✅ | manage tier. |

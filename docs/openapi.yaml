@@ -597,7 +597,10 @@ paths:
     post:
       tags: [conversations]
       summary: Send a manual WhatsApp reply for a conversation.
-      description: Requires the conversation to be in manual handling mode.
+      description: >-
+        Requires the conversation to be in manual handling mode. For an in-app agent chat
+        conversation (latest inbound has raw_payload.channel "in_app") the reply is recorded into the
+        member's chat instead of sent via WhatsApp, and image attachments are rejected (400).
       security: [{ portalSession: [] }, { adminKey: [] }]
       parameters:
         - name: phoneE164
@@ -826,12 +829,79 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /agent-chat:
+    get:
+      tags: [conversations]
+      summary: Read the caller's own in-app agent chat conversation.
+      description: >-
+        Portal tier (any signed-in portal user). The thread is always the session user's own
+        (keyed on their whatsapp_users.phone_e164 — the client never supplies a phone). Primary-inbox
+        rows only; template notifications and broadcasts are hidden. Oldest first, newest 200.
+        Session-only: the admin key has no phone of its own.
+      security: [{ portalSession: [] }]
+      parameters:
+        - name: after
+          in: query
+          required: false
+          description: ISO timestamp; return only messages at/after it (polling). Client dedupes by id.
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: The conversation.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  handling_mode: { type: string, enum: [ai, manual] }
+                  messages:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        direction: { type: string, enum: [inbound, outbound] }
+                        from: { type: string, enum: [you, agent, team] }
+                        body: { type: string }
+                        created_at: { type: string, format: date-time }
+        "400": { description: Bad after cursor, or the account has no phone number. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: Not a portal user. }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [conversations]
+      summary: Send a message to the AI agent as the caller (in-app agent chat).
+      description: >-
+        Records the message (raw_payload.channel "in_app") and runs the same text pipeline the
+        WhatsApp webhook used: head-count reply, manual-mode pause, registration gate, coalesced
+        agent run. Side effects are real (escalations email the on-call team). The agent's reply is
+        recorded a few seconds later — poll GET ?after=. visitor_mode true handles the message as a
+        visitor (narrows tools/permissions only).
+      security: [{ portalSession: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string, minLength: 1, maxLength: 4096 }
+                visitor_mode: { type: boolean, default: false }
+      responses:
+        "201": { description: "{ sent: true, id } — the inbound message row id." }
+        "400": { description: Empty/too-long message, or the account has no phone number. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: Not a portal user. }
+        "500": { $ref: "#/components/responses/ServerError" }
   /admin/religious/reply:
     post:
       tags: [conversations]
       summary: Send a WhatsApp reply to a member from the religious dashboard.
       description: >-
         Free-form text, delivered ONLY inside WhatsApp's 24-hour window (else 422 out_of_window).
+        For an in-app agent chat conversation the reply is recorded into the member's chat (no
+        WhatsApp send, no 24-hour window).
         State-preserving — updates only last_message_at; never resets the member's conversation
         intent/state or handling_mode, so an in-progress logistics flow is untouched. Religious
         monitor / admin.
@@ -3952,7 +4022,7 @@ components:
                 message:
                   type: string
                   maxLength: 4096
-                  description: WhatsApp message sent to all linked conversations. Omit to skip.
+                  description: WhatsApp message sent to all linked conversations (recorded into the member's chat for in-app conversations). Omit to skip.
                 resolve_escalations:
                   type: boolean
                   default: true

@@ -45,40 +45,33 @@ describe("notifyEscalationTeam", () => {
     ];
   });
 
-  it("emails and WhatsApps each team member with the mapped template variables", async () => {
+  it("emails each team member with the escalation details", async () => {
     const count = await notifyEscalationTeam(NOTICE);
 
     expect(count).toBe(1);
-    expect(sendEscalationEmail).toHaveBeenCalledOnce();
-
-    expect(resolveApprovedTemplate).toHaveBeenCalledWith("escalation_ticket_assigned");
-    expect(sendTemplateNotification).toHaveBeenCalledOnce();
-    const input = sendTemplateNotification.mock.calls[0][0] as {
-      phoneE164: string;
-      userId: string | null;
-      templateName: string;
-      bodyParams: string[];
-      source: string;
-    };
-    expect(input.phoneE164).toBe("+13125550101");
-    expect(input.userId).toBe("u1");
-    expect(input.templateName).toBe("escalation_ticket_assigned");
-    expect(input.source).toBe("escalation_oncall");
-    // {{1}} request label, {{2}} details/reason, {{3}} portal link.
-    expect(input.bodyParams).toEqual([
-      "Registration",
-      "The user asked to speak with a human representative.",
-      "https://portal.test/admin/conversations?phone=%2B13125550000&tab=escalations",
-    ]);
+    expect(sendEscalationEmail).toHaveBeenCalledWith(
+      "alice@test.com",
+      expect.objectContaining({
+        name: "Alice",
+        reason: "The user asked to speak with a human representative.",
+        priority_label: "Normal",
+        conversation_url: NOTICE.conversationUrl,
+      }),
+    );
   });
 
-  it("prefixes the request label with URGENT for urgent escalations", async () => {
+  it("labels urgent escalations URGENT in the email", async () => {
     await notifyEscalationTeam({ ...NOTICE, priority: "urgent" });
-    const input = sendTemplateNotification.mock.calls[0][0] as { bodyParams: string[] };
-    expect(input.bodyParams[0]).toBe("URGENT — Registration");
+    expect(sendEscalationEmail).toHaveBeenCalledWith("alice@test.com", expect.objectContaining({ priority_label: "URGENT" }));
   });
 
-  it("sends WhatsApp but skips email for members with no email", async () => {
+  it("never sends a WhatsApp alert, even to members with a phone (the number is gone)", async () => {
+    await notifyEscalationTeam(NOTICE);
+    expect(resolveApprovedTemplate).not.toHaveBeenCalled();
+    expect(sendTemplateNotification).not.toHaveBeenCalled();
+  });
+
+  it("skips members with no email", async () => {
     memberRows = [
       { user: { id: "u2", display_name: "Bob", email: null, phone_e164: "+13125550102" } },
     ];
@@ -87,29 +80,6 @@ describe("notifyEscalationTeam", () => {
 
     expect(count).toBe(1);
     expect(sendEscalationEmail).not.toHaveBeenCalled();
-    expect(sendTemplateNotification).toHaveBeenCalledOnce();
-  });
-
-  it("emails a member with no phone but skips WhatsApp for them", async () => {
-    memberRows = [
-      { user: { id: "u3", display_name: "Carol", email: "carol@test.com", phone_e164: null } },
-    ];
-
-    const count = await notifyEscalationTeam(NOTICE);
-
-    expect(count).toBe(1);
-    expect(sendEscalationEmail).toHaveBeenCalledOnce();
-    expect(resolveApprovedTemplate).not.toHaveBeenCalled();
-    expect(sendTemplateNotification).not.toHaveBeenCalled();
-  });
-
-  it("still emails when the WhatsApp template cannot be resolved", async () => {
-    resolveApprovedTemplate.mockRejectedValueOnce(new Error("Approved WhatsApp template was not found."));
-
-    const count = await notifyEscalationTeam(NOTICE);
-
-    expect(count).toBe(1);
-    expect(sendEscalationEmail).toHaveBeenCalledOnce();
     expect(sendTemplateNotification).not.toHaveBeenCalled();
   });
 });

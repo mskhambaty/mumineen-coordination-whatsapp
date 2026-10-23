@@ -1,11 +1,5 @@
 import { sendEscalationEmail } from "@/lib/email/postmark";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { resolveApprovedTemplate, sendTemplateNotification } from "@/lib/whatsapp/send-template";
-import type { TemplateDescriptor } from "@/lib/whatsapp/templates";
-
-// Approved Meta utility template used to alert escalation team members about an
-// escalation. Body variables: {{1}} request summary, {{2}} details, {{3}} portal link.
-const ESCALATION_TEMPLATE_NAME = "escalation_ticket_assigned";
 
 export type EscalationMember = { userId: string | null; name: string; email: string | null; phone: string | null };
 
@@ -46,15 +40,9 @@ export type EscalationNotice = {
   conversationUrl: string;
 };
 
-function escalationRequestLabel(notice: EscalationNotice): string {
-  const category = notice.category?.trim() || "other";
-  const label = category.charAt(0).toUpperCase() + category.slice(1);
-  return notice.priority === "urgent" ? `URGENT — ${label}` : label;
-}
-
-// Notify all escalation team members via email (if they have one) and WhatsApp
-// (if they have a phone). Fire-and-forget per recipient/channel; failures are
-// logged, never thrown.
+// Notify all escalation team members by email (if they have one). Email only: the WhatsApp
+// number is gone, so the escalation_ticket_assigned template alert was removed. Fire-and-forget
+// per recipient; failures are logged, never thrown.
 export async function notifyEscalationTeam(notice: EscalationNotice): Promise<number> {
   const members = await getEscalationMembers();
 
@@ -76,32 +64,6 @@ export async function notifyEscalationTeam(notice: EscalationNotice): Promise<nu
         }).catch((err) => console.error(`Escalation email failed (user ${member.userId ?? "unknown"}):`, err)),
       ),
   );
-
-  // WhatsApp
-  const phoneRecipients = members.filter((m) => m.phone);
-  if (phoneRecipients.length > 0) {
-    let descriptor: TemplateDescriptor | null = null;
-    try {
-      descriptor = await resolveApprovedTemplate(ESCALATION_TEMPLATE_NAME);
-    } catch (err) {
-      console.error("Escalation WhatsApp template unavailable; sent email only:", err);
-    }
-    if (descriptor) {
-      await Promise.all(
-        phoneRecipients.map((member) =>
-          sendTemplateNotification({
-            phoneE164: member.phone as string,
-            userId: member.userId,
-            templateName: ESCALATION_TEMPLATE_NAME,
-            bodyParams: [escalationRequestLabel(notice), notice.reason, notice.conversationUrl],
-            source: "escalation_oncall",
-            rawPayloadExtra: { category: notice.category, priority: notice.priority },
-            descriptor,
-          }),
-        ),
-      );
-    }
-  }
 
   return members.length;
 }
